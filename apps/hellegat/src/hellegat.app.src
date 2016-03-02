@@ -1,0 +1,17 @@
+{application, hellegat , [
+    {description, "A service that does something"},
+    {vsn, "1"},
+    {registered, []},
+    {mod, { hellegat , []}},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {modules, []},
+    {maintainers, [
+        "Petr Kozorezov <petr.kozorezov@gmail.com>"
+    ]},
+    {licenses, []},
+    {links, []}
+]}.
