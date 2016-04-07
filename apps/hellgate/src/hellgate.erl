@@ -1,7 +1,7 @@
 %%% @doc Public API, supervisor and application startup.
 %%% @end
 
--module(hellegat).
+-module(hellgate).
 -behaviour(supervisor).
 -behaviour(application).
 
@@ -22,12 +22,12 @@
 -spec start() ->
     {ok, _}.
 start() ->
-    application:ensure_all_started(hellegat).
+    application:ensure_all_started(?MODULE).
 
 -spec stop() ->
     ok.
 stop() ->
-    application:stop(hellegat).
+    application:stop(?MODULE).
 
 %%
 %% Supervisor callbacks

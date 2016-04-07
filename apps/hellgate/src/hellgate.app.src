@@ -1,8 +1,8 @@
-{application, hellegat , [
+{application, hellgate, [
     {description, "A service that does something"},
     {vsn, "1"},
     {registered, []},
-    {mod, { hellegat , []}},
+    {mod, {hellgate, []}},
     {applications, [
         kernel,
         stdlib
@@ -10,8 +10,9 @@
     {env, []},
     {modules, []},
     {maintainers, [
-        "Petr Kozorezov <petr.kozorezov@gmail.com>"
+        "Petr Kozorezov <petr.kozorezov@gmail.com>",
+        "Andrey Mayorov <a.mayorov@rbkmoney.com>"
     ]},
     {licenses, []},
-    {links, []}
+    {links, ["https://github.com/rbkmoney/hellgate"]}
 ]}.
