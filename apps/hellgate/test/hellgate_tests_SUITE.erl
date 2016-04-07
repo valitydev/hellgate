@@ -1,4 +1,4 @@
--module(hellegat_tests_SUITE).
+-module(hellgate_tests_SUITE).
 -include_lib("common_test/include/ct.hrl").
 -compile(export_all).
 
@@ -14,7 +14,7 @@ all() ->
 %% starting/stopping
 %%
 init_per_suite(C) ->
-    {ok, Apps} = application:ensure_all_started(hellegat),
+    {ok, Apps} = application:ensure_all_started(hellgate),
     [{apps, Apps}|C].
 
 init_per_suite(_, _C) ->

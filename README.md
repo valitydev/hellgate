@@ -1,2 +1,3 @@
-# hellegat
-Processing main repository
+# Hellgate
+
+Проект, реализующий основные state processors проведения платежей.

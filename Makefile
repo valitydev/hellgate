@@ -1,5 +1,5 @@
 REBAR := $(shell which rebar3 2>/dev/null || which ./rebar3)
-RELNAME = hellegat
+RELNAME = hellgate
 
 .PHONY: all compile devrel start test clean distclean dialyze
 
@@ -14,8 +14,8 @@ rebar-update:
 devrel:
 	$(REBAR) release
 
-start: devrel
-	_build/default/rel/${RELNAME}/bin/${RELNAME} console
+start:
+	$(REBAR) run
 
 test:
 	$(REBAR) ct
