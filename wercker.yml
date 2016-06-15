@@ -1,4 +1,8 @@
-box: erlang:18
+box:
+  id: rbkmoney/build
+  username: $CI_BOT_GIT_USERNAME
+  password: $CI_BOT_GIT_PASSWORD
+  tag: latest
 
 dev:
     steps:
@@ -10,6 +14,14 @@ build:
       - script:
         name: rebar update
         code: make rebar-update
+      - script:
+        name: lint
+        code: |
+            export ELVIS_VERSION="0.2.11"
+            export ELVIS_PATH="/usr/local/bin/elvis"
+            curl -sL -o "${ELVIS_PATH}" "https://github.com/inaka/elvis/releases/download/${ELVIS_VERSION}/elvis"
+            chmod +x "${ELVIS_PATH}"
+            make lint
       - script:
         name: run xref
         code: make xref

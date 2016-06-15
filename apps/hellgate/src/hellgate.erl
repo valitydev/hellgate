@@ -7,14 +7,14 @@
 
 %% API
 -export([start/0]).
--export([stop /0]).
+-export([stop/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 %% Application callbacks
 -export([start/2]).
--export([stop /1]).
+-export([stop/1]).
 
 %%
 %% API
@@ -29,17 +29,38 @@ start() ->
 stop() ->
     application:stop(?MODULE).
 
-%%
 %% Supervisor callbacks
-%%
+
+-spec init([]) ->
+    {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
+
 init([]) ->
     {ok, {
-        {one_for_all, 0, 1}, []
+        #{strategy => one_for_all, intensity => 6, period => 30},
+        [get_api_child_spec()]
     }}.
 
-%%
+get_api_child_spec() ->
+    woody_server:child_spec(
+        ?MODULE,
+        #{
+            ip => hg_utils:get_hostname_ip(genlib_app:env(?MODULE, host, "localhost")),
+            port => genlib_app:env(?MODULE, port, 8800),
+            net_opts => [],
+            event_handler => hg_woody_event_handler,
+            handlers => [
+                construct_service_handler(invoicing, hg_invoice, []),
+                construct_service_handler(processor, hg_machine, [])
+            ]
+        }
+    ).
+
+construct_service_handler(Name, Module, Opts) ->
+    {Name, Path, Service} = hg_proto:get_service_spec(Name),
+    {Path, {Service, Module, Opts}}.
+
 %% Application callbacks
-%%
+
 -spec start(normal, any()) ->
     {ok, pid()} | {error, any()}.
 start(_StartType, _StartArgs) ->

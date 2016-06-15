@@ -1,26 +1,36 @@
 REBAR := $(shell which rebar3 2>/dev/null || which ./rebar3)
-RELNAME = hellgate
+SUBMODULES = apps/hg_proto/damsel
+SUBTARGETS = $(patsubst %,%/.git,$(SUBMODULES))
 
-.PHONY: all compile devrel start test clean distclean dialyze
+.PHONY: all submodules compile devrel start test clean distclean dialyze release containerize
 
 all: compile
-
-compile:
-	$(REBAR) compile
 
 rebar-update:
 	$(REBAR) update
 
-devrel:
+$(SUBTARGETS): %/.git: %
+	git submodule update --init $<
+	touch $@
+
+submodules: $(SUBTARGETS)
+
+compile: submodules
+	$(REBAR) compile
+
+devrel: submodules
 	$(REBAR) release
 
-start:
+start: submodules
 	$(REBAR) run
 
-test:
+test: submodules
 	$(REBAR) ct
 
-xref:
+lint: compile
+	elvis rock
+
+xref: submodules
 	$(REBAR) xref
 
 clean:
@@ -32,3 +42,16 @@ distclean:
 
 dialyze:
 	$(REBAR) dialyzer
+
+DOCKER := $(shell which docker 2>/dev/null)
+PACKER := $(shell which packer 2>/dev/null)
+BASE_DIR := $(shell pwd)
+
+release: ~/.docker/config.json distclean
+	$(DOCKER) run --rm -v $(BASE_DIR):$(BASE_DIR) --workdir $(BASE_DIR) rbkmoney/build rebar3 as prod release
+
+containerize: release ./packer.json
+	$(PACKER) build packer.json
+
+~/.docker/config.json:
+	test -f ~/.docker/config.json || (echo "Please run: docker login" ; exit 1)
