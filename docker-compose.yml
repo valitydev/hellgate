@@ -1,0 +1,15 @@
+version: '2'
+services:
+  hellgate:
+    image: rbkmoney/build:latest
+    volumes:
+      - .:/code
+    working_dir: /code
+    command: /sbin/init
+    links:
+      - machinegun
+
+  machinegun:
+    image: rbkmoney/mg:ci_latest
+    command: /opt/mgun/bin/mgun foreground
+
