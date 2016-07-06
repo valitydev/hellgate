@@ -4,7 +4,7 @@
 
 %% API
 
--export([process/3]).
+-export([process/4]).
 
 %% Machine callbacks
 
@@ -20,7 +20,7 @@
     stage       :: process_payment | capture_payment,
     proxy_ref   :: hg_domain_thrift:'ProxyRef'(),
     proxy_state :: binary() | undefined,
-    context     :: woody_client:context()
+    context     :: hg_machine:context()
 }).
 
 -opaque st() :: #st{}.
@@ -31,39 +31,49 @@
 -type payment_trx() :: hg_domain_thrift:'TransactionInfo'() | undefined.
 -type error()       :: hg_domain_thrift:'OperationError'().
 
--spec process(payment(), invoice(), st() | undefined) ->
-    {ok, payment_trx()} |
-    {{error, error()}, payment_trx()} |
-    {{next, hg_machine_action:t(), st()}, payment_trx()}.
 
-process(Payment, Invoice, undefined) ->
-    process(Payment, Invoice, construct_state(Payment, Invoice));
+
+-spec process(payment(), invoice(), st() | undefined, hg_machine:context()) ->
+    {{ok, payment_trx()}, hg_machine:context()} |
+    {{{error, error()}, payment_trx()}, hg_machine:context()} |
+    {{{next, hg_machine_action:t(), st()}, payment_trx()}, hg_machine:context()}.
+
+process(Payment, Invoice, undefined, Context) ->
+    process(Payment, Invoice, construct_state(Payment, Invoice, Context));
+process(Payment, Invoice, St = #st{}, Context) ->
+    process(Payment, Invoice, St#st{context = Context}).
+
+-spec process(payment(), invoice(), st()) ->
+    {{ok, payment_trx()}, hg_machine:context()} |
+    {{{error, error()}, payment_trx()}, hg_machine:context()} |
+    {{{next, hg_machine_action:t(), st()}, payment_trx()}, hg_machine:context()}.
+
 process(Payment, Invoice, St = #st{}) ->
     Proxy = get_proxy(Invoice, St),
     PaymentInfo = construct_payment_info(Payment, Invoice, Proxy, St),
     process_(Proxy, PaymentInfo, St).
 
-process_(Proxy, PaymentInfo, St = #st{stage = process_payment, context = Context}) ->
+process_(Proxy, PaymentInfo, St = #st{stage = process_payment, context = Context0}) ->
     % FIXME: dirty simulation of one-phase payment through the two-phase interaction
-    case handle_process_result(process_payment(Proxy, PaymentInfo, Context), St) of
-        {ok, Trx} ->
+    case handle_process_result(process_payment(Proxy, PaymentInfo, Context0), St) of
+        {{ok, Trx}, Context} ->
             NextSt = St#st{stage = capture_payment, proxy_state = undefined},
-            {{next, hg_machine_action:instant(), NextSt}, Trx};
+            {{{next, hg_machine_action:instant(), NextSt}, Trx}, Context};
         Result ->
             Result
     end;
 process_(Proxy, PaymentInfo, St = #st{stage = capture_payment, context = Context}) ->
     handle_process_result(capture_payment(Proxy, PaymentInfo, Context), St).
 
-handle_process_result(#'ProcessResult'{intent = {_, Intent}, trx = Trx, next_state = ProxyStateNext}, St) ->
-    handle_process_result(Intent, Trx, St#st{proxy_state = ProxyStateNext}).
+handle_process_result({#'ProcessResult'{intent = {_, Intent}, trx = Trx, next_state = ProxyStateNext}, Context}, St) ->
+    handle_process_result(Intent, Trx, St#st{proxy_state = ProxyStateNext, context = Context}).
 
-handle_process_result(#'FinishIntent'{status = {ok, _}}, Trx, _) ->
-    {ok, Trx};
-handle_process_result(#'FinishIntent'{status = {failure, Error}}, Trx, _) ->
-    {{error, map_error(Error)}, Trx};
-handle_process_result(#'SleepIntent'{timer = Timer}, Trx, StNext) ->
-    {{next, hg_machine_action:set_timer(Timer), StNext}, Trx}.
+handle_process_result(#'FinishIntent'{status = {ok, _}}, Trx, #st{context = Context}) ->
+    {{ok, Trx}, Context};
+handle_process_result(#'FinishIntent'{status = {failure, Error}}, Trx, #st{context = Context}) ->
+    {{{error, map_error(Error)}, Trx}, Context};
+handle_process_result(#'SleepIntent'{timer = Timer}, Trx, StNext = #st{context = Context}) ->
+    {{{next, hg_machine_action:set_timer(Timer), StNext}, Trx}, Context}.
 
 get_proxy(#'Invoice'{domain_revision = Revision}, #st{proxy_ref = Ref}) ->
     hg_domain:get(Revision, Ref).
@@ -81,16 +91,12 @@ map_error(#'Error'{code = Code, description = Description}) ->
 
 %%
 
-construct_state(Payment, Invoice) ->
+construct_state(Payment, Invoice, Context) ->
     #st{
         stage     = process_payment,
         proxy_ref = select_proxy(Payment, Invoice),
-        context   = construct_context()
+        context   = Context
     }.
-
-construct_context() ->
-    ReqID = genlib_format:format_int_base(genlib_time:ticks(), 62),
-    woody_client:new_context(ReqID, hg_woody_event_handler).
 
 select_proxy(_, _) ->
     % FIXME: turbo routing
@@ -107,7 +113,7 @@ select_proxy(_, _) ->
     hg_proxy_provider_thrift:'PaymentInfo'(),
     woody_client:context()
 ) ->
-    process_payment_result().
+    {process_payment_result(), woody_client:context()}.
 process_payment(Proxy, PaymentInfo, Context) ->
     call(Context, Proxy, {?SERVICE, 'ProcessPayment', [PaymentInfo]}).
 
@@ -116,19 +122,20 @@ process_payment(Proxy, PaymentInfo, Context) ->
     hg_proxy_provider_thrift:'PaymentInfo'(),
     woody_client:context()
 ) ->
-    process_payment_result().
+    {process_payment_result(), woody_client:context()}.
 capture_payment(Proxy, PaymentInfo, Context) ->
     call(Context, Proxy, {?SERVICE, 'CapturePayment', [PaymentInfo]}).
 
-call(Context, Proxy, Call) ->
+call(Context = #{client_context := ClientContext0}, Proxy, Call) ->
     Endpoint = get_call_options(Proxy),
-    try woody_client:call(Context, Call, Endpoint) of
-        {{ok, Result = #'ProcessResult'{}}, _} ->
-            Result
+    try woody_client:call(ClientContext0, Call, Endpoint) of
+        {{ok, Result = #'ProcessResult'{}}, ClientContext} ->
+            {Result, Context#{client_context => ClientContext}}
     catch
         % TODO: support retry strategies
-        {#'TryLater'{e = _Error}, _} ->
-            #'ProcessResult'{intent = {sleep, #'SleepIntent'{timer = {timeout, 10}}}}
+        {#'TryLater'{e = _Error}, ClientContext} ->
+            Result = #'ProcessResult'{intent = {sleep, #'SleepIntent'{timer = {timeout, 10}}}},
+            {Result, Context#{client_context => ClientContext}}
     end.
 
 get_call_options(#'Proxy'{url = Url}) ->
