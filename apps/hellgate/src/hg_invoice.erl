@@ -108,7 +108,6 @@ wrap_external_event(Ev = #'InvoicePaymentStatusChanged'{}) ->
     {processing_payment, payment_id(), payment_st()}.
 
 -type ev() ::
-    {stage_changed, stage()} |
     {invoice_created, invoice()} |
     {invoice_status_changed, invoice_status(), detail()} |
     {payment_created, payment()} |
@@ -388,10 +387,7 @@ map_event({payment_bound, _, _}, _St) ->
 map_event({payment_succeeded, PaymentID}, St) ->
     #'InvoicePaymentStatusChanged'{payment = get_payment(PaymentID, St)};
 map_event({payment_failed, PaymentID, _}, St) ->
-    #'InvoicePaymentStatusChanged'{payment = get_payment(PaymentID, St)};
-
-map_event({stage_changed, _}, _St) ->
-    undefined.
+    #'InvoicePaymentStatusChanged'{payment = get_payment(PaymentID, St)}.
 
 select_range(undefined, Limit, History) ->
     select_range(Limit, History);

@@ -45,7 +45,7 @@ all() ->
 -spec init_per_suite(config()) -> config().
 
 init_per_suite(C) ->
-    Host = "localhost",
+    Host = "hellgate",
     % Port = rand:uniform(32768) + 32767,
     Port = 8042,
     RootUrl = "http://" ++ Host ++ ":" ++ integer_to_list(Port),
@@ -59,7 +59,7 @@ init_per_suite(C) ->
             %   You will need up and running mgun reachable at the following url,
             %   properly configured to serve incoming requests and talk back to
             %   the test hg instance.
-            {automaton_service_url, <<"http://localhost:8022/v1/automaton_service">>}
+            {automaton_service_url, <<"http://machinegun:8022/v1/automaton_service">>}
         ]),
     [{root_url, RootUrl}, {apps, lists:reverse(Apps)} | C].
 
