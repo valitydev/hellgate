@@ -6,12 +6,8 @@
 // Tracing artifacts to be stored alongside build logs
 pipeline("hellgate", 'docker-host', "_build/") {
 
-  // runStage('submodules') {
-  //   sh 'make w_container_submodules'
-  // }
-
-  runStage('fetch') {
-    sh 'make w_container_rebar-update'
+  runStage('submodules') {
+    sh 'make w_container_submodules'
   }
 
   runStage('compile') {

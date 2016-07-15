@@ -1,4 +1,5 @@
 version: '2'
+
 services:
   hellgate:
     image: rbkmoney/build:latest
@@ -18,4 +19,4 @@ networks:
     driver: bridge
     driver_opts:
       com.docker.network.enable_ipv6: "true"
-      # com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.enable_ip_masquerade: "false"
