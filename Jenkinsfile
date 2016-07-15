@@ -19,7 +19,7 @@ pipeline("hellgate", 'docker-host', "_build/") {
   }
 
   runStage('test') {
-    sh "make w_container_test"
+    sh "make w_compose_test"
   }
 
   runStage('dialyze') {
