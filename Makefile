@@ -11,7 +11,7 @@ BASE_IMAGE := "$(REGISTRY)/$(ORG_NAME)/build:latest"
 RELNAME := hellgate
 
 TAG = latest
-IMAGE_NAME = "$(ORG_NAME)/$(RELNAME):$(TAG)"
+IMAGE_NAME = "$(REGISTRY)/$(ORG_NAME)/$(RELNAME):$(TAG)"
 
 CALL_ANYWHERE := submodules rebar-update compile xref lint dialyze start devrel release clean distclean
 
