@@ -2,8 +2,9 @@ REBAR := $(shell which rebar3 2>/dev/null || which ./rebar3)
 SUBMODULES = apps/hg_proto/damsel
 SUBTARGETS = $(patsubst %,%/.git,$(SUBMODULES))
 
+REGISTRY := dr.rbkmoney.com
 ORG_NAME := rbkmoney
-BASE_IMAGE := "$(ORG_NAME)/build:latest"
+BASE_IMAGE := "$(REGISTRY)/$(ORG_NAME)/build:latest"
 
 # Note: RELNAME should match the name of
 # the first service in docker-compose.yml
