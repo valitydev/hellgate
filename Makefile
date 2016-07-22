@@ -2,15 +2,16 @@ REBAR := $(shell which rebar3 2>/dev/null || which ./rebar3)
 SUBMODULES = apps/hg_proto/damsel
 SUBTARGETS = $(patsubst %,%/.git,$(SUBMODULES))
 
+REGISTRY := dr.rbkmoney.com
 ORG_NAME := rbkmoney
-BASE_IMAGE := "$(ORG_NAME)/build:latest"
+BASE_IMAGE := "$(REGISTRY)/$(ORG_NAME)/build:latest"
 
 # Note: RELNAME should match the name of
 # the first service in docker-compose.yml
 RELNAME := hellgate
 
 TAG = latest
-IMAGE_NAME = "$(ORG_NAME)/$(RELNAME):$(TAG)"
+IMAGE_NAME = "$(REGISTRY)/$(ORG_NAME)/$(RELNAME):$(TAG)"
 
 CALL_ANYWHERE := submodules rebar-update compile xref lint dialyze start devrel release clean distclean
 

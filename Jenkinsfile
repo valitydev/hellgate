@@ -5,6 +5,11 @@
 // Jenkins agent label
 // Tracing artifacts to be stored alongside build logs
 pipeline("hellgate", 'docker-host', "_build/") {
+
+  runStage('submodules') {
+    sh 'make w_container_submodules'
+  }
+
   runStage('compile') {
     sh 'make w_container_compile'
   }
@@ -19,7 +24,7 @@ pipeline("hellgate", 'docker-host', "_build/") {
   }
 
   runStage('test') {
-    sh "make w_container_test"
+    sh "make w_compose_test"
   }
 
   runStage('dialyze') {
