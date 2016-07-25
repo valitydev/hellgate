@@ -14,10 +14,9 @@ pipeline("hellgate", 'docker-host', "_build/") {
     sh 'make w_container_compile'
   }
 
-  // ToDo: Uncomment the stage as soon as Elvis is in the build image!
-  // runStage('lint') {
-  //   sh 'make w_container_lint'
-  // }
+  runStage('lint') {
+    sh 'make w_container_lint'
+  }
 
   runStage('xref') {
     sh 'make w_container_xref'
