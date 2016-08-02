@@ -44,11 +44,12 @@ get_api_child_spec() ->
     woody_server:child_spec(
         ?MODULE,
         #{
-            ip => hg_utils:get_hostname_ip(genlib_app:env(?MODULE, host, "localhost")),
-            port => genlib_app:env(?MODULE, port, 8800),
+            ip => hg_utils:get_hostname_ip(genlib_app:env(?MODULE, host, "0.0.0.0")),
+            port => genlib_app:env(?MODULE, port, 8022),
             net_opts => [],
             event_handler => hg_woody_event_handler,
             handlers => [
+                construct_service_handler(eventsink, hg_event_sink, []),
                 construct_service_handler(invoicing, hg_invoice, []),
                 construct_service_handler(processor, hg_machine, [])
             ]

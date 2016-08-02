@@ -19,9 +19,9 @@
  {<<"ssl_verify_fun">>,{pkg,<<"ssl_verify_fun">>,<<"1.1.0">>},2},
  {<<"thrift">>,
   {git,"https://github.com/rbkmoney/thrift_erlang.git",
-       {ref,"a517cf67e2ba7458db498cad3ca0a983f834cc7e"}},
+       {ref,"2a39a0b373d98f3b52d32912a3dab88c6b4c5037"}},
   1},
  {<<"woody">>,
   {git,"git@github.com:rbkmoney/woody_erlang.git",
-       {ref,"c80d54c774825f2532542f6b5b3c701233f85091"}},
+       {ref,"cd7779e615b536ce872c0d2eeca01d0addab66e1"}},
   0}].

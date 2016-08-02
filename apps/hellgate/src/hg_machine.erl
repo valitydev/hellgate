@@ -2,13 +2,17 @@
 
 -type id() :: binary().
 -type args() :: _.
--type event() :: _.
 
--type history(Event) :: [Event].
--type history() :: history(event()).
+-type event() :: event(_).
+-type event(T) :: {event_id(), id(), timestamp(), T}.
+-type event_id() :: hg_base_thrift:'EventID'().
+-type timestamp() :: hg_base_thrift:'Timestamp'().
 
--type result(Event) :: {[Event], hg_machine_action:t()}.
--type result() :: result(event()).
+-type history() :: history(_).
+-type history(T) :: [event(T)].
+
+-type result(T) :: {[T], hg_machine_action:t()}.
+-type result() :: result(_).
 
 -callback init(id(), args(), context()) ->
     {{ok, result()}, context()}.
@@ -29,18 +33,27 @@
     client_context => woody_client:context()
 }.
 
+%% TODO not the right place for sure
+-callback map_event(event()) ->
+    term().
+
 -export_type([id/0]).
 -export_type([event/0]).
--export_type([signal/0]).
+-export_type([event/1]).
 -export_type([history/0]).
 -export_type([history/1]).
+-export_type([signal/0]).
 -export_type([result/0]).
 -export_type([result/1]).
 -export_type([context/0]).
 
 -export([start/3]).
--export([call/4]).
--export([get_history/3]).
+-export([call/3]).
+-export([get_history/2]).
+-export([get_history/4]).
+
+%% TODO not the right place either
+-export([map_history/1]).
 
 -export([dispatch_signal/3]).
 -export([dispatch_call/3]).
@@ -64,14 +77,14 @@
 -spec start(module(), term(), opts()) -> {id(), woody_client:context()}.
 
 start(Module, Args, #{client_context := Context0}) ->
-    {{ok, Response}, Context} = call_automaton('start', [#'Args'{arg = wrap_args(Module, Args)}], Context0),
+    {{ok, Response}, Context} = call_automaton('start', [#'Args'{arg = wrap_args({Module, Args})}], Context0),
     #'StartResult'{id = ID} = Response,
     {ID, Context}.
 
--spec call(module(), id(), term(), opts()) -> {term(), woody_client:context()} | no_return().
+-spec call(id(), term(), opts()) -> {term(), woody_client:context()} | no_return().
 
-call(Module, ID, Args, #{client_context := Context0}) ->
-    case call_automaton('call', [{id, ID}, wrap_args(Module, Args)], Context0) of
+call(ID, Args, #{client_context := Context0}) ->
+    case call_automaton('call', [{id, ID}, wrap_args(Args)], Context0) of
         {{ok, Response}, Context} ->
             % should be specific to a processing interface already
             case unmarshal_term(Response) of
@@ -83,23 +96,33 @@ call(Module, ID, Args, #{client_context := Context0}) ->
                     throw({Exception, Context})
             end;
         {{exception, Exception}, Context} ->
-            % TODO: exception mapping
             throw({Exception, Context});
         {{error, Reason}, _} ->
             error(Reason)
     end.
 
--spec get_history(module(), id(), opts()) -> {history(), woody_client:context()}.
+-spec get_history(id(), opts()) ->
+    {history(), woody_client:context()}.
 
-get_history(Module, ID, #{client_context := Context0}) ->
-    case call_automaton('getHistory', [{id, ID}, #'HistoryRange'{}], Context0) of
+get_history(ID, Opts) ->
+    get_history(ID, #'HistoryRange'{}, Opts).
+
+-spec get_history(id(), event_id(), undefined | non_neg_integer(), opts()) ->
+    {history(), woody_client:context()}.
+
+get_history(ID, AfterID, Limit, Opts) ->
+    get_history(ID, #'HistoryRange'{'after' = AfterID, limit = Limit}, Opts).
+
+get_history(ID, Range, #{client_context := Context0}) ->
+    case call_automaton('getHistory', [{id, ID}, Range], Context0) of
+        {{ok, []}, Context} ->
+            {[], Context};
         {{ok, History0}, Context} ->
-            {Module, History} = unwrap_history(unmarshal_history(History0)),
+            {_Module, History} = untag_history(unwrap_history(History0)),
             {History, Context};
         {{exception, Exception}, Context} ->
-            % TODO: exception mapping
             throw({Exception, Context});
-        {{error, Reason}, _Context} ->
+        {{error, Reason}, _} ->
             error(Reason)
     end.
 
@@ -120,12 +143,12 @@ call_automaton(Function, Args, Context) ->
 
 handle_function('processSignal', {Args}, Context0, _Opts) ->
     #'SignalArgs'{signal = {_Type, Signal}, history = History} = Args,
-    {Result, Context} = dispatch_signal(Signal, unmarshal_history(History), opts(Context0)),
+    {Result, Context} = dispatch_signal(Signal, History, opts(Context0)),
     {{ok, Result}, Context};
 
 handle_function('processCall', {Args}, Context0, _Opts) ->
     #'CallArgs'{call = Payload, history = History} = Args,
-    {Result, Context} = dispatch_call(Payload, unmarshal_history(History), opts(Context0)),
+    {Result, Context} = dispatch_call(Payload, History, opts(Context0)),
     {{ok, Result}, Context}.
 
 opts(Context) ->
@@ -153,14 +176,14 @@ dispatch_signal(#'InitSignal'{id = ID, arg = Payload}, [], _Opts = #{client_cont
 dispatch_signal(#'TimeoutSignal'{}, History0, _Opts = #{client_context := Context0}) ->
     % TODO: deducing module from signal payload looks more natural
     %       opaque payload in every event?
-    {Module, History} = unwrap_history(History0),
+    {Module, History} = untag_history(unwrap_history(History0)),
     _ = lager:debug("[machine] [~p] dispatch timeout with history: ~p", [Module, History]),
     {Result, #{client_context := Context}} = Module:process_signal(timeout, History, create_context(Context0)),
     {marshal_signal_result(Result, Module), Context};
 
 dispatch_signal(#'RepairSignal'{arg = Payload}, History0, _Opts = #{client_context := Context0}) ->
-    {Module, History} = unwrap_history(History0),
     Args = unmarshal_term(Payload),
+    {Module, History} = untag_history(unwrap_history(History0)),
     _ = lager:debug("[machine] [~p] dispatch repair (~p) with history: ~p", [Module, Args, History]),
     {Result, #{client_context := Context}} = Module:process_signal({repair, Args}, History, create_context(Context0)),
     {marshal_signal_result(Result, Module), Context}.
@@ -179,8 +202,8 @@ marshal_signal_result({ok, {Events, Action}}, Module) ->
 
 dispatch_call(Payload, History0, _Opts = #{client_context := Context0}) ->
     % TODO: looks suspicious
-    {Module, Args} = unwrap_args(Payload),
-    {Module, History} = unwrap_history(History0),
+    Args = unwrap_args(Payload),
+    {Module, History} = untag_history(unwrap_history(History0)),
     _ = lager:debug("[machine] [~p] dispatch call (~p) with history: ~p", [Module, Args, History]),
     {Result, #{client_context := Context}} = Module:process_call(Args, History, create_context(Context0)),
     {marshal_call_result(Result, Module), Context}.
@@ -200,26 +223,42 @@ marshal_call_result({ok, Response, {Events, Action}}, Module) ->
 
 %%
 
-unmarshal_history(undefined) ->
-    [];
-unmarshal_history(History) ->
-    [{ID, Body} || #'Event'{id = ID, body = Body} <- History].
+-spec map_history(hg_state_processing_thrift:'History'()) ->
+    {event_id(), [term()]}.
 
-unwrap_history(History = [Event | _]) ->
-    {_ID, {Module, _EventInner}} = unwrap_event(Event),
-    {Module, [begin {ID, {_, EventInner}} = unwrap_event(E), {ID, EventInner} end || E <- History]}.
+map_history(History) ->
+    map_history(unwrap_history(History), undefined, []).
 
-wrap_events(Module, Events) ->
-    [wrap_event(Module, Ev) || Ev <- Events].
+map_history([], LastID, Evs) ->
+    {LastID, lists:reverse(Evs)};
+map_history([{Module, Ev0 = {ID, _, _, _}} | Rest], _, Evs) ->
+    case Module:map_event(Ev0) of
+        Ev when Ev /= undefined ->
+            map_history(Rest, ID, [Ev | Evs]);
+        undefined ->
+            map_history(Rest, ID, Evs)
+    end.
+
+unwrap_history(History) ->
+    [unwrap_event(E) || E <- History].
+
+untag_history(History = [{Module, _} | _]) ->
+    {Module, [E || {_, E} <- History]}.
+
+wrap_events(Module, [Ev | Rest]) ->
+    [wrap_event(Module, Ev) | wrap_events(Module, Rest)];
+wrap_events(_, []) ->
+    [].
 
 wrap_event(Module, EventInner) ->
-    wrap_args(Module, EventInner).
+    marshal_term({Module, EventInner}).
 
-unwrap_event({ID, Payload}) ->
-    {ID, unwrap_args(Payload)}.
+unwrap_event(#'Event'{id = ID, source = Source, created_at = Dt, event_payload = Payload}) ->
+    {Module, EventInner} = unmarshal_term(Payload),
+    {Module, {ID, Source, Dt, EventInner}}.
 
-wrap_args(Module, Args) ->
-    marshal_term({Module, Args}).
+wrap_args(Args) ->
+    marshal_term(Args).
 
 unwrap_args(Payload) ->
     unmarshal_term(Payload).
