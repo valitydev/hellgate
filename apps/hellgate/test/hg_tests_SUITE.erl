@@ -231,6 +231,7 @@ make_invoice_params(Product, Due, Amount, Context) when is_integer(Amount) ->
     make_invoice_params(Product, Due, {Amount, <<"RUB">>}, Context);
 make_invoice_params(Product, Due, {Amount, Currency}, Context) ->
     #payproc_InvoiceParams{
+        shop_id  = <<"THRIFT-SHOP">>,
         product  = Product,
         amount   = Amount,
         due      = format_datetime(Due),
@@ -244,9 +245,11 @@ make_payment_params() ->
 
 make_payment_params(PaymentTool, Session) ->
     #payproc_InvoicePaymentParams{
-        payer = #domain_Payer{},
-        payment_tool = PaymentTool,
-        session = Session
+        payer = #domain_Payer{
+            payment_tool = PaymentTool,
+            session = Session,
+            client_info = #domain_ClientInfo{}
+        }
     }.
 
 make_payment_tool() ->
