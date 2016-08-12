@@ -18,7 +18,9 @@ build('hellgate', 'docker-host', finalHook) {
 
   pipeDefault() {
     runStage('compile') {
-      sh 'make wc_compile'
+      withGithubPrivkey {
+        sh 'make wc_compile'
+      }
     }
     runStage('lint') {
       sh 'make wc_lint'

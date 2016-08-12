@@ -2,7 +2,7 @@ REBAR := $(shell which rebar3 2>/dev/null || which ./rebar3)
 SUBMODULES = apps/hg_proto/damsel build_utils
 SUBTARGETS = $(patsubst %,%/.git,$(SUBMODULES))
 
-UTILS_PATH := build_utils/make_lib
+UTILS_PATH := build_utils
 TEMPLATES_PATH := .
 
 # Name of the service
@@ -25,8 +25,8 @@ CALL_W_CONTAINER := $(CALL_ANYWHERE) test
 
 all: compile
 
--include $(UTILS_PATH)/utils_container.mk
--include $(UTILS_PATH)/utils_image.mk
+-include $(UTILS_PATH)/make_lib/utils_container.mk
+-include $(UTILS_PATH)/make_lib/utils_image.mk
 
 .PHONY: $(CALL_W_CONTAINER)
 
