@@ -2,8 +2,15 @@
 %%  * https://github.com/rbkmoney/coredocs/blob/90a4eed/docs/domain/entities/party.md
 %%  * https://github.com/rbkmoney/coredocs/blob/90a4eed/docs/domain/entities/merchant.md
 
+
+%% @TODO
+%% * Deal with default shop services (will need to change thrift-protocol as well)
+%% * Access check before shop creation is weird (think about adding context)
+%% * Create accounts after shop claim confirmation
+
 -module(hg_party).
 -include_lib("hg_proto/include/hg_payment_processing_thrift.hrl").
+-include_lib("hg_proto/include/hg_accounter_thrift.hrl").
 
 -define(NS, <<"party">>).
 
@@ -99,7 +106,20 @@ handle_function('DenyClaim', {UserInfo, PartyID, ID, Reason}, Context, _Opts) ->
     call(PartyID, {deny_claim, ID, Reason, UserInfo}, Context);
 
 handle_function('RevokeClaim', {UserInfo, PartyID, ID, Reason}, Context, _Opts) ->
-    call(PartyID, {revoke_claim, ID, Reason, UserInfo}, Context).
+    call(PartyID, {revoke_claim, ID, Reason, UserInfo}, Context);
+
+handle_function('GetShopAccountState', {UserInfo, PartyID, AccountID}, Context0, _Opts) ->
+    {St, Context1} = get_state(UserInfo, PartyID, Context0),
+    {AccountState, Context} = ?try_w_context(
+        get_account_state(AccountID, St, Context1),
+        Context1
+    ),
+    {{ok, AccountState}, Context};
+
+handle_function('GetShopAccountSet', {UserInfo, PartyID, ShopID}, Context0, _Opts) ->
+    {St, Context} = get_state(UserInfo, PartyID, Context0),
+    ?try_w_context({ok, get_account_set(ShopID, St)}, Context).
+
 
 get_history(_UserInfo, PartyID, Context) ->
     assert_nonempty_history(
@@ -258,9 +278,17 @@ handle_call({activate, _UserInfo}, StEvents0, Context) ->
     {ClaimID, StEvents1} = create_claim([{suspension, ?active()}], StEvents0),
     {respond(get_claim_result(ClaimID, StEvents1), StEvents1), Context};
 
-handle_call({create_shop, Params, _UserInfo}, StEvents0 = {St0, _}, Context) ->
+handle_call({create_shop, Params, _UserInfo}, StEvents0 = {St0, _}, Context0) ->
     ok = assert_operable(StEvents0),
-    {ClaimID, StEvents1} = create_claim([{shop_creation, construct_shop(Params, St0)}], StEvents0),
+    {AccountShopSet, Context} = create_account_shop_set(StEvents0, Context0),
+    ShopID = get_next_shop_id(get_pending_st(St0)),
+    {ClaimID, StEvents1} = create_claim(
+        [
+            {shop_creation, construct_shop(ShopID, Params)},
+            ?shop_modification(ShopID, ?accounts_created(AccountShopSet))
+        ],
+        StEvents0
+    ),
     {respond(get_claim_result(ClaimID, StEvents1), StEvents1), Context};
 
 handle_call({update_shop, ID, Update, _UserInfo}, StEvents0, Context) ->
@@ -327,14 +355,16 @@ get_shop_state(ID, #st{party = Party, revision = Revision}) ->
 
 %%
 
-construct_shop(ShopParams, St0) ->
+construct_shop(ShopID, ShopParams) ->
+    ShopServices = get_default_shop_services(),
     #domain_Shop{
-        id         = get_next_shop_id(get_pending_st(St0)),
+        id         = ShopID,
         blocking   = ?unblocked(<<>>),
         suspension = ?suspended(),
         category   = ShopParams#payproc_ShopParams.category,
         details    = ShopParams#payproc_ShopParams.details,
-        contractor = ShopParams#payproc_ShopParams.contractor
+        contractor = ShopParams#payproc_ShopParams.contractor,
+        services   = ShopServices
     }.
 
 get_next_shop_id(#st{party = #domain_Party{shops = Shops}}) ->
@@ -403,6 +433,8 @@ is_change_need_acceptance({suspension, _}) ->
     false;
 is_change_need_acceptance(?shop_modification(_, Modification)) ->
     is_change_need_acceptance(Modification);
+is_change_need_acceptance({accounts_created, _}) ->
+    false;
 is_change_need_acceptance(_) ->
     true.
 
@@ -593,6 +625,53 @@ ensure_shop(Shop = #domain_Shop{}) ->
 ensure_shop(undefined) ->
     raise(#payproc_ShopNotFound{}).
 
+get_account_set(ShopID, St = #st{}) ->
+    Shop = get_shop(ShopID, get_party(St)),
+    get_account_set(Shop).
+
+get_account_set(#domain_Shop{accounts = undefined}) ->
+    raise(#payproc_AccountSetNotFound{});
+get_account_set(#domain_Shop{accounts = Accounts}) ->
+    Accounts.
+
+get_account_state(AccountID, St = #st{}, Context0) ->
+    ok = ensure_account(AccountID, get_party(St)),
+    {Account, Context0} = hg_account:get_account_by_id(AccountID, Context0),
+    #{
+        own_amount := OwnAmount,
+        available_amount := AvailableAmount,
+        currency_sym_code := CurrencySymCode
+    } = Account,
+    CurrencyRef = #domain_CurrencyRef{
+        symbolic_code = CurrencySymCode
+    },
+    Currency = hg_domain:get(hg_domain:head(), CurrencyRef),
+    #payproc_ShopAccountState{
+        account_id = AccountID,
+        own_amount = OwnAmount,
+        available_amount = AvailableAmount,
+        currency = Currency
+    }.
+
+ensure_account(AccountID, #domain_Party{shops = Shops}) ->
+    case find_shop_account_set(AccountID, maps:to_list(Shops)) of
+        #domain_ShopAccountSet{} ->
+            ok;
+        undefined ->
+            raise(#payproc_AccountNotFound{})
+    end.
+
+find_shop_account_set(_ID, []) ->
+    undefined;
+find_shop_account_set(ID, [{_, #domain_Shop{accounts = Accounts}} | Rest]) ->
+    case Accounts of
+        #domain_ShopAccountSet{general = ID} ->
+            Accounts;
+        #domain_ShopAccountSet{guarantee = ID} ->
+            Accounts;
+        undefined -> find_shop_account_set(ID, Rest)
+    end.
+
 get_claim(ID, #st{claims = Claims}) ->
     ensure_claim(maps:get(ID, Claims, undefined)).
 
@@ -644,7 +723,15 @@ apply_shop_change({update, Update}, Shop) ->
         {Update#payproc_ShopUpdate.category   , fun (V, S) -> S#domain_Shop{category = V}   end},
         {Update#payproc_ShopUpdate.details    , fun (V, S) -> S#domain_Shop{details = V}    end},
         {Update#payproc_ShopUpdate.contractor , fun (V, S) -> S#domain_Shop{contractor = V} end}
-    ], Shop).
+    ], Shop);
+apply_shop_change(
+    {
+        accounts_created,
+        #payproc_ShopAccountSetCreated{accounts = Accounts}
+    },
+    Shop
+) ->
+    Shop#domain_Shop{accounts = Accounts}.
 
 fold_opt([], V) ->
     V;
@@ -655,3 +742,34 @@ fold_opt([{E, Fun} | Rest], V) ->
 
 get_next_id(IDs) ->
     integer_to_binary(1 + lists:max([0 | lists:map(fun binary_to_integer/1, IDs)])).
+
+create_account_shop_set(
+    _Party,
+    Context = #{
+        client_context := ClientContext0
+    }
+) ->
+    CurrencyRef = #domain_CurrencyRef{
+        symbolic_code = <<"RUB">>
+    }, %%% @FIXME use shop prototype instead
+    #domain_CurrencyRef{
+        symbolic_code = SymbolicCode
+    } = CurrencyRef,
+    {GuaranteeID, ClientContext1} = hg_account:create_account(SymbolicCode, ClientContext0),
+    {GeneralID, ClientContext} = hg_account:create_account(SymbolicCode, ClientContext1),
+    ShopAccountSet = #domain_ShopAccountSet {
+        currency = CurrencyRef,
+        general = GeneralID,
+        guarantee = GuaranteeID
+    },
+    {ShopAccountSet, Context#{client_context => ClientContext}}.
+
+get_default_shop_services() ->
+    Head = hg_domain:head(),
+    #domain_Globals{
+        party_prototype = PartyPrototypeRef
+    } = hg_domain:get(Head, #domain_GlobalsRef{}),
+    #domain_PartyPrototype{
+        default_services = ShopServices
+    } = hg_domain:get(Head, PartyPrototypeRef),
+    ShopServices.

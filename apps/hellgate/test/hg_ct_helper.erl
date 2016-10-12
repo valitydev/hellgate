@@ -38,7 +38,8 @@ start_app(hellgate = AppName) ->
         {host, Host},
         {port, Port},
         {automaton_service_url, <<"http://machinegun:8022/v1/automaton">>},
-        {eventsink_service_url, <<"http://machinegun:8022/v1/event_sink">>}
+        {eventsink_service_url, <<"http://machinegun:8022/v1/event_sink">>},
+        {accounter_service_url, <<"http://shumway:8022/accounter">>}
     ]), #{
         hellgate_root_url => RootUrl
     }};
@@ -99,7 +100,10 @@ make_invoice_params(ShopID, Product, Due, {Amount, Currency}, Context) ->
         amount   = Amount,
         due      = hg_datetime:format_ts(Due),
         currency = #domain_CurrencyRef{symbolic_code = Currency},
-        context  = term_to_binary(Context)
+        context  = #'Content'{
+            type = <<"application/octet-stream">>,
+            data = term_to_binary(Context)
+        }
     }.
 
 make_due_date() ->

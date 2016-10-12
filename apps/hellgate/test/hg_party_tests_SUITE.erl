@@ -49,6 +49,9 @@
 -export([shop_already_suspended/1]).
 -export([shop_already_active/1]).
 
+-export([shop_account_set_retrieval/1]).
+-export([shop_account_retrieval/1]).
+
 -export([consistent_history/1]).
 
 %%
@@ -69,6 +72,8 @@ all() ->
         {group, party_revisioning},
         {group, party_blocking_suspension},
         {group, shop_management},
+        {group, shop_account_lazy_creation},
+
         {group, claim_management},
 
         {group, consistent_history}
@@ -120,6 +125,12 @@ groups() ->
             shop_already_suspended,
             shop_activation,
             shop_already_active
+        ]},
+        {shop_account_lazy_creation, [sequence], [
+            party_creation,
+            shop_creation,
+            shop_account_set_retrieval,
+            shop_account_retrieval
         ]},
         {claim_management, [sequence], [
             party_creation,
@@ -272,6 +283,8 @@ end_per_testcase(_Name, _C) ->
 -spec shop_activation(config()) -> _ | no_return().
 -spec shop_already_suspended(config()) -> _ | no_return().
 -spec shop_already_active(config()) -> _ | no_return().
+-spec shop_account_set_retrieval(config()) -> _ | no_return().
+-spec shop_account_retrieval(config()) -> _ | no_return().
 
 party_creation(C) ->
     Client = ?c(client, C),
@@ -309,12 +322,22 @@ shop_not_found_on_retrieval(C) ->
 shop_creation(C) ->
     Client = ?c(client, C),
     Params = #payproc_ShopParams{
-        category = make_category(42, <<"TEST">>),
+        category = make_category_ref(42),
         details  = Details = make_shop_details(<<"THRIFT SHOP">>, <<"Hot. Fancy. Almost free.">>)
     },
     Result = hg_client_party:create_shop(Params, Client),
     Claim = assert_claim_pending(Result, Client),
-    ?claim(_, ?pending(), [{shop_creation, #domain_Shop{id = ShopID}}]) = Claim,
+    ?claim(
+        _,
+        ?pending(),
+        [
+            {shop_creation, #domain_Shop{id = ShopID}},
+            {shop_modification, #payproc_ShopModificationUnit{
+                id = ShopID,
+                modification = {accounts_created, _}
+            }}
+        ]
+    ) = Claim,
     ?shop_not_found() = hg_client_party:get_shop(ShopID, Client),
     ok = accept_claim(Claim, Client),
     {ok, ?shop_state(#domain_Shop{
@@ -356,12 +379,22 @@ claim_revocation(C) ->
     Client = ?c(client, C),
     {ok, PartyState} = hg_client_party:get(Client),
     Params = #payproc_ShopParams{
-        category = make_category(42, <<"TEST">>),
+        category = make_category_ref(42),
         details  = make_shop_details(<<"OOPS">>)
     },
     Result = hg_client_party:create_shop(Params, Client),
     Claim = assert_claim_pending(Result, Client),
-    ?claim(_, _, [{shop_creation, #domain_Shop{id = ShopID}}]) = Claim,
+    ?claim(
+        _,
+        _,
+        [
+            {shop_creation, #domain_Shop{id = ShopID}},
+            {shop_modification, #payproc_ShopModificationUnit{
+                id = ShopID,
+                modification = {accounts_created, _}
+            }}
+        ]
+    ) = Claim,
     ok = revoke_claim(Claim, Client),
     {ok, PartyState} = hg_client_party:get(Client),
     ?shop_not_found() = hg_client_party:get_shop(ShopID, Client).
@@ -369,16 +402,16 @@ claim_revocation(C) ->
 complex_claim_acceptance(C) ->
     Client = ?c(client, C),
     Params1 = #payproc_ShopParams{
-        category = make_category(1, <<>>),
+        category = make_category_ref(1),
         details  = Details1 = make_shop_details(<<"SHOP 1">>)
     },
     Params2 = #payproc_ShopParams{
-        category = make_category(2, <<>>),
+        category = make_category_ref(2),
         details  = Details2 = make_shop_details(<<"SHOP 2">>)
     },
     Claim1 = assert_claim_pending(hg_client_party:create_shop(Params1, Client), Client),
     ?claim(ClaimID1, _, [
-        {shop_creation, #domain_Shop{id = ShopID1, details = Details1}}
+        {shop_creation, #domain_Shop{id = ShopID1, details = Details1}}, _
     ]) = Claim1,
     _ = assert_claim_accepted(hg_client_party:suspend(Client), Client),
     {ok, Claim1} = hg_client_party:get_pending_claim(Client),
@@ -389,7 +422,15 @@ complex_claim_acceptance(C) ->
     {ok, Claim2} = hg_client_party:get_pending_claim(Client),
     ?claim(_, _, [
         {shop_creation, #domain_Shop{id = ShopID1, details = Details1}},
-        {shop_creation, #domain_Shop{id = ShopID2, details = Details2}}
+        {shop_modification, #payproc_ShopModificationUnit{
+            id = ShopID1,
+            modification = {accounts_created, _}
+        }},
+        {shop_creation, #domain_Shop{id = ShopID2, details = Details2}},
+        {shop_modification, #payproc_ShopModificationUnit{
+            id = ShopID2,
+            modification = {accounts_created, _}
+        }}
     ]) = Claim2,
     ok = accept_claim(Claim2, Client),
     {ok, ?shop_state(#domain_Shop{details = Details1})} = hg_client_party:get_shop(ShopID1, Client),
@@ -518,6 +559,19 @@ shop_already_active(C) ->
     #domain_Shop{id = ShopID} = get_first_shop(Client),
     ?shop_active() = hg_client_party:activate_shop(ShopID, Client).
 
+shop_account_set_retrieval(C) ->
+    Client = ?c(client, C),
+    #domain_Shop{id = ShopID} = get_first_shop(Client),
+    {ok, S = #domain_ShopAccountSet{}} = hg_client_party:get_shop_account_set(ShopID, Client),
+    {save_config, S}.
+
+shop_account_retrieval(C) ->
+    Client = ?c(client, C),
+    {shop_account_set_retrieval, #domain_ShopAccountSet{
+        guarantee = AccountID
+    }} = ?config(saved_config, C),
+    hg_client_party:get_shop_account(AccountID, Client).
+
 get_first_shop(Client) ->
     {ok, ?party_state(#domain_Party{shops = Shops})} = hg_client_party:get(Client),
     [ShopID | _] = maps:keys(Shops),
@@ -584,11 +638,8 @@ unwrap_event(E) ->
 make_userinfo() ->
     #payproc_UserInfo{id = <<?MODULE_STRING>>}.
 
-make_category(ID, Name) ->
-    #domain_CategoryObject{
-        ref  = #domain_CategoryRef{id = ID},
-        data = #domain_Category{name = Name}
-    }.
+make_category_ref(ID) ->
+    #domain_CategoryRef{id = ID}.
 
 make_shop_details(Name) ->
     make_shop_details(Name, undefined).
