@@ -1,11 +1,17 @@
 -module(hg_domain).
 -include_lib("dmsl/include/dmsl_domain_thrift.hrl").
+-include_lib("dmsl/include/dmsl_domain_config_thrift.hrl").
 
 %%
 
 -export([head/0]).
 -export([all/1]).
 -export([get/2]).
+-export([commit/2]).
+
+-export([insert/1]).
+-export([update/1]).
+-export([get/1]).
 
 %%
 
@@ -16,74 +22,57 @@
 -spec head() -> revision().
 
 head() ->
-    42.
+    #'Snapshot'{version = Version} = dmt_client:checkout({head, #'Head'{}}),
+    Version.
 
 -spec all(revision()) -> dmsl_domain_thrift:'Domain'().
 
-all(_Revision) ->
-    get_fixture().
+all(Revision) ->
+    #'Snapshot'{domain = Domain} = dmt_client:checkout({version, Revision}),
+    Domain.
 
 -spec get(revision(), ref()) -> data().
 
 get(Revision, Ref) ->
-    % FIXME: the dirtiest hack you'll ever see
-    Name = type_to_name(Ref),
-    case maps:get({Name, Ref}, all(Revision), undefined) of
-        {Name, {_, Ref, Data}} ->
-            Data;
-        undefined ->
-            undefined
-    end.
+    #'VersionedObject'{object = {_Tag, {_Name, _Ref, Data}}} = dmt_client:checkout_object({version, Revision}, Ref),
+    Data.
 
-type_to_name(#domain_CurrencyRef{}) ->
-    currency;
-type_to_name(#domain_GlobalsRef{}) ->
-    globals;
-type_to_name(#domain_PartyPrototypeRef{}) ->
-    party_prototype;
-type_to_name(#domain_ProxyRef{}) ->
-    proxy.
+-spec commit(revision(), dmt:commit()) -> ok.
 
-%%
+commit(Revision, Commit) ->
+    Revision = dmt_client:commit(Revision, Commit) - 1,
+    _ = hg_domain:all(Revision + 1),
+    ok.
 
--define(
-    object(ObjectName, Ref, Data),
-    {type_to_name(Ref), Ref} => {type_to_name(Ref), {ObjectName, Ref, Data}}
-).
+%% convenience shortcuts, use carefully
 
-get_fixture() ->
-    #{
-        ?object('Globals',
-            #domain_GlobalsRef{},
-            #domain_Globals{
-                party_prototype = #domain_PartyPrototypeRef{
-                    id = 42
-                }
-            }
-        ),
-        ?object('PartyPrototype',
-            #domain_PartyPrototypeRef{
-                id = 42
-            },
-            #domain_PartyPrototype{
-                shop = #domain_ShopPrototype{},
-                default_services = #domain_ShopServices{}
-            }
-        ),
-        ?object('CurrencyObject',
-            #domain_CurrencyRef{symbolic_code = <<"RUB">>},
-            #domain_Currency{
-                name = <<"Russian rubles">>,
-                numeric_code = 643,
-                symbolic_code = <<"RUB">>,
-                exponent = 2
-            }
-        ),
-        ?object('ProxyObject',
-            #domain_ProxyRef{id = 1},
-            #domain_ProxyDefinition{
-                url     = genlib_app:env(hellgate, provider_proxy_url),
-                options = genlib_app:env(hellgate, provider_proxy_options, #{})
-            }
-        )
-    }.
+-spec get(ref()) -> data().
+
+get(Ref) ->
+    get(head(), Ref).
+
+-spec insert({ref(), data()}) -> ok.
+
+insert(Object) ->
+    Commit = #'Commit'{
+        ops = [
+            {insert, #'InsertOp'{
+                object = Object
+            }}
+        ]
+    },
+    commit(head(), Commit).
+
+-spec update({ref(), data()}) -> ok.
+
+update({Tag, {ObjectName, Ref, _Data}} = NewObject) ->
+    OldData = get(head(), {Tag, Ref}),
+    Commit = #'Commit'{
+        ops = [
+            {update, #'UpdateOp'{
+                old_object = {Tag, {ObjectName, Ref, OldData}},
+                new_object = NewObject
+            }}
+        ]
+    },
+    commit(head(), Commit).
