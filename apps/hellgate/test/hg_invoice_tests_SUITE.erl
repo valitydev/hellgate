@@ -10,7 +10,10 @@
 
 -export([invoice_cancellation/1]).
 -export([overdue_invoice_cancelled/1]).
+-export([invoice_cancelled_after_payment_timeout/1]).
 -export([payment_success/1]).
+-export([payment_success_on_second_try/1]).
+-export([invoice_success_on_third_payment/1]).
 -export([consistent_history/1]).
 
 %%
@@ -39,7 +42,10 @@ all() ->
     [
         invoice_cancellation,
         overdue_invoice_cancelled,
+        invoice_cancelled_after_payment_timeout,
         payment_success,
+        payment_success_on_second_try,
+        invoice_success_on_third_payment,
 
         consistent_history
     ].
@@ -49,7 +55,12 @@ all() ->
 -spec init_per_suite(config()) -> config().
 
 init_per_suite(C) ->
-    {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, hellgate]),
+    CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
+    {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, hellgate, {cowboy, CowboySpec}]),
+    ok = hg_domain:insert(hg_ct_helper:domain_fixture(currency)),
+    ok = hg_domain:insert(hg_ct_helper:domain_fixture(globals)),
+    ok = hg_domain:insert(hg_ct_helper:domain_fixture(party_prototype)),
+    ok = hg_domain:insert(hg_ct_helper:domain_fixture(proxy)),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
     Client = hg_client_party:start(make_userinfo(PartyID), PartyID, hg_client_api:new(RootUrl)),
@@ -58,12 +69,14 @@ init_per_suite(C) ->
         {party_id, PartyID},
         {shop_id, ShopID},
         {root_url, RootUrl},
-        {apps, Apps} | C
+        {apps, Apps}
+        | C
     ].
 
 -spec end_per_suite(config()) -> _.
 
 end_per_suite(C) ->
+    hg_domain:cleanup(),
     [application:stop(App) || App <- ?c(apps, C)].
 
 %% tests
@@ -89,7 +102,7 @@ init_per_testcase(_Name, C) ->
 
 end_per_testcase(_Name, C) ->
     _ = unlink(?c(test_sup, C)),
-    _ = application:set_env(hellgate, provider_proxy_url, undefined),
+    _ = application:unset_env(hellgate, provider_proxy_url),
     exit(?c(test_sup, C), shutdown).
 
 -spec invoice_cancellation(config()) -> _ | no_return().
@@ -107,34 +120,71 @@ invoice_cancellation(C) ->
 
 overdue_invoice_cancelled(C) ->
     Client = ?c(client, C),
-    ShopID = ?c(shop_id, C),
-    PartyID = ?c(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(1), 10000),
-    {ok, InvoiceID} = hg_client_invoicing:create(InvoiceParams, Client),
-    ?invoice_created(?invoice_w_status(?unpaid())) = next_event(InvoiceID, Client),
+    {ok, InvoiceID} = start_invoice(<<"rubberduck">>, make_due_date(1), 10000, C),
     ?invoice_status_changed(?cancelled(<<"overdue">>)) = next_event(InvoiceID, Client).
+
+-spec invoice_cancelled_after_payment_timeout(config()) -> _ | no_return().
+
+invoice_cancelled_after_payment_timeout(C) ->
+    Client = ?c(client, C),
+    {ok, InvoiceID} = start_invoice(<<"rubberdusk">>, make_due_date(7), 1000, C),
+    PaymentParams = make_tds_payment_params(),
+    {ok, PaymentID} = attach_payment(InvoiceID, PaymentParams, Client),
+    ?payment_interaction_requested(PaymentID, _) = next_event(InvoiceID, Client),
+    %% wait for payment timeout
+    ?payment_status_changed(PaymentID, ?failed(_)) = next_event(InvoiceID, 5000, Client),
+    ?invoice_status_changed(?cancelled(<<"overdue">>)) = next_event(InvoiceID, 5000, Client).
 
 -spec payment_success(config()) -> _ | no_return().
 
 payment_success(C) ->
     Client = ?c(client, C),
-    ProxyUrl = start_service_handler(hg_dummy_provider, C),
-    ok = application:set_env(hellgate, provider_proxy_url, ProxyUrl),
-    ShopID = ?c(shop_id, C),
-    PartyID = ?c(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(2), 42000),
-    ok = hg_domain:update(hg_ct_helper:domain_fixture(proxy)),
+    {ok, InvoiceID} = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentParams = make_payment_params(),
-    {ok, InvoiceID} = hg_client_invoicing:create(InvoiceParams, Client),
-    ?invoice_created(?invoice_w_status(?unpaid())) = next_event(InvoiceID, Client),
-    {ok, PaymentID} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_started(?payment_w_status(?pending())) = next_event(InvoiceID, Client),
-    ?payment_bound(PaymentID, ?trx_info(PaymentID)) = next_event(InvoiceID, Client),
-    ?payment_status_changed(PaymentID, ?processed()) = next_event(InvoiceID, Client),
+    {ok, PaymentID} = attach_payment(InvoiceID, PaymentParams, Client),
     ?payment_status_changed(PaymentID, ?captured()) = next_event(InvoiceID, Client),
     ?invoice_status_changed(?paid()) = next_event(InvoiceID, Client),
     timeout = next_event(InvoiceID, 1000, Client).
 
+-spec payment_success_on_second_try(config()) -> _ | no_return().
+
+payment_success_on_second_try(C) ->
+    Client = ?c(client, C),
+    {ok, InvoiceID} = start_invoice(<<"rubberdick">>, make_due_date(20), 42000, C),
+    PaymentParams = make_tds_payment_params(),
+    {ok, PaymentID} = attach_payment(InvoiceID, PaymentParams, Client),
+    ?payment_interaction_requested(PaymentID, UserInteraction) = next_event(InvoiceID, Client),
+    %% simulate user interaction
+    {URL, GoodBody} = get_post_request(UserInteraction),
+    BadBody = #{<<"tag">> => <<"666">>},
+    assert_failed_post_requiest({URL, BadBody}),
+    assert_success_post_requiest({URL, GoodBody}),
+    ?payment_status_changed(PaymentID, ?captured()) = next_event(InvoiceID, Client),
+    ?invoice_status_changed(?paid()) = next_event(InvoiceID, Client),
+    timeout = next_event(InvoiceID, 1000, Client).
+
+-spec invoice_success_on_third_payment(config()) -> _ | no_return().
+
+invoice_success_on_third_payment(C) ->
+    Client = ?c(client, C),
+    {ok, InvoiceID} = start_invoice(<<"rubberdock">>, make_due_date(60), 42000, C),
+    PaymentParams = make_tds_payment_params(),
+    {ok, PaymentID_1} = attach_payment(InvoiceID, PaymentParams, Client),
+    ?payment_interaction_requested(PaymentID_1, _) = next_event(InvoiceID, Client),
+    %% wait for payment timeout and start new one after
+    ?payment_status_changed(PaymentID_1, ?failed(_)) = next_event(InvoiceID, 5000, Client),
+    {ok, PaymentID_2} = attach_payment(InvoiceID, PaymentParams, Client),
+    ?payment_interaction_requested(PaymentID_2, _) = next_event(InvoiceID, Client),
+    %% wait for payment timeout and start new one after
+    ?payment_status_changed(PaymentID_2, ?failed(_)) = next_event(InvoiceID, 5000, Client),
+    {ok, PaymentID_3} = attach_payment(InvoiceID, PaymentParams, Client),
+    ?payment_interaction_requested(PaymentID_3, UserInteraction) = next_event(InvoiceID, Client),
+    GoodPost = get_post_request(UserInteraction),
+    %% simulate user interaction FTW!
+    assert_success_post_requiest(GoodPost),
+    ?payment_status_changed(PaymentID_3, ?captured()) = next_event(InvoiceID, Client),
+    ?invoice_status_changed(?paid()) = next_event(InvoiceID, Client),
+    timeout = next_event(InvoiceID, 1000, Client).
 %%
 
 -spec consistent_history(config()) -> _ | no_return().
@@ -189,8 +239,12 @@ make_invoice_params(PartyID, ShopID, Product, Cost) ->
 make_invoice_params(PartyID, ShopID, Product, Due, Cost) ->
     hg_ct_helper:make_invoice_params(PartyID, ShopID, Product, Due, Cost).
 
+make_tds_payment_params() ->
+    {PaymentTool, Session} = hg_ct_helper:make_tds_payment_tool(),
+    make_payment_params(PaymentTool, Session).
+
 make_payment_params() ->
-    {PaymentTool, Session} = make_payment_tool(),
+    {PaymentTool, Session} = hg_ct_helper:make_simple_payment_tool(),
     make_payment_params(PaymentTool, Session).
 
 make_payment_params(PaymentTool, Session) ->
@@ -203,16 +257,40 @@ make_payment_params(PaymentTool, Session) ->
         }
     }.
 
-make_payment_tool() ->
-    {
-        {bank_card, #domain_BankCard{
-            token          = <<"TOKEN42">>,
-            payment_system = visa,
-            bin            = <<"424242">>,
-            masked_pan     = <<"4242">>
-        }},
-        <<"SESSION42">>
-    }.
-
 make_due_date(LifetimeSeconds) ->
     genlib_time:unow() + LifetimeSeconds.
+
+start_invoice(Product, Due, Amount, C) ->
+    Client = ?c(client, C),
+    ProxyUrl = start_service_handler(hg_dummy_provider, C),
+    ok = application:set_env(hellgate, provider_proxy_url, ProxyUrl),
+    Client = ?c(client, C),
+    ShopID = ?c(shop_id, C),
+    PartyID = ?c(party_id, C),
+    ok = hg_domain:update(hg_ct_helper:domain_fixture(proxy)),
+    InvoiceParams = make_invoice_params(PartyID, ShopID, Product, Due, Amount),
+    {ok, InvoiceID} = hg_client_invoicing:create(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?unpaid())) = next_event(InvoiceID, Client),
+    {ok, InvoiceID}.
+
+attach_payment(InvoiceID, PaymentParams, Client) ->
+    {ok, PaymentID} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_started(?payment_w_status(?pending())) = next_event(InvoiceID, Client),
+    ?payment_bound(PaymentID, ?trx_info(PaymentID)) = next_event(InvoiceID, Client),
+    ?payment_status_changed(PaymentID, ?processed()) = next_event(InvoiceID, Client),
+    {ok, PaymentID}.
+
+assert_success_post_requiest(Req) ->
+    {ok, 200, _RespHeaders, _ClientRef} = post_requiest(Req).
+
+assert_failed_post_requiest(Req) ->
+    {ok, 500, _RespHeaders, _ClientRef} = post_requiest(Req).
+
+post_requiest({URL, Body}) ->
+    Method = post,
+    Headers = [],
+    Options = [],
+    hackney:request(Method, URL, Headers, term_to_binary(Body), Options).
+
+get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Body}}}) ->
+    {URL, Body}.

@@ -6,14 +6,32 @@
 -behaviour(hg_test_proxy).
 
 -export([get_service_spec/0]).
+-export([get_http_cowboy_spec/0]).
 
+%% cowboy http callbacks
+-export([init/3]).
+-export([handle/2]).
+-export([terminate/3]).
 %%
+
+-define(COWBOY_PORT, 9988).
 
 -spec get_service_spec() ->
     hg_proto:service_spec().
 
 get_service_spec() ->
     {"/test/proxy/provider/dummy", {dmsl_proxy_provider_thrift, 'ProviderProxy'}}.
+
+-spec get_http_cowboy_spec() -> #{}.
+
+get_http_cowboy_spec() ->
+    Dispatch = cowboy_router:compile([{'_', [{"/", ?MODULE, []}]}]),
+    #{
+        listener_ref => ?MODULE,
+        acceptors_count => 10,
+        transport_opts => [{port, ?COWBOY_PORT}],
+        proto_opts => [{env, [{dispatch, Dispatch}]}]
+    }.
 
 %%
 
@@ -47,19 +65,51 @@ handle_function(
 ) ->
     handle_callback(Payload, Target, State, PaymentInfo, Opts, Context).
 
+-spec init(atom(), cowboy_req:req(), list()) -> {ok, cowboy_req:req(), state}.
+
+init(_Transport, Req, []) ->
+    {ok, Req, undefined}.
+
+-spec handle(cowboy_req:req(), state) -> {ok, cowboy_req:req(), state}.
+
+handle(Req, State) ->
+    {Method, Req2} = cowboy_req:method(Req),
+    {ok, Req3} = handle_user_interaction_response(Method, Req2),
+    {ok, Req3, State}.
+
+-spec terminate(term(), cowboy_req:req(), state) -> ok.
+
+terminate(_Reason, _Req, _State) ->
+    ok.
+
+
 process_payment(?processed(), undefined, _, _, Context) ->
     {{ok, sleep(1, <<"sleeping">>)}, Context};
 process_payment(?processed(), <<"sleeping">>, PaymentInfo, _, Context) ->
     {{ok, finish(PaymentInfo)}, Context};
 
-process_payment(?captured(), undefined, _, Opts, Context) ->
-    Tag = hg_utils:unique_id(),
-    _Pid = spawn(fun () -> callback(Tag, <<"payload">>, <<"sure">>, Opts, 1000) end),
-    {{ok, suspend(Tag, 3, <<"suspended">>)}, Context};
+process_payment(?captured(), undefined, PaymentInfo, _Opts, Context) ->
+    Token3DS = hg_ct_helper:bank_card_tds_token(),
+    case get_payment_token(PaymentInfo) of
+        Token3DS ->
+            Tag = hg_utils:unique_id(),
+            Uri = genlib:to_binary("http://127.0.0.1:" ++ integer_to_list(?COWBOY_PORT)),
+            UserInteraction = {
+                'redirect',
+                {
+                    'post_request',
+                    #'BrowserPostRequest'{uri = Uri, form = #{<<"tag">> => Tag}}
+                }
+            },
+            {{ok, suspend(Tag, 3, <<"suspended">>, UserInteraction)}, Context};
+        _ ->
+            %% simple workflow without 3DS
+            {{ok, sleep(1, <<"sleeping">>)}, Context}
+    end;
 process_payment(?captured(), <<"sleeping">>, PaymentInfo, _, Context) ->
     {{ok, finish(PaymentInfo)}, Context}.
 
-handle_callback(<<"payload">>, ?captured(), <<"suspended">>, _, _, Context) ->
+handle_callback(<<"payload">>, ?captured(), <<"suspended">>, _PaymentInfo, _Opts, Context) ->
     {{ok, respond(<<"sure">>, sleep(1, <<"sleeping">>))}, Context}.
 
 finish(#'PaymentInfo'{payment = Payment}) ->
@@ -74,11 +124,12 @@ sleep(Timeout, State) ->
         next_state = State
     }.
 
-suspend(Tag, Timeout, State) ->
+suspend(Tag, Timeout, State, UserInteraction) ->
     #'ProxyResult'{
         intent     = {suspend, #'SuspendIntent'{
             tag     = Tag,
-            timeout = {timeout, Timeout}
+            timeout = {timeout, Timeout},
+            user_interaction = UserInteraction
         }},
         next_state = State
     }.
@@ -89,9 +140,27 @@ respond(Response, Result) ->
         result = Result
     }.
 
-callback(Tag, Payload, Expect, #{hellgate_root_url := RootUrl}, Timeout) ->
-    _ = timer:sleep(Timeout),
-    {ok, Expect} = hg_client_api:call(
-        proxy_host_provider, 'ProcessCallback', [Tag, Payload],
-        hg_client_api:new(RootUrl)
-    ).
+get_payment_token(#'PaymentInfo'{payment = Payment}) ->
+    #domain_InvoicePayment{payer = #domain_Payer{payment_tool = PaymentTool}} = Payment,
+    {'bank_card', #domain_BankCard{token = Token}} = PaymentTool,
+    Token.
+
+handle_user_interaction_response(<<"POST">>, Req) ->
+    {ok, Body, _Garbage} = cowboy_req:body(Req),
+    Tag = maps:get(<<"tag">>, binary_to_term(Body)),
+    RespCode = callback_to_hell(Tag),
+    cowboy_req:reply(RespCode, [{<<"content-type">>, <<"text/plain; charset=utf-8">>}], <<"">>, Req);
+handle_user_interaction_response(_, Req) ->
+    %% Method not allowed.
+    cowboy_req:reply(405, Req).
+
+callback_to_hell(Tag) ->
+    case hg_client_api:call(
+        proxy_host_provider, 'ProcessCallback', [Tag, <<"payload">>],
+        hg_client_api:new(hg_ct_helper:get_hellgate_url())
+    ) of
+        {ok, _} -> 200;
+        {{ok, _}, _} -> 200;
+        {{error, _}, _} -> 500;
+        {{exception, _}, _} -> 500
+    end.

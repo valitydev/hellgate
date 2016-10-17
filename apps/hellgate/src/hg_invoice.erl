@@ -320,7 +320,7 @@ start_payment(PaymentParams, St, Context) ->
     Events = wrap_payment_events(PaymentID, Events1 ++ Events2),
     {respond(PaymentID, Events, St, Action), Context2}.
 
-process_payment_signal(Signal, PaymentID, PaymentSession, St = #st{invoice = Invoice}, Context) ->
+process_payment_signal(Signal, PaymentID, PaymentSession, St, Context) ->
     Opts = get_payment_opts(St),
     case hg_invoice_payment:process_signal(Signal, PaymentSession, Opts, Context) of
         {{next, {Events, Action}}, Context1} ->
@@ -335,11 +335,16 @@ process_payment_signal(Signal, PaymentID, PaymentSession, St = #st{invoice = Inv
                     Events2 = [{public, ?invoice_ev(?invoice_status_changed(?paid()))}],
                     {ok(wrap_payment_events(PaymentID, Events1) ++ Events2, St), Context1};
                 ?failed(_) ->
-                    {ok(wrap_payment_events(PaymentID, Events1), St, restore_timer(St)), Context1}
+                    %% TODO: fix this dirty hack
+                    TmpPayments = lists:keydelete(PaymentID, 1, St#st.payments),
+                    {
+                        ok(wrap_payment_events(PaymentID, Events1), St, restore_timer(St#st{payments = TmpPayments})),
+                        Context1
+                    }
             end
     end.
 
-process_payment_call(Call, PaymentID, PaymentSession, St = #st{invoice = Invoice}, Context) ->
+process_payment_call(Call, PaymentID, PaymentSession, St, Context) ->
     Opts = get_payment_opts(St),
     case hg_invoice_payment:process_call(Call, PaymentSession, Opts, Context) of
         {{Response, {next, {Events, Action}}}, Context1} ->
@@ -355,7 +360,17 @@ process_payment_call(Call, PaymentID, PaymentSession, St = #st{invoice = Invoice
                     Events2 = [{public, ?invoice_ev(?invoice_status_changed(?paid()))}],
                     {respond(Response, wrap_payment_events(PaymentID, Events1) ++ Events2, St), Context1};
                 ?failed(_) ->
-                    {respond(Response, wrap_payment_events(PaymentID, Events1), St, restore_timer(St)), Context1}
+                    %% TODO: fix this dirty hack
+                    TmpPayments = lists:keydelete(PaymentID, 1, St#st.payments),
+                    {
+                        respond(
+                            Response,
+                            wrap_payment_events(PaymentID, Events1),
+                            St,
+                            restore_timer(St#st{payments = TmpPayments})
+                        ),
+                        Context1
+                    }
             end
     end.
 
@@ -460,16 +475,19 @@ get_payment_session(PaymentID, #st{payments = Payments}) ->
 set_payment_session(PaymentID, PaymentSession, St = #st{payments = Payments}) ->
     St#st{payments = lists:keystore(PaymentID, 1, Payments, {PaymentID, PaymentSession})}.
 
-get_pending_payment(#st{payments = [V = {_PaymentID, {Payment, _}} | _]}) ->
+get_pending_payment(#st{payments = Payments}) ->
+    find_pending_payment(Payments).
+
+find_pending_payment([V = {_PaymentID, {Payment, _}} | Rest]) ->
     case get_payment_status(Payment) of
         ?pending() ->
             V;
         ?processed() ->
             V;
         _ ->
-            undefined
+            find_pending_payment(Rest)
     end;
-get_pending_payment(#st{}) ->
+find_pending_payment([]) ->
     undefined.
 
 get_invoice_state(#st{invoice = Invoice, payments = Payments}) ->

@@ -14,12 +14,21 @@
 -export([make_shop_details/1]).
 -export([make_shop_details/2]).
 
+-export([bank_card_tds_token/0]).
+-export([bank_card_simple_token/0]).
+-export([make_tds_payment_tool/0]).
+-export([make_simple_payment_tool/0]).
+-export([get_hellgate_url/0]).
+
 -export([domain_fixture/1]).
 
 -include_lib("dmsl/include/dmsl_domain_thrift.hrl").
 -include_lib("dmsl/include/dmsl_domain_config_thrift.hrl").
 
 %%
+
+-define(HELLGATE_HOST, "hellgate").
+-define(HELLGATE_PORT, 8022).
 
 -type app_name() :: atom().
 
@@ -32,7 +41,7 @@ start_app(lager = AppName) ->
         {error_logger_hwm, 600},
         {suppress_application_start_stop, true},
         {handlers, [
-            {lager_common_test_backend, [debug, false]}
+            {lager_common_test_backend, info}
         ]}
     ]), #{}};
 
@@ -42,23 +51,30 @@ start_app(woody = AppName) ->
     ]), #{}};
 
 start_app(hellgate = AppName) ->
-    Host = "hellgate",
-    Port = 8022,
-    RootUrl = "http://" ++ Host ++ ":" ++ integer_to_list(Port),
     {start_app(AppName, [
-        {host, Host},
-        {port, Port},
+        {host, ?HELLGATE_HOST},
+        {port, ?HELLGATE_PORT},
         {automaton_service_url, <<"http://machinegun:8022/v1/automaton">>},
         {eventsink_service_url, <<"http://machinegun:8022/v1/event_sink">>},
         {accounter_service_url, <<"http://shumway:8022/accounter">>}
     ]), #{
-        hellgate_root_url => RootUrl
+        hellgate_root_url => get_hellgate_url()
     }};
 
 start_app(AppName) ->
     {genlib_app:start_application(AppName), #{}}.
 
 -spec start_app(app_name(), list()) -> [app_name()].
+
+start_app(cowboy = AppName, Env) ->
+    #{
+        listener_ref := Ref,
+        acceptors_count := Count,
+        transport_opts := TransOpt,
+        proto_opts := ProtoOpt
+    } = Env,
+    cowboy:start_http(Ref, Count, TransOpt, ProtoOpt),
+    [AppName];
 
 start_app(AppName, Env) ->
     genlib_app:start_application_with(AppName, Env).
@@ -142,12 +158,6 @@ make_invoice_params(PartyID, ShopID, Product, Due, {Amount, Currency}, Context) 
         }
     }.
 
-make_due_date() ->
-    make_due_date(24 * 60 * 60).
-
-make_due_date(LifetimeSeconds) ->
-    genlib_time:unow() + LifetimeSeconds.
-
 -spec make_category_ref(dmsl_domain_thrift:'ObjectID'()) ->
     dmsl_domain_thrift:'CategoryRef'().
 
@@ -167,6 +177,42 @@ make_shop_details(Name, Description) ->
     #domain_ShopDetails{
         name        = Name,
         description = Description
+    }.
+
+-spec bank_card_tds_token() -> string().
+
+bank_card_tds_token() ->
+    <<"TOKEN666">>.
+
+-spec bank_card_simple_token() -> string().
+
+bank_card_simple_token() ->
+    <<"TOKEN42">>.
+
+-spec make_tds_payment_tool() -> hg_domain_thrift:'PaymentTool'().
+
+make_tds_payment_tool() ->
+    {
+        {bank_card, #domain_BankCard{
+            token          = bank_card_tds_token(),
+            payment_system = visa,
+            bin            = <<"666666">>,
+            masked_pan     = <<"666">>
+        }},
+        <<"SESSION666">>
+    }.
+
+-spec make_simple_payment_tool() -> hg_domain_thrift:'PaymentTool'().
+
+make_simple_payment_tool() ->
+    {
+        {bank_card, #domain_BankCard{
+            token          = bank_card_simple_token(),
+            payment_system = visa,
+            bin            = <<"424242">>,
+            masked_pan     = <<"4242">>
+        }},
+        <<"SESSION42">>
     }.
 
 -type ref() :: _.
@@ -222,3 +268,14 @@ domain_fixture(proxy) ->
             options = genlib_app:env(hellgate, provider_proxy_options, #{})
         }
     }}.
+
+-spec get_hellgate_url() -> string().
+
+get_hellgate_url() ->
+    "http://" ++ ?HELLGATE_HOST ++ ":" ++ integer_to_list(?HELLGATE_PORT).
+
+make_due_date() ->
+    make_due_date(24 * 60 * 60).
+
+make_due_date(LifetimeSeconds) ->
+    genlib_time:unow() + LifetimeSeconds.
