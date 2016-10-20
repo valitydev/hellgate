@@ -47,16 +47,13 @@ groups() ->
 
 init_per_suite(C) ->
     {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, hellgate]),
-    ok = hg_domain:insert(hg_ct_helper:domain_fixture(currency)),
-    ok = hg_domain:insert(hg_ct_helper:domain_fixture(globals)),
-    ok = hg_domain:insert(hg_ct_helper:domain_fixture(party_prototype)),
-    ok = hg_domain:insert(hg_ct_helper:domain_fixture(proxy)),
+    ok = hg_domain:insert(hg_ct_helper:get_domain_fixture()),
     [{root_url, maps:get(hellgate_root_url, Ret)}, {apps, Apps} | C].
 
 -spec end_per_suite(config()) -> _.
 
 end_per_suite(C) ->
-    hg_domain:cleanup(),
+    ok = hg_domain:cleanup(),
     [application:stop(App) || App <- ?c(apps, C)].
 
 -spec init_per_testcase(test_case_name(), config()) -> config().
@@ -104,7 +101,7 @@ events_observed(C) ->
     PartyMgmtClient = ?c(partymgmt_client, C),
     PartyID = ?c(party_id, C),
     _ShopID = hg_ct_helper:create_party_and_shop(PartyMgmtClient),
-    {ok, Events} = hg_client_eventsink:pull_events(10, 3000, EventsinkClient),
+    Events = hg_client_eventsink:pull_events(10, 3000, EventsinkClient),
     [?event(_ID, PartyID, 1, ?party_ev(?party_created(_, _))) | _] = Events,
     IDs = [ID || ?event(ID, _, _, _) <- Events],
     IDs = lists:sort(IDs).
@@ -112,6 +109,6 @@ events_observed(C) ->
 -spec consistent_history(config()) -> _ | no_return().
 
 consistent_history(C) ->
-    {ok, Events} = hg_client_eventsink:pull_events(5000, 500, ?c(eventsink_client, C)),
+    Events = hg_client_eventsink:pull_events(5000, 500, ?c(eventsink_client, C)),
     ok = hg_eventsink_history:assert_total_order(Events),
     ok = hg_eventsink_history:assert_contiguous_sequences(Events).
