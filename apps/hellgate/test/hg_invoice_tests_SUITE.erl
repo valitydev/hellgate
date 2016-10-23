@@ -61,7 +61,7 @@ all() ->
 init_per_suite(C) ->
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
     {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, hellgate, {cowboy, CowboySpec}]),
-    ok = hg_domain:insert(hg_ct_helper:get_domain_fixture()),
+    ok = hg_domain:insert(hg_ct_helper:construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
     Client = hg_client_party:start(make_userinfo(PartyID), PartyID, hg_client_api:new(RootUrl)),
@@ -153,8 +153,8 @@ invoice_cancelled_after_payment_timeout(C) ->
     PaymentID = attach_payment(InvoiceID, PaymentParams, Client),
     ?payment_interaction_requested(PaymentID, _) = next_event(InvoiceID, Client),
     %% wait for payment timeout
-    ?payment_status_changed(PaymentID, ?failed(_)) = next_event(InvoiceID, 5000, Client),
-    ?invoice_status_changed(?cancelled(<<"overdue">>)) = next_event(InvoiceID, 5000, Client).
+    ?payment_status_changed(PaymentID, ?failed(_)) = next_event(InvoiceID, Client),
+    ?invoice_status_changed(?cancelled(<<"overdue">>)) = next_event(InvoiceID, Client).
 
 -spec payment_success(config()) -> _ | no_return().
 
@@ -197,11 +197,11 @@ invoice_success_on_third_payment(C) ->
     PaymentID1 = attach_payment(InvoiceID, PaymentParams, Client),
     ?payment_interaction_requested(PaymentID1, _) = next_event(InvoiceID, Client),
     %% wait for payment timeout and start new one after
-    ?payment_status_changed(PaymentID1, ?failed(_)) = next_event(InvoiceID, 3000, Client),
+    ?payment_status_changed(PaymentID1, ?failed(_)) = next_event(InvoiceID, Client),
     PaymentID2 = attach_payment(InvoiceID, PaymentParams, Client),
     ?payment_interaction_requested(PaymentID2, _) = next_event(InvoiceID, Client),
     %% wait for payment timeout and start new one after
-    ?payment_status_changed(PaymentID2, ?failed(_)) = next_event(InvoiceID, 3000, Client),
+    ?payment_status_changed(PaymentID2, ?failed(_)) = next_event(InvoiceID, Client),
     PaymentID3 = attach_payment(InvoiceID, PaymentParams, Client),
     ?payment_interaction_requested(PaymentID3, UserInteraction) = next_event(InvoiceID, Client),
     GoodPost = get_post_request(UserInteraction),
@@ -223,7 +223,7 @@ consistent_history(C) ->
 %%
 
 next_event(InvoiceID, Client) ->
-    next_event(InvoiceID, 3000, Client).
+    next_event(InvoiceID, 5000, Client).
 
 next_event(InvoiceID, Timeout, Client) ->
     case hg_client_invoicing:pull_event(InvoiceID, Timeout, Client) of
