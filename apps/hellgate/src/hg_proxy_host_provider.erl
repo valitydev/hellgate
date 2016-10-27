@@ -23,8 +23,13 @@
 handle_function('ProcessCallback', {Tag, Callback}, Context, _) ->
     map_error(hg_invoice:process_callback(Tag, {provider, Callback}, Context)).
 
-map_error({{ok, Result}, Context}) ->
-    {Result, Context};
+map_error({{ok, CallResult}, Context}) ->
+    case CallResult of
+        {ok, Result} ->
+            {Result, Context};
+        {exception, Reason} ->
+            throw({Reason, Context})
+    end;
 map_error({{error, notfound}, Context}) ->
     throw({#'InvalidRequest'{errors = [<<"notfound">>]}, Context});
 map_error({{error, Reason}, _Context}) ->
