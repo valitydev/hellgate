@@ -84,6 +84,9 @@
     activated.
 
 -define(session_ev(E), {session_event, E}).
+%%
+
+-define(BATCH_ID, 1).
 
 %%
 
@@ -120,7 +123,7 @@ init(PaymentID, PaymentParams, Opts) ->
     AccountMap = collect_account_map(Computed, Shop, Route, VS2, Revision),
     _AccountsState = hg_accounting:plan(
         construct_plan_id(Invoice, Payment),
-        Computed,
+        {?BATCH_ID, Computed},
         AccountMap
     ),
     Cashflow = construct_payment_cash_flow(Computed, AccountMap),
@@ -432,7 +435,7 @@ finalize_plan(Finalizer, St, Options) ->
     PlanID = construct_plan_id(get_invoice(Options), get_payment(St)),
     Computed = get_computed_cashflow(Options, St),
     AccountMap = get_account_map(St),
-    Finalizer(PlanID, Computed, AccountMap).
+    Finalizer(PlanID, [{?BATCH_ID, Computed}], AccountMap).
 
 get_account_map(#st{cashflow = #domain_InvoicePaymentCashFlow{account_map = V}}) ->
     V.
