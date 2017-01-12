@@ -108,17 +108,25 @@ init(PaymentID, PaymentParams, #{party := Party} = Opts) ->
     Revision = hg_domain:head(),
     PaymentTerms = hg_party:get_payments_service_terms(Shop#domain_Shop.id, Party, Invoice#domain_Invoice.created_at),
     VS0 = collect_varset(Shop, #{}),
+
     VS1 = validate_payment_params(PaymentParams, {Revision, PaymentTerms}, VS0),
     VS2 = validate_payment_cost(Invoice, {Revision, PaymentTerms}, VS1),
-    Payment = construct_payment(PaymentID, Invoice, PaymentParams),
-    Route = validate_route(hg_routing:choose(VS2, Revision)),
+    Payment0 = construct_payment(PaymentID, Invoice, PaymentParams),
+    RiskScore = inspect(Shop, Invoice, Payment0, Revision),
+
+    Payment = Payment0#domain_InvoicePayment{risk_score = RiskScore},
+
+    VS3 = VS2#{risk_score => RiskScore},
+    Route = validate_route(hg_routing:choose(VS3, Revision)),
     FinalCashflow = hg_cashflow:finalize(
-        collect_cash_flow({Revision, PaymentTerms}, Route, VS2),
+        collect_cash_flow({Revision, PaymentTerms}, Route, VS3),
         collect_cash_flow_context(Invoice, Payment),
-        collect_account_map(Invoice, Shop, Route, VS2, Revision)
+        collect_account_map(Invoice, Shop, Route, VS3, Revision)
     ),
     _AccountsState = hg_accounting:plan(construct_plan_id(Invoice, Payment), {?BATCH_ID, FinalCashflow}),
-    Events = [?payment_ev(?payment_started(Payment, Route, FinalCashflow))],
+    Events = [
+        ?payment_ev(?payment_started(Payment, Route, FinalCashflow))
+    ],
     Action = hg_machine_action:new(),
     {Events, Action}.
 
@@ -424,15 +432,14 @@ construct_proxy_invoice(#{invoice := #domain_Invoice{
     id = InvoiceID,
     created_at = CreatedAt,
     due = Due,
-    info = Info,
+    details = Details,
     cost = Cost
 }}) ->
     #prxprv_Invoice{
         id = InvoiceID,
         created_at =  CreatedAt,
         due =  Due,
-        product = Info#domain_InvoiceInfo.product,
-        description = Info#domain_InvoiceInfo.description,
+        details = Details,
         cost = construct_proxy_cash(Cost)
     }.
 
@@ -573,3 +580,10 @@ get_call_options(#st{route = #domain_InvoicePaymentRoute{provider = ProviderRef}
     Proxy    = Provider#domain_Provider.proxy,
     ProxyDef = hg_domain:get(Revision, {proxy, Proxy#domain_Proxy.ref}),
     #{url => ProxyDef#domain_ProxyDefinition.url}.
+
+inspect(Shop, Invoice, Payment, Revision) ->
+    #domain_Globals{inspector = InspectorRef} = hg_domain:get(Revision, {globals, #domain_GlobalsRef{}}),
+    Inspector = hg_domain:get(Revision, {inspector, InspectorRef}),
+    hg_inspector:inspect(Shop, Invoice, Payment, Inspector, Revision).
+
+
