@@ -54,49 +54,56 @@ stop(Client) ->
 %%
 
 -spec create(invoice_params(), pid()) ->
-    invoice_id() | woody_client:result_error().
+    invoice_id() | woody_error:business_error().
 
 create(InvoiceParams, Client) ->
-    gen_server:call(Client, {call, 'Create', [InvoiceParams]}).
+    map_result_error(gen_server:call(Client, {call, 'Create', [InvoiceParams]})).
 
 -spec get(invoice_id(), pid()) ->
-    dmsl_payment_processing_thrift:'InvoiceState'() | woody_client:result_error().
+    dmsl_payment_processing_thrift:'InvoiceState'() | woody_error:business_error().
 
 get(InvoiceID, Client) ->
-    gen_server:call(Client, {call, 'Get', [InvoiceID]}).
+    map_result_error(gen_server:call(Client, {call, 'Get', [InvoiceID]})).
 
 -spec fulfill(invoice_id(), binary(), pid()) ->
-    ok | woody_client:result_error().
+    ok | woody_error:business_error().
 
 fulfill(InvoiceID, Reason, Client) ->
-    gen_server:call(Client, {call, 'Fulfill', [InvoiceID, Reason]}).
+    map_result_error(gen_server:call(Client, {call, 'Fulfill', [InvoiceID, Reason]})).
 
 -spec rescind(invoice_id(), binary(), pid()) ->
-    ok | woody_client:result_error().
+    ok | woody_error:business_error().
 
 rescind(InvoiceID, Reason, Client) ->
-    gen_server:call(Client, {call, 'Rescind', [InvoiceID, Reason]}).
+    map_result_error(gen_server:call(Client, {call, 'Rescind', [InvoiceID, Reason]})).
 
 -spec start_payment(invoice_id(), payment_params(), pid()) ->
-    payment_id() | woody_client:result_error().
+    payment_id() | woody_error:business_error().
 
 start_payment(InvoiceID, PaymentParams, Client) ->
-    gen_server:call(Client, {call, 'StartPayment', [InvoiceID, PaymentParams]}).
+    map_result_error(gen_server:call(Client, {call, 'StartPayment', [InvoiceID, PaymentParams]})).
 
 -define(DEFAULT_NEXT_EVENT_TIMEOUT, 5000).
 
 -spec pull_event(invoice_id(), pid()) ->
-    tuple() | timeout | woody_client:result_error().
+    tuple() | timeout | woody_error:business_error().
 
 pull_event(InvoiceID, Client) ->
     pull_event(InvoiceID, ?DEFAULT_NEXT_EVENT_TIMEOUT, Client).
 
 -spec pull_event(invoice_id(), timeout(), pid()) ->
-    tuple() | timeout | woody_client:result_error().
+    tuple() | timeout | woody_error:business_error().
 
 pull_event(InvoiceID, Timeout, Client) ->
     % FIXME: infinity sounds dangerous
     gen_server:call(Client, {pull_event, InvoiceID, Timeout}, infinity).
+
+map_result_error({ok, Result}) ->
+    Result;
+map_result_error({exception, _} = Exception) ->
+    Exception;
+map_result_error({error, Error}) ->
+    error(Error).
 
 %%
 

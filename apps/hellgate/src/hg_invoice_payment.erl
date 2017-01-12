@@ -276,28 +276,20 @@ process_call({callback, Payload}, St, Options) ->
 
 process(St, Options) ->
     ProxyContext = construct_proxy_context(St, Options),
-    handle_process_result(issue_process_call(ProxyContext, Options, St), Options, St).
-
-handle_process_result(Result, Options, St) ->
-    case Result of
-        ProxyResult = #prxprv_ProxyResult{} ->
-            handle_proxy_result(ProxyResult, St, Options);
-        {error, Error} ->
-            error(Error)
-    end.
+    {ok, ProxyResult} = issue_process_call(ProxyContext, Options, St),
+    handle_proxy_result(ProxyResult, St, Options).
 
 handle_callback(Payload, St, Options) ->
     ProxyContext = construct_proxy_context(St, Options),
     handle_callback_result(issue_callback_call(Payload, ProxyContext, Options, St), Options, St).
 
-handle_callback_result(Result, Options, St) ->
-    case Result of
-        #prxprv_CallbackResult{result = ProxyResult, response = Response} ->
-            {What, {Events, Action}} = handle_proxy_result(ProxyResult, St, Options),
-            {Response, {What, {[?session_ev(activated) | Events], Action}}};
-        {error, Error} ->
-            error(Error)
-    end.
+handle_callback_result(
+    {ok, #prxprv_CallbackResult{result = ProxyResult, response = Response}},
+    Options,
+    St
+) ->
+    {What, {Events, Action}} = handle_proxy_result(ProxyResult, St, Options),
+    {Response, {What, {[?session_ev(activated) | Events], Action}}}.
 
 handle_proxy_result(
     #prxprv_ProxyResult{intent = {_, Intent}, trx = Trx, next_state = ProxyState},
@@ -572,7 +564,7 @@ issue_callback_call(Payload, ProxyContext, Opts, St) ->
 
 issue_call(Func, Args, Opts, St) ->
     CallOpts = get_call_options(St, Opts),
-    hg_woody_wrapper:call_safe('ProviderProxy', Func, Args, CallOpts).
+    hg_woody_wrapper:call('ProviderProxy', Func, Args, CallOpts).
 
 get_call_options(#st{route = #domain_InvoicePaymentRoute{provider = ProviderRef}}, _Opts) ->
     Revision = hg_domain:head(),

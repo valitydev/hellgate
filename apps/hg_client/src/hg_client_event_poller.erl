@@ -10,10 +10,10 @@
 
 -type events() :: [dmsl_payment_processing_thrift:'Event'()].
 
--type api_call() :: {Name :: atom(), woody_t:func(), [_]}.
+-type api_call() :: {Name :: atom(), woody:func(), [_]}.
 -opaque t() :: {api_call(), undefined | integer()}.
 
--spec new(Name :: atom(), woody_t:func(), [_]) ->
+-spec new(Name :: atom(), woody:func(), [_]) ->
     t().
 
 new(Name, Function, Args) ->
@@ -34,9 +34,9 @@ poll(N, Timeout, Acc, Client, StWas, {Call = {Name, Function, Args}, After}) ->
     Range = construct_range(After, N, Acc),
     {Result, ClientNext} = hg_client_api:call(Name, Function, Args ++ [Range], Client),
     case Result of
-        Events when length(Events) == N ->
+        {ok, Events} when length(Events) == N ->
             {Acc ++ Events, ClientNext, {Call, get_last_event_id(After, Events)}};
-        Events when is_list(Events) ->
+        {ok, Events} when is_list(Events) ->
             StNext = {Call, get_last_event_id(After, Events)},
             TimeoutLeft = wait_timeout(StartTs, Timeout),
             poll(N - length(Events), TimeoutLeft, Acc ++ Events, ClientNext, StWas, StNext);
