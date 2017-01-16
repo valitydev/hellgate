@@ -163,16 +163,16 @@ get_history(PartyID) ->
 get_history(PartyID, AfterID, Limit) ->
     map_history_error(hg_machine:get_history(?NS, PartyID, AfterID, Limit)).
 
-%% TODO remove this hack as soon as machinegun learns to tell the difference between
-%%      nonexsitent machine and empty history
-assert_nonempty_history({[], _LastID}) ->
-    hg_woody_wrapper:raise(#payproc_PartyNotFound{});
-assert_nonempty_history({[_ | _], _LastID} = Result) ->
-    Result.
-
 get_state(_UserInfo, PartyID) ->
     {History, _LastID} = get_history(PartyID),
-    collapse_history(History).
+    collapse_history(assert_nonempty_history(History)).
+
+%% TODO remove this hack as soon as machinegun learns to tell the difference between
+%%      nonexsitent machine and empty history
+assert_nonempty_history([_ | _] = Result) ->
+    Result;
+assert_nonempty_history([]) ->
+    throw(#payproc_PartyNotFound{}).
 
 get_public_history(_UserInfo, PartyID, AfterID, Limit) ->
     hg_history:get_public_history(
@@ -193,7 +193,7 @@ map_start_error({error, exists}) ->
     hg_woody_wrapper:raise(#payproc_PartyExists{}).
 
 map_history_error({ok, Result}) ->
-    assert_nonempty_history(Result);
+    Result;
 map_history_error({error, notfound}) ->
     hg_woody_wrapper:raise(#payproc_PartyNotFound{});
 map_history_error({error, Reason}) ->
@@ -692,10 +692,29 @@ is_change_need_acceptance({blocking, _}) ->
 is_change_need_acceptance({suspension, _}) ->
     false;
 is_change_need_acceptance(?shop_modification(_, Modification)) ->
-    is_change_need_acceptance(Modification);
-is_change_need_acceptance({accounts_created, _}) ->
-    false;
+    is_shop_modification_need_acceptance(Modification);
 is_change_need_acceptance(_) ->
+    true.
+
+is_shop_modification_need_acceptance({blocking, _}) ->
+    false;
+is_shop_modification_need_acceptance({suspension, _}) ->
+    false;
+is_shop_modification_need_acceptance({account_created, _}) ->
+    false;
+is_shop_modification_need_acceptance({update, ShopUpdate}) ->
+    is_shop_update_need_acceptance(ShopUpdate);
+is_shop_modification_need_acceptance(_) ->
+    true.
+
+is_shop_update_need_acceptance(ShopUpdate = #payproc_ShopUpdate{}) ->
+    RecordInfo = record_info(fields, payproc_ShopUpdate),
+    ShopUpdateUnits = hg_proto_utils:record_to_proplist(ShopUpdate, RecordInfo),
+    lists:any(fun (E) -> is_shop_update_unit_need_acceptance(E) end, ShopUpdateUnits).
+
+is_shop_update_unit_need_acceptance({proxy, _}) ->
+    false;
+is_shop_update_unit_need_acceptance(_) ->
     true.
 
 has_changeset_conflict(Changeset, ChangesetPending, St) ->
@@ -924,7 +943,7 @@ get_shop_account(ShopID, St = #st{}) ->
     get_shop_account(Shop).
 
 get_shop_account(#domain_Shop{account = undefined}) ->
-    hg_woody_wrapper:raise(#payproc_AccountNotFound{});
+    hg_woody_wrapper:raise(#payproc_ShopAccountNotFound{});
 get_shop_account(#domain_Shop{account = Account}) ->
     Account.
 
@@ -1027,10 +1046,16 @@ apply_shop_change({suspension, Suspension}, Shop) ->
     Shop#domain_Shop{suspension = Suspension};
 apply_shop_change({update, Update}, Shop) ->
     fold_opt([
-        {Update#payproc_ShopUpdate.category   , fun (V, S) -> S#domain_Shop{category = V}   end},
-        {Update#payproc_ShopUpdate.details    , fun (V, S) -> S#domain_Shop{details = V}    end},
-        {Update#payproc_ShopUpdate.contract_id , fun (V, S) -> S#domain_Shop{contract_id = V} end},
-        {Update#payproc_ShopUpdate.payout_account_id, fun (V, S) -> S#domain_Shop{payout_account_id = V} end}
+        {Update#payproc_ShopUpdate.category,
+            fun (V, S) -> S#domain_Shop{category = V} end},
+        {Update#payproc_ShopUpdate.details,
+            fun (V, S) -> S#domain_Shop{details = V} end},
+        {Update#payproc_ShopUpdate.contract_id,
+            fun (V, S) -> S#domain_Shop{contract_id = V} end},
+        {Update#payproc_ShopUpdate.payout_account_id,
+            fun (V, S) -> S#domain_Shop{payout_account_id = V} end},
+        {Update#payproc_ShopUpdate.proxy,
+            fun (V, S) -> S#domain_Shop{proxy = V} end}
     ], Shop);
 apply_shop_change(?account_created(ShopAccount), Shop) ->
     Shop#domain_Shop{account = ShopAccount}.
