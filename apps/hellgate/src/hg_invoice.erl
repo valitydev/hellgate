@@ -72,8 +72,14 @@
     term() | no_return().
 
 handle_function('Create', [UserInfo, InvoiceParams], _Opts) ->
-    ID = hg_utils:unique_id(),
     #payproc_InvoiceParams{party_id = PartyID, shop_id = ShopID} = InvoiceParams,
+    case hg_access_control:check_user_info(UserInfo, PartyID) of
+        ok ->
+            ok;
+        invalid_user ->
+            throw(#payproc_InvalidUser{})
+    end,
+    ID = hg_utils:unique_id(),
     Party = get_party(UserInfo, PartyID),
     Shop = validate_party_shop(ShopID, Party),
     ok = validate_invoice_params(InvoiceParams, Shop),
@@ -81,22 +87,25 @@ handle_function('Create', [UserInfo, InvoiceParams], _Opts) ->
     ID;
 
 handle_function('Get', [UserInfo, InvoiceID], _Opts) ->
-    St = get_state(UserInfo, InvoiceID),
+    ok = validate_access(UserInfo, InvoiceID),
+    St = get_state(InvoiceID),
     _Party = get_party(UserInfo, get_party_id(St)),
     get_invoice_state(St);
 
 handle_function('GetEvents', [UserInfo, InvoiceID, Range], _Opts) ->
-    %% TODO access control
-    get_public_history(UserInfo, InvoiceID, Range);
+    ok = validate_access(UserInfo, InvoiceID),
+    get_public_history(InvoiceID, Range);
 
 handle_function('StartPayment', [UserInfo, InvoiceID, PaymentParams], _Opts) ->
-    St0 = get_initial_state(UserInfo, InvoiceID),
+    ok = validate_access(UserInfo, InvoiceID),
+    St0 = get_initial_state(InvoiceID),
     Party = get_party(UserInfo, get_party_id(St0)),
     _Shop = validate_party_shop(get_shop_id(St0), Party),
     call(InvoiceID, {start_payment, PaymentParams});
 
 handle_function('GetPayment', [UserInfo, InvoiceID, PaymentID], _Opts) ->
-    St = get_state(UserInfo, InvoiceID),
+    ok = validate_access(UserInfo, InvoiceID),
+    St = get_state(InvoiceID),
     case get_payment_session(PaymentID, St) of
         PaymentSession when PaymentSession /= undefined ->
             hg_invoice_payment:get_payment(PaymentSession);
@@ -104,12 +113,12 @@ handle_function('GetPayment', [UserInfo, InvoiceID, PaymentID], _Opts) ->
             throw(#payproc_InvoicePaymentNotFound{})
     end;
 
-handle_function('Fulfill', [_UserInfo, InvoiceID, Reason], _Opts) ->
-    %% TODO access control
+handle_function('Fulfill', [UserInfo, InvoiceID, Reason], _Opts) ->
+    ok = validate_access(UserInfo, InvoiceID),
     call(InvoiceID, {fulfill, Reason});
 
-handle_function('Rescind', [_UserInfo, InvoiceID, Reason], _Opts) ->
-    %% TODO access control
+handle_function('Rescind', [UserInfo, InvoiceID, Reason], _Opts) ->
+    ok = validate_access(UserInfo, InvoiceID),
     call(InvoiceID, {rescind, Reason}).
 
 get_party(UserInfo, PartyID) ->
@@ -150,23 +159,23 @@ process_callback(Tag, Callback) ->
 
 %%
 
-get_history(_UserInfo, InvoiceID) ->
+get_history(InvoiceID) ->
     map_history_error(hg_machine:get_history(?NS, InvoiceID)).
 
-get_history(_UserInfo, InvoiceID, AfterID, Limit) ->
+get_history(InvoiceID, AfterID, Limit) ->
     map_history_error(hg_machine:get_history(?NS, InvoiceID, AfterID, Limit)).
 
-get_state(UserInfo, InvoiceID) ->
-    {History, _LastID} = get_history(UserInfo, InvoiceID),
+get_state(InvoiceID) ->
+    {History, _LastID} = get_history(InvoiceID),
     collapse_history(History).
 
-get_initial_state(UserInfo, InvoiceID) ->
-    {History, _LastID} = get_history(UserInfo, InvoiceID, undefined, 1),
+get_initial_state(InvoiceID) ->
+    {History, _LastID} = get_history(InvoiceID, undefined, 1),
     collapse_history(History).
 
-get_public_history(UserInfo, InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
+get_public_history(InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     hg_history:get_public_history(
-        fun (ID, Lim) -> get_history(UserInfo, InvoiceID, ID, Lim) end,
+        fun (ID, Lim) -> get_history(InvoiceID, ID, Lim) end,
         fun (Event) -> publish_invoice_event(InvoiceID, Event) end,
         AfterID, Limit
     ).
@@ -716,3 +725,14 @@ validate_currency(Currency, Currency) ->
     ok;
 validate_currency(_, _) ->
     throw(#'InvalidRequest'{errors = [<<"Invalid currency">>]}).
+
+validate_access(UserInfo, InvoiceID) ->
+    St = get_initial_state(InvoiceID),
+    PartyID = get_party_id(St),
+    case hg_access_control:check_user_info(UserInfo, PartyID) of
+        ok ->
+            ok;
+        invalid_user ->
+            throw(#payproc_InvalidUser{})
+    end.
+
