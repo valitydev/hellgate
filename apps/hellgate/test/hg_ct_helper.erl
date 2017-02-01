@@ -49,7 +49,7 @@ start_app(lager = AppName) ->
         {error_logger_hwm, 600},
         {suppress_application_start_stop, true},
         {handlers, [
-            {lager_common_test_backend, info}
+            {lager_common_test_backend, debug}
         ]}
     ]), #{}};
 
@@ -66,6 +66,12 @@ start_app(hellgate = AppName) ->
             'Automaton' => <<"http://machinegun:8022/v1/automaton">>,
             'EventSink' => <<"http://machinegun:8022/v1/event_sink">>,
             'Accounter' => <<"http://shumway:8022/accounter">>
+        }},
+        {proxy_opts, #{
+            transport_opts => #{
+                connect_timeout => 1000,
+                recv_timeout    => 1000
+            }
         }}
     ]), #{
         hellgate_root_url => get_hellgate_url()
@@ -92,8 +98,6 @@ start_app(AppName, Env) ->
 -spec start_apps([app_name() | {app_name(), list()}]) -> [app_name()].
 
 start_apps(Apps) ->
-    % FIXME ASAP! tests fail due to lag between docker start and service in container start
-    timer:sleep(5000),
     lists:foldl(
         fun
             ({AppName, Env}, {AppsAcc, RetAcc}) ->
@@ -125,7 +129,7 @@ start_apps(Apps) ->
     shop_id().
 
 create_party_and_shop(Client) ->
-    ok = hg_client_party:create(make_party_params(), Client),
+    _ = hg_client_party:create(make_party_params(), Client),
     #domain_Party{shops = Shops} = hg_client_party:get(Client),
     [{ShopID, _Shop}] = maps:to_list(Shops),
     ShopID.
@@ -379,8 +383,11 @@ make_due_date(LifetimeSeconds) ->
 -define(sas(ID), #domain_SystemAccountSetRef{id = ID}).
 -define(eas(ID), #domain_ExternalAccountSetRef{id = ID}).
 -define(insp(ID), #domain_InspectorRef{id = ID}).
+
 -define(trmacc(Cur, Stl),
     #domain_TerminalAccount{currency = ?cur(Cur), settlement = Stl}).
+-define(partycond(ID, Def),
+    {condition, {party, #domain_PartyCondition{id = ID, definition = Def}}}).
 
 -define(cfpost(A1, A2, V),
     #domain_CashFlowPosting{
@@ -415,23 +422,32 @@ construct_domain_fixture() ->
     hg_context:cleanup(),
     TermSet = #domain_TermSet{
         payments = #domain_PaymentsServiceTerms{
-            payment_methods = {value, ordsets:from_list([
-                ?pmt(bank_card, visa),
-                ?pmt(bank_card, mastercard)
-            ])},
+            payment_methods = {decisions, [
+                #domain_PaymentMethodDecision{
+                    if_   = ?partycond(<<"DEPRIVED ONE">>, {shop_is, 1}),
+                    then_ = {value, ordsets:new()}
+                },
+                #domain_PaymentMethodDecision{
+                    if_   = {constant, true},
+                    then_ = {value, ordsets:from_list([
+                        ?pmt(bank_card, visa),
+                        ?pmt(bank_card, mastercard)
+                    ])}
+                }
+            ]},
             cash_limit = {decisions, [
                 #domain_CashLimitDecision{
                     if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
-                    then_ = {value, #domain_CashLimit{
-                        min = {inclusive, ?cash(1000, ?cur(<<"RUB">>))},
-                        max = {exclusive, ?cash(4200000, ?cur(<<"RUB">>))}
+                    then_ = {value, #domain_CashRange{
+                        lower = {inclusive, ?cash(     1000, ?cur(<<"RUB">>))},
+                        upper = {exclusive, ?cash(420000000, ?cur(<<"RUB">>))}
                     }}
                 },
                 #domain_CashLimitDecision{
                     if_ = {condition, {currency_is, ?cur(<<"USD">>)}},
-                    then_ = {value, #domain_CashLimit{
-                        min = {inclusive, ?cash(200, ?cur(<<"USD">>))},
-                        max = {exclusive, ?cash(313370, ?cur(<<"USD">>))}
+                    then_ = {value, #domain_CashRange{
+                        lower = {inclusive, ?cash(      200, ?cur(<<"USD">>))},
+                        upper = {exclusive, ?cash(   313370, ?cur(<<"USD">>))}
                     }}
                 }
             ]},
@@ -468,8 +484,28 @@ construct_domain_fixture() ->
                 system_account_set = {value, ?sas(1)},
                 external_account_set = {value, ?eas(1)},
                 default_contract_template = ?tmpl(1),
-                inspector = ?insp(1),
-                common_merchant_proxy = ?prx(3)
+                common_merchant_proxy = ?prx(3),
+                inspector = {decisions, [
+                    #domain_InspectorDecision{
+                        if_   = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                        then_ = {decisions, [
+                            #domain_InspectorDecision{
+                                if_ = {condition, {cost_in, #domain_CashRange{
+                                    lower = {inclusive, ?cash(        0, ?cur(<<"RUB">>))},
+                                    upper = {exclusive, ?cash(   500000, ?cur(<<"RUB">>))}
+                                }}},
+                                then_ = {value, ?insp(1)}
+                            },
+                            #domain_InspectorDecision{
+                                if_ = {condition, {cost_in, #domain_CashRange{
+                                    lower = {inclusive, ?cash(   500000, ?cur(<<"RUB">>))},
+                                    upper = {exclusive, ?cash(100000000, ?cur(<<"RUB">>))}
+                                }}},
+                                then_ = {value, ?insp(2)}
+                            }
+                        ]}
+                    }
+                ]}
             }
         }},
         {system_account_set, #domain_SystemAccountSetObject{
@@ -515,10 +551,21 @@ construct_domain_fixture() ->
             ref = #domain_InspectorRef{id = 1},
             data = #domain_Inspector{
                 name = <<"Kovalsky">>,
-                description = <<"Wold famous inspector Kovalsky at your service!">>,
+                description = <<"World famous inspector Kovalsky at your service!">>,
                 proxy = #domain_Proxy{
                     ref = ?prx(2),
                     additional = #{<<"risk_score">> => <<"low">>}
+                }
+            }
+        }},
+        {inspector, #domain_InspectorObject{
+            ref = #domain_InspectorRef{id = 2},
+            data = #domain_Inspector{
+                name = <<"Skipper">>,
+                description = <<"World famous inspector Skipper at your service!">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(2),
+                    additional = #{<<"risk_score">> => <<"high">>}
                 }
             }
         }},
@@ -793,8 +840,8 @@ construct_domain_fixture() ->
             data = #domain_ProxyDefinition{
                 name        = <<"Inspector proxy">>,
                 description = <<"Inspector proxy that hates your mom">>,
-                url     = <<>>,
-                options = #{}
+                url         = <<>>,
+                options     = #{}
             }
         }},
         {proxy, #domain_ProxyObject{
@@ -802,8 +849,8 @@ construct_domain_fixture() ->
             data = #domain_ProxyDefinition{
                 name        = <<"Merchant proxy">>,
                 description = <<"Merchant proxy that noone cares about">>,
-                url     = <<>>,
-                options = #{}
+                url         = <<>>,
+                options     = #{}
             }
         }}
     ].
