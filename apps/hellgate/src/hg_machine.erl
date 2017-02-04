@@ -147,14 +147,31 @@ call_automaton(Function, Args) ->
 -spec handle_function(func(), woody:args(), hg_woody_wrapper:handler_opts()) ->
     term() | no_return().
 
-handle_function('ProcessSignal', [Args], #{ns := Ns} = _Opts) ->
-    _ = hg_utils:logtag_process(namespace, Ns),
-    #'SignalArgs'{signal = {_Type, Signal}, machine = Machine} = Args,
+handle_function(Func, Args, Opts) ->
+    hg_log_scope:scope(machine,
+        fun() -> handle_function_(Func, Args, Opts) end
+    ).
+
+-spec handle_function_(func(), woody:args(), hg_woody_wrapper:handler_opts()) ->
+    term() | no_return().
+
+handle_function_('ProcessSignal', [Args], #{ns := Ns} = _Opts) ->
+    #'SignalArgs'{signal = {Type, Signal}, machine = #'Machine'{id = ID} = Machine} = Args,
+    hg_log_scope:set_meta(#{
+        namespace => Ns,
+        id => ID,
+        activity => signal,
+        signal => Type
+    }),
     dispatch_signal(Ns, Signal, Machine);
 
-handle_function('ProcessCall', [Args], #{ns := Ns} = _Opts) ->
-    _ = hg_utils:logtag_process(namespace, Ns),
-    #'CallArgs'{arg = Payload, machine = Machine} = Args,
+handle_function_('ProcessCall', [Args], #{ns := Ns} = _Opts) ->
+    #'CallArgs'{arg = Payload, machine = #'Machine'{id = ID} = Machine} = Args,
+    hg_log_scope:set_meta(#{
+        namespace => Ns,
+        id => ID,
+        activity => call
+    }),
     dispatch_call(Ns, Payload, Machine).
 
 %%

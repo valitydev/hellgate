@@ -66,12 +66,20 @@
 
 -type st() :: #st{}.
 
-%%
-
 -spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) ->
     term() | no_return().
 
-handle_function('Create', [UserInfo, InvoiceParams], _Opts) ->
+handle_function(Func, Args, Opts) ->
+    hg_log_scope:scope(invoicing,
+        fun() -> handle_function_(Func, Args, Opts) end
+    ).
+
+-spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) ->
+    term() | no_return().
+
+handle_function_('Create', [UserInfo, InvoiceParams], _Opts) ->
+    ID = hg_utils:unique_id(),
+    _ = set_invoicing_meta(ID, UserInfo),
     #payproc_InvoiceParams{party_id = PartyID, shop_id = ShopID} = InvoiceParams,
     case hg_access_control:check_user_info(UserInfo, PartyID) of
         ok ->
@@ -79,31 +87,34 @@ handle_function('Create', [UserInfo, InvoiceParams], _Opts) ->
         invalid_user ->
             throw(#payproc_InvalidUser{})
     end,
-    ID = hg_utils:unique_id(),
     Party = get_party(UserInfo, PartyID),
     Shop = validate_party_shop(ShopID, Party),
     ok = validate_invoice_params(InvoiceParams, Shop),
     ok = start(ID, {InvoiceParams, PartyID}),
     ID;
 
-handle_function('Get', [UserInfo, InvoiceID], _Opts) ->
+handle_function_('Get', [UserInfo, InvoiceID], _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, UserInfo),
     ok = validate_access(UserInfo, InvoiceID),
     St = get_state(InvoiceID),
     _Party = get_party(UserInfo, get_party_id(St)),
     get_invoice_state(St);
 
-handle_function('GetEvents', [UserInfo, InvoiceID, Range], _Opts) ->
+handle_function_('GetEvents', [UserInfo, InvoiceID, Range], _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, UserInfo),
     ok = validate_access(UserInfo, InvoiceID),
     get_public_history(InvoiceID, Range);
 
-handle_function('StartPayment', [UserInfo, InvoiceID, PaymentParams], _Opts) ->
+handle_function_('StartPayment', [UserInfo, InvoiceID, PaymentParams], _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, UserInfo),
     ok = validate_access(UserInfo, InvoiceID),
     St0 = get_initial_state(InvoiceID),
     Party = get_party(UserInfo, get_party_id(St0)),
     _Shop = validate_party_shop(get_shop_id(St0), Party),
     call(InvoiceID, {start_payment, PaymentParams});
 
-handle_function('GetPayment', [UserInfo, InvoiceID, PaymentID], _Opts) ->
+handle_function_('GetPayment', [UserInfo, InvoiceID, PaymentID], _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, UserInfo),
     ok = validate_access(UserInfo, InvoiceID),
     St = get_state(InvoiceID),
     case get_payment_session(PaymentID, St) of
@@ -113,11 +124,13 @@ handle_function('GetPayment', [UserInfo, InvoiceID, PaymentID], _Opts) ->
             throw(#payproc_InvoicePaymentNotFound{})
     end;
 
-handle_function('Fulfill', [UserInfo, InvoiceID, Reason], _Opts) ->
+handle_function_('Fulfill', [UserInfo, InvoiceID, Reason], _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, UserInfo),
     ok = validate_access(UserInfo, InvoiceID),
     call(InvoiceID, {fulfill, Reason});
 
-handle_function('Rescind', [UserInfo, InvoiceID, Reason], _Opts) ->
+handle_function_('Rescind', [UserInfo, InvoiceID, Reason], _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, UserInfo),
     ok = validate_access(UserInfo, InvoiceID),
     call(InvoiceID, {rescind, Reason}).
 
@@ -137,6 +150,12 @@ get_invoice_state(#st{invoice = Invoice, payments = Payments}) ->
                 {_PaymentID, PaymentSession} <- Payments
         ]
     }.
+
+set_invoicing_meta(InvoiceID, #payproc_UserInfo{id = ID, type = {Type, _}}) ->
+    hg_log_scope:set_meta(#{
+        invoice_id => InvoiceID,
+        user_info => #{id => ID, type => Type}
+    }).
 
 %%
 
