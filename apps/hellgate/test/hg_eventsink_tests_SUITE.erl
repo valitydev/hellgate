@@ -1,4 +1,6 @@
 -module(hg_eventsink_tests_SUITE).
+
+-include("hg_ct_domain.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -export([all/0]).
@@ -47,7 +49,7 @@ groups() ->
 
 init_per_suite(C) ->
     {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, hellgate]),
-    ok = hg_domain:insert(hg_ct_helper:construct_domain_fixture()),
+    ok = hg_domain:insert(construct_domain_fixture()),
     [{root_url, maps:get(hellgate_root_url, Ret)}, {apps, Apps} | C].
 
 -spec end_per_suite(config()) -> _.
@@ -112,3 +114,57 @@ consistent_history(C) ->
     Events = hg_client_eventsink:pull_events(5000, 500, ?c(eventsink_client, C)),
     ok = hg_eventsink_history:assert_total_order(Events),
     ok = hg_eventsink_history:assert_contiguous_sequences(Events).
+
+-spec construct_domain_fixture() -> [hg_domain:object()].
+
+construct_domain_fixture() ->
+    [
+        hg_ct_fixture:construct_currency(?cur(<<"RUB">>)),
+        hg_ct_fixture:construct_category(?cat(1), <<"Test category">>),
+        hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
+        hg_ct_fixture:construct_inspector(?insp(1), <<"Dummy Inspector">>, ?prx(1)),
+        hg_ct_fixture:construct_contract_template(?tmpl(1), ?trms(1)),
+        hg_ct_fixture:construct_system_account_set(?sas(1)),
+        hg_ct_fixture:construct_external_account_set(?eas(1)),
+
+        {globals, #domain_GlobalsObject{
+            ref = #domain_GlobalsRef{},
+            data = #domain_Globals{
+                party_prototype = #domain_PartyPrototypeRef{id = 42},
+                providers = {value, ordsets:from_list([])},
+                system_account_set = {value, ?sas(1)},
+                external_account_set = {value, ?eas(1)},
+                default_contract_template = ?tmpl(1),
+                common_merchant_proxy = ?prx(1),
+                inspector = {value, ?insp(1)}
+            }
+        }},
+        {party_prototype, #domain_PartyPrototypeObject{
+            ref = #domain_PartyPrototypeRef{id = 42},
+            data = #domain_PartyPrototype{
+                shop = #domain_ShopPrototype{
+                    category = ?cat(1),
+                    currency = ?cur(<<"RUB">>),
+                    details  = #domain_ShopDetails{
+                        name = <<"SUPER DEFAULT SHOP">>
+                    }
+                },
+                test_contract_template = ?tmpl(1)
+            }
+        }},
+        {term_set_hierarchy, #domain_TermSetHierarchyObject{
+            ref = ?trms(1),
+            data = #domain_TermSetHierarchy{
+                parent_terms = undefined,
+                term_sets = [#domain_TimedTermSet{
+                    action_time = #'TimestampInterval'{},
+                    terms = #domain_TermSet{
+                        payments = #domain_PaymentsServiceTerms{
+                            currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
+                            categories = {value, ordsets:from_list([?cat(1)])}
+                        }
+                    }
+                }]
+            }
+        }}
+    ].

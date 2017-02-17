@@ -1,4 +1,6 @@
 -module(hg_invoice_tests_SUITE).
+
+-include("hg_ct_domain.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("dmsl/include/dmsl_payment_processing_thrift.hrl").
 
@@ -36,6 +38,9 @@ init([]) ->
 
 -define(c(Key, C), begin element(2, lists:keyfind(Key, 1, C)) end).
 
+-define(cash(Amount, Currency),
+    #domain_Cash{amount = Amount, currency = Currency}).
+
 %% tests descriptions
 
 -type config() :: [{atom(), term()}].
@@ -72,7 +77,7 @@ init_per_suite(C) ->
     % _ = dbg:tpl({'hg_client_party', '_', '_'}, x),
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
     {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, hellgate, {cowboy, CowboySpec}]),
-    ok = hg_domain:insert(hg_ct_helper:construct_domain_fixture()),
+    ok = hg_domain:insert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
     Client = hg_client_party:start(make_userinfo(PartyID), PartyID, hg_client_api:new(RootUrl)),
@@ -193,7 +198,7 @@ payment_success_w_merchant_callback(C) ->
     PartyClient = ?c(party_client, C),
     ContractParams = hg_ct_helper:make_battle_ready_contract_params(),
     ContractID = hg_ct_helper:create_contract(ContractParams, PartyClient),
-    ShopID = hg_ct_helper:create_shop(ContractID, hg_ct_helper:make_category_ref(1), <<"Callback Shop">>, PartyClient),
+    ShopID = hg_ct_helper:create_shop(ContractID, ?cat(3), <<"Callback Shop">>, PartyClient),
     ok = start_proxy(hg_dummy_provider, 1, C),
     ok = start_proxy(hg_dummy_inspector, 2, C),
     MerchantProxy = construct_proxy(3, start_service_handler(hg_dummy_merchant, C, #{}), #{}),
@@ -354,12 +359,9 @@ setup_proxy(ProxyUrl, ProxyID, ProxyOpts) ->
 get_random_port() ->
     rand:uniform(32768) + 32767.
 
-construct_proxy_ref(ID) ->
-    #domain_ProxyRef{id = ID}.
-
 construct_proxy(ID, Url, Options) ->
     {proxy, #domain_ProxyObject{
-        ref = construct_proxy_ref(ID),
+        ref = ?prx(ID),
         data = #domain_ProxyDefinition{
             name              = Url,
             description       = Url,
@@ -439,3 +441,441 @@ post_request({URL, Form}) ->
 
 get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
     {URL, Form}.
+
+-spec construct_domain_fixture() -> [hg_domain:object()].
+
+construct_domain_fixture() ->
+    _ = hg_context:set(woody_context:new()),
+    AccountUSD = ?trmacc(<<"USD">>, hg_accounting:create_account(<<"USD">>)),
+    AccountRUB = ?trmacc(<<"RUB">>, hg_accounting:create_account(<<"RUB">>)),
+    hg_context:cleanup(),
+    TestTermSet = #domain_TermSet{
+        payments = #domain_PaymentsServiceTerms{
+            currencies = {value, ordsets:from_list([
+                ?cur(<<"RUB">>)
+            ])},
+            categories = {value, ordsets:from_list([
+                ?cat(1)
+            ])},
+            payment_methods = {decisions, [
+                #domain_PaymentMethodDecision{
+                    if_   = ?partycond(<<"DEPRIVED ONE">>, {shop_is, 1}),
+                    then_ = {value, ordsets:new()}
+                },
+                #domain_PaymentMethodDecision{
+                    if_   = {constant, true},
+                    then_ = {value, ordsets:from_list([
+                        ?pmt(bank_card, visa),
+                        ?pmt(bank_card, mastercard)
+                    ])}
+                }
+            ]},
+            cash_limit = {decisions, [
+                #domain_CashLimitDecision{
+                    if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                    then_ = {value, #domain_CashRange{
+                        lower = {inclusive, ?cash(     1000, ?cur(<<"RUB">>))},
+                        upper = {exclusive, ?cash(420000000, ?cur(<<"RUB">>))}
+                    }}
+                }
+            ]},
+            fees = {decisions, [
+                #domain_CashFlowDecision{
+                    if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                    then_ = {value, [
+                        ?cfpost(
+                            {merchant, settlement},
+                            {system, settlement},
+                            ?share(45, 1000, payment_amount)
+                        )
+                    ]}
+                }
+            ]}
+        }
+    },
+    DefaultTermSet = #domain_TermSet{
+        payments = #domain_PaymentsServiceTerms{
+            currencies = {value, ordsets:from_list([
+                ?cur(<<"RUB">>),
+                ?cur(<<"USD">>)
+            ])},
+            categories = {value, ordsets:from_list([
+                ?cat(2),
+                ?cat(3)
+            ])},
+            payment_methods = {value, ordsets:from_list([
+                ?pmt(bank_card, visa),
+                ?pmt(bank_card, mastercard)
+            ])},
+            cash_limit = {decisions, [
+                #domain_CashLimitDecision{
+                    if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                    then_ = {value, #domain_CashRange{
+                        lower = {inclusive, ?cash(1000, ?cur(<<"RUB">>))},
+                        upper = {exclusive, ?cash(4200000, ?cur(<<"RUB">>))}
+                    }}
+                },
+                #domain_CashLimitDecision{
+                    if_ = {condition, {currency_is, ?cur(<<"USD">>)}},
+                    then_ = {value, #domain_CashRange{
+                        lower = {inclusive, ?cash(      200, ?cur(<<"USD">>))},
+                        upper = {exclusive, ?cash(   313370, ?cur(<<"USD">>))}
+                    }}
+                }
+            ]},
+            fees = {decisions, [
+                #domain_CashFlowDecision{
+                    if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                    then_ = {value, [
+                        ?cfpost(
+                            {merchant, settlement},
+                            {system, settlement},
+                            ?share(45, 1000, payment_amount)
+                        )
+                    ]}
+                },
+                #domain_CashFlowDecision{
+                    if_ = {condition, {currency_is, ?cur(<<"USD">>)}},
+                    then_ = {value, [
+                        ?cfpost(
+                            {merchant, settlement},
+                            {system, settlement},
+                            ?share(65, 1000, payment_amount)
+                        )
+                    ]}
+                }
+            ]}
+        }
+    },
+    [
+        hg_ct_fixture:construct_currency(?cur(<<"RUB">>)),
+        hg_ct_fixture:construct_currency(?cur(<<"USD">>)),
+
+        hg_ct_fixture:construct_category(?cat(1), <<"Test category">>, test),
+        hg_ct_fixture:construct_category(?cat(2), <<"Generic Store">>, live),
+        hg_ct_fixture:construct_category(?cat(3), <<"Guns & Booze">>, live),
+
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, visa)),
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, mastercard)),
+
+        hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
+        hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
+        hg_ct_fixture:construct_proxy(?prx(3), <<"Merchant proxy">>),
+
+        hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{<<"risk_score">> => <<"low">>}),
+        hg_ct_fixture:construct_inspector(?insp(2), <<"Skipper">>, ?prx(2), #{<<"risk_score">> => <<"high">>}),
+
+        hg_ct_fixture:construct_contract_template(?tmpl(1), ?trms(1)),
+        hg_ct_fixture:construct_contract_template(?tmpl(2), ?trms(2)),
+
+        hg_ct_fixture:construct_system_account_set(?sas(1)),
+        hg_ct_fixture:construct_external_account_set(?eas(1)),
+
+        {globals, #domain_GlobalsObject{
+            ref = #domain_GlobalsRef{},
+            data = #domain_Globals{
+                party_prototype = #domain_PartyPrototypeRef{id = 42},
+                providers = {value, ordsets:from_list([
+                    ?prv(1),
+                    ?prv(2)
+                ])},
+                system_account_set = {value, ?sas(1)},
+                external_account_set = {value, ?eas(1)},
+                default_contract_template = ?tmpl(2),
+                common_merchant_proxy = ?prx(3),
+                inspector = {decisions, [
+                    #domain_InspectorDecision{
+                        if_   = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                        then_ = {decisions, [
+                            #domain_InspectorDecision{
+                                if_ = {condition, {category_is, ?cat(3)}},
+                                then_ = {value, ?insp(2)}
+                            },
+                            #domain_InspectorDecision{
+                                if_ = {condition, {cost_in, #domain_CashRange{
+                                    lower = {inclusive, ?cash(        0, ?cur(<<"RUB">>))},
+                                    upper = {exclusive, ?cash(   500000, ?cur(<<"RUB">>))}
+                                }}},
+                                then_ = {value, ?insp(1)}
+                            },
+                            #domain_InspectorDecision{
+                                if_ = {condition, {cost_in, #domain_CashRange{
+                                    lower = {inclusive, ?cash(   500000, ?cur(<<"RUB">>))},
+                                    upper = {exclusive, ?cash(100000000, ?cur(<<"RUB">>))}
+                                }}},
+                                then_ = {value, ?insp(2)}
+                            }
+                        ]}
+                    }
+                ]}
+            }
+        }},
+        {party_prototype, #domain_PartyPrototypeObject{
+            ref = #domain_PartyPrototypeRef{id = 42},
+            data = #domain_PartyPrototype{
+                shop = #domain_ShopPrototype{
+                    category = ?cat(1),
+                    currency = ?cur(<<"RUB">>),
+                    details  = #domain_ShopDetails{
+                        name = <<"SUPER DEFAULT SHOP">>
+                    }
+                },
+                test_contract_template = ?tmpl(1)
+            }
+        }},
+        {term_set_hierarchy, #domain_TermSetHierarchyObject{
+            ref = ?trms(1),
+            data = #domain_TermSetHierarchy{
+                parent_terms = undefined,
+                term_sets = [#domain_TimedTermSet{
+                    action_time = #'TimestampInterval'{},
+                    terms = TestTermSet
+                }]
+            }
+        }},
+        {term_set_hierarchy, #domain_TermSetHierarchyObject{
+            ref = ?trms(2),
+            data = #domain_TermSetHierarchy{
+                parent_terms = undefined,
+                term_sets = [#domain_TimedTermSet{
+                    action_time = #'TimestampInterval'{},
+                    terms = DefaultTermSet
+                }]
+            }
+        }},
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = #domain_Provider{
+                name = <<"Brovider">>,
+                description = <<"A provider but bro">>,
+                terminal = {value, [?trm(1), ?trm(2), ?trm(3), ?trm(4)]},
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"override">> => <<"brovider">>
+                    }
+                },
+                abs_account = <<"1234567890">>
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(1),
+            data = #domain_Terminal{
+                name = <<"Brominal 1">>,
+                description = <<"Brominal 1">>,
+                payment_method = ?pmt(bank_card, visa),
+                category = ?cat(1),
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(18, 1000, payment_amount)
+                    )
+                ],
+                account = AccountUSD,
+                options = #{
+                    <<"override">> => <<"Brominal 1">>
+                },
+                risk_coverage = high
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(2),
+            data = #domain_Terminal{
+                name = <<"Brominal 2">>,
+                description = <<"Brominal 2">>,
+                payment_method = ?pmt(bank_card, visa),
+                category = ?cat(1),
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(18, 1000, payment_amount)
+                    )
+                ],
+                account = AccountUSD,
+                options = #{
+                    <<"override">> => <<"Brominal 2">>
+                },
+                risk_coverage = low
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(3),
+            data = #domain_Terminal{
+                name = <<"Brominal 3">>,
+                description = <<"Brominal 3">>,
+                payment_method = ?pmt(bank_card, mastercard),
+                category = ?cat(1),
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(19, 1000, payment_amount)
+                    )
+                ],
+                account = AccountRUB,
+                options = #{
+                    <<"override">> => <<"Brominal 3">>
+                },
+                risk_coverage = high
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(4),
+            data = #domain_Terminal{
+                name = <<"Brominal 4">>,
+                description = <<"Brominal 4">>,
+                payment_method = ?pmt(bank_card, mastercard),
+                category = ?cat(1),
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(19, 1000, payment_amount)
+                    )
+                ],
+                account = AccountRUB,
+                options = #{
+                    <<"override">> => <<"Brominal 4">>
+                },
+                risk_coverage = low
+            }
+        }},
+        {provider, #domain_ProviderObject{
+            ref = ?prv(2),
+            data = #domain_Provider{
+                name = <<"Drovider">>,
+                description = <<"I'm out of ideas of what to write here">>,
+                terminal = {value, [?trm(5), ?trm(6), ?trm(7), ?trm(8)]},
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"override">> => <<"drovider">>
+                    }
+                },
+                abs_account = <<"1234567890">>
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(5),
+            data = #domain_Terminal{
+                name = <<"Drominal 1">>,
+                description = <<"Drominal 1">>,
+                payment_method = ?pmt(bank_card, visa),
+                category = ?cat(1),
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(16, 1000, payment_amount)
+                    )
+                ],
+                account = AccountRUB,
+                options = #{
+                    <<"override">> => <<"Drominal 1">>
+                },
+                risk_coverage = high
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(6),
+            data = #domain_Terminal{
+                name = <<"Drominal 1">>,
+                description = <<"Drominal 1">>,
+                payment_method = ?pmt(bank_card, visa),
+                category = ?cat(1),
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(16, 1000, payment_amount)
+                    )
+                ],
+                account = AccountRUB,
+                options = #{
+                    <<"override">> => <<"Drominal 1">>
+                },
+                risk_coverage = low
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(7),
+            data = #domain_Terminal{
+                name = <<"Terminal 7">>,
+                description = <<"Terminal 7">>,
+                payment_method = ?pmt(bank_card, visa),
+                category = ?cat(3),
+                risk_coverage = high,
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(16, 1000, payment_amount)
+                    )
+                ],
+                account = AccountRUB,
+                options = #{}
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(8),
+            data = #domain_Terminal{
+                name = <<"Terminal 8">>,
+                description = <<"Terminal 8">>,
+                payment_method = ?pmt(bank_card, visa),
+                category = ?cat(2),
+                risk_coverage = low,
+                cash_flow = [
+                    ?cfpost(
+                        {provider, settlement},
+                        {merchant, settlement},
+                        ?share(1, 1, payment_amount)
+                    ),
+                    ?cfpost(
+                        {system, settlement},
+                        {provider, settlement},
+                        ?share(16, 1000, payment_amount)
+                    )
+                ],
+                account = AccountRUB,
+                options = #{}
+            }
+        }}
+    ].
+
