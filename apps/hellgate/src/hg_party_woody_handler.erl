@@ -42,22 +42,38 @@ handle_function_('GetContract', [UserInfo, PartyID, ContractID], _Opts) ->
     Party = hg_party_machine:get_party(PartyID),
     hg_party:get_contract(ContractID, Party);
 
-handle_function_('BindContractLegalAgreemnet', [UserInfo, PartyID, ContractID, LegalAgreement], _Opts) ->
+handle_function_(
+    'BindContractLegalAgreemnet',
+    [UserInfo, PartyID, ContractID, LegalAgreement],
+    _Opts
+) ->
     _ = set_party_mgmt_meta(PartyID, UserInfo),
     ok = assert_party_accessible(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {bind_contract_legal_agreemnet, ContractID, LegalAgreement});
 
-handle_function_('TerminateContract', [UserInfo, PartyID, ContractID, Reason], _Opts) ->
+handle_function_(
+    'TerminateContract',
+    [UserInfo, PartyID, ContractID, Reason],
+    _Opts
+) ->
     _ = set_party_mgmt_meta(PartyID, UserInfo),
     ok = assert_party_accessible(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {terminate_contract, ContractID, Reason});
 
-handle_function_('CreateContractAdjustment', [UserInfo, PartyID, ContractID, Params], _Opts) ->
+handle_function_(
+    'CreateContractAdjustment',
+    [UserInfo, PartyID, ContractID, Params],
+    _Opts
+) ->
     _ = set_party_mgmt_meta(PartyID, UserInfo),
     ok = assert_party_accessible(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {create_contract_adjustment, ContractID, Params});
 
-handle_function_('CreatePayoutTool', [UserInfo, PartyID, ContractID, Params], _Opts) ->
+handle_function_(
+    'CreatePayoutTool',
+    [UserInfo, PartyID, ContractID, Params],
+    _Opts
+) ->
     _ = set_party_mgmt_meta(PartyID, UserInfo),
     ok = assert_party_accessible(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {create_payout_tool, ContractID, Params});
@@ -163,11 +179,15 @@ handle_function_('GetShopAccount', [UserInfo, PartyID, ShopID], _Opts) ->
 
 %%
 
--spec assert_party_accessible(dmsl_payment_processing_thrift:'UserInfo'(), dmsl_domain_thrift:'PartyID'()) ->
+-spec assert_party_accessible(
+    dmsl_payment_processing_thrift:'UserInfo'(),
+    dmsl_domain_thrift:'PartyID'()
+) ->
     ok | no_return().
 
 assert_party_accessible(UserInfo, PartyID) ->
-    case hg_access_control:check_user_info(UserInfo, PartyID) of
+    UserIdentity = hg_woody_handler_utils:get_user_identity(UserInfo),
+    case hg_access_control:check_user(UserIdentity, PartyID) of
         ok ->
             ok;
         invalid_user ->
@@ -179,5 +199,3 @@ set_party_mgmt_meta(PartyID, #payproc_UserInfo{id = ID, type = {Type, _}}) ->
         party_id => PartyID,
         user_info => #{id => ID, type => Type}
     }).
-
-

@@ -45,7 +45,7 @@
 %%
 
 -record(st, {
-    invoice :: invoice(),
+    invoice :: undefined | invoice(),
     payments = [] :: [{payment_id(), payment_st()}],
     sequence = 0 :: 0 | sequence(),
     pending = invoice ::
@@ -587,10 +587,10 @@ validate_invoice_access(UserInfo, St = #st{}) ->
     St.
 
 validate_party_access(UserInfo, PartyID) ->
-    case hg_access_control:check_user_info(UserInfo, PartyID) of
+    UserIdentity = hg_woody_handler_utils:get_user_identity(UserInfo),
+    case hg_access_control:check_user(UserIdentity, PartyID) of
         ok ->
             ok;
         invalid_user ->
             throw(#payproc_InvalidUser{})
     end.
-

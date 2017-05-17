@@ -44,7 +44,7 @@
     payment  :: payment(),
     route    :: route(),
     cashflow :: cashflow(),
-    session  :: session()
+    session  :: undefined | session()
 }).
 
 -type st() :: #st{}.
@@ -365,11 +365,11 @@ handle_proxy_intent(#'FinishIntent'{status = {success, _}}, _ProxyState, Action,
     PaymentID = get_payment_id(St),
     Target = get_target(St),
     case get_target(St) of
-        ?captured() ->
+        {captured, _} ->
             _AccountsState = commit_plan(St, Options);
-        ?cancelled(_) ->
+        {cancelled, _} ->
             _AccountsState = rollback_plan(St, Options);
-        ?processed() ->
+        {processed, _} ->
             ok
     end,
     Events = [?payment_ev(?payment_status_changed(PaymentID, Target))],

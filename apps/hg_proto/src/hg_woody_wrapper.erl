@@ -7,7 +7,10 @@
 -export([handle_function/4]).
 -export_type([handler_opts/0]).
 
--type handler_opts() :: #{handler => module()}.
+-type handler_opts() :: #{
+    handler => module(),
+    user_identity => undefined | woody_user_identity:user_identity()
+}.
 
 %% Callbacks
 
@@ -26,7 +29,11 @@
 handle_function(Func, Args, Context, #{handler := Handler} = Opts) ->
     hg_context:set(Context),
     try
-        Result = Handler:handle_function(Func, Args, Opts),
+        Result = Handler:handle_function(
+            Func,
+            Args,
+            Opts
+        ),
         {ok, Result}
     catch
         throw:Reason ->
