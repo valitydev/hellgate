@@ -250,6 +250,8 @@ end_per_testcase(_Name, _C) ->
     {exception, #payproc_PartyNotFound{}}).
 -define(party_exists(),
     {exception, #payproc_PartyExists{}}).
+-define(party_not_exists_yet(),
+    {exception, #payproc_PartyNotExistsYet{}}).
 -define(party_blocked(Reason),
     {exception, #payproc_InvalidPartyStatus{status = {blocking, ?blocked(Reason)}}}).
 -define(party_unblocked(Reason),
@@ -365,15 +367,17 @@ party_retrieval(C) ->
 
 party_revisioning(C) ->
     Client = ?c(client, C),
-    hg_context:set(woody_context:new()),
+    T0 = hg_datetime:add_interval(hg_datetime:format_now(), {undefined, undefined, -1}), % yesterday
+    ?party_not_exists_yet() = hg_client_party:checkout(T0, Client),
     Party1 = hg_client_party:get(Client),
     T1 = hg_datetime:format_now(),
     Party2 = party_suspension(C),
-    Party1 = hg_party_machine:checkout(Party1#domain_Party.id, T1),
+    Party1 = hg_client_party:checkout(T1, Client),
     T2 = hg_datetime:format_now(),
     _ = party_activation(C),
-    Party2 = hg_party_machine:checkout(Party2#domain_Party.id, T2),
-    hg_context:cleanup().
+    Party2 = hg_client_party:checkout(T2, Client),
+    T3 = hg_datetime:add_interval(T2, {undefined, undefined, 1}), % tomorrow
+    Party1 = hg_client_party:checkout(T3, Client).
 
 contract_not_found(C) ->
     Client = ?c(client, C),
