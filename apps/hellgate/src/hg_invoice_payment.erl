@@ -44,6 +44,8 @@
 
 -export([merge_event/2]).
 
+-export([get_log_params/2]).
+
 %%
 
 -record(st, {
@@ -849,3 +851,65 @@ get_st_meta(#st{payment = #domain_InvoicePayment{id = ID}}) ->
 
 get_st_meta(_) ->
     #{}.
+
+%%
+
+-spec get_log_params(ev(), st()) ->
+    {ok, #{type := invoice_payment_event, params := list(), message := string()}} | undefined.
+
+get_log_params(?payment_ev(?payment_started(Payment, _, Cashflow)), _) ->
+    Params = [{accounts, get_partial_remainders(Cashflow)}],
+    make_log_params(invoice_payment_started, Payment, Params);
+get_log_params(?payment_ev(?payment_status_changed(_, {Status, _})), State) ->
+    Payment = get_payment(State),
+    Cashflow = get_cashflow(Payment),
+    Params = [{status, Status}, {accounts, get_partial_remainders(Cashflow)}],
+    make_log_params(invoice_payment_status_changed, Payment, Params);
+get_log_params(?payment_ev(?payment_bound(_, _)), State) ->
+    Payment = get_payment(State),
+    make_log_params(invoice_payment_bound, Payment, []);
+get_log_params(?payment_ev(?payment_interaction_requested(_, _)), State) ->
+    Payment = get_payment(State),
+    make_log_params(invoice_payment_interaction_requested, Payment, []);
+get_log_params(?payment_ev(?payment_inspected(_, _)), State) ->
+    Payment = get_payment(State),
+    make_log_params(invoice_payment_inspected, Payment, []);
+get_log_params(_, _) ->
+    undefined.
+
+make_log_params(EventType, Payment, Params) ->
+    #domain_InvoicePayment{
+        id = ID,
+        cost = ?cash(Amount, #domain_CurrencyRef{symbolic_code = Currency})
+    } = Payment,
+    Result = #{
+        type => invoice_payment_event,
+        params => [{type, EventType}, {id, ID}, {cost, [{amount, Amount}, {currency, Currency}]} | Params],
+        message => get_message(EventType)
+    },
+    {ok, Result}.
+
+get_partial_remainders(CashFlow) ->
+    Reminders = maps:to_list(hg_cashflow:get_partial_remainders(CashFlow)),
+    lists:map(
+        fun ({Account, Cash}) ->
+            ?cash(Amount, #domain_CurrencyRef{symbolic_code = Currency}) = Cash,
+            Remainder = [{remainder, [{amount, Amount}, {currency, Currency}]}],
+            {get_account_key(Account), Remainder}
+        end,
+        Reminders
+    ).
+
+get_account_key({AccountParty, AccountType}) ->
+    list_to_binary(lists:concat([atom_to_list(AccountParty), ".", atom_to_list(AccountType)])).
+
+get_message(invoice_payment_started) ->
+    "Invoice payment is started";
+get_message(invoice_payment_status_changed) ->
+    "Invoice payment status is changed";
+get_message(invoice_payment_bound) ->
+    "Invoice payment is bound";
+get_message(invoice_payment_interaction_requested) ->
+    "Invoice payment interaction is requested";
+get_message(invoice_payment_inspected) ->
+    "Invoice payment is inspected".
