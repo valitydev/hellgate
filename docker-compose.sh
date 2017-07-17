@@ -17,7 +17,7 @@ services:
         condition: service_healthy
 
   dominant:
-    image: dr.rbkmoney.com/rbkmoney/dominant:6e31359681eccfae1b603b22cff8202b1599600f
+    image: dr.rbkmoney.com/rbkmoney/dominant:39a7384bfaa7e025fca075fa0bbbd6d086d2b760
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -35,7 +35,7 @@ services:
       retries: 12
 
   shumway:
-    image: dr.rbkmoney.com/rbkmoney/shumway:ef494632710c3248a7d6a33fcbeb7944ce8fdd31
+    image: dr.rbkmoney.com/rbkmoney/shumway:5519e5e1f8febdd94e8fc81646d4917f607223dd
     restart: always
     entrypoint:
       - java
