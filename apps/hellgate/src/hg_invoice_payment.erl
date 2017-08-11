@@ -498,9 +498,9 @@ process_call({callback, Payload}, St, Options) ->
     ).
 
 process_callback(Payload, St, Options) ->
+    Action = hg_machine_action:new(),
     case get_target_session_status(St) of
         suspended ->
-            Action = hg_machine_action:unset_timer(),
             handle_callback(Payload, Action, St, Options);
         active ->
             % there's ultimately no way how we could end up here
@@ -547,17 +547,8 @@ finish_processing({Events, Action}, St, Options) ->
             {next, {Events, Action}}
     end.
 
-handle_callback_result(
-    #prxprv_CallbackResult{result = ProxyResult, response = Response},
-    Action0,
-    Session
-) ->
-    Events1 = wrap_session_events([?session_activated()], Session),
-    {Events2, Action} = handle_proxy_result(ProxyResult, Action0, Session),
-    {Response, {Events1 ++ Events2, Action}}.
-
 handle_proxy_result(
-    #prxprv_ProxyResult{intent = {_, Intent}, trx = Trx, next_state = ProxyState},
+    #prxprv_ProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
     Action0,
     Session
 ) ->
@@ -565,6 +556,31 @@ handle_proxy_result(
     Events2 = update_proxy_state(ProxyState),
     {Events3, Action} = handle_proxy_intent(Intent, Action0),
     {wrap_session_events(Events1 ++ Events2 ++ Events3, Session), Action}.
+
+handle_callback_result(
+    #prxprv_CallbackResult{result = ProxyResult, response = Response},
+    Action0,
+    Session
+) ->
+    {Response, handle_proxy_callback_result(ProxyResult, Action0, Session)}.
+
+handle_proxy_callback_result(
+    #prxprv_CallbackProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
+    Action0,
+    Session
+) ->
+    Events1 = bind_transaction(Trx, Session),
+    Events2 = update_proxy_state(ProxyState),
+    {Events3, Action} = handle_proxy_intent(Intent, hg_machine_action:unset_timer(Action0)),
+    {wrap_session_events([?session_activated()] ++ Events1 ++ Events2 ++ Events3, Session), Action};
+handle_proxy_callback_result(
+    #prxprv_CallbackProxyResult{intent = undefined, trx = Trx, next_state = ProxyState},
+    Action0,
+    Session
+) ->
+    Events1 = bind_transaction(Trx, Session),
+    Events2 = update_proxy_state(ProxyState),
+    {wrap_session_events(Events1 ++ Events2, Session), Action0}.
 
 handle_proxy_callback_timeout(Action, Session) ->
     Events = [?session_finished(?session_failed(?operation_timeout()))],
