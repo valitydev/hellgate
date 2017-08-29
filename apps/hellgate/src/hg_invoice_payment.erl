@@ -21,6 +21,7 @@
 -module(hg_invoice_payment).
 -include_lib("dmsl/include/dmsl_proxy_provider_thrift.hrl").
 -include_lib("dmsl/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("dmsl/include/dmsl_msgpack_thrift.hrl").
 
 %% API
 
@@ -43,9 +44,15 @@
 -export([capture_adjustment/3]).
 -export([cancel_adjustment/3]).
 
+-export([capture/2]).
+-export([cancel/2]).
+
 -export([merge_change/2]).
 
 -export([get_log_params/2]).
+
+-export([marshal/1]).
+-export([unmarshal/1]).
 
 %%
 
@@ -144,11 +151,14 @@ init_(PaymentID, PaymentParams, #{party := Party} = Opts) ->
     VS0 = collect_varset(Party, Shop, #{}),
     VS1 = validate_payment_params(PaymentParams, {Revision, PaymentTerms}, VS0),
     VS2 = validate_payment_cost(Invoice, {Revision, PaymentTerms}, VS1),
-    Payment = construct_payment(PaymentID, Invoice, PaymentParams, Revision),
-    case inspect(Shop, Invoice, Payment, VS2) of
-        {RiskScore, VS3} when RiskScore == low; RiskScore == high ->
-            Route = validate_route(Payment, hg_routing:choose(VS3, Revision)),
-            FinalCashflow = construct_final_cashflow(Invoice, Payment, Shop, PaymentTerms, Route, VS3, Revision),
+    VS3 = validate_payment_flow(PaymentParams, {Revision, PaymentTerms}, VS2),
+    CreatedAt = hg_datetime:format_now(),
+    Flow = validate_flow(PaymentParams, {Revision, PaymentTerms}, CreatedAt, VS3),
+    Payment = construct_payment(PaymentID, Invoice, Flow, PaymentParams, CreatedAt, Revision),
+    case inspect(Shop, Invoice, Payment, VS3) of
+        {RiskScore, VS4} when RiskScore == low; RiskScore == high ->
+            Route = validate_route(Payment, hg_routing:choose(VS4, Revision)),
+            FinalCashflow = construct_final_cashflow(Invoice, Payment, Shop, PaymentTerms, Route, VS4, Revision),
             _AccountsState = hg_accounting:plan(
                 construct_plan_id(Invoice, Payment),
                 {1, FinalCashflow}
@@ -174,14 +184,15 @@ construct_final_cashflow(Invoice, Payment, Shop, PaymentTerms, Route, VS, Revisi
         collect_account_map(Invoice, Shop, Route, VS, Revision)
     ).
 
-construct_payment(PaymentID, Invoice, PaymentParams, Revision) ->
+construct_payment(PaymentID, Invoice, Flow, PaymentParams, CreatedAt, Revision) ->
     #domain_InvoicePayment{
         id              = PaymentID,
-        created_at      = hg_datetime:format_now(),
+        created_at      = CreatedAt,
         domain_revision = Revision,
         status          = ?pending(),
         cost            = Invoice#domain_Invoice.cost,
-        payer           = PaymentParams#payproc_InvoicePaymentParams.payer
+        payer           = PaymentParams#payproc_InvoicePaymentParams.payer,
+        flow            = Flow
     }.
 
 validate_payment_params(
@@ -225,6 +236,34 @@ validate_route(_Payment, Route = #domain_InvoicePaymentRoute{}) ->
     Route;
 validate_route(Payment, undefined) ->
     error({misconfiguration, {'No route found for a payment', Payment}}).
+
+validate_payment_flow(
+    #payproc_InvoicePaymentParams{flow = {Type, _}},
+    {Revision, Terms},
+    VS
+) ->
+    PaymentFlow = case Type of
+        instant ->
+            instant;
+        hold ->
+            {hold, validate_hold_lifetime(Terms, VS, Revision)}
+    end,
+    VS#{payment_flow => PaymentFlow}.
+
+validate_flow(PaymentParams, {Revision, Terms}, CreatedAt, VS) ->
+    case PaymentParams#payproc_InvoicePaymentParams.flow of
+        {instant, _} ->
+            ?invoice_payment_flow_instant();
+        {hold, #payproc_InvoicePaymentParamsFlowHold{on_hold_expiration = OnHoldExpiration}} ->
+            ?hold_lifetime(HoldLifetime) = validate_hold_lifetime(Terms, VS, Revision),
+            HeldUntil = hg_datetime:format_ts(hg_datetime:parse_ts(CreatedAt) + HoldLifetime),
+            ?invoice_payment_flow_hold(OnHoldExpiration, HeldUntil)
+    end.
+
+validate_hold_lifetime(#domain_PaymentsServiceTerms{hold_lifetime = undefined}, _, _) ->
+    throw_invalid_request(<<"Holds are not available">>);
+validate_hold_lifetime(#domain_PaymentsServiceTerms{hold_lifetime = HoldLifetimeSelector}, VS, Revision) ->
+    reduce_selector_for_holds(HoldLifetimeSelector, VS, Revision).
 
 collect_varset(Party, Shop = #domain_Shop{
     category = Category,
@@ -337,6 +376,16 @@ reduce_selector(Name, Selector, VS, Revision) ->
             error({misconfiguration, {'Could not reduce selector to a value', {Name, Ambiguous}}})
     end.
 
+reduce_selector_for_holds(Selector, VS, Revision) ->
+    case hg_selector:reduce(Selector, VS, Revision) of
+        {value, V} ->
+            V;
+        {decisions, []} ->
+            throw_invalid_request(<<"Holds are not available">>);
+        Ambiguous ->
+            error({misconfiguration, {'Could not reduce selector to a value', {hold_lifetime, Ambiguous}}})
+    end.
+
 %%
 
 -spec start_session(target()) ->
@@ -347,7 +396,21 @@ start_session(Target) ->
     Action = hg_machine_action:instant(),
     {ok, {Events, Action}}.
 
-%%
+-spec capture(st(), atom()) -> {ok, hg_machine:result()}.
+
+capture(St, Reason) ->
+    do_payment(St, ?captured_with_reason(hg_utils:format_reason(Reason))).
+
+-spec cancel(st(), atom()) -> {ok, hg_machine:result()}.
+
+cancel(St, Reason) ->
+    do_payment(St, ?cancelled_with_reason(hg_utils:format_reason(Reason))).
+
+do_payment(St, Target) ->
+    Payment = get_payment(St),
+    _ = assert_payment_status(processed, Payment),
+    _ = assert_payment_flow(hold, Payment),
+    start_session(Target).
 
 -spec create_adjustment(adjustment_params(), st(), opts()) ->
     {adjustment(), hg_machine:result()}.
@@ -402,6 +465,11 @@ assert_adjustment_finalized(#domain_InvoicePaymentAdjustment{id = ID, status = {
     throw(#payproc_InvoicePaymentAdjustmentPending{id = ID});
 assert_adjustment_finalized(_) ->
     ok.
+
+assert_payment_flow(hold, #domain_InvoicePayment{flow = ?invoice_payment_flow_hold(_, _)}) ->
+    ok;
+assert_payment_flow(_, _) ->
+    throw(#payproc_InvalidOperation{}).
 
 -spec capture_adjustment(adjustment_id(), st(), opts()) ->
     {ok, hg_machine:result()}.
@@ -483,12 +551,15 @@ process_signal(timeout, St, Options) ->
     ).
 
 process_timeout(St, Options) ->
-    Action = hg_machine_action:new(),
     case get_target_session_status(St) of
         active ->
+            Action = hg_machine_action:new(),
             process(Action, St, Options);
         suspended ->
-            process_callback_timeout(Action, St, Options)
+            Action = hg_machine_action:new(),
+            process_callback_timeout(Action, St, Options);
+        finished ->
+            process_finished_session(St)
     end.
 
 -spec process_call({callback, _}, st(), opts()) ->
@@ -516,6 +587,22 @@ process_callback_timeout(Action, St, Options) ->
     Result = handle_proxy_callback_timeout(Action, Session),
     finish_processing(Result, St, Options).
 
+process_finished_session(St) ->
+    Payment = get_payment(St),
+    Target = case Payment#domain_InvoicePayment.flow of
+        ?invoice_payment_flow_instant() ->
+            ?captured();
+        ?invoice_payment_flow_hold(OnHoldExpiration, _) ->
+            case OnHoldExpiration of
+                cancel ->
+                    ?cancelled();
+                capture ->
+                    ?captured()
+            end
+    end,
+    {ok, Result} = start_session(Target),
+    {done, Result}.
+
 process(Action0, St, Options) ->
     Session = get_target_session(St),
     ProxyContext = construct_proxy_context(Session, St, Options),
@@ -542,7 +629,8 @@ finish_processing({Events, Action}, St, Options) ->
                 {processed, _} ->
                     ok
             end,
-            {done, {Events ++ [?payment_status_changed(Target)], Action}};
+            NewAction = get_action(Target, Action, St),
+            {done, {Events ++ [?payment_status_changed(Target)], NewAction}};
         #{status := finished, result := ?session_failed(Failure)} ->
             % TODO is it always rollback?
             _AccountsState = rollback_plan(St, Options),
@@ -550,6 +638,17 @@ finish_processing({Events, Action}, St, Options) ->
         #{} ->
             {next, {Events, Action}}
     end.
+
+get_action({processed, _}, Action, St) ->
+    #domain_InvoicePayment{flow = Flow} = get_payment(St),
+    case Flow of
+        ?invoice_payment_flow_instant() ->
+            hg_machine_action:set_timeout(0, Action);
+        ?invoice_payment_flow_hold(_, HeldUntil) ->
+            hg_machine_action:set_deadline(HeldUntil, Action)
+    end;
+get_action(_, Action, _) ->
+    Action.
 
 handle_proxy_result(
     #prxprv_ProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
@@ -967,11 +1066,11 @@ get_log_params(_, _) ->
 make_log_params(EventType, Payment, Params) ->
     #domain_InvoicePayment{
         id = ID,
-        cost = ?cash(Amount, #domain_CurrencyRef{symbolic_code = Currency})
+        cost = ?cash(Amount, ?currency(SymbolicCode))
     } = Payment,
     Result = #{
         type => invoice_payment_event,
-        params => [{type, EventType}, {id, ID}, {cost, [{amount, Amount}, {currency, Currency}]} | Params],
+        params => [{type, EventType}, {id, ID}, {cost, [{amount, Amount}, {currency, SymbolicCode}]} | Params],
         message => get_message(EventType)
     },
     {ok, Result}.
@@ -980,8 +1079,8 @@ get_partial_remainders(CashFlow) ->
     Reminders = maps:to_list(hg_cashflow:get_partial_remainders(CashFlow)),
     lists:map(
         fun ({Account, Cash}) ->
-            ?cash(Amount, #domain_CurrencyRef{symbolic_code = Currency}) = Cash,
-            Remainder = [{remainder, [{amount, Amount}, {currency, Currency}]}],
+            ?cash(Amount, ?currency(SymbolicCode)) = Cash,
+            Remainder = [{remainder, [{amount, Amount}, {currency, SymbolicCode}]}],
             {get_account_key(Account), Remainder}
         end,
         Reminders
@@ -994,3 +1093,587 @@ get_message(invoice_payment_started) ->
     "Invoice payment is started";
 get_message(invoice_payment_status_changed) ->
     "Invoice payment status is changed".
+
+-include("legacy_structures.hrl").
+%% Marshalling
+
+-spec marshal(change()) ->
+    hg_msgpack_marshalling:value().
+
+marshal(Change) ->
+    marshal(change, Change).
+
+%% Changes
+
+marshal(change, ?payment_started(Payment, RiskScore, Route, Cashflow)) ->
+    [2, #{
+        <<"change">>        => <<"started">>,
+        <<"payment">>       => marshal(payment, Payment),
+        <<"risk_score">>    => marshal(risk_score, RiskScore),
+        <<"route">>         => hg_routing:marshal(Route),
+        <<"cash_flow">>     => hg_cashflow:marshal(Cashflow)
+    }];
+marshal(change, ?payment_status_changed(Status)) ->
+    [2, #{
+        <<"change">>        => <<"status_changed">>,
+        <<"status">>        => marshal(status, Status)
+    }];
+marshal(change, ?session_ev(Target, Payload)) ->
+    [2, #{
+        <<"change">>        => <<"session_change">>,
+        <<"target">>        => marshal(status, Target),
+        <<"payload">>       => marshal(session_change, Payload)
+    }];
+marshal(change, ?adjustment_ev(AdjustmentID, Payload)) ->
+    [2, #{
+        <<"change">>        => <<"adjustment_change">>,
+        <<"id">>            => marshal(str, AdjustmentID),
+        <<"payload">>       => marshal(adj_change, Payload)
+    }];
+
+%% Change components
+
+marshal(payment, #domain_InvoicePayment{} = Payment) ->
+    genlib_map:compact(#{
+        <<"id">>                => marshal(str, Payment#domain_InvoicePayment.id),
+        <<"created_at">>        => marshal(str, Payment#domain_InvoicePayment.created_at),
+        <<"domain_revision">>   => marshal(str, Payment#domain_InvoicePayment.domain_revision),
+        <<"cost">>              => hg_cash:marshal(Payment#domain_InvoicePayment.cost),
+        <<"payer">>             => marshal(payer, Payment#domain_InvoicePayment.payer),
+        <<"flow">>              => marshal(flow, Payment#domain_InvoicePayment.flow),
+        <<"context">>           => hg_content:marshal(Payment#domain_InvoicePayment.context)
+    });
+
+marshal(flow, ?invoice_payment_flow_instant()) ->
+    #{<<"type">> => <<"instant">>};
+marshal(flow, ?invoice_payment_flow_hold(OnHoldExpiration, HeldUntil)) ->
+    #{
+        <<"type">>                  => <<"hold">>,
+        <<"on_hold_expiration">>    => marshal(on_hold_expiration, OnHoldExpiration),
+        <<"held_until">>            => marshal(str, HeldUntil)
+    };
+
+marshal(status, ?pending()) ->
+    <<"pending">>;
+marshal(status, ?processed()) ->
+    <<"processed">>;
+marshal(status, ?failed(Failure)) ->
+    [
+        <<"failed">>,
+        marshal(failure, Failure)
+    ];
+marshal(status, ?captured_with_reason(Reason)) ->
+    [
+        <<"captured">>,
+        marshal(str, Reason)
+    ];
+marshal(status, ?cancelled_with_reason(Reason)) ->
+    [
+        <<"cancelled">>,
+        marshal(str, Reason)
+    ];
+
+marshal(session_change, ?session_started()) ->
+    [2, <<"started">>];
+marshal(session_change, ?session_finished(Result)) ->
+    [2, [
+        <<"finished">>,
+        marshal(session_status, Result)
+    ]];
+marshal(session_change, ?session_suspended()) ->
+    [2, <<"suspended">>];
+marshal(session_change, ?session_activated()) ->
+    [2, <<"activated">>];
+marshal(session_change, ?trx_bound(Trx)) ->
+    [2, [
+        <<"transaction_bound">>,
+        marshal(trx, Trx)
+    ]];
+marshal(session_change, ?proxy_st_changed(ProxySt)) ->
+    [2, [
+        <<"proxy_state_changed">>,
+        marshal(bin, {bin, ProxySt})
+    ]];
+marshal(session_change, ?interaction_requested(UserInteraction)) ->
+    [2, [
+        <<"interaction_requested">>,
+        marshal(interaction, UserInteraction)
+    ]];
+
+marshal(session_status, ?session_succeeded()) ->
+    <<"succeeded">>;
+marshal(session_status, ?session_failed(PayloadFailure)) ->
+    [
+        <<"failed">>,
+        marshal(failure, PayloadFailure)
+    ];
+
+marshal(adj_change, ?adjustment_created(Adjustment)) ->
+    [2, [
+        <<"created">>,
+        marshal(adj, Adjustment)
+    ]];
+marshal(adj_change, ?adjustment_status_changed(Status)) ->
+    [2, [
+        <<"status_changed">>,
+        marshal(adj_status, Status)
+    ]];
+
+marshal(adj, #domain_InvoicePaymentAdjustment{} = Adjustment) ->
+    #{
+        <<"id">>                    => marshal(str, Adjustment#domain_InvoicePaymentAdjustment.id),
+        <<"created_at">>            => marshal(str, Adjustment#domain_InvoicePaymentAdjustment.created_at),
+        <<"domain_revision">>       => marshal(int, Adjustment#domain_InvoicePaymentAdjustment.domain_revision),
+        <<"reason">>                => marshal(str, Adjustment#domain_InvoicePaymentAdjustment.reason),
+        <<"old_cash_flow_inverse">> => hg_cashflow:marshal(
+            Adjustment#domain_InvoicePaymentAdjustment.old_cash_flow_inverse),
+        <<"new_cash_flow">>         => hg_cashflow:marshal(
+            Adjustment#domain_InvoicePaymentAdjustment.new_cash_flow)
+    };
+
+marshal(adj_status, ?adjustment_pending()) ->
+    <<"pending">>;
+marshal(adj_status, ?adjustment_captured(At)) ->
+    [
+        <<"captured">>,
+        marshal(str, At)
+    ];
+marshal(adj_status, ?adjustment_cancelled(At)) ->
+    [
+        <<"cancelled">>,
+        marshal(str, At)
+    ];
+
+marshal(payer, #domain_Payer{} = Payer) ->
+    #{
+        <<"payment_tool">>  => hg_payment_tool:marshal(Payer#domain_Payer.payment_tool),
+        <<"session_id">>    => marshal(str, Payer#domain_Payer.session_id),
+        <<"client_info">>   => marshal(client_info, Payer#domain_Payer.client_info),
+        <<"contact_info">>  => marshal(contact_info, Payer#domain_Payer.contact_info)
+    };
+
+marshal(client_info, #domain_ClientInfo{} = ClientInfo) ->
+    genlib_map:compact(#{
+        <<"ip_address">>    => marshal(str, ClientInfo#domain_ClientInfo.ip_address),
+        <<"fingerprint">>   => marshal(str, ClientInfo#domain_ClientInfo.fingerprint)
+    });
+
+marshal(contact_info, #domain_ContactInfo{} = ContactInfo) ->
+    genlib_map:compact(#{
+        <<"phone_number">>  => marshal(str, ContactInfo#domain_ContactInfo.phone_number),
+        <<"email">>         => marshal(str, ContactInfo#domain_ContactInfo.email)
+    });
+
+marshal(trx, #domain_TransactionInfo{} = TransactionInfo) ->
+    genlib_map:compact(#{
+        <<"id">>            => marshal(str, TransactionInfo#domain_TransactionInfo.id),
+        <<"timestamp">>     => marshal(str, TransactionInfo#domain_TransactionInfo.timestamp),
+        <<"extra">>         => marshal(map_str, TransactionInfo#domain_TransactionInfo.extra)
+    });
+
+marshal(interaction, {redirect, {get_request, #'BrowserGetRequest'{uri = URI}}}) ->
+    #{<<"redirect">> =>
+        [
+            <<"get_request">>,
+            marshal(str, URI)
+        ]
+    };
+marshal(interaction, {redirect, {post_request, #'BrowserPostRequest'{uri = URI, form = Form}}}) ->
+    #{<<"redirect">> =>
+        [
+            <<"post_request">>,
+            #{
+                <<"uri">>   => marshal(str, URI),
+                <<"form">>  => marshal(map_str, Form)
+            }
+        ]
+    };
+
+marshal(failure, {operation_timeout, _}) ->
+    [2, <<"operation_timeout">>];
+marshal(failure, {external_failure, #domain_ExternalFailure{} = ExternalFailure}) ->
+    [2, [<<"external_failure">>, genlib_map:compact(#{
+        <<"code">>          => marshal(str, ExternalFailure#domain_ExternalFailure.code),
+        <<"description">>   => marshal(str, ExternalFailure#domain_ExternalFailure.description)
+    })]];
+
+marshal(on_hold_expiration, cancel) ->
+    <<"cancel">>;
+marshal(on_hold_expiration, capture) ->
+    <<"capture">>;
+
+marshal(risk_score, low) ->
+    <<"low">>;
+marshal(risk_score, high) ->
+    <<"high">>;
+marshal(risk_score, fatal) ->
+    <<"fatal">>;
+
+marshal(_, Other) ->
+    Other.
+
+%% Unmarshalling
+
+-spec unmarshal(hg_msgpack_marshalling:value()) -> change().
+
+unmarshal(Change) ->
+    unmarshal(change, Change).
+
+%% Changes
+
+unmarshal(change, [2, #{
+    <<"change">>        := <<"started">>,
+    <<"payment">>       := Payment,
+    <<"risk_score">>    := RiskScore,
+    <<"route">>         := Route,
+    <<"cash_flow">>     := Cashflow
+}]) ->
+    ?payment_started(
+        unmarshal(payment, Payment),
+        unmarshal(risk_score, RiskScore),
+        hg_routing:unmarshal(Route),
+        hg_cashflow:unmarshal(Cashflow)
+    );
+unmarshal(change, [2, #{
+    <<"change">>    := <<"status_changed">>,
+    <<"status">>    := Status
+}]) ->
+    ?payment_status_changed(unmarshal(status, Status));
+unmarshal(change, [2, #{
+    <<"change">>    := <<"session_change">>,
+    <<"payload">>   := Payload,
+    <<"target">>    := Target
+}]) ->
+    ?session_ev(unmarshal(status, Target), unmarshal(session_change, Payload));
+unmarshal(change, [2, #{
+    <<"change">>    := <<"adjustment_change">>,
+    <<"id">>        := AdjustmentID,
+    <<"payload">>   := Payload
+}]) ->
+    ?adjustment_ev(unmarshal(str, AdjustmentID), unmarshal(adj_change, Payload));
+
+unmarshal(change, [1, ?legacy_payment_started(Payment, RiskScore, Route, Cashflow)]) ->
+    ?payment_started(
+        unmarshal(payment, Payment),
+        unmarshal(risk_score, RiskScore),
+        hg_routing:unmarshal([1, Route]),
+        hg_cashflow:unmarshal([1, Cashflow])
+    );
+unmarshal(change, [1, ?legacy_payment_status_changed(Status)]) ->
+    ?payment_status_changed(unmarshal(status, Status));
+unmarshal(change, [1, ?legacy_session_ev(Target, Payload)]) ->
+    ?session_ev(unmarshal(status, Target), unmarshal(session_change, [1, Payload]));
+unmarshal(change, [1, ?legacy_adjustment_ev(AdjustmentID, Payload)]) ->
+    ?adjustment_ev(unmarshal(str, AdjustmentID), unmarshal(adj_change, [1, Payload]));
+
+%% Payment
+
+unmarshal(payment, #{
+    <<"id">>                := ID,
+    <<"created_at">>        := CreatedAt,
+    <<"domain_revision">>   := Revision,
+    <<"cost">>              := Cash,
+    <<"payer">>             := Payer,
+    <<"flow">>              := Flow
+} = Payment) ->
+    Context = maps:get(<<"context">>, Payment, undefined),
+    #domain_InvoicePayment{
+        id              = unmarshal(str, ID),
+        created_at      = unmarshal(str, CreatedAt),
+        domain_revision = unmarshal(int, Revision),
+        cost            = hg_cash:unmarshal(Cash),
+        payer           = unmarshal(payer, Payer),
+        status          = ?pending(),
+        flow            = unmarshal(flow, Flow),
+        context         = hg_content:unmarshal(Context)
+    };
+
+unmarshal(payment,
+    ?legacy_payment(ID, CreatedAt, Revision, Status, Payer, Cash, Context)
+) ->
+    #domain_InvoicePayment{
+        id              = unmarshal(str, ID),
+        created_at      = unmarshal(str, CreatedAt),
+        domain_revision = unmarshal(int, Revision),
+        status          = unmarshal(status, Status),
+        cost            = hg_cash:unmarshal([1, Cash]),
+        payer           = unmarshal(payer, Payer),
+        flow            = ?invoice_payment_flow_instant(),
+        context         = hg_content:unmarshal(Context)
+    };
+
+%% Flow
+
+unmarshal(flow, #{<<"type">> := <<"instant">>}) ->
+    ?invoice_payment_flow_instant();
+unmarshal(flow, #{
+    <<"type">>                  := <<"hold">>,
+    <<"on_hold_expiration">>    := OnHoldExpiration,
+    <<"held_until">>            := HeldUntil
+}) ->
+    ?invoice_payment_flow_hold(
+        unmarshal(on_hold_expiration, OnHoldExpiration),
+        unmarshal(str, HeldUntil));
+
+%% Payment status
+
+unmarshal(status, <<"pending">>) ->
+    ?pending();
+unmarshal(status, <<"processed">>) ->
+    ?processed();
+unmarshal(status, [<<"failed">>, Failure]) ->
+    ?failed(unmarshal(failure, Failure));
+unmarshal(status, [<<"captured">>, Reason]) ->
+    ?captured_with_reason(unmarshal(str, Reason));
+unmarshal(status, [<<"cancelled">>, Reason]) ->
+    ?cancelled_with_reason(unmarshal(str, Reason));
+
+unmarshal(status, ?legacy_pending()) ->
+    ?pending();
+unmarshal(status, ?legacy_processed()) ->
+    ?processed();
+unmarshal(status, ?legacy_failed(Failure)) ->
+    ?failed(unmarshal(failure, [1, Failure]));
+unmarshal(status, ?legacy_captured(Reason)) ->
+    ?captured_with_reason(unmarshal(str, Reason));
+unmarshal(status, ?legacy_cancelled(Reason)) ->
+    ?cancelled_with_reason(unmarshal(str, Reason));
+
+%% Session change
+
+unmarshal(session_change, [2, <<"started">>]) ->
+    ?session_started();
+unmarshal(session_change, [2, [<<"finished">>, Result]]) ->
+    ?session_finished(unmarshal(session_status, Result));
+unmarshal(session_change, [2, <<"suspended">>]) ->
+    ?session_suspended();
+unmarshal(session_change, [2, <<"activated">>]) ->
+    ?session_activated();
+unmarshal(session_change, [2, [<<"transaction_bound">>, Trx]]) ->
+    ?trx_bound(unmarshal(trx, Trx));
+unmarshal(session_change, [2, [<<"proxy_state_changed">>, {bin, ProxySt}]]) ->
+    ?proxy_st_changed(unmarshal(bin, ProxySt));
+unmarshal(session_change, [2, [<<"interaction_requested">>, UserInteraction]]) ->
+    ?interaction_requested(unmarshal(interaction, UserInteraction));
+
+unmarshal(session_change, [1, ?legacy_session_started()]) ->
+    ?session_started();
+unmarshal(session_change, [1, ?legacy_session_finished(Result)]) ->
+    ?session_finished(unmarshal(session_status, Result));
+unmarshal(session_change, [1, ?legacy_session_suspended()]) ->
+    ?session_suspended();
+unmarshal(session_change, [1, ?legacy_session_activated()]) ->
+    ?session_activated();
+unmarshal(session_change, [1, ?legacy_trx_bound(Trx)]) ->
+    ?trx_bound(unmarshal(trx, Trx));
+unmarshal(session_change, [1, ?legacy_proxy_st_changed(ProxySt)]) ->
+    ?proxy_st_changed(unmarshal(bin, ProxySt));
+unmarshal(session_change, [1, ?legacy_interaction_requested(UserInteraction)]) ->
+    ?interaction_requested(unmarshal(interaction, UserInteraction));
+
+%% Session status
+
+unmarshal(session_status, <<"succeeded">>) ->
+    ?session_succeeded();
+unmarshal(session_status, [<<"failed">>, Failure]) ->
+    ?session_failed(unmarshal(failure, Failure));
+
+unmarshal(session_status, ?legacy_session_succeeded()) ->
+    ?session_succeeded();
+unmarshal(session_status, ?legacy_session_failed(Failure)) ->
+    ?session_failed(unmarshal(failure, Failure));
+
+%% Adjustment change
+
+unmarshal(adj_change, [2, [<<"created">>, Adjustment]]) ->
+    ?adjustment_created(unmarshal(adj, Adjustment));
+unmarshal(adj_change, [2, [<<"status_changed">>, Status]]) ->
+    ?adjustment_status_changed(unmarshal(adj_status, Status));
+
+unmarshal(adj_change, [1, ?legacy_adjustment_created(Adjustment)]) ->
+    ?adjustment_created(unmarshal(adj, Adjustment));
+unmarshal(adj_change, [1, ?legacy_adjustment_status_changed(Status)]) ->
+    ?adjustment_status_changed(unmarshal(adj_status, Status));
+
+%% Adjustment
+
+unmarshal(adj, #{
+    <<"id">>                    := ID,
+    <<"created_at">>            := CreatedAt,
+    <<"domain_revision">>       := Revision,
+    <<"reason">>                := Reason,
+    <<"old_cash_flow_inverse">> := OldCashFlowInverse,
+    <<"new_cash_flow">>         := NewCashFlow
+}) ->
+    #domain_InvoicePaymentAdjustment{
+        id                    = unmarshal(str, ID),
+        status                = ?adjustment_pending(),
+        created_at            = unmarshal(str, CreatedAt),
+        domain_revision       = unmarshal(int, Revision),
+        reason                = unmarshal(str, Reason),
+        old_cash_flow_inverse = hg_cashflow:unmarshal(OldCashFlowInverse),
+        new_cash_flow         = hg_cashflow:unmarshal(NewCashFlow)
+    };
+
+unmarshal(adj,
+    ?legacy_adjustment(ID, Status, CreatedAt, Revision, Reason, NewCashFlow, OldCashFlowInverse)
+) ->
+    #domain_InvoicePaymentAdjustment{
+        id                    = unmarshal(str, ID),
+        status                = unmarshal(adj_status, Status),
+        created_at            = unmarshal(str, CreatedAt),
+        domain_revision       = unmarshal(int, Revision),
+        reason                = unmarshal(str, Reason),
+        old_cash_flow_inverse = hg_cashflow:unmarshal([1, OldCashFlowInverse]),
+        new_cash_flow         = hg_cashflow:unmarshal([1, NewCashFlow])
+    };
+
+%% Adjustment status
+
+unmarshal(adj_status, <<"pending">>) ->
+    ?adjustment_pending();
+unmarshal(adj_status, [<<"captured">>, At]) ->
+    ?adjustment_captured(At);
+unmarshal(adj_status, [<<"cancelled">>, At]) ->
+    ?adjustment_cancelled(At);
+
+unmarshal(adj_status, ?legacy_adjustment_pending()) ->
+    ?adjustment_pending();
+unmarshal(adj_status, ?legacy_adjustment_captured(At)) ->
+    ?adjustment_captured(At);
+unmarshal(adj_status, ?legacy_adjustment_cancelled(At)) ->
+    ?adjustment_cancelled(At);
+
+%% Payer
+
+unmarshal(payer, #{
+    <<"payment_tool">>  := PaymentTool,
+    <<"session_id">>    := SessionId,
+    <<"client_info">>   := ClientInfo,
+    <<"contact_info">>  := ContractInfo
+}) ->
+    #domain_Payer{
+        payment_tool    = hg_payment_tool:unmarshal(PaymentTool),
+        session_id      = unmarshal(str, SessionId),
+        client_info     = unmarshal(client_info, ClientInfo),
+        contact_info    = unmarshal(contact_info, ContractInfo)
+    };
+
+unmarshal(payer, ?legacy_payer(PaymentTool, SessionId, ClientInfo, ContractInfo)) ->
+    #domain_Payer{
+        payment_tool    = hg_payment_tool:unmarshal([1, PaymentTool]),
+        session_id      = unmarshal(str, SessionId),
+        client_info     = unmarshal(client_info, ClientInfo),
+        contact_info    = unmarshal(contact_info, ContractInfo)
+    };
+
+%% Client info
+
+unmarshal(client_info, ?legacy_client_info(IpAddress, Fingerprint)) ->
+    #domain_ClientInfo{
+        ip_address      = unmarshal(str, IpAddress),
+        fingerprint     = unmarshal(str, Fingerprint)
+    };
+
+unmarshal(client_info, ClientInfo) ->
+    IpAddress = maps:get(<<"ip_address">>, ClientInfo, undefined),
+    Fingerprint = maps:get(<<"fingerprint">>, ClientInfo, undefined),
+    #domain_ClientInfo{
+        ip_address      = unmarshal(str, IpAddress),
+        fingerprint     = unmarshal(str, Fingerprint)
+    };
+
+%% Contract info
+
+unmarshal(contact_info, ?legacy_contract_info(PhoneNumber, Email)) ->
+    #domain_ContactInfo{
+        phone_number    = unmarshal(str, PhoneNumber),
+        email           = unmarshal(str, Email)
+    };
+
+unmarshal(contact_info, ContractInfo) ->
+    PhoneNumber = maps:get(<<"phone_number">>, ContractInfo, undefined),
+    Email = maps:get(<<"email">>, ContractInfo, undefined),
+    #domain_ContactInfo{
+        phone_number    = unmarshal(str, PhoneNumber),
+        email           = unmarshal(str, Email)
+    };
+
+unmarshal(trx, #{
+    <<"id">>    := ID,
+    <<"extra">> := Extra
+} = TRX) ->
+    Timestamp = maps:get(<<"timestamp">>, TRX, undefined),
+    #domain_TransactionInfo{
+        id          = unmarshal(str, ID),
+        timestamp   = unmarshal(str, Timestamp),
+        extra       = unmarshal(map_str, Extra)
+    };
+
+unmarshal(trx, ?legacy_trx(ID, Timestamp, Extra)) ->
+    #domain_TransactionInfo{
+        id          = unmarshal(str, ID),
+        timestamp   = unmarshal(str, Timestamp),
+        extra       = unmarshal(map_str, Extra)
+    };
+
+unmarshal(interaction, #{<<"redirect">> := [<<"get_request">>, URI]}) ->
+    {redirect, {get_request, #'BrowserGetRequest'{uri = URI}}};
+unmarshal(interaction, #{<<"redirect">> := [<<"post_request">>, #{
+    <<"uri">>   := URI,
+    <<"form">>  := Form
+}]}) ->
+    {redirect, {post_request,
+        #'BrowserPostRequest'{
+            uri     = unmarshal(str, URI),
+            form    = unmarshal(map_str, Form)
+        }
+    }};
+
+unmarshal(interaction, ?legacy_get_request(URI)) ->
+    {redirect, {get_request, #'BrowserGetRequest'{uri = URI}}};
+unmarshal(interaction, ?legacy_post_request(URI, Form)) ->
+    {redirect, {post_request,
+        #'BrowserPostRequest'{
+            uri     = unmarshal(str, URI),
+            form    = unmarshal(map_str, Form)
+        }
+    }};
+
+unmarshal(failure, [2, <<"operation_timeout">>]) ->
+    {operation_timeout, #domain_OperationTimeout{}};
+unmarshal(failure, [2, [<<"external_failure">>, #{<<"code">> := Code} = ExternalFailure]]) ->
+    Description = maps:get(<<"description">>, ExternalFailure, undefined),
+    {external_failure, #domain_ExternalFailure{
+        code        = unmarshal(str, Code),
+        description = unmarshal(str, Description)
+    }};
+
+unmarshal(failure, [1, ?legacy_operation_timeout()]) ->
+    {operation_timeout, #domain_OperationTimeout{}};
+unmarshal(failure, [1, ?legacy_external_failure(Code, Description)]) ->
+    {external_failure, #domain_ExternalFailure{
+        code        = unmarshal(str, Code),
+        description = unmarshal(str, Description)
+    }};
+
+unmarshal(on_hold_expiration, <<"cancel">>) ->
+    cancel;
+unmarshal(on_hold_expiration, <<"capture">>) ->
+    capture;
+
+unmarshal(on_hold_expiration, OnHoldExpiration) when is_atom(OnHoldExpiration) ->
+    OnHoldExpiration;
+
+unmarshal(risk_score, <<"low">>) ->
+    low;
+unmarshal(risk_score, <<"high">>) ->
+    high;
+unmarshal(risk_score, <<"fatal">>) ->
+    fatal;
+
+unmarshal(risk_score, RiskScore) when is_atom(RiskScore) ->
+    RiskScore;
+
+unmarshal(_, Other) ->
+    Other.

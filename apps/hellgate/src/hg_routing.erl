@@ -5,6 +5,9 @@
 
 -export([choose/2]).
 
+-export([marshal/1]).
+-export([unmarshal/1]).
+
 %%
 
 -type t() :: dmsl_domain_thrift:'InvoicePaymentRoute'().
@@ -53,14 +56,16 @@ filter_terminal(
         category = Category,
         payment_method = PaymentMethod,
         account = #domain_TerminalAccount{currency = Currency},
-        risk_coverage = RiskCoverage
+        risk_coverage = RiskCoverage,
+        payment_flow = PaymentFlow
     },
     VS
 ) ->
-    Category      == maps:get(category, VS) andalso
-    Currency      == maps:get(currency, VS) andalso
-    PaymentMethod == hg_payment_tool:get_method(maps:get(payment_tool, VS)) andalso
-    is_risk_covered(maps:get(risk_score, VS), RiskCoverage).
+    Category       == maps:get(category, VS) andalso
+    Currency       == maps:get(currency, VS) andalso
+    PaymentMethod  == hg_payment_tool:get_method(maps:get(payment_tool, VS)) andalso
+    is_risk_covered(maps:get(risk_score, VS), RiskCoverage) andalso
+    is_flow_suitable(PaymentFlow, maps:get(payment_flow, VS)).
 
 %%
 
@@ -74,3 +79,79 @@ reduce(Name, S, VS, Revision) ->
 
 is_risk_covered(RiskScore, RiskCoverage) ->
     RiskScore == RiskCoverage.
+
+-include("domain.hrl").
+
+is_flow_suitable(PaymentFlowTerminal, PaymentFlow) ->
+    case {PaymentFlowTerminal, PaymentFlow} of
+        {{hold, TerminalFlowHold}, {hold, ?hold_lifetime(PaymentHoldLifetime)}} ->
+            #domain_TerminalPaymentFlowHold{
+                hold_lifetime = ?hold_lifetime(TerminalHoldLifetime)
+            } = TerminalFlowHold,
+            TerminalHoldLifetime >= PaymentHoldLifetime;
+        {_, instant} ->
+            true;
+        {_, {hold, _}} ->
+            false
+    end.
+
+-include("legacy_structures.hrl").
+%% Marshalling
+
+-spec marshal(t()) ->
+    hg_msgpack_marshalling:value().
+
+marshal(Route) ->
+    marshal(route, Route).
+
+marshal(route, #domain_InvoicePaymentRoute{} = Route) ->
+    [2, #{
+        <<"provider">> => marshal(provider_ref, Route#domain_InvoicePaymentRoute.provider),
+        <<"terminal">> => marshal(terminal_ref, Route#domain_InvoicePaymentRoute.terminal)
+    }];
+
+marshal(provider_ref, #domain_ProviderRef{id = ObjectID}) ->
+    marshal(int, ObjectID);
+
+marshal(terminal_ref, #domain_TerminalRef{id = ObjectID}) ->
+    marshal(int, ObjectID);
+
+marshal(_, Other) ->
+    Other.
+
+%% Unmarshalling
+
+-spec unmarshal(hg_msgpack_marshalling:value()) ->
+    t().
+
+unmarshal(Route) ->
+    unmarshal(route, Route).
+
+unmarshal(route, [2, #{
+    <<"provider">> := Provider,
+    <<"terminal">> := Terminal
+}]) ->
+    #domain_InvoicePaymentRoute{
+        provider = unmarshal(provider_ref, Provider),
+        terminal = unmarshal(terminal_ref, Terminal)
+    };
+unmarshal(route, [1, ?legacy_route(Provider, Terminal)]) ->
+    #domain_InvoicePaymentRoute{
+        provider = unmarshal(provider_ref, Provider),
+        terminal = unmarshal(terminal_ref, Terminal)
+    };
+
+unmarshal(provider_ref, ?legacy_provider(ObjectID)) ->
+    #domain_ProviderRef{id = unmarshal(int, ObjectID)};
+
+unmarshal(provider_ref, ObjectID) ->
+    #domain_ProviderRef{id = unmarshal(int, ObjectID)};
+
+unmarshal(terminal_ref, ?legacy_terminal(ObjectID)) ->
+    #domain_TerminalRef{id = unmarshal(int, ObjectID)};
+
+unmarshal(terminal_ref, ObjectID) ->
+    #domain_TerminalRef{id = unmarshal(int, ObjectID)};
+
+unmarshal(_, Other) ->
+    Other.
