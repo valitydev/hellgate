@@ -133,27 +133,17 @@ handle_function(
 % Recurrent tokens
 %
 
-generate_token(
-    undefined,
-    #prxprv_RecurrentTokenInfo{
-        payment_tool = #prxprv_RecurrentPaymentTool{
-            payment_resource = #domain_DisposablePaymentResource{
-                payment_tool = PaymentTool
-            }
-        }
-    },
-    _Opts
-) ->
-    case hg_ct_helper:is_bad_payment_tool(PaymentTool) of
-        true ->
+generate_token(undefined, #prxprv_RecurrentTokenInfo{payment_tool = RecurrentPaytool}, _Opts) ->
+    case get_recurrent_paytool_scenario(RecurrentPaytool) of
+        forbidden ->
             #prxprv_RecurrentTokenProxyResult{
-                intent = ?recurrent_token_finish_w_failure(#'Failure'{code = <<"badparams">>})
+                intent = ?recurrent_token_finish_w_failure(#'Failure'{code = <<"forbidden">>})
             };
-        false ->
+        _ ->
             token_sleep(1, <<"sleeping">>)
     end;
-generate_token(<<"sleeping">>, #prxprv_RecurrentTokenInfo{payment_tool = PaymentTool}, _Opts) ->
-    case get_recurrent_paytool_scenario(PaymentTool) of
+generate_token(<<"sleeping">>, #prxprv_RecurrentTokenInfo{payment_tool = RecurrentPaytool}, _Opts) ->
+    case get_recurrent_paytool_scenario(RecurrentPaytool) of
         preauth_3ds ->
             Tag = generate_recurent_tag(),
             Uri = get_callback_url(),
@@ -245,6 +235,9 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
                due = get_invoice_due_date(PaymentInfo)
             }},
             suspend(SPID, 2, <<"suspended">>, UserInteraction);
+        digital_wallet ->
+            %% simple workflow
+            sleep(1, <<"sleeping">>);
         recurrent ->
             %% simple workflow without 3DS
             sleep(1, <<"sleeping">>)
@@ -343,30 +336,43 @@ get_recurrent_paytool_scenario(#prxprv_RecurrentPaymentTool{payment_resource = P
     PaymentTool = get_payment_tool(PaymentResource),
     get_payment_tool_scenario(PaymentTool).
 
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"no_preauth">>}}) ->
+    no_preauth;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"preauth_3ds">>}}) ->
     preauth_3ds;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"preauth_3ds_offsite">>}}) ->
     preauth_3ds_offsite;
-get_payment_tool_scenario({'bank_card', _}) ->
-    no_preauth;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"forbidden">>}}) ->
+    forbidden;
 get_payment_tool_scenario({'payment_terminal', #domain_PaymentTerminal{terminal_type = euroset}}) ->
-    terminal.
+    terminal;
+get_payment_tool_scenario({'digital_wallet', #domain_DigitalWallet{provider = qiwi}}) ->
+    digital_wallet.
 
 -spec make_payment_tool(atom()) -> {hg_domain_thrift:'PaymentTool'(), hg_domain_thrift:'PaymentSessionID'()}.
 
+make_payment_tool(no_preauth) ->
+    make_simple_payment_tool(<<"no_preauth">>, visa);
 make_payment_tool(preauth_3ds) ->
-    construct_payment_tool_and_session(<<"preauth_3ds">>, visa, <<"666666">>, <<"666">>, <<"SESSION666">>);
+    make_simple_payment_tool(<<"preauth_3ds">>, visa);
 make_payment_tool(preauth_3ds_offsite) ->
     make_simple_payment_tool(<<"preauth_3ds_offsite">>, jcb);
-make_payment_tool(no_preauth) ->
-    Token = <<"no_preauth">>,
-    make_simple_payment_tool(Token, visa);
+make_payment_tool(forbidden) ->
+    make_simple_payment_tool(<<"forbidden">>, visa);
 make_payment_tool(terminal) ->
     {
         {payment_terminal, #domain_PaymentTerminal{
             terminal_type = euroset
         }},
-        <<"">>
+        <<>>
+    };
+make_payment_tool(digital_wallet) ->
+    {
+        {digital_wallet, #domain_DigitalWallet{
+            provider = qiwi,
+            id       = <<"+79876543210">>
+        }},
+        <<>>
     }.
 
 make_simple_payment_tool(Token, PaymentSystem) ->

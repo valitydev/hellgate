@@ -17,7 +17,7 @@ services:
         condition: service_healthy
 
   dominant:
-    image: dr.rbkmoney.com/rbkmoney/dominant:3a58d9d20c6229002d8744bbd1745869fe5695f8
+    image: dr.rbkmoney.com/rbkmoney/dominant:68d75c0d8523a150a68852de4572ad1c1ee140ef
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -32,7 +32,7 @@ services:
       test: "curl http://localhost:8022/"
       interval: 5s
       timeout: 1s
-      retries: 12
+      retries: 20
 
   shumway:
     image: dr.rbkmoney.com/rbkmoney/shumway:7a5f95ee1e8baa42fdee9c08cc0ae96cd7187d55
@@ -51,7 +51,7 @@ services:
       test: "curl http://localhost:8022/"
       interval: 5s
       timeout: 1s
-      retries: 12
+      retries: 20
 
   shumway-db:
     image: dr.rbkmoney.com/rbkmoney/postgres:9.6

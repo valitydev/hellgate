@@ -47,13 +47,10 @@
 -export([make_invoice_details/1]).
 -export([make_invoice_details/2]).
 
+-export([make_disposable_payment_resource/1]).
 -export([make_customer_params/3]).
--export([make_customer_binding_params/0]).
+-export([make_customer_binding_params/1]).
 
--export([bank_card_simple_token/0]).
--export([make_bad_payment_tool/0]).
--export([is_bad_payment_tool/1]).
--export([make_disposable_payment_resource/0]).
 -export([make_meta_ns/0]).
 -export([make_meta_data/0]).
 -export([make_meta_data/1]).
@@ -583,46 +580,13 @@ make_shop_details(Name, Description) ->
         description = Description
     }.
 
--spec bank_card_simple_token() -> string().
+-spec make_disposable_payment_resource({dmsl_domain_thrift:'PaymentTool'(), dmsl_domain_thrift:'SessionID'()}) ->
+    hg_domain_thrift:'DisposablePaymentResource'().
 
-bank_card_simple_token() ->
-    <<"TOKEN42">>.
-
--spec make_bad_payment_tool() -> {hg_domain_thrift:'PaymentTool'(), hg_domain_thrift:'PaymentSessionID'()}.
-
-make_bad_payment_tool() ->
-    {
-        {bank_card, #domain_BankCard{
-            token          = bank_card_simple_token(),
-            payment_system = visa,
-            bin            = <<"000000">>,
-            masked_pan     = <<"0000">>
-        }},
-        <<"SESSION00">>
-    }.
-
--spec is_bad_payment_tool(hg_domain_thrift:'PaymentTool'()) -> boolean().
-
-is_bad_payment_tool(PaymentTool) ->
-    {BadPaymentTool, _} = make_bad_payment_tool(),
-    BadPaymentTool =:= PaymentTool.
-
--spec make_disposable_payment_resource() ->
-    {
-        hg_domain_thrift:'PaymentTool'(),
-        hg_domain_thrift:'PaymentSessionID'(),
-        hg_domain_thrift:'ClientInfo'()
-    }.
-
-make_disposable_payment_resource() ->
+make_disposable_payment_resource({PaymentTool, SessionID}) ->
     #domain_DisposablePaymentResource{
-        payment_tool = {bank_card, #domain_BankCard{
-            token          = bank_card_simple_token(),
-            payment_system = visa,
-            bin            = <<"424242">>,
-            masked_pan     = <<"4242">>
-        }},
-        payment_session_id = <<"SESSION42">>,
+        payment_tool = PaymentTool,
+        payment_session_id = SessionID,
         client_info = #domain_ClientInfo{}
     }.
 
@@ -660,11 +624,12 @@ make_customer_params(PartyID, ShopID, EMail) ->
         metadata     = ?null()
     }.
 
--spec make_customer_binding_params() -> dmsl_payment_processing_thrift:'CustomerBindingParams'().
+-spec make_customer_binding_params({dmsl_domain_thrift:'PaymentTool'(), dmsl_domain_thrift:'SessionID'()}) ->
+    dmsl_payment_processing_thrift:'CustomerBindingParams'().
 
-make_customer_binding_params() ->
+make_customer_binding_params(PaymentToolSession) ->
     #payproc_CustomerBindingParams{
-        payment_resource = make_disposable_payment_resource()
+        payment_resource = make_disposable_payment_resource(PaymentToolSession)
     }.
 
 %%

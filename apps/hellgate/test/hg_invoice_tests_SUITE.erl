@@ -32,6 +32,7 @@
 
 -export([payment_success/1]).
 -export([payment_w_terminal_success/1]).
+-export([payment_w_wallet_success/1]).
 -export([payment_w_customer_success/1]).
 -export([payment_w_incorrect_customer/1]).
 -export([payment_w_deleted_customer/1]).
@@ -48,6 +49,7 @@
 -export([payment_hold_capturing/1]).
 -export([payment_hold_auto_capturing/1]).
 -export([payment_refund_success/1]).
+-export([rounding_cashflow_volume/1]).
 -export([payment_with_offsite_preauth_success/1]).
 -export([payment_with_offsite_preauth_failed/1]).
 -export([terms_retrieval/1]).
@@ -93,6 +95,7 @@ all() ->
         invalid_payment_amount,
         payment_success,
         payment_w_terminal_success,
+        payment_w_wallet_success,
         payment_w_customer_success,
         payment_w_incorrect_customer,
         payment_w_deleted_customer,
@@ -112,6 +115,7 @@ all() ->
 
         payment_refund_success,
 
+        rounding_cashflow_volume,
         {group, offsite_preauth_payment},
 
         terms_retrieval,
@@ -225,9 +229,15 @@ end_per_group(_Group, _C) ->
 
 -spec init_per_testcase(test_case_name(), config()) -> config().
 
-init_per_testcase(payment_adjustment_success, C) ->
+init_per_testcase(Name, C) when Name == payment_adjustment_success; Name == rounding_cashflow_volume ->
     Revision = hg_domain:head(),
-    ok = hg_domain:upsert(get_adjustment_fixture(Revision)),
+    Fixture = case Name of
+        payment_adjustment_success ->
+            get_adjustment_fixture(Revision);
+        rounding_cashflow_volume ->
+            get_cashflow_rounding_fixture(Revision)
+    end,
+    ok = hg_domain:upsert(Fixture),
     [{original_domain_revision, Revision} | init_per_testcase(C)];
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
@@ -514,6 +524,19 @@ payment_w_terminal_success(C) ->
     _ = assert_invalid_post_request({URL, BadForm}),
     _ = assert_success_post_request({URL, GoodForm}),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(?payment_w_status(PaymentID, ?captured()))]
+    ) = hg_client_invoicing:get(InvoiceID, Client).
+
+-spec payment_w_wallet_success(config()) -> _ | no_return().
+
+payment_w_wallet_success(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"bubbleblob">>, make_due_date(10), 42000, C),
+    PaymentParams = make_wallet_payment_params(),
+    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
@@ -979,6 +1002,93 @@ payment_hold_auto_capturing(C) ->
     _ = assert_invalid_post_request(get_post_request(UserInteraction)),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, undefined, Client).
 
+-spec rounding_cashflow_volume(config()) -> _ | no_return().
+
+rounding_cashflow_volume(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
+    PaymentParams = make_payment_params(),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()), _, _, CF)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
+    ] = next_event(InvoiceID, Client),
+    ?cash(0, <<"RUB">>) = get_cashflow_volume({provider, settlement}, {merchant, settlement}, CF),
+    ?cash(1, <<"RUB">>) = get_cashflow_volume({system, settlement}, {provider, settlement}, CF),
+    ?cash(1, <<"RUB">>) = get_cashflow_volume({system, settlement}, {external, outcome}, CF).
+
+get_cashflow_rounding_fixture(Revision) ->
+    PaymentInstituition = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    [
+        {payment_institution, #domain_PaymentInstitutionObject{
+            ref = ?pinst(1),
+            data = PaymentInstituition#domain_PaymentInstitution{
+                providers = {value, ?ordset([
+                    ?prv(100)
+                ])}
+            }}
+        },
+        {provider, #domain_ProviderObject{
+            ref = ?prv(100),
+            data = #domain_Provider{
+                name = <<"Rounding">>,
+                description = <<>>,
+                abs_account = <<>>,
+                terminal = {value, [?trm(100)]},
+                proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
+                accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
+                payment_terms = #domain_PaymentsProvisionTerms{
+                    currencies = {value, ?ordset([
+                        ?cur(<<"RUB">>)
+                    ])},
+                    categories = {value, ?ordset([
+                        ?cat(1)
+                    ])},
+                    cash_limit = {value, ?cashrng(
+                        {inclusive, ?cash(     1000, <<"RUB">>)},
+                        {exclusive, ?cash(100000000, <<"RUB">>)}
+                    )},
+                    payment_methods = {value, ?ordset([
+                        ?pmt(bank_card, visa)
+                    ])},
+                    cash_flow = {value, [
+                        ?cfpost(
+                            {provider, settlement},
+                            {merchant, settlement},
+                            ?share_with_rounding_method(1, 200000, payment_amount, round_half_towards_zero)
+                        ),
+                        ?cfpost(
+                            {system, settlement},
+                            {provider, settlement},
+                            ?share_with_rounding_method(1, 200000, payment_amount, round_half_away_from_zero)
+                        ),
+                        ?cfpost(
+                            {system, settlement},
+                            {external, outcome},
+                            ?share(1, 200000, payment_amount)
+                        )
+                    ]}
+                }
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(100),
+                data = #domain_Terminal{
+                    name = <<"Rounding Terminal">>,
+                description = <<>>,
+                risk_coverage = low
+            }
+        }}
+    ].
+
+get_cashflow_volume(Source, Destination, CF) ->
+    [Volume] = [V || #domain_FinalCashFlowPosting{
+        source = #domain_FinalCashFlowAccount{account_type = S},
+        destination = #domain_FinalCashFlowAccount{account_type = D},
+        volume = V
+    } <- CF, S == Source, D == Destination],
+    Volume.
+
 %%
 
 -spec terms_retrieval(config()) -> _ | no_return().
@@ -992,6 +1102,7 @@ terms_retrieval(C) ->
             ?pmt(bank_card, jcb),
             ?pmt(bank_card, mastercard),
             ?pmt(bank_card, visa),
+            ?pmt(digital_wallet, qiwi),
             ?pmt(payment_terminal, euroset)
         ]}
     }} = TermSet1,
@@ -1188,6 +1299,10 @@ make_terminal_payment_params() ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(terminal),
     make_payment_params(PaymentTool, Session, instant).
 
+make_wallet_payment_params() ->
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(digital_wallet),
+    make_payment_params(PaymentTool, Session, instant).
+
 make_tds_payment_params() ->
     make_tds_payment_params(instant).
 
@@ -1350,7 +1465,11 @@ make_customer_w_rec_tool(PartyID, ShopID, Client) ->
     #payproc_Customer{id = CustomerID} =
         hg_client_customer:create(CustomerParams, Client),
     #payproc_CustomerBinding{id = BindingID} =
-        hg_client_customer:start_binding(CustomerID, hg_ct_helper:make_customer_binding_params(), Client),
+        hg_client_customer:start_binding(
+            CustomerID,
+            hg_ct_helper:make_customer_binding_params(hg_dummy_provider:make_payment_tool(no_preauth)),
+            Client
+        ),
     ok = wait_for_binding_success(CustomerID, BindingID, Client),
     CustomerID.
 
@@ -1401,7 +1520,8 @@ construct_domain_fixture() ->
                         ?pmt(bank_card, visa),
                         ?pmt(bank_card, mastercard),
                         ?pmt(bank_card, jcb),
-                        ?pmt(payment_terminal, euroset)
+                        ?pmt(payment_terminal, euroset),
+                        ?pmt(digital_wallet, qiwi)
                     ])}
                 }
             ]},
@@ -1545,6 +1665,7 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, mastercard)),
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, jcb)),
         hg_ct_fixture:construct_payment_method(?pmt(payment_terminal, euroset)),
+        hg_ct_fixture:construct_payment_method(?pmt(digital_wallet, qiwi)),
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
@@ -1695,6 +1816,7 @@ construct_domain_fixture() ->
                 }]
             }
         }},
+
         {provider, #domain_ProviderObject{
             ref = ?prv(1),
             data = #domain_Provider{
@@ -1729,7 +1851,9 @@ construct_domain_fixture() ->
                     )},
                     cash_flow = {decisions, [
                         #domain_CashFlowDecision{
-                            if_   = {condition, {payment_tool, {bank_card, {payment_system_is, visa}}}},
+                            if_   = {condition, {payment_tool, {bank_card, #domain_BankCardCondition{
+                                definition = {payment_system_is, visa}
+                            }}}},
                             then_ = {value, [
                                 ?cfpost(
                                     {provider, settlement},
@@ -1744,7 +1868,9 @@ construct_domain_fixture() ->
                             ]}
                         },
                         #domain_CashFlowDecision{
-                            if_   = {condition, {payment_tool, {bank_card, {payment_system_is, mastercard}}}},
+                            if_   = {condition, {payment_tool, {bank_card, #domain_BankCardCondition{
+                                definition = {payment_system_is, mastercard}
+                            }}}},
                             then_ = {value, [
                                 ?cfpost(
                                     {provider, settlement},
@@ -1759,7 +1885,9 @@ construct_domain_fixture() ->
                             ]}
                         },
                         #domain_CashFlowDecision{
-                            if_   = {condition, {payment_tool, {bank_card, {payment_system_is, jcb}}}},
+                            if_   = {condition, {payment_tool, {bank_card, #domain_BankCardCondition{
+                                definition = {payment_system_is, jcb}
+                            }}}},
                             then_ = {value, [
                                 ?cfpost(
                                     {provider, settlement},
@@ -1777,7 +1905,9 @@ construct_domain_fixture() ->
                     holds = #domain_PaymentHoldsProvisionTerms{
                         lifetime = {decisions, [
                             #domain_HoldLifetimeDecision{
-                                if_   = {condition, {payment_tool, {bank_card, {payment_system_is, visa}}}},
+                                if_   = {condition, {payment_tool, {bank_card, #domain_BankCardCondition{
+                                    payment_system_is = visa
+                                }}}},
                                 then_ = {value, ?hold_lifetime(5)}
                             }
                         ]}
@@ -1810,6 +1940,7 @@ construct_domain_fixture() ->
                 risk_coverage = high
             }
         }},
+
         {provider, #domain_ProviderObject{
             ref = ?prv(2),
             data = #domain_Provider{
@@ -1912,6 +2043,7 @@ construct_domain_fixture() ->
                 risk_coverage = high
             }
         }},
+
         {provider, #domain_ProviderObject{
             ref = ?prv(3),
             data = #domain_Provider{
@@ -1934,7 +2066,8 @@ construct_domain_fixture() ->
                         ?cat(1)
                     ])},
                     payment_methods = {value, ?ordset([
-                        ?pmt(payment_terminal, euroset)
+                        ?pmt(payment_terminal, euroset),
+                        ?pmt(digital_wallet, qiwi)
                     ])},
                     cash_limit = {value, ?cashrng(
                         {inclusive, ?cash(    1000, <<"RUB">>)},
@@ -1963,6 +2096,7 @@ construct_domain_fixture() ->
                 risk_coverage = low
             }
         }}
+
     ].
 
 construct_term_set_for_cost(LowerBound, UpperBound) ->

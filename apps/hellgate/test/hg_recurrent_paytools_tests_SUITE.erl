@@ -312,7 +312,7 @@ recurrent_paytool_creation_not_permitted(C) ->
 %%
 
 make_bad_recurrent_paytool_params(PartyID, ShopID) ->
-    {PaymentTool, Session} = hg_ct_helper:make_bad_payment_tool(),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(forbidden),
     PaymentResource = make_disposable_payment_resource(PaymentTool, Session),
     #payproc_RecurrentPaymentToolParams{
         party_id = PartyID,

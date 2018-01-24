@@ -537,6 +537,7 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, visa)),
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, mastercard)),
         hg_ct_fixture:construct_payment_method(?pmt(payment_terminal, euroset)),
+        hg_ct_fixture:construct_payment_method(?pmt(digital_wallet, qiwi)),
 
         {payment_institution, #domain_PaymentInstitutionObject{
             ref = ?pinst(1),
