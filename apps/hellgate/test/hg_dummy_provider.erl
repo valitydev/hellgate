@@ -1,4 +1,7 @@
 -module(hg_dummy_provider).
+
+-include_lib("dmsl/include/dmsl_payment_processing_errors_thrift.hrl").
+
 -behaviour(hg_woody_wrapper).
 
 -export([handle_function/3]).
@@ -22,15 +25,15 @@
 -define(COWBOY_PORT, 9988).
 
 -define(sleep(To, UI),
-    {sleep, #'SleepIntent'{timer = {timeout, To}, user_interaction = UI}}).
+    {sleep, #'prxprv_SleepIntent'{timer = {timeout, To}, user_interaction = UI}}).
 -define(suspend(Tag, To, UI),
-    {suspend, #'SuspendIntent'{tag = Tag, timeout = {timeout, To}, user_interaction = UI}}).
+    {suspend, #'prxprv_SuspendIntent'{tag = Tag, timeout = {timeout, To}, user_interaction = UI}}).
 -define(finish(Status),
-    {finish, #'FinishIntent'{status = Status}}).
+    {finish, #'prxprv_FinishIntent'{status = Status}}).
 -define(success(),
-    {success, #'Success'{}}).
--define(failure(),
-    {failure, #'Failure'{code = <<"smth wrong">>}}).
+    {success, #'prxprv_Success'{}}).
+-define(failure(Failure),
+    {failure, Failure}).
 -define(recurrent_token_finish(Token),
     {finish, #'prxprv_RecurrentTokenFinishIntent'{status = {success, #'prxprv_RecurrentTokenSuccess'{token = Token}}}}).
 -define(recurrent_token_finish_w_failure(Failure),
@@ -137,7 +140,7 @@ generate_token(undefined, #prxprv_RecurrentTokenInfo{payment_tool = RecurrentPay
     case get_recurrent_paytool_scenario(RecurrentPaytool) of
         forbidden ->
             #prxprv_RecurrentTokenProxyResult{
-                intent = ?recurrent_token_finish_w_failure(#'Failure'{code = <<"forbidden">>})
+                intent = ?recurrent_token_finish_w_failure(#'domain_Failure'{code = <<"forbidden">>})
             };
         unexpected_failure ->
             error(unexpected_failure);
@@ -259,7 +262,9 @@ process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo,
         processed ->
             finish(?success(), get_payment_id(PaymentInfo));
         {pending, Count} when Count > 3 ->
-            finish(?failure());
+            Failure = payproc_errors:construct('PaymentFailure',
+                {authorization_failed, {unknown, #payprocerr_GeneralFailure{}}}),
+            finish(?failure(Failure));
         {pending, Count} ->
             set_transaction_state(Key, {pending, Count + 1}),
             sleep(1, <<"sleeping_with_user_interaction">>);
