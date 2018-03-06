@@ -17,8 +17,15 @@ services:
         condition: service_healthy
 
   dominant:
-    image: dr.rbkmoney.com/rbkmoney/dominant:5356cc29e2e526316dd7d57a9c854b0e49bc2848
+    image: dr.rbkmoney.com/rbkmoney/dominant:007326a22c31b15a32beb72ce4f134fec39d0026
     command: /opt/dominant/bin/dominant foreground
+    depends_on:
+      machinegun:
+        condition: service_healthy
+
+  sequences:
+    image: dr.rbkmoney.com/rbkmoney/sequences:727c81115f861dc3d9b80c0e06e64d27728d447f
+    command: /opt/sequences/bin/sequences foreground
     depends_on:
       machinegun:
         condition: service_healthy

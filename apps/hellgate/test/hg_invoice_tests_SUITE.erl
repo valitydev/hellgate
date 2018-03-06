@@ -50,6 +50,10 @@
 -export([payment_hold_capturing/1]).
 -export([payment_hold_auto_capturing/1]).
 -export([payment_refund_success/1]).
+-export([payment_partial_refunds_success/1]).
+-export([invalid_amount_payment_partial_refund/1]).
+-export([invalid_time_payment_partial_refund/1]).
+-export([cant_start_simultaneous_partial_refunds/1]).
 -export([rounding_cashflow_volume/1]).
 -export([payment_with_offsite_preauth_success/1]).
 -export([payment_with_offsite_preauth_failed/1]).
@@ -119,6 +123,10 @@ all() ->
         {group, holds_management},
 
         payment_refund_success,
+        payment_partial_refunds_success,
+        invalid_amount_payment_partial_refund,
+        cant_start_simultaneous_partial_refunds,
+        invalid_time_payment_partial_refund,
 
         rounding_cashflow_volume,
         {group, offsite_preauth_payment},
@@ -217,6 +225,8 @@ end_per_suite(C) ->
     {exception, #payproc_OperationNotPermitted{}}).
 -define(insufficient_account_balance(),
     {exception, #payproc_InsufficientAccountBalance{}}).
+-define(invoice_payment_amount_exceeded(Maximum),
+    {exception, #payproc_InvoicePaymentAmountExceeded{maximum = Maximum}}).
 
 -spec init_per_group(group_name(), config()) -> config().
 
@@ -933,10 +943,7 @@ payment_refund_success(C) ->
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
     Refund =
         hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
-    [
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(Refund, _))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started())))
-    ] = next_event(InvoiceID, Client),
+    PaymentID = refund_payment(InvoiceID, PaymentID, RefundID, Refund, Client),
     [
         ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?trx_bound(_)))),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
@@ -947,6 +954,140 @@ payment_refund_success(C) ->
         hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
     % no more refunds for you
     ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client).
+
+-spec payment_partial_refunds_success(config()) -> _ | no_return().
+
+payment_partial_refunds_success(C) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyClient),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = process_payment(InvoiceID, make_payment_params(), Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    RefundParams0 = make_refund_params(43000, <<"RUB">>),
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 3000, C),
+    PaymentID2 = process_payment(InvoiceID2, make_payment_params(), Client),
+    PaymentID2 = await_payment_capture(InvoiceID2, PaymentID2, Client),
+    % refund amount exceeds payment amount
+    ?invoice_payment_amount_exceeded(_) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams0, Client),
+    % first refund
+    RefundParams1 = make_refund_params(10000, <<"RUB">>),
+    Refund1 = #domain_InvoicePaymentRefund{id = RefundID1} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
+    PaymentID = refund_payment(InvoiceID, PaymentID, RefundID1, Refund1, Client),
+    PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
+    % refund amount exceeds payment amount
+    RefundParams2 = make_refund_params(33000, <<"RUB">>),
+    ?invoice_payment_amount_exceeded(_) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams2, Client),
+    % second refund
+    RefundParams3 = make_refund_params(30000, <<"RUB">>),
+    Refund3 = #domain_InvoicePaymentRefund{id = RefundID3} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams3, Client),
+    PaymentID = refund_payment(InvoiceID, PaymentID, RefundID3, Refund3, Client),
+    PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
+    % check payment status = captured
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{status = ?captured()},
+        refunds =
+            [
+                #domain_InvoicePaymentRefund{cash = ?cash(10000, <<"RUB">>), status = ?refund_succeeded()},
+                #domain_InvoicePaymentRefund{cash = ?cash(30000, <<"RUB">>), status = ?refund_succeeded()}
+            ]
+    } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    % last refund
+    RefundParams4 = make_refund_params(2000, <<"RUB">>),
+    Refund4 = #domain_InvoicePaymentRefund{id = RefundID4} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams4, Client),
+    PaymentID = refund_payment(InvoiceID, PaymentID, RefundID4, Refund4, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?refunded()))
+    ] = next_event(InvoiceID, Client),
+    % check payment status = refunded and all refunds
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{status = ?refunded()},
+        refunds =
+            [
+                #domain_InvoicePaymentRefund{cash = ?cash(10000, <<"RUB">>), status = ?refund_succeeded()},
+                #domain_InvoicePaymentRefund{cash = ?cash(30000, <<"RUB">>), status = ?refund_succeeded()},
+                #domain_InvoicePaymentRefund{cash = ?cash(2000, <<"RUB">>), status = ?refund_succeeded()}
+            ]
+    } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    % no more refunds for you
+    RefundParams5 = make_refund_params(1000, <<"RUB">>),
+    ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams5, Client),
+    % Check sequence
+    <<"1">> =:= RefundID1 andalso <<"2">> =:= RefundID3 andalso <<"3">> =:= RefundID4.
+
+
+-spec invalid_amount_payment_partial_refund(config()) -> _ | no_return().
+
+invalid_amount_payment_partial_refund(C) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyClient),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = process_payment(InvoiceID, make_payment_params(), Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    RefundParams1 = make_refund_params(50, <<"RUB">>),
+    {exception, #'InvalidRequest'{
+        errors = [<<"Invalid amount, less than allowed minumum">>]
+    }} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
+    RefundParams2 = make_refund_params(40001, <<"RUB">>),
+    {exception, #'InvalidRequest'{
+        errors = [<<"Invalid amount, more than allowed maximum">>]
+    }} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams2, Client).
+
+-spec cant_start_simultaneous_partial_refunds(config()) -> _ | no_return().
+
+cant_start_simultaneous_partial_refunds(C) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyClient),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = process_payment(InvoiceID, make_payment_params(), Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    RefundParams = make_refund_params(10000, <<"RUB">>),
+    Refund1 = #domain_InvoicePaymentRefund{id = RefundID1} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+    ?operation_not_permitted() =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+    PaymentID = refund_payment(InvoiceID, PaymentID, RefundID1, Refund1, Client),
+    PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
+    Refund2 = #domain_InvoicePaymentRefund{id = RefundID2} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+    PaymentID = refund_payment(InvoiceID, PaymentID, RefundID2, Refund2, Client),
+    PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{status = ?captured()},
+        refunds =
+            [
+                #domain_InvoicePaymentRefund{cash = ?cash(10000, <<"RUB">>), status = ?refund_succeeded()},
+                #domain_InvoicePaymentRefund{cash = ?cash(10000, <<"RUB">>), status = ?refund_succeeded()}
+            ]
+    } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
+
+-spec invalid_time_payment_partial_refund(config()) -> _ | no_return().
+
+invalid_time_payment_partial_refund(C) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyClient),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = process_payment(InvoiceID, make_payment_params(), Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ok = hg_domain:update(construct_term_set_for_refund_eligibility_time(1)),
+    RefundParams = make_refund_params(5000, <<"RUB">>),
+    ?operation_not_permitted() =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client).
 
 %%
@@ -1399,6 +1540,12 @@ make_refund_params() ->
         reason = <<"ZANOZED">>
     }.
 
+make_refund_params(Amount, Currency) ->
+    #payproc_InvoicePaymentRefundParams{
+        reason = <<"ZANOZED">>,
+        cash = make_cash(Amount, Currency)
+    }.
+
 make_adjustment_params() ->
     make_adjustment_params(<<>>).
 
@@ -1492,6 +1639,21 @@ await_payment_process_failure(InvoiceID, PaymentID, Client) ->
             ?session_ev(?processed(), ?session_finished(?session_failed(Failure = ?operation_timeout())))
         ),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed(Failure)))
+    ] = next_event(InvoiceID, Client),
+    PaymentID.
+
+refund_payment(InvoiceID, PaymentID, RefundID, Refund, Client) ->
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(Refund, _))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started())))
+    ] = next_event(InvoiceID, Client),
+    PaymentID.
+
+await_refund_payment_process_finish(InvoiceID, PaymentID, Client) ->
+    [
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded())))
     ] = next_event(InvoiceID, Client),
     PaymentID.
 
@@ -1622,7 +1784,14 @@ construct_domain_fixture() ->
                         {system, settlement},
                         ?fixed(100, <<"RUB">>)
                     )
-                ]}
+                ]},
+                eligibility_time = {value, #'TimeSpan'{minutes = 1}},
+                partial_refunds = #domain_PartialRefundsServiceTerms{
+                    cash_limit = {value, ?cashrng(
+                        {inclusive, ?cash( 1000, <<"RUB">>)},
+                        {exclusive, ?cash(40000, <<"RUB">>)}
+                    )}
+                }
             }
         },
         recurrent_paytools = #domain_RecurrentPaytoolsServiceTerms{
@@ -1702,7 +1871,14 @@ construct_domain_fixture() ->
                     ?pmt(bank_card, mastercard)
                 ])},
                 fees = {value, [
-                ]}
+                ]},
+                eligibility_time = {value, #'TimeSpan'{minutes = 1}},
+                partial_refunds = #domain_PartialRefundsServiceTerms{
+                    cash_limit = {value, ?cashrng(
+                        {inclusive, ?cash( 1000, <<"RUB">>)},
+                        {exclusive, ?cash(40000, <<"RUB">>)}
+                    )}
+                }
             }
         }
     },
@@ -1972,7 +2148,13 @@ construct_domain_fixture() ->
                                 {provider, settlement},
                                 ?share(1, 1, operation_amount)
                             )
-                        ]}
+                        ]},
+                        partial_refunds = #domain_PartialRefundsProvisionTerms{
+                            cash_limit = {value, ?cashrng(
+                                {inclusive, ?cash(        10, <<"RUB">>)},
+                                {exclusive, ?cash(1000000000, <<"RUB">>)}
+                            )}
+                        }
                     }
                 },
                 recurrent_paytool_terms = #domain_RecurrentPaytoolsProvisionTerms{
@@ -2042,7 +2224,13 @@ construct_domain_fixture() ->
                                 {provider, settlement},
                                 ?share(1, 1, operation_amount)
                             )
-                        ]}
+                        ]},
+                        partial_refunds = #domain_PartialRefundsProvisionTerms{
+                            cash_limit = {value, ?cashrng(
+                                {inclusive, ?cash(        10, <<"RUB">>)},
+                                {exclusive, ?cash(1000000000, <<"RUB">>)}
+                            )}
+                        }
                     }
                 }
             }
@@ -2180,4 +2368,36 @@ construct_term_set_for_cost(LowerBound, UpperBound) ->
             }]
         }
     }}.
+
+construct_term_set_for_refund_eligibility_time(Seconds) ->
+    TermSet = #domain_TermSet{
+        payments = #domain_PaymentsServiceTerms{
+            refunds = #domain_PaymentRefundsServiceTerms{
+                payment_methods = {value, ?ordset([
+                    ?pmt(bank_card, visa),
+                    ?pmt(bank_card, mastercard)
+                ])},
+                fees = {value, [
+                ]},
+                eligibility_time = {value, #'TimeSpan'{seconds = Seconds}},
+                partial_refunds = #domain_PartialRefundsServiceTerms{
+                    cash_limit = {value, ?cashrng(
+                        {inclusive, ?cash(      1000, <<"RUB">>)},
+                        {exclusive, ?cash(1000000000, <<"RUB">>)}
+                    )}
+                }
+            }
+        }
+    },
+    {term_set_hierarchy, #domain_TermSetHierarchyObject{
+        ref = ?trms(2),
+        data = #domain_TermSetHierarchy{
+            parent_terms = undefined,
+            term_sets = [#domain_TimedTermSet{
+                action_time = #'TimestampInterval'{},
+                terms = TermSet
+            }]
+        }
+    }}.
+
 %

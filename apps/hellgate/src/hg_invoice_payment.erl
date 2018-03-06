@@ -165,15 +165,18 @@ get_adjustment(ID, St) ->
 
 -spec get_refunds(st()) -> [refund()].
 
-get_refunds(#st{refunds = Rs}) ->
-    lists:keysort(#domain_InvoicePaymentRefund.id, [R#refund_st.refund || R <- maps:values(Rs)]).
+get_refunds(#st{refunds = Rs} = St) ->
+    lists:keysort(
+        #domain_InvoicePaymentRefund.id,
+        [enrich_refund_with_cash(R#refund_st.refund, St) || R <- maps:values(Rs)]
+    ).
 
 -spec get_refund(refund_id(), st()) -> refund() | no_return().
 
 get_refund(ID, St) ->
     case try_get_refund_state(ID, St) of
         #refund_st{refund = Refund} ->
-            Refund;
+            enrich_refund_with_cash(Refund, St);
         undefined ->
             throw(#payproc_InvoicePaymentRefundNotFound{})
     end.
@@ -394,9 +397,16 @@ validate_payment_tool(PaymentTool, PaymentMethodSelector, VS, Revision) ->
     VS#{payment_tool => PaymentTool}.
 
 validate_payment_cost(Cost, CashLimitSelector, VS, Revision) ->
-    Limit = reduce_selector(cash_limit, CashLimitSelector, VS, Revision),
-    ok = validate_limit(Cost, Limit),
+    ok = validate_cash(Cost, CashLimitSelector, VS, Revision),
     VS#{cost => Cost}.
+
+validate_refund_cash(Cash, CashLimitSelector, VS, Revision) ->
+    ok = validate_cash(Cash, CashLimitSelector, VS, Revision),
+    VS.
+
+validate_cash(Cash, CashLimitSelector, VS, Revision) ->
+    Limit = reduce_selector(cash_limit, CashLimitSelector, VS, Revision),
+    ok = validate_limit(Cash, Limit).
 
 validate_limit(Cash, CashRange) ->
     case hg_condition:test_cash_range(Cash, CashRange) of
@@ -417,6 +427,16 @@ validate_route(Route = #domain_PaymentRoute{}, _Payment) ->
     Route;
 validate_route(undefined, Payment) ->
     error({misconfiguration, {'No route found for a payment', Payment}}).
+
+validate_refund_time(RefundCreatedAt, PaymentCreatedAt, TimeSpanSelector, VS, Revision) ->
+    EligibilityTime = reduce_selector(eligibility_time, TimeSpanSelector, VS, Revision),
+    RefundEndTime = hg_datetime:add_time_span(EligibilityTime, PaymentCreatedAt),
+    case hg_datetime:compare(RefundCreatedAt, RefundEndTime) of
+        Result when Result == earlier; Result == simultaneously ->
+            VS;
+        later ->
+            throw(#payproc_OperationNotPermitted{})
+    end.
 
 collect_varset(St, Opts) ->
     collect_varset(get_party(Opts), get_shop(Opts), get_payment(St), #{}).
@@ -466,6 +486,12 @@ collect_cash_flow_context(
 ) ->
     #{
         operation_amount => Cost
+    };
+collect_cash_flow_context(
+    #domain_InvoicePaymentRefund{cash = Cash}
+) ->
+    #{
+        operation_amount => Cash
     }.
 
 collect_account_map(
@@ -586,23 +612,26 @@ refund(Params, St0, Opts) ->
     PaymentInstitution = get_payment_institution(Opts, Revision),
     Provider = get_route_provider(Route, Revision),
     _ = assert_payment_status(captured, Payment),
-    _ = assert_no_refund_pending(St),
-    ID = construct_refund_id(St),
+    _ = assert_previous_refunds_finished(St),
     VS0 = collect_varset(St, Opts),
+    Cash = define_refund_cash(Params#payproc_InvoicePaymentRefundParams.cash, Payment),
+    _ = assert_refund_cash(Cash, St),
+    ID = construct_refund_id(St),
     Refund = #domain_InvoicePaymentRefund{
         id              = ID,
         created_at      = hg_datetime:format_now(),
         domain_revision = Revision,
         status          = ?refund_pending(),
-        reason          = Params#payproc_InvoicePaymentRefundParams.reason
+        reason          = Params#payproc_InvoicePaymentRefundParams.reason,
+        cash            = Cash
     },
     MerchantTerms = get_merchant_refunds_terms(get_merchant_payments_terms(Opts, Revision)),
-    VS1 = validate_refund(Payment, MerchantTerms, VS0, Revision),
-    ProviderTerms = get_provider_refunds_terms(get_provider_payments_terms(Route, Revision), Payment),
+    VS1 = validate_refund(MerchantTerms, Refund, Payment, VS0, Revision),
+    ProviderPaymentsTerms = get_provider_payments_terms(Route, Revision),
+    ProviderTerms = get_provider_refunds_terms(ProviderPaymentsTerms, Refund, Payment, VS1, Revision),
     Cashflow = collect_refund_cashflow(MerchantTerms, ProviderTerms, VS1, Revision),
-    % TODO specific cashflow context needed, with defined `refund_amount` for instance
     AccountMap = collect_account_map(Payment, Shop, PaymentInstitution, Provider, VS1, Revision),
-    FinalCashflow = construct_final_cashflow(Cashflow, collect_cash_flow_context(Payment), AccountMap),
+    FinalCashflow = construct_final_cashflow(Cashflow, collect_cash_flow_context(Refund), AccountMap),
     Changes = [
         ?refund_created(Refund, FinalCashflow),
         ?session_ev(?refunded(), ?session_started())
@@ -620,37 +649,158 @@ refund(Params, St0, Opts) ->
             throw(#payproc_InsufficientAccountBalance{})
     end.
 
-construct_refund_id(#st{}) ->
-    % FIXME we employ unique id in order not to reuse plan id occasionally
-    %       should track sequence with some aux state instead
-    hg_utils:unique_id().
+construct_refund_id(St) ->
+    PaymentID = get_payment_id(get_payment(St)),
+    InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
+    SequenceID = make_refund_squence_id(PaymentID, InvoiceID),
+    IntRefundID = hg_sequences:get_next(SequenceID),
+    integer_to_binary(IntRefundID).
 
-assert_no_refund_pending(#st{refunds = Rs}) ->
-    genlib_map:foreach(fun (ID, R) -> assert_refund_finished(ID, get_refund(R)) end, Rs).
+make_refund_squence_id(PaymentID, InvoiceID) ->
+    <<InvoiceID/binary, <<"_">>/binary, PaymentID/binary>>.
 
-assert_refund_finished(ID, #domain_InvoicePaymentRefund{status = ?refund_pending()}) ->
-    throw(#payproc_InvoicePaymentRefundPending{id = ID});
-assert_refund_finished(_ID, #domain_InvoicePaymentRefund{}) ->
-    ok.
+assert_refund_cash(Cash, St) ->
+    PaymentAmount = get_remaining_payment_amount(Cash, St),
+    assert_remaining_payment_amount(PaymentAmount, St).
+
+assert_remaining_payment_amount(?cash(Amount, _), _St) when Amount >= 0 ->
+    ok;
+assert_remaining_payment_amount(?cash(Amount, _), St) when Amount < 0 ->
+    Maximum = get_payment_cost(get_payment(St)),
+    throw(#payproc_InvoicePaymentAmountExceeded{maximum = Maximum}).
+
+assert_previous_refunds_finished(St) ->
+    PendingRefunds = lists:filter(
+        fun
+            (#domain_InvoicePaymentRefund{status = ?refund_pending()}) ->
+                true;
+            (#domain_InvoicePaymentRefund{}) ->
+                false
+        end,
+        get_refunds(St)),
+    case PendingRefunds of
+        [] ->
+            ok;
+        [_R|_] ->
+            throw(#payproc_OperationNotPermitted{})
+    end.
+
+get_remaining_payment_amount(RefundCash, St) ->
+    PaymentAmount = get_payment_cost(get_payment(St)),
+    InterimPaymentAmount = lists:foldl(
+        fun(R, Acc) ->
+            case get_refund_status(R) of
+                {S, _} when S == succeeded ->
+                    hg_cash:sub(Acc, get_refund_cash(R));
+                _ ->
+                    Acc
+            end
+        end,
+        PaymentAmount,
+        get_refunds(St)
+    ),
+    hg_cash:sub(InterimPaymentAmount, RefundCash).
 
 get_merchant_refunds_terms(#domain_PaymentsServiceTerms{refunds = Terms}) when Terms /= undefined ->
     Terms;
 get_merchant_refunds_terms(#domain_PaymentsServiceTerms{refunds = undefined}) ->
     throw(#payproc_OperationNotPermitted{}).
 
-get_provider_refunds_terms(#domain_PaymentsProvisionTerms{refunds = Terms}, _Payment) when Terms /= undefined ->
-    Terms;
-get_provider_refunds_terms(#domain_PaymentsProvisionTerms{refunds = undefined}, Payment) ->
+get_provider_refunds_terms(
+    #domain_PaymentsProvisionTerms{refunds = Terms},
+    Refund,
+    Payment,
+    VS,
+    Revision
+) when Terms /= undefined ->
+    Cost = get_payment_cost(Payment),
+    Cash = get_refund_cash(Refund),
+    case hg_cash:sub(Cost, Cash) of
+        ?cash(0, _) ->
+            Terms;
+        ?cash(Amount, _) when Amount > 0 ->
+            get_provider_partial_refunds_terms(Terms, Refund, Payment, VS, Revision)
+    end;
+get_provider_refunds_terms(#domain_PaymentsProvisionTerms{refunds = undefined}, _Refund, Payment, _VS, _Revision) ->
     error({misconfiguration, {'No refund terms for a payment', Payment}}).
 
-validate_refund(Payment, RefundTerms, VS0, Revision) ->
+get_provider_partial_refunds_terms(
+    #domain_PaymentRefundsProvisionTerms{
+        partial_refunds = #domain_PartialRefundsProvisionTerms{
+            cash_limit = CashLimitSelector
+        }
+    } = Terms,
+    Refund,
+    _Payment,
+    VS,
+    Revision
+) ->
+    Cash = get_refund_cash(Refund),
+    CashRange = reduce_selector(cash_limit, CashLimitSelector, VS, Revision),
+    case hg_condition:test_cash_range(Cash, CashRange) of
+        within ->
+            Terms;
+        {exceeds, _} ->
+            error({misconfiguration, {'Refund amount doesnt match allowed cash range', CashRange}})
+    end;
+get_provider_partial_refunds_terms(
+    #domain_PaymentRefundsProvisionTerms{partial_refunds = undefined},
+    _Refund,
+    Payment,
+    _VS,
+    _Revision
+) ->
+    error({misconfiguration, {'No partial refund terms for a payment', Payment}}).
+
+validate_refund(Terms, Refund, Payment, VS0, Revision) ->
+    Cost = get_payment_cost(Payment),
+    Cash = get_refund_cash(Refund),
+    case hg_cash:sub(Cost, Cash) of
+        ?cash(0, _) ->
+            validate_common_refund_terms(Terms, Refund, Payment, VS0, Revision);
+        ?cash(Amount, _) when Amount > 0 ->
+            validate_partial_refund(Terms, Refund, Payment, VS0, Revision)
+    end.
+
+validate_partial_refund(
+    #domain_PaymentRefundsServiceTerms{partial_refunds = PRs} = Terms,
+    Refund,
+    Payment,
+    VS0,
+    Revision
+) when PRs /= undefined ->
+    VS1 = validate_common_refund_terms(Terms, Refund, Payment, VS0, Revision),
+    VS2 = validate_refund_cash(
+        get_refund_cash(Refund),
+        PRs#domain_PartialRefundsServiceTerms.cash_limit,
+        VS1,
+        Revision
+    ),
+    VS2;
+validate_partial_refund(
+    #domain_PaymentRefundsServiceTerms{partial_refunds = undefined},
+    _Refund,
+    _Payment,
+    _VS0,
+    _Revision
+) ->
+    throw(#payproc_OperationNotPermitted{}).
+
+validate_common_refund_terms(Terms, Refund, Payment, VS0, Revision) ->
     VS1 = validate_payment_tool(
         get_payment_tool(Payment),
-        RefundTerms#domain_PaymentRefundsServiceTerms.payment_methods,
+        Terms#domain_PaymentRefundsServiceTerms.payment_methods,
         VS0,
         Revision
     ),
-    VS1.
+    VS2 = validate_refund_time(
+        get_refund_created_at(Refund),
+        get_payment_created_at(Payment),
+        Terms#domain_PaymentRefundsServiceTerms.eligibility_time,
+        VS1,
+        Revision
+    ),
+    VS2.
 
 collect_refund_cashflow(
     #domain_PaymentRefundsServiceTerms{fees = MerchantCashflowSelector},
@@ -929,10 +1079,17 @@ finish_processing({refund, ID}, {Events, Action}, St) ->
         #{status := finished, result := ?session_succeeded()} ->
             _AffectedAccounts = commit_refund_cashflow(RefundSt1, St1),
             Events2 = [
-                ?refund_ev(ID, ?refund_status_changed(?refund_succeeded())),
-                ?payment_status_changed(?refunded())
+                ?refund_ev(ID, ?refund_status_changed(?refund_succeeded()))
             ],
-            {done, {Events1 ++ Events2, Action}};
+            Events3 = case get_remaining_payment_amount(get_refund_cash(get_refund(RefundSt1)), St1) of
+                ?cash(Amount, _) when Amount =:= 0 ->
+                    [
+                        ?payment_status_changed(?refunded())
+                    ];
+                ?cash(Amount, _) when Amount > 0 ->
+                    []
+            end,
+            {done, {Events1 ++ Events2 ++ Events3, Action}};
         #{status := finished, result := ?session_failed(Failure)} ->
             _AffectedAccounts = rollback_refund_cashflow(RefundSt1, St1),
             Events2 = [
@@ -1163,13 +1320,14 @@ construct_proxy_cash(#domain_Cash{
     }.
 
 construct_proxy_refund(#refund_st{
-    refund  = #domain_InvoicePaymentRefund{id = ID, created_at = CreatedAt},
+    refund  = Refund,
     session = Session
 }) ->
     #prxprv_InvoicePaymentRefund{
-        id         = ID,
-        created_at = CreatedAt,
-        trx        = get_session_trx(Session)
+        id         = get_refund_id(Refund),
+        created_at = get_refund_created_at(Refund),
+        trx        = get_session_trx(Session),
+        cash       = construct_proxy_cash(get_refund_cash(Refund))
     }.
 
 collect_proxy_options(
@@ -1240,6 +1398,9 @@ get_payment_flow(#domain_InvoicePayment{flow = Flow}) ->
 
 get_payment_tool(#domain_InvoicePayment{payer = Payer}) ->
     get_payer_payment_tool(Payer).
+
+get_payment_created_at(#domain_InvoicePayment{created_at = CreatedAt}) ->
+    CreatedAt.
 
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
     get_resource_payment_tool(PaymentResource);
@@ -1379,6 +1540,21 @@ set_refund_status(Status, Refund = #domain_InvoicePaymentRefund{}) ->
 
 get_refund_cashflow(#refund_st{cash_flow = CashFlow}) ->
     CashFlow.
+
+define_refund_cash(undefined, #domain_InvoicePayment{cost = Cost}) ->
+    Cost;
+define_refund_cash(Cash, _Payment) ->
+    Cash.
+
+get_refund_cash(#domain_InvoicePaymentRefund{cash = Cash}) ->
+    Cash.
+
+get_refund_created_at(#domain_InvoicePaymentRefund{created_at = CreatedAt}) ->
+    CreatedAt.
+
+enrich_refund_with_cash(Refund, #st{payment = Payment}) ->
+    Cash = define_refund_cash(Refund#domain_InvoicePaymentRefund.cash, Payment),
+    Refund#domain_InvoicePaymentRefund{cash = Cash}.
 
 try_get_adjustment(ID, #st{adjustments = As}) ->
     case lists:keyfind(ID, #domain_InvoicePaymentAdjustment.id, As) of
@@ -1756,7 +1932,8 @@ marshal(refund, #domain_InvoicePaymentRefund{} = Refund) ->
         <<"id">>         => marshal(str, Refund#domain_InvoicePaymentRefund.id),
         <<"created_at">> => marshal(str, Refund#domain_InvoicePaymentRefund.created_at),
         <<"rev">>        => marshal(int, Refund#domain_InvoicePaymentRefund.domain_revision),
-        <<"reason">>     => marshal(str, Refund#domain_InvoicePaymentRefund.reason)
+        <<"reason">>     => marshal(str, Refund#domain_InvoicePaymentRefund.reason),
+        <<"cash">>       => hg_cash:marshal(Refund#domain_InvoicePaymentRefund.cash)
     });
 
 marshal(refund_status, ?refund_pending()) ->
@@ -2135,12 +2312,14 @@ unmarshal(refund, #{
     <<"created_at">> := CreatedAt,
     <<"rev">>        := Rev
 } = V) ->
+    Cash = genlib_map:get(<<"cash">>, V),
     #domain_InvoicePaymentRefund{
         id              = unmarshal(str, ID),
         status          = ?refund_pending(),
         created_at      = unmarshal(str, CreatedAt),
         domain_revision = unmarshal(int, Rev),
-        reason          = genlib_map:get(<<"reason">>, V)
+        reason          = genlib_map:get(<<"reason">>, V),
+        cash            = hg_cash:unmarshal(Cash)
     };
 
 unmarshal(refund_status, <<"pending">>) ->
