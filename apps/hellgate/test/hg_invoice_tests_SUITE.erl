@@ -133,8 +133,7 @@ all() ->
 
         terms_retrieval,
 
-        adhoc_repair_working_failed,
-        adhoc_repair_failed_succeeded,
+        {group, adhoc_repairs},
 
         consistent_history
     ].
@@ -152,6 +151,10 @@ groups() ->
         {offsite_preauth_payment, [parallel], [
             payment_with_offsite_preauth_success,
             payment_with_offsite_preauth_failed
+        ]},
+        {adhoc_repairs, [parallel], [
+            adhoc_repair_working_failed,
+            adhoc_repair_failed_succeeded
         ]}
     ].
 
@@ -1331,8 +1334,7 @@ payment_with_offsite_preauth_failed(C) ->
             ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
         ),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
-    ] = next_event(InvoiceID, Client),
-
+    ] = next_event(InvoiceID, 8000, Client),
     ok = payproc_errors:match('PaymentFailure', Failure, fun({authorization_failed, _}) -> ok end),
     [?invoice_status_changed(?invoice_cancelled(<<"overdue">>))] = next_event(InvoiceID, Client).
 
