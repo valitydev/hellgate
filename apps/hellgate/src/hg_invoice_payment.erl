@@ -336,6 +336,11 @@ construct_payment(PaymentID, CreatedAt, Cost, Payer, FlowParams, Terms, VS0, Rev
         VS2,
         Revision
     ),
+    VS4 = collect_refund_varset(
+        Terms#domain_PaymentsServiceTerms.refunds,
+        VS3,
+        Revision
+    ),
     {
         #domain_InvoicePayment{
             id              = PaymentID,
@@ -346,7 +351,7 @@ construct_payment(PaymentID, CreatedAt, Cost, Payer, FlowParams, Terms, VS0, Rev
             payer           = Payer,
             flow            = Flow
         },
-        VS3
+        VS4
     }.
 
 construct_payment_flow({instant, _}, _CreatedAt, _Terms, VS, _Revision) ->
@@ -409,7 +414,7 @@ validate_cash(Cash, CashLimitSelector, VS, Revision) ->
     ok = validate_limit(Cash, Limit).
 
 validate_limit(Cash, CashRange) ->
-    case hg_condition:test_cash_range(Cash, CashRange) of
+    case hg_cash_range:is_inside(Cash, CashRange) of
         within ->
             ok;
         {exceeds, lower} ->
@@ -437,6 +442,30 @@ validate_refund_time(RefundCreatedAt, PaymentCreatedAt, TimeSpanSelector, VS, Re
         later ->
             throw(#payproc_OperationNotPermitted{})
     end.
+
+collect_refund_varset(
+    #domain_PaymentRefundsServiceTerms{
+        partial_refunds = PartialRefundsServiceTerms
+    },
+    VS,
+    Revision
+) ->
+    PartialRefundsVS = collect_partial_refund_varset(PartialRefundsServiceTerms, #{}, Revision),
+    VS#{refunds => PartialRefundsVS};
+collect_refund_varset(undefined, VS, _Revision) ->
+    VS.
+
+collect_partial_refund_varset(
+    #domain_PartialRefundsServiceTerms{
+        cash_limit = CashLimitSelector
+    },
+    VS,
+    Revision
+) ->
+    Limit = reduce_selector(cash_limit, CashLimitSelector, VS, Revision),
+    VS#{partial => #{cash_limit => Limit}};
+collect_partial_refund_varset(undefined, VS, _Revision) ->
+    VS.
 
 collect_varset(St, Opts) ->
     collect_varset(get_party(Opts), get_shop(Opts), get_payment(St), #{}).
@@ -737,7 +766,7 @@ get_provider_partial_refunds_terms(
 ) ->
     Cash = get_refund_cash(Refund),
     CashRange = reduce_selector(cash_limit, CashLimitSelector, VS, Revision),
-    case hg_condition:test_cash_range(Cash, CashRange) of
+    case hg_cash_range:is_inside(Cash, CashRange) of
         within ->
             Terms;
         {exceeds, _} ->
