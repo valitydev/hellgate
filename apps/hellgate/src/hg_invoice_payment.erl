@@ -420,9 +420,20 @@ validate_risk_score(RiskScore, VS) when RiskScore == low; RiskScore == high ->
 validate_risk_score(fatal, _VS) ->
     throw_invalid_request(<<"Fatal error">>).
 
-validate_route(Route = #domain_PaymentRoute{}, _Payment) ->
+validate_route({ok, Route}, _Payment) ->
     Route;
-validate_route(undefined, Payment) ->
+validate_route({error, {no_route_found, RejectContext}}, Payment) ->
+    LogFun = fun(Msg, Param) ->
+        _ = lager:log(
+                error,
+                lager:md(),
+                Msg,
+                [Param]
+            )
+    end,
+    _ = LogFun("No route found, varset: ~p", maps:get(varset, RejectContext)),
+    _ = LogFun("No route found, rejected providers: ~p", maps:get(rejected_providers, RejectContext)),
+    _ = LogFun("No route found, rejected terminals: ~p", maps:get(rejected_terminals, RejectContext)),
     error({misconfiguration, {'No route found for a payment', Payment}}).
 
 validate_refund_time(RefundCreatedAt, PaymentCreatedAt, TimeSpanSelector, VS, Revision) ->
@@ -470,12 +481,16 @@ collect_partial_refund_varset(undefined, _, _) ->
 collect_varset(St, Opts) ->
     collect_varset(get_party(Opts), get_shop(Opts), get_payment(St), #{}).
 
-collect_varset(Party, Shop = #domain_Shop{
-    category = Category,
-    account = #domain_ShopAccount{currency = Currency}
-}, VS) ->
+collect_varset(
+    #domain_Party{id = PartyID},
+    Shop = #domain_Shop{
+        category = Category,
+        account = #domain_ShopAccount{currency = Currency}
+    },
+    VS
+) ->
     VS#{
-        party    => Party,
+        party_id => PartyID,
         shop     => Shop,
         category => Category,
         currency => Currency
