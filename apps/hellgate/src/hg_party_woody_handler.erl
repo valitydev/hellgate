@@ -24,211 +24,194 @@ handle_function(Func, Args, Opts) ->
 %% Party
 
 handle_function_('Create', [UserInfo, PartyID, PartyParams], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:start(PartyID, PartyParams);
 
 handle_function_('Checkout', [UserInfo, PartyID, RevisionParam], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     checkout_party(PartyID, RevisionParam, #payproc_InvalidPartyRevision{});
 
 handle_function_('Get', [UserInfo, PartyID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:get_party(PartyID);
 
 handle_function_('Block', [UserInfo, PartyID, Reason], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, {block, Reason});
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {block, party, Reason});
 
 handle_function_('Unblock', [UserInfo, PartyID, Reason], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, {unblock, Reason});
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {unblock, party, Reason});
 
 handle_function_('Suspend', [UserInfo, PartyID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, suspend);
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {suspend, party});
 
 handle_function_('Activate', [UserInfo, PartyID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, activate);
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {activate, party});
 
 %% Contract
 
 handle_function_('GetContract', [UserInfo, PartyID, ContractID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Party = hg_party_machine:get_party(PartyID),
     ensure_contract(hg_party:get_contract(ContractID, Party));
 
 handle_function_('ComputeContractTerms', [UserInfo, PartyID, ContractID, Timestamp], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Party = checkout_party(PartyID, {timestamp, Timestamp}),
     Contract = ensure_contract(hg_party:get_contract(ContractID, Party)),
     Revision = hg_domain:head(),
     hg_party:reduce_terms(
         hg_party:get_terms(Contract, Timestamp, Revision),
-        #{party_id => PartyID},
+        #{
+            party_id => PartyID,
+            identification_level => get_identification_level(Contract, Party)
+        },
         Revision
     );
 
 %% Shop
 
 handle_function_('GetShop', [UserInfo, PartyID, ID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Party = hg_party_machine:get_party(PartyID),
     ensure_shop(hg_party:get_shop(ID, Party));
 
 handle_function_('BlockShop', [UserInfo, PartyID, ID, Reason], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, {block_shop, ID, Reason});
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {block, {shop, ID}, Reason});
 
 handle_function_('UnblockShop', [UserInfo, PartyID, ID, Reason], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, {unblock_shop, ID, Reason});
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {unblock, {shop, ID}, Reason});
 
 handle_function_('SuspendShop', [UserInfo, PartyID, ID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, {suspend_shop, ID});
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {suspend, {shop, ID}});
 
 handle_function_('ActivateShop', [UserInfo, PartyID, ID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
-    hg_party_machine:call(PartyID, {activate_shop, ID});
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {activate, {shop, ID}});
 
 handle_function_('ComputeShopTerms', [UserInfo, PartyID, ShopID, Timestamp], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Party = checkout_party(PartyID, {timestamp, Timestamp}),
-    Shop = hg_party:get_shop(ShopID, Party),
+    Shop = ensure_shop(hg_party:get_shop(ShopID, Party)),
     Contract = hg_party:get_contract(Shop#domain_Shop.contract_id, Party),
     Revision = hg_domain:head(),
     VS = #{
         party_id => PartyID,
-        shop     => Shop,
+        shop_id  => ShopID,
         category => Shop#domain_Shop.category,
-        currency => (Shop#domain_Shop.account)#domain_ShopAccount.currency
+        currency => (Shop#domain_Shop.account)#domain_ShopAccount.currency,
+        identification_level => get_identification_level(Contract, Party)
+    },
+    hg_party:reduce_terms(hg_party:get_terms(Contract, Timestamp, Revision), VS, Revision);
+
+%% Wallet
+
+handle_function_('GetWallet', [UserInfo, PartyID, ID], _Opts) ->
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    Party = hg_party_machine:get_party(PartyID),
+    ensure_wallet(hg_party:get_wallet(ID, Party));
+
+handle_function_('BlockWallet', [UserInfo, PartyID, ID, Reason], _Opts) ->
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {block, {wallet, ID}, Reason});
+
+handle_function_('UnblockWallet', [UserInfo, PartyID, ID, Reason], _Opts) ->
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {unblock, {wallet, ID}, Reason});
+
+handle_function_('SuspendWallet', [UserInfo, PartyID, ID], _Opts) ->
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {suspend, {wallet, ID}});
+
+handle_function_('ActivateWallet', [UserInfo, PartyID, ID], _Opts) ->
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    hg_party_machine:call(PartyID, {activate, {wallet, ID}});
+
+handle_function_('ComputeWalletTerms', [UserInfo, PartyID, ID, Timestamp], _Opts) ->
+    ok = set_meta_and_check_access(UserInfo, PartyID),
+    Party = checkout_party(PartyID, {timestamp, Timestamp}),
+    Wallet = ensure_wallet(hg_party:get_wallet(ID, Party)),
+    Contract = hg_party:get_contract(Wallet#domain_Wallet.contract, Party),
+    Revision = hg_domain:head(),
+    VS = #{
+        party_id => PartyID,
+        wallet_id => ID,
+        currency => (Wallet#domain_Wallet.account)#domain_WalletAccount.currency,
+        identification_level => get_identification_level(Contract, Party)
     },
     hg_party:reduce_terms(hg_party:get_terms(Contract, Timestamp, Revision), VS, Revision);
 
 %% Claim
 
 handle_function_('CreateClaim', [UserInfo, PartyID, Changeset], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {create_claim, Changeset});
 
 handle_function_('GetClaim', [UserInfo, PartyID, ID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:get_claim(ID, PartyID);
 
 handle_function_('GetClaims', [UserInfo, PartyID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:get_claims(PartyID);
 
 handle_function_('AcceptClaim', [UserInfo, PartyID, ID, ClaimRevision], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {accept_claim, ID, ClaimRevision});
 
 handle_function_('UpdateClaim', [UserInfo, PartyID, ID, ClaimRevision, Changeset], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {update_claim, ID, ClaimRevision, Changeset});
 
 handle_function_('DenyClaim', [UserInfo, PartyID, ID, ClaimRevision, Reason], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {deny_claim, ID, ClaimRevision, Reason});
 
 handle_function_('RevokeClaim', [UserInfo, PartyID, ID, ClaimRevision, Reason], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {revoke_claim, ID, ClaimRevision, Reason});
 
 %% Event
 
 handle_function_('GetEvents', [UserInfo, PartyID, Range], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     #payproc_EventRange{'after' = AfterID, limit = Limit} = Range,
     hg_party_machine:get_public_history(PartyID, AfterID, Limit);
 
 %% ShopAccount
 
 handle_function_('GetAccountState', [UserInfo, PartyID, AccountID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Party = hg_party_machine:get_party(PartyID),
     hg_party:get_account_state(AccountID, Party);
 
 handle_function_('GetShopAccount', [UserInfo, PartyID, ShopID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Party = hg_party_machine:get_party(PartyID),
     hg_party:get_shop_account(ShopID, Party);
 
 %% PartyMeta
 
 handle_function_('GetMeta', [UserInfo, PartyID], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:get_meta(PartyID);
 
 handle_function_('GetMetaData', [UserInfo, PartyID, NS], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:get_metadata(NS, PartyID);
 
 handle_function_('SetMetaData', [UserInfo, PartyID, NS, Data], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {set_metadata, NS, Data});
 
 handle_function_('RemoveMetaData', [UserInfo, PartyID, NS], _Opts) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     hg_party_machine:call(PartyID, {remove_metadata, NS});
 
 %% Payment Institutions
@@ -238,9 +221,7 @@ handle_function_(
     [UserInfo, PartyID, PaymentInstitutionRef, Varset],
     _Opts
 ) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Revision = hg_domain:head(),
     PaymentInstitution = get_payment_institution(PaymentInstitutionRef, Revision),
     VS = prepare_varset(PartyID, Varset),
@@ -255,9 +236,7 @@ handle_function_(
     [UserInfo, PartyID, #payproc_PayoutParams{id = ShopID, amount = Amount, timestamp = Timestamp} = _PayoutParams],
     _Opts
 ) ->
-    ok = assume_user_identity(UserInfo),
-    _ = set_party_mgmt_meta(PartyID),
-    ok = assert_party_accessible(PartyID),
+    ok = set_meta_and_check_access(UserInfo, PartyID),
     Party = checkout_party(PartyID, {timestamp, Timestamp}),
     Shop = ensure_shop(hg_party:get_shop(ShopID, Party)),
     Contract = hg_party:get_contract(Shop#domain_Shop.contract_id, Party),
@@ -266,10 +245,10 @@ handle_function_(
     PayoutTool = hg_contract:get_payout_tool(Shop#domain_Shop.payout_tool_id, Contract),
     VS = #{
         party_id => PartyID,
-        shop => Shop,
+        shop_id  => ShopID,
         category => Shop#domain_Shop.category,
         currency => Currency,
-        cost => Amount,
+        cost     => Amount,
         payout_method => hg_payout_tool:get_method(PayoutTool)
     },
     Revision = hg_domain:head(),
@@ -281,6 +260,11 @@ handle_function_(
     end.
 
 %%
+
+set_meta_and_check_access(UserInfo, PartyID) ->
+    ok = assume_user_identity(UserInfo),
+    _ = set_party_mgmt_meta(PartyID),
+    assert_party_accessible(PartyID).
 
 -spec assert_party_accessible(
     dmsl_domain_thrift:'PartyID'()
@@ -322,6 +306,11 @@ ensure_shop(#domain_Shop{} = Shop) ->
     Shop;
 ensure_shop(undefined) ->
     throw(#payproc_ShopNotFound{}).
+
+ensure_wallet(#domain_Wallet{} = Wallet) ->
+    Wallet;
+ensure_wallet(undefined) ->
+    throw(#payproc_WalletNotFound{}).
 
 get_payment_institution(PaymentInstitutionRef, Revision) ->
     case hg_domain:find(Revision, {payment_institution, PaymentInstitutionRef}) of
@@ -379,3 +368,15 @@ prepare_payment_tool_var(PaymentMethodRef) when PaymentMethodRef /= undefined ->
     hg_payment_tool:create_from_method(PaymentMethodRef);
 prepare_payment_tool_var(undefined) ->
     undefined.
+
+get_identification_level(#domain_Contract{contractor_id = undefined, contractor = Contractor}, _) ->
+    %% TODO legacy, remove after migration
+    case Contractor of
+        {legal_entity, _} ->
+            full;
+        _ ->
+            none
+    end;
+get_identification_level(#domain_Contract{contractor_id = ContractorID}, Party) ->
+    Contractor = hg_party:get_contractor(ContractorID, Party),
+    Contractor#domain_PartyContractor.status.
