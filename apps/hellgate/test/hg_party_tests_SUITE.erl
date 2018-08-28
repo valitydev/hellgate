@@ -111,7 +111,6 @@ all() ->
         {group, shop_management},
         {group, shop_account_lazy_creation},
         {group, contractor_management},
-        {group, wallet_management},
 
         {group, claim_management},
 
@@ -799,7 +798,24 @@ shop_update(C) ->
     Changeset2 = [?shop_modification(ShopID, {location_modification, Location})],
     Claim2 = assert_claim_pending(hg_client_party:create_claim(Changeset2, Client), Client),
     ok = accept_claim(Claim2, Client),
-    #domain_Shop{location = Location, details = Details} = hg_client_party:get_shop(ShopID, Client).
+    #domain_Shop{location = Location, details = Details} = hg_client_party:get_shop(ShopID, Client),
+
+    PayoutToolParams = hg_ct_helper:make_battle_ready_payout_tool_params(),
+    ContractID = <<"CONTRACT_IN_DIFFERENT_PAYMENT_INST">>,
+    PayoutToolID = <<"1">>,
+    Changeset3 = [
+        ?contract_modification(ContractID, {creation, make_contract_params(?tmpl(2), ?pinst(3))}),
+        ?contract_modification(ContractID, ?payout_tool_creation(PayoutToolID, PayoutToolParams)),
+        ?shop_modification(ShopID, ?shop_contract_modification(ContractID, PayoutToolID))
+    ],
+    Claim3 = assert_claim_pending(hg_client_party:create_claim(Changeset3, Client), Client),
+    ok = accept_claim(Claim3, Client),
+    #domain_Shop{
+        location = Location,
+        details = Details,
+        contract_id = ContractID,
+        payout_tool_id = PayoutToolID
+    } = hg_client_party:get_shop(ShopID, Client).
 
 shop_update_before_confirm(C) ->
     Client = cfg(client, C),
@@ -1318,7 +1334,10 @@ make_contract_params() ->
     make_contract_params(undefined).
 
 make_contract_params(TemplateRef) ->
-    hg_ct_helper:make_battle_ready_contract_params(TemplateRef, ?pinst(2)).
+    make_contract_params(TemplateRef, ?pinst(2)).
+
+make_contract_params(TemplateRef, PaymentInstitutionRef) ->
+    hg_ct_helper:make_battle_ready_contract_params(TemplateRef, PaymentInstitutionRef).
 
 make_contract_w_contractor_params(ContractorID) ->
     #payproc_ContractParams{
@@ -1483,6 +1502,19 @@ construct_domain_fixture() ->
 
         {payment_institution, #domain_PaymentInstitutionObject{
             ref = ?pinst(2),
+            data = #domain_PaymentInstitution{
+                name = <<"Chetky Payments Inc.">>,
+                system_account_set = {value, ?sas(2)},
+                default_contract_template = {value, ?tmpl(2)},
+                providers = {value, ?ordset([])},
+                inspector = {value, ?insp(1)},
+                residences = [],
+                realm = live
+            }
+        }},
+
+        {payment_institution, #domain_PaymentInstitutionObject{
+            ref = ?pinst(3),
             data = #domain_PaymentInstitution{
                 name = <<"Chetky Payments Inc.">>,
                 system_account_set = {value, ?sas(2)},
