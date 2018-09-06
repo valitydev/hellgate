@@ -234,7 +234,7 @@ groups() ->
 -spec init_per_suite(config()) -> config().
 
 init_per_suite(C) ->
-    {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, scoper, dmt_client, hellgate]),
+    {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, scoper, dmt_client, party_client, hellgate]),
     ok = hg_domain:insert(construct_domain_fixture()),
     [{root_url, maps:get(hellgate_root_url, Ret)}, {apps, Apps} | C].
 
@@ -656,7 +656,7 @@ contract_adjustment_creation(C) ->
 
 contract_adjustment_expiration(C) ->
     Client = cfg(client, C),
-    hg_context:set(woody_context:new()),
+    ok = hg_context:save(hg_context:create()),
     ContractID = ?REAL_CONTRACT_ID,
     ID = <<"ADJ2">>,
     Revision = hg_domain:head(),

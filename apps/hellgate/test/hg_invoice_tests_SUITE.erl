@@ -199,7 +199,9 @@ init_per_suite(C) ->
     % _ = dbg:p(all, c),
     % _ = dbg:tpl({'hg_invoice_payment', 'merge_change', '_'}, x),
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
-    {Apps, Ret} = hg_ct_helper:start_apps([lager, woody, scoper, dmt_client, hellgate, {cowboy, CowboySpec}]),
+    {Apps, Ret} = hg_ct_helper:start_apps([
+        lager, woody, scoper, dmt_client, party_client, hellgate, {cowboy, CowboySpec}
+    ]),
     ok = hg_domain:insert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
@@ -1088,7 +1090,7 @@ external_account_posting(C) ->
                 details = <<"Assist fee">>
             } <- CF
     ],
-    _ = hg_context:set(woody_context:new()),
+    ok = hg_context:save(hg_context:create()),
     #domain_ExternalAccountSet{
         accounts = #{?cur(<<"RUB">>) := #domain_ExternalAccount{outcome = AssistAccountID}}
     } = hg_domain:get(hg_domain:head(), {external_account_set, ?eas(2)}),
