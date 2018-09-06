@@ -10,6 +10,7 @@
 
 -type handler_opts() :: #{
     handler => module(),
+    default_handling_timeout => timeout(),
     user_identity => undefined | woody_user_identity:user_identity()
 }.
 
@@ -17,6 +18,8 @@
     url            := woody:url(),
     transport_opts => [{_, _}]
 }.
+
+-define(DEFAULT_HANDLING_TIMEOUT, 30000).  % 30 seconds
 
 %% Callbacks
 
@@ -33,7 +36,8 @@
 -spec handle_function(woody:func(), woody:args(), woody_context:ctx(), handler_opts()) ->
     {ok, term()} | no_return().
 
-handle_function(Func, Args, Context, #{handler := Handler} = Opts) ->
+handle_function(Func, Args, Context0, #{handler := Handler} = Opts) ->
+    Context = ensure_woody_deadline_set(Context0, Opts),
     hg_context:set(Context),
     try
         Result = Handler:handle_function(
@@ -90,3 +94,16 @@ construct_opts(Url) ->
 
 get_service_modname(ServiceName) ->
     hg_proto:get_service(ServiceName).
+
+-spec ensure_woody_deadline_set(woody_context:ctx(), handler_opts()) ->
+    woody_context:ctx().
+
+ensure_woody_deadline_set(WoodyContext, Opts) ->
+    case woody_context:get_deadline(WoodyContext) of
+        undefined ->
+            DefaultTimeout = maps:get(default_handling_timeout, Opts, ?DEFAULT_HANDLING_TIMEOUT),
+            Deadline = woody_deadline:from_timeout(DefaultTimeout),
+            woody_context:set_deadline(Deadline, WoodyContext);
+        _Other ->
+            WoodyContext
+    end.
