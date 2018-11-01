@@ -790,8 +790,9 @@ payments_w_bank_card_issuer_conditions(C) ->
     %kaz success
     FirstInvoice = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 1000, C),
     {{bank_card, BankCard}, Session} = hg_dummy_provider:make_payment_tool(no_preauth),
-    KazBankCard = BankCard#domain_BankCard {
-        issuer_country = kaz
+    KazBankCard = BankCard#domain_BankCard{
+        issuer_country = kaz,
+        metadata = #{<<?MODULE_STRING>> => {obj, #{{str, <<"vsn">>} => {i, 42}}}}
     },
     KazPaymentParams = make_payment_params({bank_card, KazBankCard}, Session, instant),
     FirstPayment = process_payment(FirstInvoice, KazPaymentParams, Client),
@@ -804,8 +805,9 @@ payments_w_bank_card_issuer_conditions(C) ->
     %rus success
     ThirdInvoice = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 1001, C),
     {{bank_card, BankCard1}, Session1} = hg_dummy_provider:make_payment_tool(no_preauth),
-    RusBankCard = BankCard1#domain_BankCard {
-        issuer_country = rus
+    RusBankCard = BankCard1#domain_BankCard{
+        issuer_country = rus,
+        metadata = #{<<?MODULE_STRING>> => {obj, #{{str, <<"vsn">>} => {i, 42}}}}
     },
     RusPaymentParams = make_payment_params({bank_card, RusBankCard}, Session1, instant),
     SecondPayment = process_payment(ThirdInvoice, RusPaymentParams, Client),
@@ -3342,8 +3344,104 @@ construct_term_set_for_refund_eligibility_time(Seconds) ->
 
 %
 
-payments_w_bank_card_issuer_conditions_fixture(_Revision) ->
+payments_w_bank_card_issuer_conditions_fixture(Revision) ->
+    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
     [
+        {payment_institution, #domain_PaymentInstitutionObject{
+            ref = ?pinst(1),
+            data = PaymentInstitution#domain_PaymentInstitution{
+                providers = {value, ?ordset([
+                    ?prv(100)
+                ])}
+            }}
+        },
+        {provider, #domain_ProviderObject{
+            ref = ?prv(100),
+            data = #domain_Provider{
+                name = <<"VTB21">>,
+                description = <<>>,
+                abs_account = <<>>,
+                terminal = {value, [?trm(100)]},
+                proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
+                accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
+                payment_terms = #domain_PaymentsProvisionTerms{
+                    currencies = {value, ?ordset([
+                        ?cur(<<"RUB">>)
+                    ])},
+                    categories = {value, ?ordset([
+                        ?cat(1)
+                    ])},
+                    cash_limit = {value, ?cashrng(
+                        {inclusive, ?cash(     1000, <<"RUB">>)},
+                        {exclusive, ?cash(100000000, <<"RUB">>)}
+                    )},
+                    payment_methods = {value, ?ordset([
+                        ?pmt(bank_card, visa)
+                    ])},
+                    cash_flow = {decisions, [
+                        #domain_CashFlowDecision{
+                            if_ = {condition,
+                                {payment_tool,
+                                    {bank_card, #domain_BankCardCondition {
+                                        definition = {issuer_country_is, kaz}
+                                    }}
+                                }
+                            },
+                            then_ = {value, [
+                                ?cfpost(
+                                    {provider, settlement},
+                                    {merchant, settlement},
+                                    ?share(1, 1, operation_amount)
+                                ),
+                                ?cfpost(
+                                    {system, settlement},
+                                    {provider, settlement},
+                                    ?share(25, 1000, operation_amount)
+                                )
+                            ]}
+                        },
+                        #domain_CashFlowDecision{
+                            if_ = {constant, true},
+                            then_ = {value, [
+                                ?cfpost(
+                                    {provider, settlement},
+                                    {merchant, settlement},
+                                    ?share(1, 1, operation_amount)
+                                ),
+                                ?cfpost(
+                                    {system, settlement},
+                                    {provider, settlement},
+                                    ?share(19, 1000, operation_amount)
+                                )
+                            ]}
+                        }
+                    ]},
+                    refunds = #domain_PaymentRefundsProvisionTerms{
+                        cash_flow = {value, [
+                            ?cfpost(
+                                {merchant, settlement},
+                                {provider, settlement},
+                                ?share(1, 1, operation_amount)
+                            )
+                        ]},
+                        partial_refunds = #domain_PartialRefundsProvisionTerms{
+                            cash_limit = {value, ?cashrng(
+                                {inclusive, ?cash(        10, <<"RUB">>)},
+                                {exclusive, ?cash(1000000000, <<"RUB">>)}
+                            )}
+                        }
+                    }
+                }
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(100),
+            data = #domain_Terminal{
+                name = <<"VTB21">>,
+                description = <<>>,
+                risk_coverage = low
+            }
+        }},
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = ?trms(4),
             data = #domain_TermSetHierarchy{
