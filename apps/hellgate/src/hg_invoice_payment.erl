@@ -41,6 +41,7 @@
 %% Business logic
 
 -export([capture/2]).
+-export([capture/4]).
 -export([cancel/2]).
 -export([refund/3]).
 
@@ -86,6 +87,7 @@
     risk_score             :: undefined | risk_score(),
     route                  :: undefined | route(),
     cash_flow              :: undefined | cash_flow(),
+    partial_cash_flow      :: undefined | cash_flow(),
     trx                    :: undefined | trx_info(),
     target                 :: undefined | target(),
     sessions       = #{}   :: #{target_type() => session()},
@@ -111,6 +113,7 @@
 -export_type([activity/0]).
 -export_type([machine_result/0]).
 
+-type cash()                :: dmsl_domain_thrift:'Cash'().
 -type party()               :: dmsl_domain_thrift:'Party'().
 -type payer()               :: dmsl_domain_thrift:'Payer'().
 -type invoice()             :: dmsl_domain_thrift:'Invoice'().
@@ -801,7 +804,52 @@ start_session(Target) ->
 -spec capture(st(), atom()) -> {ok, result()}.
 
 capture(St, Reason) ->
-    do_payment(St, ?captured_with_reason(hg_utils:format_reason(Reason))).
+    Cost = get_payment_cost(get_payment(St)),
+    do_payment(St, ?captured_with_reason_and_cost(hg_utils:format_reason(Reason), Cost)).
+
+-spec capture(st(), binary(), cash(), opts()) -> {ok, result()}.
+
+capture(St, Reason, Cost, Opts) ->
+    Payment = get_payment(St),
+    _ = assert_activity({payment, flow_waiting}, St),
+    _ = assert_payment_flow(hold, Payment),
+    _ = assert_capture_cost_currency(Cost, Payment),
+    _ = assert_capture_cost_amount(Cost, Payment),
+    partial_capture(St, Reason, Cost, Opts).
+
+partial_capture(St, Reason, Cost, Opts) ->
+    Payment             = get_payment(St),
+    Revision            = get_payment_revision(St),
+    Shop                = get_shop(Opts),
+    PaymentInstitution  = get_payment_institution(Opts, Revision),
+    Route               = get_route(St),
+    VS                  = collect_validation_varset(St, Opts),
+    MerchantTerms   = get_merchant_payments_terms(Opts, Revision),
+    ProviderTerms   = get_provider_payments_terms(Route, Revision),
+    Provider        = get_route_provider(Route, Revision),
+    Payment2        = Payment#domain_InvoicePayment{cost = Cost},
+    Cashflow        = collect_cashflow(MerchantTerms, ProviderTerms, VS, Revision),
+    FinalCashflow   = construct_final_cashflow(
+        Payment2,
+        Shop,
+        PaymentInstitution,
+        Provider,
+        Cashflow,
+        VS,
+        Revision
+    ),
+    Invoice             = get_invoice(Opts),
+    _AffectedAccounts   = hg_accounting:plan(
+        construct_payment_plan_id(Invoice, Payment2),
+        [
+            {2, hg_cashflow:revert(get_cashflow(St))},
+            {3, FinalCashflow}
+        ]
+    ),
+    Changes =
+        [?cash_flow_changed(FinalCashflow)] ++
+        start_session(?captured_with_reason_and_cost(genlib:to_binary(Reason), Cost)),
+    {ok, {Changes, hg_machine_action:instant()}}.
 
 -spec cancel(st(), atom()) -> {ok, result()}.
 
@@ -813,6 +861,24 @@ do_payment(St, Target) ->
     _ = assert_activity({payment, flow_waiting}, St),
     _ = assert_payment_flow(hold, Payment),
     {ok, {start_session(Target), hg_machine_action:instant()}}.
+
+assert_capture_cost_currency(?cash(_, SymCode), #domain_InvoicePayment{cost = ?cash(_, SymCode)}) ->
+    ok;
+assert_capture_cost_currency(?cash(_, PassedSymCode), #domain_InvoicePayment{cost = ?cash(_, SymCode)}) ->
+    throw(#payproc_InconsistentCaptureCurrency{
+        payment_currency = SymCode,
+        passed_currency = PassedSymCode
+    }).
+
+assert_capture_cost_amount(?cash(PassedAmount, _), #domain_InvoicePayment{cost = ?cash(Amount, _)})
+    when PassedAmount =< Amount
+->
+    ok;
+assert_capture_cost_amount(?cash(PassedAmount, _), #domain_InvoicePayment{cost = ?cash(Amount, _)}) ->
+    throw(#payproc_AmountExceededCaptureBalance{
+        payment_amount = Amount,
+        passed_amount = PassedAmount
+    }).
 
 -spec refund(refund_params(), st(), opts()) ->
     {refund(), result()}.
@@ -1336,13 +1402,16 @@ repair_session(St = #st{repair_scenario = Scenario}) ->
 finalize_payment(Action, St) ->
     Target = case get_payment_flow(get_payment(St)) of
         ?invoice_payment_flow_instant() ->
-            ?captured();
+            ?captured_with_reason_and_cost(<<"Timeout">>, get_payment_cost(get_payment(St)));
         ?invoice_payment_flow_hold(OnHoldExpiration, _) ->
             case OnHoldExpiration of
                 cancel ->
                     ?cancelled();
                 capture ->
-                    ?captured()
+                    ?captured_with_reason_and_cost(
+                        <<"Timeout">>,
+                        get_payment_cost(get_payment(St))
+                    )
             end
     end,
     StartEvents = start_session(Target),
@@ -1466,7 +1535,7 @@ process_failure({refund_session, ID}, Events, Action, Failure, St, RefundSt) ->
             {done, {Events ++ Events1, Action}}
     end.
 
-process_fatal_payment_failure(Target, _Events, _Action, Failure, _St) when Target =:= ?captured() ->
+process_fatal_payment_failure(?captured(), _Events, _Action, Failure, _St) ->
     error({invalid_capture_failure, Failure});
 process_fatal_payment_failure(_Target, Events, Action, Failure, St) ->
     _AffectedAccounts = rollback_payment_cashflow(St),
@@ -1636,6 +1705,14 @@ commit_payment_cashflow(St) ->
 rollback_payment_cashflow(St) ->
     hg_accounting:rollback(construct_payment_plan_id(St), get_cashflow_plan(St)).
 
+get_cashflow_plan(St = #st{partial_cash_flow = PartialCashFlow})
+    when PartialCashFlow =/= undefined
+->
+    [
+        {1, get_cashflow(St)},
+        {2, hg_cashflow:revert(get_cashflow(St))},
+        {3, PartialCashFlow}
+    ];
 get_cashflow_plan(St) ->
     [{1, get_cashflow(St)}].
 
@@ -1653,6 +1730,7 @@ set_repair_scenario(Scenario, St) ->
 construct_payment_info(St, Opts) ->
     construct_payment_info(
         get_activity(St),
+        get_target(St),
         St,
         #prxprv_PaymentInfo{
             shop = construct_proxy_shop(get_shop(Opts)),
@@ -1674,11 +1752,33 @@ construct_session(Session = #{target := Target}) ->
         state = get_session_proxy_state(Session)
     }.
 
-construct_payment_info(idle, _St, PaymentInfo) ->
+construct_payment_info(idle, _Target, _St, PaymentInfo) ->
     PaymentInfo;
-construct_payment_info({payment, _Step}, _St, PaymentInfo) ->
+construct_payment_info(
+    {payment, _Step},
+    ?captured_with_reason_and_cost(Reason, Cost),
+    St,
+    PaymentInfo
+) when Cost =:= undefined ->
+    %% Для обратной совместимости и legacy capture
+    PaymentInfo#prxprv_PaymentInfo{
+        capture = construct_proxy_capture(?captured_with_reason_and_cost(
+            Reason,
+            get_payment_cost(get_payment(St))
+        ))
+    };
+construct_payment_info(
+    {payment, _Step},
+    Target = ?captured(),
+    _St,
+    PaymentInfo
+) ->
+    PaymentInfo#prxprv_PaymentInfo{
+        capture = construct_proxy_capture(Target)
+    };
+construct_payment_info({payment, _Step}, _Target, _St, PaymentInfo) ->
     PaymentInfo;
-construct_payment_info({refund_session, ID}, St, PaymentInfo) ->
+construct_payment_info({refund_session, ID}, _Target, St, PaymentInfo) ->
     PaymentInfo#prxprv_PaymentInfo{
         refund = construct_proxy_refund(try_get_refund_state(ID, St))
     }.
@@ -1792,6 +1892,11 @@ construct_proxy_refund(#refund_st{
         created_at = get_refund_created_at(Refund),
         trx        = get_session_trx(Session),
         cash       = construct_proxy_cash(get_refund_cash(Refund))
+    }.
+
+construct_proxy_capture(?captured_with_reason_and_cost(_, Cost)) ->
+    #prxprv_InvoicePaymentCapture{
+        cost = construct_proxy_cash(Cost)
     }.
 
 collect_proxy_options(
@@ -1923,6 +2028,10 @@ merge_change(?cash_flow_changed(Cashflow), #st{activity = {payment, cash_flow_bu
     St#st{
         cash_flow  = Cashflow,
         activity   = {payment, processing_session}
+    };
+merge_change(?cash_flow_changed(Cashflow), #st{activity = {payment, flow_waiting}} = St) ->
+    St#st{
+        partial_cash_flow = Cashflow
     };
 merge_change(?rec_token_acquired(Token), St) ->
     St#st{recurrent_token = Token};
@@ -2549,10 +2658,18 @@ marshal(status, ?refunded()) ->
     <<"refunded">>;
 marshal(status, ?failed(Failure)) ->
     [<<"failed">>, marshal(failure, Failure)];
-marshal(status, ?captured_with_reason(Reason)) ->
-    [<<"captured">>, marshal(str, Reason)];
+marshal(status, ?captured_with_reason(_Reason) = Capture) ->
+    [<<"captured">>, marshal(capture, Capture)];
 marshal(status, ?cancelled_with_reason(Reason)) ->
     [<<"cancelled">>, marshal(str, Reason)];
+
+marshal(capture, ?captured_with_reason_and_cost(Reason, Cost)) when Cost =/= undefined ->
+    genlib_map:compact(#{
+        <<"reason">> => marshal(str, Reason),
+        <<"cost">>   => hg_cash:marshal(Cost)
+    });
+marshal(capture, ?captured_with_reason(Reason)) ->
+    marshal(str, Reason);
 
 %% Session change
 
@@ -2929,8 +3046,8 @@ unmarshal(status, <<"processed">>) ->
     ?processed();
 unmarshal(status, [<<"failed">>, Failure]) ->
     ?failed(unmarshal(failure, Failure));
-unmarshal(status, [<<"captured">>, Reason]) ->
-    ?captured_with_reason(unmarshal(str, Reason));
+unmarshal(status, [<<"captured">>, Capture]) ->
+    unmarshal(capture, Capture);
 unmarshal(status, [<<"cancelled">>, Reason]) ->
     ?cancelled_with_reason(unmarshal(str, Reason));
 unmarshal(status, <<"refunded">>) ->
@@ -2950,6 +3067,13 @@ unmarshal(status, ?legacy_captured(Reason)) ->
     ?captured_with_reason(unmarshal(str, Reason));
 unmarshal(status, ?legacy_cancelled(Reason)) ->
     ?cancelled_with_reason(unmarshal(str, Reason));
+
+unmarshal(capture, Capture) when is_map(Capture) ->
+    Reason = maps:get(<<"reason">>, Capture),
+    Cost = maps:get(<<"cost">>, Capture),
+    ?captured_with_reason_and_cost(unmarshal(str, Reason), hg_cash:unmarshal(Cost));
+unmarshal(capture, Reason) ->
+    ?captured_with_reason(unmarshal(str, Reason));
 
 %% Session change
 
