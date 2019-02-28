@@ -66,6 +66,7 @@
 -export([invalid_refund_party_status/1]).
 -export([invalid_refund_shop_status/1]).
 -export([payment_refund_success/1]).
+-export([payment_manual_refund/1]).
 -export([payment_partial_refunds_success/1]).
 -export([payment_temporary_unavailability_retry_success/1]).
 -export([payment_temporary_unavailability_too_many_retries/1]).
@@ -204,6 +205,7 @@ groups() ->
             invalid_refund_party_status,
             invalid_refund_shop_status,
             retry_temporary_unavailability_refund,
+            payment_manual_refund,
             payment_refund_success,
             payment_partial_refunds_success,
             invalid_amount_payment_partial_refund,
@@ -1446,6 +1448,53 @@ payment_refund_success(C) ->
     % no more refunds for you
     ?invalid_payment_status(?refunded()) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client).
+
+-spec payment_manual_refund(config()) -> _ | no_return().
+
+payment_manual_refund(C) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyClient),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = process_payment(InvoiceID, make_payment_params(), Client),
+    TrxInfo = ?trx_info(<<"test">>, #{}),
+    RefundParams = #payproc_InvoicePaymentRefundParams {
+        reason = <<"manual">>,
+        transaction_info = TrxInfo
+    },
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    % not enough funds on the merchant account
+    ?insufficient_account_balance() =
+        hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, RefundParams, Client),
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID2 = process_payment(InvoiceID2, make_payment_params(), Client),
+    PaymentID2 = await_payment_capture(InvoiceID2, PaymentID2, Client),
+    % prevent proxy access
+    OriginalRevision = hg_domain:head(),
+    Fixture = payment_manual_refund_fixture(OriginalRevision),
+    ok = hg_domain:upsert(Fixture),
+    % create refund
+    Refund = #domain_InvoicePaymentRefund{id = RefundID} =
+        hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, RefundParams, Client),
+    Refund =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(Refund, _))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded()))))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_status_changed(?refund_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?refunded()))
+    ] = next_event(InvoiceID, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+    ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, RefundParams, Client),
+    % reenable proxy
+    ok = hg_domain:reset(OriginalRevision).
 
 -spec payment_partial_refunds_success(config()) -> _ | no_return().
 
@@ -3702,6 +3751,18 @@ payments_w_bank_conditions_fixture(_Revision) ->
         hg_ct_fixture:construct_contract_template(?tmpl(4), ?trms(4))
     ].
 
+payment_manual_refund_fixture(_Revision) ->
+    [
+        {proxy, #domain_ProxyObject{
+            ref = ?prx(1),
+            data = #domain_ProxyDefinition{
+                name        = <<"undefined">>,
+                description = <<"undefined">>,
+                url         = <<"undefined">>,
+                options     = #{}
+            }
+        }}
+    ].
 
 construct_term_set_for_partial_capture_service_permit() ->
     TermSet = #domain_TermSet{

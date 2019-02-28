@@ -45,6 +45,8 @@
 -export([cancel/2]).
 -export([refund/3]).
 
+-export([manual_refund/3]).
+
 -export([create_adjustment/4]).
 -export([capture_adjustment/3]).
 -export([cancel_adjustment/3]).
@@ -921,18 +923,51 @@ refund(Params, St0, Opts) ->
     St = St0#st{opts = Opts},
     Revision = hg_domain:head(),
     Payment = get_payment(St),
+    Refund =
+        prepare_refund(Params, Payment, Revision, St, Opts),
+    {AccountMap, FinalCashflow} =
+        prepare_refund_cashflow(Refund, Payment, Revision, St, Opts),
+    Changes = [
+        ?refund_created(Refund, FinalCashflow),
+        ?session_ev(?refunded(), ?session_started())
+    ],
+    try_commit_refund(Refund, Changes, AccountMap, St).
+
+-spec manual_refund(refund_params(), st(), opts()) ->
+    {refund(), result()}.
+
+manual_refund(Params, St0, Opts) ->
+    St = St0#st{opts = Opts},
+    Revision = hg_domain:head(),
+    Payment = get_payment(St),
+    Refund =
+        prepare_refund(Params, Payment, Revision, St, Opts),
+    {AccountMap, FinalCashflow} =
+        prepare_refund_cashflow(Refund, Payment, Revision, St, Opts),
+    TransactionInfo = Params#payproc_InvoicePaymentRefundParams.transaction_info,
+    Changes = [
+        ?refund_created(Refund, FinalCashflow),
+        ?session_ev(?refunded(), ?session_started())
+    ]
+    ++ make_transaction_event(TransactionInfo) ++
+    [
+        ?session_ev(?refunded(), ?session_finished(?session_succeeded()))
+    ],
+    try_commit_refund(Refund, Changes, AccountMap, St).
+
+make_transaction_event(undefined) ->
+    [];
+make_transaction_event(TransactionInfo) ->
+    [?session_ev(?refunded(), ?trx_bound(TransactionInfo))].
+
+prepare_refund(Params, Payment, Revision, St, Opts) ->
     _ = assert_payment_status(captured, Payment),
-    Route = get_route(St),
-    Shop = get_shop(Opts),
     PartyRevision = get_opts_party_revision(Opts),
-    PaymentInstitution = get_payment_institution(Opts, Revision),
-    Provider = get_route_provider(Route, Revision),
     _ = assert_previous_refunds_finished(St),
-    VS0 = collect_validation_varset(St, Opts),
     Cash = define_refund_cash(Params#payproc_InvoicePaymentRefundParams.cash, Payment),
     _ = assert_refund_cash(Cash, St),
     ID = construct_refund_id(St),
-    Refund = #domain_InvoicePaymentRefund{
+    #domain_InvoicePaymentRefund {
         id              = ID,
         created_at      = hg_datetime:format_now(),
         domain_revision = Revision,
@@ -940,18 +975,25 @@ refund(Params, St0, Opts) ->
         status          = ?refund_pending(),
         reason          = Params#payproc_InvoicePaymentRefundParams.reason,
         cash            = Cash
-    },
+    }.
+
+prepare_refund_cashflow(Refund, Payment, Revision, St, Opts) ->
+    Route = get_route(St),
+    Shop = get_shop(Opts),
     MerchantTerms = get_merchant_refunds_terms(get_merchant_payments_terms(Opts, Revision)),
+    VS0 = collect_validation_varset(St, Opts),
     VS1 = validate_refund(MerchantTerms, Refund, Payment, VS0, Revision),
     ProviderPaymentsTerms = get_provider_payments_terms(Route, Revision),
     ProviderTerms = get_provider_refunds_terms(ProviderPaymentsTerms, Refund, Payment, VS1, Revision),
     Cashflow = collect_refund_cashflow(MerchantTerms, ProviderTerms, VS1, Revision),
+    PaymentInstitution = get_payment_institution(Opts, Revision),
+    Provider = get_route_provider(Route, Revision),
     AccountMap = collect_account_map(Payment, Shop, PaymentInstitution, Provider, VS1, Revision),
     FinalCashflow = construct_final_cashflow(Cashflow, collect_cash_flow_context(Refund), AccountMap),
-    Changes = [
-        ?refund_created(Refund, FinalCashflow),
-        ?session_ev(?refunded(), ?session_started())
-    ],
+    {AccountMap, FinalCashflow}.
+
+try_commit_refund(Refund, Changes, AccountMap, St) ->
+    ID = Refund#domain_InvoicePaymentRefund.id,
     RefundSt = collapse_refund_changes(Changes),
     AffectedAccounts = prepare_refund_cashflow(RefundSt, St),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
