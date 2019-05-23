@@ -62,7 +62,6 @@
 -export([payment_hold_cancellation/1]).
 -export([payment_hold_auto_cancellation/1]).
 -export([payment_hold_capturing/1]).
--export([payment_hold_new_capturing/1]).
 -export([payment_hold_partial_capturing/1]).
 -export([invalid_currency_partial_capture/1]).
 -export([invalid_amount_partial_capture/1]).
@@ -95,6 +94,7 @@
 -export([adhoc_repair_failed_succeeded/1]).
 -export([adhoc_repair_force_removal/1]).
 -export([adhoc_repair_invalid_changes_failed/1]).
+-export([adhoc_repair_force_invalid_transition/1]).
 
 -export([repair_fail_pre_processing_succeeded/1]).
 -export([repair_skip_inspector_succeeded/1]).
@@ -236,7 +236,6 @@ groups() ->
             payment_hold_cancellation,
             payment_hold_auto_cancellation,
             payment_hold_capturing,
-            payment_hold_new_capturing,
             invalid_currency_partial_capture,
             invalid_amount_partial_capture,
             payment_hold_partial_capturing,
@@ -257,7 +256,8 @@ groups() ->
             adhoc_repair_working_failed,
             adhoc_repair_failed_succeeded,
             adhoc_repair_force_removal,
-            adhoc_repair_invalid_changes_failed
+            adhoc_repair_invalid_changes_failed,
+            adhoc_repair_force_invalid_transition
         ]},
         {repair_scenarios, [parallel], [
             repair_fail_pre_processing_succeeded,
@@ -1961,16 +1961,6 @@ payment_hold_capturing(C) ->
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, <<"ok">>, Client).
 
--spec payment_hold_new_capturing(config()) -> _ | no_return().
-
-payment_hold_new_capturing(C) ->
-    Client = cfg(client, C),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_payment_params({hold, cancel}),
-    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    ok = hg_client_invoicing:new_capture_payment(InvoiceID, PaymentID, <<"ok">>, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, <<"ok">>, Client).
-
 -spec payment_hold_partial_capturing(config()) -> _ | no_return().
 
 payment_hold_partial_capturing(C) ->
@@ -2226,7 +2216,7 @@ adhoc_repair_failed_succeeded(C) ->
     Changes = [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
     ],
-    ok = repair_invoice(InvoiceID, Changes, ?repair_set_timer({timeout, 0}), Client),
+    ok = repair_invoice(InvoiceID, Changes, ?repair_set_timer({timeout, 0}), undefined, Client),
     Changes = next_event(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
@@ -2248,7 +2238,7 @@ adhoc_repair_force_removal(C) ->
         {{woody_error, {external, result_unexpected, _}}, _},
         hg_client_invoicing:rescind(InvoiceID, <<"LOL NO">>, Client)
     ),
-    ok = repair_invoice(InvoiceID, [], ?repair_mark_removal(), Client),
+    ok = repair_invoice(InvoiceID, [], ?repair_mark_removal(), undefined, Client),
     {exception, #payproc_InvoiceNotFound{}} = hg_client_invoicing:get(InvoiceID, Client).
 
 -spec adhoc_repair_invalid_changes_failed(config()) -> _ | no_return().
@@ -2293,6 +2283,38 @@ adhoc_repair_invalid_changes_failed(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_event(InvoiceID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
+
+-spec adhoc_repair_force_invalid_transition(config()) -> _ | no_return().
+
+adhoc_repair_force_invalid_transition(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberdank">>, make_due_date(10), 42000, C),
+    PaymentParams = make_payment_params(),
+    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    _ = ?assertEqual(ok, hg_invoice:fail(InvoiceID)),
+    Failure = payproc_errors:construct(
+        'PaymentFailure',
+        {authorization_failed, {unknown, #payprocerr_GeneralFailure{}}}
+    ),
+    InvalidChanges = [
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))),
+        ?invoice_status_changed(?invoice_unpaid())
+    ],
+    ?assertException(
+        error,
+        {{woody_error, {external, result_unexpected, _}}, _},
+        repair_invoice(InvoiceID, InvalidChanges, Client)
+    ),
+    Params = #payproc_InvoiceRepairParams{validate_transitions = false},
+    ?assertEqual(
+        ok,
+        repair_invoice(InvoiceID, InvalidChanges, #repair_ComplexAction{}, Params, Client)
+    ),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_unpaid()),
+        [?payment_state(?payment_w_status(PaymentID, ?failed({failure, Failure})))]
+    ) = hg_client_invoicing:get(InvoiceID, Client).
 
 -spec payment_with_offsite_preauth_success(config()) -> test_return().
 
@@ -2729,10 +2751,10 @@ create_invoice(InvoiceParams, Client) ->
     InvoiceID.
 
 repair_invoice(InvoiceID, Changes, Client) ->
-    hg_client_invoicing:repair(InvoiceID, Changes, Client).
+    repair_invoice(InvoiceID, Changes, undefined, undefined, Client).
 
-repair_invoice(InvoiceID, Changes, Action, Client) ->
-    hg_client_invoicing:repair(InvoiceID, Changes, Action, Client).
+repair_invoice(InvoiceID, Changes, Action, Params, Client) ->
+    hg_client_invoicing:repair(InvoiceID, Changes, Action, Params, Client).
 
 create_repair_scenario(fail_pre_processing) ->
     Failure = payproc_errors:construct('PaymentFailure', {no_route_found, {unknown, #payprocerr_GeneralFailure{}}}),
