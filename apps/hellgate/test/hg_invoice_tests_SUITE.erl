@@ -1418,7 +1418,7 @@ get_adjustment_fixture(Revision) ->
                 name = <<"Adjustable">>,
                 description = <<>>,
                 abs_account = <<>>,
-                terminal = {value, [?trm(100)]},
+                terminal = {value, [?prvtrm(100)]},
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 payment_terms = #domain_PaymentsProvisionTerms{
@@ -2126,7 +2126,7 @@ get_cashflow_rounding_fixture(Revision) ->
                 name = <<"Rounding">>,
                 description = <<>>,
                 abs_account = <<>>,
-                terminal = {value, [?trm(100)]},
+                terminal = {value, [?prvtrm(100)]},
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 payment_terms = #domain_PaymentsProvisionTerms{
@@ -3565,7 +3565,7 @@ construct_domain_fixture() ->
                 name = <<"Brovider">>,
                 description = <<"A provider but bro">>,
                 terminal = {value, ?ordset([
-                    ?trm(1)
+                    ?prvtrm(1)
                 ])},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
@@ -3734,7 +3734,7 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Drovider">>,
                 description = <<"I'm out of ideas of what to write here">>,
-                terminal = {value, [?trm(6), ?trm(7)]},
+                terminal = {value, [?prvtrm(6), ?prvtrm(7)]},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -3866,7 +3866,7 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Crovider">>,
                 description = <<"Payment terminal provider">>,
-                terminal = {value, [?trm(10)]},
+                terminal = {value, [?prvtrm(10)]},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -3986,7 +3986,7 @@ payments_w_bank_card_issuer_conditions_fixture(Revision) ->
                 name = <<"VTB21">>,
                 description = <<>>,
                 abs_account = <<>>,
-                terminal = {value, [?trm(100)]},
+                terminal = {value, [?prvtrm(100)]},
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 payment_terms = #domain_PaymentsProvisionTerms{
@@ -4224,7 +4224,7 @@ construct_term_set_for_partial_capture_provider_permit(Revision) ->
                 name = <<"Brovider">>,
                 description = <<"A provider but bro">>,
                 terminal = {value, ?ordset([
-                    ?trm(1)
+                    ?prvtrm(1)
                 ])},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
