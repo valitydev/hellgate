@@ -1467,7 +1467,7 @@ get_cashflow_account(Type, CF) ->
             account_type = T
         }
     } <- CF, T == Type],
-    hg_ct_helper:get_account(ID).
+    hg_ct_helper:get_balance(ID).
 
 get_adjustment_fixture(Revision) ->
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
@@ -2845,7 +2845,7 @@ consistent_account_balances(C) ->
     ].
 
 consistent_account_balance(AccountID, Comment) ->
-    case hg_ct_helper:get_account(AccountID) of
+    case hg_ct_helper:get_balance(AccountID) of
         #{own_amount := V, min_available_amount := V, max_available_amount := V} ->
             ok;
         #{} = Account ->
