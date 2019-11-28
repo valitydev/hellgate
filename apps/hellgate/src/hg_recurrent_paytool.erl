@@ -160,8 +160,7 @@ set_meta(ID) ->
     scoper:add_meta(#{id => ID}).
 
 start(ID, Params) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolParams'}},
-    EncodedParams = hg_proto_utils:serialize(Type, Params),
+    EncodedParams = marshal_recurrent_paytool_params(Params),
     map_start_error(hg_machine:start(?NS, ID, EncodedParams)).
 
 call(ID, Args) ->
@@ -221,6 +220,8 @@ map_start_error({error, Reason}) ->
 
 %% hg_machine callbacks
 
+-type create_params() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolParams'().
+
 -spec namespace() ->
     hg_machine:ns().
 namespace() ->
@@ -229,8 +230,7 @@ namespace() ->
 -spec init(binary(), hg_machine:machine()) ->
     hg_machine:result().
 init(EncodedParams, #{id := RecPaymentToolID}) ->
-    Type        = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolParams'}},
-    Params      = hg_proto_utils:deserialize(Type, EncodedParams),
+    Params      = unmarshal_recurrent_paytool_params(EncodedParams),
     PaymentTool = get_payment_tool(Params#payproc_RecurrentPaymentToolParams.payment_resource),
     Revision           = Params#payproc_RecurrentPaymentToolParams.domain_revision,
     CreatedAt          = hg_datetime:format_now(),
@@ -252,8 +252,13 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
     ),
     RecPaymentTool2 = set_minimal_payment_cost(RecPaymentTool, Route, VS1, Revision),
     {ok, {Changes, Action}} = start_session(),
+    StartChanges = [
+        ?recurrent_payment_tool_has_created(RecPaymentTool2),
+        ?recurrent_payment_tool_risk_score_changed(RiskScore),
+        ?recurrent_payment_tool_route_changed(Route)
+    ],
     handle_result(#{
-        changes => [?recurrent_payment_tool_has_created(RecPaymentTool2, RiskScore, Route) | Changes],
+        changes => StartChanges ++ Changes,
         action => Action
     }).
 
@@ -531,12 +536,19 @@ apply_changes(Changes, St) ->
 apply_change(Event, undefined) ->
     apply_change(Event, #st{});
 
-apply_change(?recurrent_payment_tool_has_created(RecPaymentTool, RiskScore, Route), St) ->
+apply_change(?recurrent_payment_tool_has_created(RecPaymentTool), St) ->
+    St#st{
+        rec_payment_tool = RecPaymentTool
+    };
+apply_change(?recurrent_payment_tool_risk_score_changed(RiskScore), St) ->
+    St#st{
+        risk_score = RiskScore
+    };
+apply_change(?recurrent_payment_tool_route_changed(Route), St = #st{rec_payment_tool = RecPaymentTool}) ->
     St#st{
         rec_payment_tool = RecPaymentTool#payproc_RecurrentPaymentTool{
             route = Route
         },
-        risk_score = RiskScore,
         route = Route
     };
 apply_change(?recurrent_payment_tool_has_acquired(Token), St) ->
@@ -782,201 +794,31 @@ ensure_party_revision_defined(_PartyID, Revision) ->
 %% Marshalling
 %%
 
+-spec marshal_recurrent_paytool_params(create_params()) ->
+    binary().
+marshal_recurrent_paytool_params(Params) ->
+    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolParams'}},
+    hg_proto_utils:serialize(Type, Params).
+
 -spec marshal_event_payload([rec_payment_tool_change()]) ->
     hg_machine:event_payload().
 marshal_event_payload(Changes) ->
-    #{format_version => undefined, data => [marshal(change, Change) || Change <- Changes]}.
-
-%%
-
-marshal(change, ?recurrent_payment_tool_has_created(RecPaymentTool, RiskScore, Route)) ->
-    [1, #{
-        <<"change">>           => <<"created">>,
-        <<"rec_payment_tool">> => marshal(rec_payment_tool, RecPaymentTool),
-        <<"risk_score">>       => marshal(risk_score, RiskScore),
-        <<"route">>            => hg_routing:marshal(Route)
-    }];
-marshal(change, ?recurrent_payment_tool_has_acquired(Token)) ->
-    [1, #{
-        <<"change">> => <<"acquired">>,
-        <<"token">>  => marshal(str, Token)
-    }];
-marshal(change, ?recurrent_payment_tool_has_abandoned()) ->
-    [1, #{
-        <<"change">> => <<"abandoned">>
-    }];
-marshal(change, ?recurrent_payment_tool_has_failed(Failure)) ->
-    [1, #{
-        <<"change">> => <<"failed">>,
-        <<"failure">> => marshal(failure, Failure)
-    }];
-marshal(change, ?session_ev(Payload)) ->
-    [1, #{
-        <<"change">> => <<"session_change">>,
-        <<"payload">> => marshal(session_change, Payload)
-    }];
-
-%%
-
-marshal(rec_payment_tool, #payproc_RecurrentPaymentTool{} = RecPaymentTool) ->
+    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolEventData'}},
+    Bin = hg_proto_utils:serialize(Type, #payproc_RecurrentPaymentToolEventData{changes = Changes}),
     #{
-        <<"id">> => marshal(str, RecPaymentTool#payproc_RecurrentPaymentTool.id),
-        <<"shop_id">> => marshal(str, RecPaymentTool#payproc_RecurrentPaymentTool.shop_id),
-        <<"party_id">> => marshal(str, RecPaymentTool#payproc_RecurrentPaymentTool.party_id),
-        <<"party_revision">> => marshal(int, RecPaymentTool#payproc_RecurrentPaymentTool.party_revision),
-        <<"domain_revision">> => marshal(int, RecPaymentTool#payproc_RecurrentPaymentTool.domain_revision),
-        <<"status">> => marshal(status, RecPaymentTool#payproc_RecurrentPaymentTool.status),
-        <<"created_at">> => marshal(str, RecPaymentTool#payproc_RecurrentPaymentTool.created_at),
-        <<"payment_resource">> => marshal(
-            disposable_payment_resource,
-            RecPaymentTool#payproc_RecurrentPaymentTool.payment_resource
-        ),
-        <<"rec_token">> => marshal(str, RecPaymentTool#payproc_RecurrentPaymentTool.rec_token),
-        <<"route">> => hg_routing:marshal(RecPaymentTool#payproc_RecurrentPaymentTool.route),
-        <<"minimal_payment_cost">> => marshal(cash, RecPaymentTool#payproc_RecurrentPaymentTool.minimal_payment_cost)
-    };
-
-marshal(risk_score, low) ->
-    <<"low">>;
-marshal(risk_score, high) ->
-    <<"high">>;
-marshal(risk_score, fatal) ->
-    <<"fatal">>;
-
-marshal(sub_failure, undefined) ->
-    undefined;
-marshal(sub_failure, #domain_SubFailure{} = SubFailure) ->
-    genlib_map:compact(#{
-        <<"code">> => marshal(str        , SubFailure#domain_SubFailure.code),
-        <<"sub" >> => marshal(sub_failure, SubFailure#domain_SubFailure.sub )
-    });
-
-marshal(failure, {operation_timeout, _}) ->
-    [1, <<"operation_timeout">>];
-marshal(failure, {failure, #domain_Failure{} = Failure}) ->
-    [1, [<<"failure">>, genlib_map:compact(#{
-        <<"code"  >> => marshal(str        , Failure#domain_Failure.code  ),
-        <<"reason">> => marshal(str        , Failure#domain_Failure.reason),
-        <<"sub"   >> => marshal(sub_failure, Failure#domain_Failure.sub   )
-    })]];
-
-%% Session change
-
-marshal(session_change, ?session_started()) ->
-    <<"started">>;
-marshal(session_change, ?session_finished(Result)) ->
-    [
-        <<"finished">>,
-        marshal(session_status, Result)
-    ];
-marshal(session_change, ?session_suspended(Tag, TimeoutBehaviour)) ->
-    [
-       <<"suspended">>,
-       marshal(str, Tag),
-       marshal(timeout_behaviour, TimeoutBehaviour)
-    ];
-
-marshal(session_change, ?session_activated()) ->
-    <<"activated">>;
-marshal(session_change, ?trx_bound(Trx)) ->
-    [
-        <<"transaction_bound">>,
-        marshal(trx, Trx)
-    ];
-marshal(session_change, ?proxy_st_changed(ProxySt)) ->
-    [
-        <<"proxy_state_changed">>,
-        marshal(bin, {bin, ProxySt})
-    ];
-marshal(session_change, ?interaction_requested(UserInteraction)) ->
-    [
-        <<"interaction_requested">>,
-        marshal(interaction, UserInteraction)
-    ];
-
-marshal(session_status, ?session_succeeded()) ->
-    <<"succeeded">>;
-marshal(session_status, ?session_failed(PayloadFailure)) ->
-    [
-        <<"failed">>,
-        marshal(failure, PayloadFailure)
-    ];
-
-%%
-
-marshal(trx, #domain_TransactionInfo{} = TransactionInfo) ->
-    genlib_map:compact(#{
-        <<"id">>            => marshal(str, TransactionInfo#domain_TransactionInfo.id),
-        <<"timestamp">>     => marshal(str, TransactionInfo#domain_TransactionInfo.timestamp),
-        <<"extra">>         => marshal(map_str, TransactionInfo#domain_TransactionInfo.extra)
-    });
-
-marshal(interaction, {redirect, {get_request, #'BrowserGetRequest'{uri = URI}}}) ->
-    #{<<"redirect">> =>
-        [
-            <<"get_request">>,
-            marshal(str, URI)
-        ]
-    };
-marshal(interaction, {redirect, {post_request, #'BrowserPostRequest'{uri = URI, form = Form}}}) ->
-    #{<<"redirect">> =>
-        [
-            <<"post_request">>,
-            #{
-                <<"uri">>   => marshal(str, URI),
-                <<"form">>  => marshal(map_str, Form)
-            }
-        ]
-    };
-marshal(timeout_behaviour, {callback, Callback}) ->
-    #{<<"callback">> => marshal(str, Callback)};
-marshal(timeout_behaviour, {operation_failure, Failure}) ->
-    #{<<"operation_failure">> => marshal(failure, Failure)};
-
-%%
-
-marshal(status, ?recurrent_payment_tool_created()) ->
-    <<"created">>;
-marshal(status, ?recurrent_payment_tool_acquired()) ->
-    <<"acquired">>;
-marshal(status, ?recurrent_payment_tool_abandoned()) ->
-    <<"abandoned">>;
-marshal(status, ?recurrent_payment_tool_failed(Failure)) ->
-    [
-        <<"failed">>,
-        marshal(failure, Failure)
-    ];
-
-marshal(disposable_payment_resource, #domain_DisposablePaymentResource{} = PaymentResource) ->
-    #{
-        <<"payment_tool">> => hg_payment_tool:marshal(PaymentResource#domain_DisposablePaymentResource.payment_tool),
-        <<"payment_session_id">> => marshal(str, PaymentResource#domain_DisposablePaymentResource.payment_session_id),
-        <<"client_info">> => marshal(client_info, PaymentResource#domain_DisposablePaymentResource.client_info)
-    };
-
-marshal(cash, #domain_Cash{amount = Amount, currency = CurrencyRef}) ->
-    #{
-        <<"amount">>       => marshal(int, Amount),
-        <<"currency_ref">> => marshal(str, CurrencyRef#domain_CurrencyRef.symbolic_code)
-    };
-
-%%
-
-marshal(client_info, #domain_ClientInfo{} = ClientInfo) ->
-    genlib_map:compact(#{
-        <<"ip_address">>    => marshal(str, ClientInfo#domain_ClientInfo.ip_address),
-        <<"fingerprint">>   => marshal(str, ClientInfo#domain_ClientInfo.fingerprint)
-    });
-
-%%
-
-marshal(_, Other) ->
-    Other.
+        format_version => 1,
+        data => {bin, Bin}
+    }.
 
 %%
 %% Unmarshalling
 %%
 
+-spec unmarshal_recurrent_paytool_params(binary()) ->
+    create_params().
+unmarshal_recurrent_paytool_params(Binary) ->
+    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolParams'}},
+    hg_proto_utils:deserialize(Type, Binary).
 
 -spec unmarshal_history([hg_machine:event()]) ->
     [hg_machine:event([rec_payment_tool_change()])].
@@ -990,13 +832,17 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) ->
     [rec_payment_tool_change()].
+unmarshal_event_payload(#{format_version := 1, data := {bin, Bin}}) ->
+    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolEventData'}},
+    #payproc_RecurrentPaymentToolEventData{changes = Changes} = hg_proto_utils:deserialize(Type, Bin),
+    Changes;
 unmarshal_event_payload(#{format_version := undefined, data := Changes}) ->
     unmarshal({list, changes}, Changes).
 
 %%
 
 unmarshal({list, changes}, Changes) when is_list(Changes) ->
-    [unmarshal(change, Change) || Change <- Changes];
+    lists:flatten([unmarshal(change, Change) || Change <- Changes]);
 
 %%
 
@@ -1006,11 +852,11 @@ unmarshal(change, [1, #{
     <<"risk_score">>       := RiskScore,
     <<"route">>            := Route
 }]) ->
-    ?recurrent_payment_tool_has_created(
-        unmarshal(rec_payment_tool, RecPaymentTool),
-        unmarshal(risk_score, RiskScore),
-        hg_routing:unmarshal(Route)
-    );
+    [
+        ?recurrent_payment_tool_has_created(unmarshal(rec_payment_tool, RecPaymentTool)),
+        ?recurrent_payment_tool_risk_score_changed(unmarshal(risk_score, RiskScore)),
+        ?recurrent_payment_tool_route_changed(hg_routing:unmarshal(Route))
+    ];
 unmarshal(change, [1, #{
     <<"change">> := <<"acquired">>,
     <<"token">>  := Token

@@ -259,7 +259,9 @@ recurrent_paytool_acquirement_failed(C) ->
     RecurrentPaytool = hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} = RecurrentPaytool,
     [
-        ?recurrent_payment_tool_has_created(_, _, _),
+        ?recurrent_payment_tool_has_created(_),
+        ?recurrent_payment_tool_risk_score_changed(_),
+        ?recurrent_payment_tool_route_changed(_),
         ?session_ev(?session_started())
     ] = next_event(RecurrentPaytoolID, Client),
     ok = await_failure(RecurrentPaytoolID, Client).
@@ -288,7 +290,9 @@ recurrent_paytool_cost(C) ->
     } = RecurrentPaytool,
     RecurrentPaytool2 = RecurrentPaytool#payproc_RecurrentPaymentTool{route = undefined},
     [
-        ?recurrent_payment_tool_has_created(RecurrentPaytool2, _, _),
+        ?recurrent_payment_tool_has_created(RecurrentPaytool2),
+        ?recurrent_payment_tool_risk_score_changed(_),
+        ?recurrent_payment_tool_route_changed(_),
         ?session_ev(?session_started())
     ] = next_event(RecurrentPaytoolID, Client),
     ok = await_acquirement_finish(RecurrentPaytoolID, Client).
@@ -301,7 +305,9 @@ recurrent_paytool_w_tds_acquired(C) ->
     RecurrentPaytool = hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} = RecurrentPaytool,
     [
-        ?recurrent_payment_tool_has_created(_, _, _),
+        ?recurrent_payment_tool_has_created(_),
+        ?recurrent_payment_tool_risk_score_changed(_),
+        ?recurrent_payment_tool_route_changed(_),
         ?session_ev(?session_started())
     ] = next_event(RecurrentPaytoolID, Client),
     [
@@ -421,7 +427,9 @@ construct_proxy(ID, Url, Options) ->
 
 await_acquirement(RecurrentPaytoolID, Client) ->
     [
-        ?recurrent_payment_tool_has_created(_, _, _),
+        ?recurrent_payment_tool_has_created(_),
+        ?recurrent_payment_tool_risk_score_changed(_),
+        ?recurrent_payment_tool_route_changed(_),
         ?session_ev(?session_started())
     ] = next_event(RecurrentPaytoolID, Client),
     await_acquirement_finish(RecurrentPaytoolID, Client).
