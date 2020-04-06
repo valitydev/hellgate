@@ -597,10 +597,16 @@ invalid_invoice_amount(C) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, -10000),
+    InvoiceParams0 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, -10000),
     {exception, #'InvalidRequest'{
         errors = [<<"Invalid amount">>]
-    }} = hg_client_invoicing:create(InvoiceParams, Client).
+    }} = hg_client_invoicing:create(InvoiceParams0, Client),
+    InvoiceParams1 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, 5),
+    {exception, #payproc_InvoiceTermsViolated{reason = {invoice_unpayable, _}}}
+        = hg_client_invoicing:create(InvoiceParams1, Client),
+    InvoiceParams2 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, 42000000000),
+    {exception, #payproc_InvoiceTermsViolated{reason = {invoice_unpayable, _}}}
+        = hg_client_invoicing:create(InvoiceParams2, Client).
 
 -spec invalid_invoice_currency(config()) -> test_return().
 
@@ -708,7 +714,13 @@ invalid_invoice_template_cost(C) ->
     Params6 = make_invoice_params_tpl(TplID, make_cash(500, <<"KEK">>)),
     {exception, #'InvalidRequest'{
         errors = [?INVOICE_TPL_BAD_CURRENCY]
-    }} = hg_client_invoicing:create_with_tpl(Params6, Client).
+    }} = hg_client_invoicing:create_with_tpl(Params6, Client),
+
+    Cost4 = make_tpl_cost(fixed, 42000000000, <<"RUB">>),
+    _ = update_invoice_tpl(TplID, Cost4, C),
+    Params7 = make_invoice_params_tpl(TplID, make_cash(42000000000, <<"RUB">>)),
+    {exception, #payproc_InvoiceTermsViolated{reason = {invoice_unpayable, _}}}
+        = hg_client_invoicing:create_with_tpl(Params7, Client).
 
 -spec invalid_invoice_template_id(config()) -> _ | no_return().
 
@@ -859,11 +871,7 @@ invoice_cancellation_after_payment_timeout(C) ->
 invalid_payment_amount(C) ->
     Client = cfg(client, C),
     PaymentParams = make_payment_params(),
-    InvoiceID1 = start_invoice(<<"rubberduck">>, make_due_date(10), 1, C),
-    {exception, #'InvalidRequest'{
-        errors = [<<"Invalid amount, less", _/binary>>]
-    }} = hg_client_invoicing:start_payment(InvoiceID1, PaymentParams, Client),
-    InvoiceID2 = start_invoice(<<"rubberduck">>, make_due_date(10), 100000000000000, C),
+    InvoiceID2 = start_invoice(<<"rubberduck">>, make_due_date(10), 430000000, C),
     {exception, #'InvalidRequest'{
         errors = [<<"Invalid amount, more", _/binary>>]
     }} = hg_client_invoicing:start_payment(InvoiceID2, PaymentParams, Client).
@@ -5331,10 +5339,21 @@ construct_domain_fixture() ->
                 }
             ]},
             cash_limit = {decisions, [
+                #domain_CashLimitDecision {
+                    if_ = {condition, {payment_tool, {crypto_currency, #domain_CryptoCurrencyCondition{
+                        definition = {crypto_currency_is, bitcoin}
+                    }}}},
+                    then_ = {value,
+                        ?cashrng(
+                            {inclusive, ?cash(        10, <<"RUB">>)},
+                            {inclusive, ?cash(4200000000, <<"RUB">>)}
+                        )
+                    }
+                },
                 #domain_CashLimitDecision{
                     if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
                     then_ = {value, ?cashrng(
-                        {inclusive, ?cash(     10, <<"RUB">>)},
+                        {inclusive, ?cash(       10, <<"RUB">>)},
                         {exclusive, ?cash(420000000, <<"RUB">>)}
                     )}
                 }
