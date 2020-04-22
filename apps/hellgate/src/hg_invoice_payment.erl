@@ -296,11 +296,11 @@ get_sessions(#st{sessions = S}) ->
 
 -spec get_refunds(st()) -> [payment_refund()].
 
-get_refunds(#st{refunds = Rs} = St) ->
+get_refunds(#st{refunds = Rs, payment = Payment}) ->
     RefundList = lists:map(
         fun (#refund_st{refund = R, sessions = S, cash_flow = C}) ->
             #payproc_InvoicePaymentRefund{
-                refund = enrich_refund_with_cash(R, St),
+                refund = enrich_refund_with_cash(R, Payment),
                 sessions = lists:map(fun convert_refund_sessions/1, S),
                 cash_flow = C
             }
@@ -331,10 +331,10 @@ convert_refund_sessions(#{trx := TR}) ->
 
 -spec get_refund(refund_id(), st()) -> domain_refund() | no_return().
 
-get_refund(ID, St) ->
+get_refund(ID, St = #st{payment = Payment}) ->
     case try_get_refund_state(ID, St) of
         #refund_st{refund = Refund} ->
-            enrich_refund_with_cash(Refund, St);
+            enrich_refund_with_cash(Refund, Payment);
         undefined ->
             throw(#payproc_InvoicePaymentRefundNotFound{})
     end.
@@ -1213,7 +1213,7 @@ make_refund(Params, Payment, Revision, St, Opts) ->
     _ = assert_payment_status(captured, Payment),
     PartyRevision = get_opts_party_revision(Opts),
     _ = assert_previous_refunds_finished(St),
-    Cash = define_refund_cash(Params#payproc_InvoicePaymentRefundParams.cash, Payment),
+    Cash = define_refund_cash(Params#payproc_InvoicePaymentRefundParams.cash, St),
     _ = assert_refund_cash(Cash, St),
     Cart = Params#payproc_InvoicePaymentRefundParams.cart,
     _ = assert_refund_cart(Params#payproc_InvoicePaymentRefundParams.cash, Cart, St),
@@ -3194,11 +3194,12 @@ set_refund_status(Status, Refund = #domain_InvoicePaymentRefund{}) ->
 get_refund_cashflow(#refund_st{cash_flow = CashFlow}) ->
     CashFlow.
 
-define_refund_cash(undefined, #domain_InvoicePayment{cost = Cost}) ->
-    Cost;
-define_refund_cash(?cash(_, SymCode) = Cash, #domain_InvoicePayment{cost = ?cash(_, SymCode)}) ->
+define_refund_cash(undefined, St) ->
+    PaymentBallance = get_remaining_payment_balance(St),
+    PaymentBallance;
+define_refund_cash(?cash(_, SymCode) = Cash, #st{payment = #domain_InvoicePayment{cost = ?cash(_, SymCode)}}) ->
     Cash;
-define_refund_cash(?cash(_, SymCode), _Payment) ->
+define_refund_cash(?cash(_, SymCode), _St) ->
     throw(#payproc_InconsistentRefundCurrency{currency = SymCode}).
 
 get_refund_cash(#domain_InvoicePaymentRefund{cash = Cash}) ->
@@ -3207,9 +3208,16 @@ get_refund_cash(#domain_InvoicePaymentRefund{cash = Cash}) ->
 get_refund_created_at(#domain_InvoicePaymentRefund{created_at = CreatedAt}) ->
     CreatedAt.
 
-enrich_refund_with_cash(Refund, #st{payment = Payment}) ->
-    Cash = define_refund_cash(Refund#domain_InvoicePaymentRefund.cash, Payment),
-    Refund#domain_InvoicePaymentRefund{cash = Cash}.
+enrich_refund_with_cash(Refund, #domain_InvoicePayment{cost = PaymentCash}) ->
+    #domain_InvoicePaymentRefund{cash = RefundCash} = Refund,
+    case {RefundCash, PaymentCash} of
+        {undefined, _} ->
+            %% Earlier Refunds haven't got field cash and we got this value from PaymentCash.
+            %% There are some refunds without cash in system that's why for compatablity we save this behaviour.
+            Refund#domain_InvoicePaymentRefund{cash = PaymentCash};
+        {?cash(_, SymCode), ?cash(_, SymCode)} ->
+            Refund
+    end.
 
 try_get_adjustment(ID, #st{adjustments = As}) ->
     case lists:keyfind(ID, #domain_InvoicePaymentAdjustment.id, As) of
