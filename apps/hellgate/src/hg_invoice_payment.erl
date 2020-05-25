@@ -166,6 +166,7 @@
 -type payment_refund()      :: dmsl_payment_processing_thrift:'InvoicePaymentRefund'().
 -type refund_id()           :: dmsl_domain_thrift:'InvoicePaymentRefundID'().
 -type refund_params()       :: dmsl_payment_processing_thrift:'InvoicePaymentRefundParams'().
+-type payment_chargeback()  :: dmsl_payment_processing_thrift:'InvoicePaymentChargeback'().
 -type chargeback()          :: dmsl_domain_thrift:'InvoicePaymentChargeback'().
 -type chargeback_id()       :: dmsl_domain_thrift:'InvoicePaymentChargebackID'().
 -type adjustment()          :: dmsl_domain_thrift:'InvoicePaymentAdjustment'().
@@ -275,13 +276,16 @@ get_chargeback_state(ID, St) ->
             ChargebackState
     end.
 
--spec get_chargebacks(st()) -> [chargeback()].
+-spec get_chargebacks(st()) -> [payment_chargeback()].
 
 get_chargebacks(#st{chargebacks = CBs}) ->
-    lists:keysort(
-        #domain_InvoicePaymentChargeback.id,
-        [hg_invoice_payment_chargeback:get(ChargebackState) || ChargebackState <- maps:values(CBs)]
-    ).
+    [build_payment_chargeback(CB) || {_ID, CB} <- lists:sort(maps:to_list(CBs))].
+
+build_payment_chargeback(ChargebackState) ->
+    #payproc_InvoicePaymentChargeback{
+       chargeback = hg_invoice_payment_chargeback:get(ChargebackState),
+       cash_flow = hg_invoice_payment_chargeback:get_cash_flow(ChargebackState)
+    }.
 
 -spec get_sessions(st()) -> [payment_session()].
 
@@ -1288,6 +1292,7 @@ get_remaining_payment_amount(Cash, St) ->
     cash().
 
 get_remaining_payment_balance(St) ->
+    Chargebacks = [CB#payproc_InvoicePaymentChargeback.chargeback || CB <- get_chargebacks(St)],
     PaymentAmount = get_payment_cost(get_payment(St)),
     lists:foldl(
         fun
@@ -1307,7 +1312,7 @@ get_remaining_payment_balance(St) ->
                 end
         end,
         PaymentAmount,
-        get_refunds(St) ++ get_chargebacks(St)
+        get_refunds(St) ++ Chargebacks
     ).
 
 get_merchant_refunds_terms(#domain_PaymentsServiceTerms{refunds = Terms}) when Terms /= undefined ->
@@ -1688,7 +1693,7 @@ assert_payment_status(_, #domain_InvoicePayment{status = Status}) ->
     throw(#payproc_InvalidPaymentStatus{status = Status}).
 
 assert_no_pending_chargebacks(PaymentState) ->
-    Chargebacks = get_chargebacks(PaymentState),
+    Chargebacks = [CB#payproc_InvoicePaymentChargeback.chargeback || CB <- get_chargebacks(PaymentState)],
     case lists:any(fun hg_invoice_payment_chargeback:is_pending/1, Chargebacks) of
         true ->
             throw(#payproc_InvoicePaymentChargebackPending{});
