@@ -4390,7 +4390,8 @@ terms_retrieval(C) ->
             ?pmt(mobile, mts),
             ?pmt(payment_terminal, euroset),
             ?pmt(tokenized_bank_card_deprecated, ?tkz_bank_card(visa, applepay))
-        ]}}} = TermSet1,
+        ]}
+    }} = TermSet1,
     Revision = hg_domain:head(),
     ok = hg_domain:update(construct_term_set_for_cost(1000, 2000)),
     TermSet2 = hg_client_invoicing:compute_terms(InvoiceID, {timestamp, Timestamp}, Client),
