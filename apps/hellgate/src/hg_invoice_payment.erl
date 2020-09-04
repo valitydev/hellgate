@@ -2048,8 +2048,7 @@ repair_session(St = #st{repair_scenario = Scenario}) ->
         {result, Result} ->
             {ok, Result};
         call ->
-            ProxyContext = construct_proxy_context(St),
-            hg_proxy_provider:process_payment(ProxyContext, get_route(St))
+            process_payment_session(St)
     end.
 
 -spec finalize_payment(action(), st()) -> machine_result().
@@ -2080,9 +2079,7 @@ finalize_payment(Action, St) ->
 process_callback_timeout(Action, Session, Events, St) ->
     case get_session_timeout_behaviour(Session) of
         {callback, Payload} ->
-            ProxyContext = construct_proxy_context(St),
-            Route        = get_route(St),
-            {ok, CallbackResult} = hg_proxy_provider:handle_payment_callback(Payload, ProxyContext, Route),
+            {ok, CallbackResult} = process_payment_session_callback(Payload, St),
             {_Response, Result} = handle_callback_result(CallbackResult, Action, get_activity_session(St)),
             finish_session_processing(Result, St);
         {operation_failure, OperationFailure} ->
@@ -2094,9 +2091,7 @@ process_callback_timeout(Action, Session, Events, St) ->
 -spec handle_callback(callback(), action(), st()) ->
     {callback_response(), machine_result()}.
 handle_callback(Payload, Action, St) ->
-    ProxyContext = construct_proxy_context(St),
-    Route        = get_route(St),
-    {ok, CallbackResult} = hg_proxy_provider:handle_payment_callback(Payload, ProxyContext, Route),
+    {ok, CallbackResult} = process_payment_session_callback(Payload, St),
     {Response, Result} = handle_callback_result(CallbackResult, Action, get_activity_session(St)),
     {Response, finish_session_processing(Result, St)}.
 
@@ -2232,6 +2227,30 @@ process_failure({refund_session, ID}, Events, Action, Failure, St, _RefundSt) ->
             {next, {Events ++ Events1, hg_machine_action:set_timeout(0, Action)}}
     end.
 
+process_payment_session(State) ->
+    ProxyContext = construct_proxy_context(State),
+    Route = get_route(State),
+    try hg_proxy_provider:process_payment(ProxyContext, Route) catch
+        error:{woody_error, {_Source, result_unexpected, _Details}} = Reason:StackTrace ->
+            % It looks like an unexpected error here is equivalent to a failed operation
+            % in terms of conversion
+            _ = maybe_notify_fault_detector(start, State),
+            _ = maybe_notify_fault_detector(error, State),
+            erlang:raise(error, Reason, StackTrace)
+    end.
+
+process_payment_session_callback(Payload, State) ->
+    ProxyContext = construct_proxy_context(State),
+    Route = get_route(State),
+    try hg_proxy_provider:handle_payment_callback(Payload, ProxyContext, Route) catch
+        error:{woody_error, {_Source, result_unexpected, _Details}} = Reason:StackTrace ->
+            % It looks like an unexpected error here is equivalent to a failed operation
+            % in terms of conversion
+            _ = maybe_notify_fault_detector(start, State),
+            _ = maybe_notify_fault_detector(error, State),
+            erlang:raise(error, Reason, StackTrace)
+    end.
+
 check_recurrent_token(#st{
     payment = #domain_InvoicePayment{id = ID, make_recurrent = true},
     recurrent_token = undefined
@@ -2268,6 +2287,11 @@ do_choose_fd_operation_status_for_failure({authorization_failed, {FailType, _}})
     end;
 do_choose_fd_operation_status_for_failure(_Failure) ->
     finish.
+
+maybe_notify_fault_detector(Status, St) ->
+    Activity = get_activity(St),
+    TargetType = get_target_type(get_target(St)),
+    maybe_notify_fault_detector(Activity, TargetType, Status, St).
 
 maybe_notify_fault_detector({payment, processing_session}, processed, Status, St) ->
     notify_fault_detector(Status, St);
