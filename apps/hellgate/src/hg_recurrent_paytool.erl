@@ -76,14 +76,14 @@
 
 -spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) ->
     term() | no_return().
-handle_function('GetEvents', [#payproc_EventRange{'after' = After, limit = Limit}], _Opts) ->
+handle_function('GetEvents', {#payproc_EventRange{'after' = After, limit = Limit}}, _Opts) ->
     case hg_event_sink:get_events(?NS, After, Limit) of
         {ok, Events} ->
             publish_rec_payment_tool_events(Events);
         {error, event_not_found} ->
             throw(#payproc_EventNotFound{})
     end;
-handle_function('GetLastEventID', [], _Opts) ->
+handle_function('GetLastEventID', {}, _Opts) ->
     case hg_event_sink:get_last_event_id(?NS) of
         {ok, ID} ->
             ID;
@@ -95,7 +95,7 @@ handle_function(Func, Args, Opts) ->
         fun() -> handle_function_(Func, Args, Opts) end
     ).
 
-handle_function_('Create', [RecurrentPaymentToolParams], _Opts) ->
+handle_function_('Create', {RecurrentPaymentToolParams}, _Opts) ->
     RecurrentPaymentToolParams0 = ensure_params_paytool_id_defined(RecurrentPaymentToolParams),
     RecPaymentToolID = get_paytool_id(RecurrentPaymentToolParams0),
     ok = set_meta(RecPaymentToolID),
@@ -103,13 +103,13 @@ handle_function_('Create', [RecurrentPaymentToolParams], _Opts) ->
     _ = validate_paytool_params(RecurrentPaymentToolParams1),
     ok = start(RecPaymentToolID, RecurrentPaymentToolParams1),
     get_rec_payment_tool(get_state(RecPaymentToolID));
-handle_function_('Abandon', [RecPaymentToolID], _Opts) ->
+handle_function_('Abandon', {RecPaymentToolID}, _Opts) ->
     ok = set_meta(RecPaymentToolID),
     call(RecPaymentToolID, abandon);
-handle_function_('Get', [RecPaymentToolID], _Opts) ->
+handle_function_('Get', {RecPaymentToolID}, _Opts) ->
     ok = set_meta(RecPaymentToolID),
     get_rec_payment_tool(get_state(RecPaymentToolID));
-handle_function_('GetEvents', [RecPaymentToolID, Range], _Opts) ->
+handle_function_('GetEvents', {RecPaymentToolID, Range}, _Opts) ->
     ok = set_meta(RecPaymentToolID),
     get_public_history(RecPaymentToolID, Range).
 

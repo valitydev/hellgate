@@ -56,7 +56,7 @@ handle_function(Func, Args, WoodyContext0, #{handler := Handler} = Opts) ->
         hg_context:cleanup()
     end.
 
--spec call(atom(), woody:func(), list()) ->
+-spec call(atom(), woody:func(), woody:args()) ->
     term().
 
 call(ServiceName, Function, Args) ->
@@ -64,14 +64,14 @@ call(ServiceName, Function, Args) ->
     Deadline = undefined,
     call(ServiceName, Function, Args, Opts, Deadline).
 
--spec call(atom(), woody:func(), list(), client_opts()) ->
+-spec call(atom(), woody:func(), woody:args(), client_opts()) ->
     term().
 
 call(ServiceName, Function, Args, Opts) ->
     Deadline = undefined,
     call(ServiceName, Function, Args, Opts, Deadline).
 
--spec call(atom(), woody:func(), list(), client_opts(), woody_deadline:deadline()) ->
+-spec call(atom(), woody:func(), woody:args(), client_opts(), woody_deadline:deadline()) ->
     term().
 
 call(ServiceName, Function, Args, Opts, Deadline) ->
