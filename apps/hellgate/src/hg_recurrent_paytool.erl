@@ -76,14 +76,14 @@
 
 -spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) ->
     term() | no_return().
-handle_function('GetEvents', {#payproc_EventRange{'after' = After, limit = Limit}}, _Opts) ->
+handle_function('GetEvents', [#payproc_EventRange{'after' = After, limit = Limit}], _Opts) ->
     case hg_event_sink:get_events(?NS, After, Limit) of
         {ok, Events} ->
             publish_rec_payment_tool_events(Events);
         {error, event_not_found} ->
             throw(#payproc_EventNotFound{})
     end;
-handle_function('GetLastEventID', {}, _Opts) ->
+handle_function('GetLastEventID', [], _Opts) ->
     case hg_event_sink:get_last_event_id(?NS) of
         {ok, ID} ->
             ID;
@@ -95,7 +95,7 @@ handle_function(Func, Args, Opts) ->
         fun() -> handle_function_(Func, Args, Opts) end
     ).
 
-handle_function_('Create', {RecurrentPaymentToolParams}, _Opts) ->
+handle_function_('Create', [RecurrentPaymentToolParams], _Opts) ->
     RecurrentPaymentToolParams0 = ensure_params_paytool_id_defined(RecurrentPaymentToolParams),
     RecPaymentToolID = get_paytool_id(RecurrentPaymentToolParams0),
     ok = set_meta(RecPaymentToolID),
@@ -103,13 +103,13 @@ handle_function_('Create', {RecurrentPaymentToolParams}, _Opts) ->
     _ = validate_paytool_params(RecurrentPaymentToolParams1),
     ok = start(RecPaymentToolID, RecurrentPaymentToolParams1),
     get_rec_payment_tool(get_state(RecPaymentToolID));
-handle_function_('Abandon', {RecPaymentToolID}, _Opts) ->
+handle_function_('Abandon', [RecPaymentToolID], _Opts) ->
     ok = set_meta(RecPaymentToolID),
     call(RecPaymentToolID, abandon);
-handle_function_('Get', {RecPaymentToolID}, _Opts) ->
+handle_function_('Get', [RecPaymentToolID], _Opts) ->
     ok = set_meta(RecPaymentToolID),
     get_rec_payment_tool(get_state(RecPaymentToolID));
-handle_function_('GetEvents', {RecPaymentToolID, Range}, _Opts) ->
+handle_function_('GetEvents', [RecPaymentToolID, Range], _Opts) ->
     ok = set_meta(RecPaymentToolID),
     get_public_history(RecPaymentToolID, Range).
 
@@ -239,12 +239,10 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
     Revision           = Params#payproc_RecurrentPaymentToolParams.domain_revision,
     CreatedAt          = hg_datetime:format_now(),
     {Party, Shop}      = get_party_shop(Params),
+    PaymentInstitution = get_payment_institution(Shop, Party, Revision),
     RecPaymentTool     = create_rec_payment_tool(RecPaymentToolID, CreatedAt, Party, Params, Revision),
     VS0                = collect_varset(Party, Shop, #{payment_tool => PaymentTool}),
     {RiskScore, VS1}   = validate_risk_score(inspect(RecPaymentTool, VS0), VS0),
-    PaymentInstitutionRef = get_payment_institution_ref(Shop, Party),
-    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
-
     Predestination = recurrent_paytool,
     {Routes, RejectContext} = case hg_routing_rule:gather_routes(Predestination, PaymentInstitution, VS1, Revision) of
         {[], _} ->
@@ -280,9 +278,10 @@ get_party_shop(Params) ->
     Shop = hg_party:get_shop(ShopID, Party),
     {Party, Shop}.
 
-get_payment_institution_ref(Shop, Party) ->
+get_payment_institution(Shop, Party, Revision) ->
     Contract = hg_party:get_contract(Shop#domain_Shop.contract_id, Party),
-    Contract#domain_Contract.payment_institution.
+    PaymentInstitutionRef = Contract#domain_Contract.payment_institution,
+    hg_domain:get(Revision, {payment_institution, PaymentInstitutionRef}).
 
 get_merchant_recurrent_paytools_terms(Shop, Party, CreatedAt, Revision) ->
     Contract = hg_party:get_contract(Shop#domain_Shop.contract_id, Party),
