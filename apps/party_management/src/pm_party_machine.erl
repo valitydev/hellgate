@@ -92,6 +92,7 @@
 }.
 
 -export_type([party_revision/0]).
+-export_type([st/0]).
 
 -spec namespace() -> pm_machine:ns().
 namespace() ->
@@ -816,7 +817,7 @@ checkout_party(PartyID, {timestamp, Timestamp}) ->
     Events = unwrap_events(get_history(PartyID, undefined, undefined)),
     checkout_history_by_timestamp(Events, Timestamp, #st{});
 checkout_party(PartyID, {revision, Revision}) ->
-    checkout_party_by_revision(PartyID, Revision).
+    checkout_cached_party_by_revision(PartyID, Revision).
 
 checkout_history_by_timestamp([Ev | Rest], Timestamp, #st{timestamp = PrevTimestamp} = St) ->
     St1 = merge_event(Ev, St),
@@ -831,6 +832,20 @@ checkout_history_by_timestamp([Ev | Rest], Timestamp, #st{timestamp = PrevTimest
     end;
 checkout_history_by_timestamp([], Timestamp, St) ->
     {ok, St#st{timestamp = Timestamp}}.
+
+checkout_cached_party_by_revision(PartyID, Revision) ->
+    case pm_party_cache:get_party(PartyID, Revision) of
+        {ok, Party} ->
+            {ok, Party};
+        not_found ->
+            case checkout_party_by_revision(PartyID, Revision) of
+                {ok, Party} = Res ->
+                    ok = pm_party_cache:update_party(PartyID, Revision, Party),
+                    Res;
+                OtherRes ->
+                    OtherRes
+            end
+    end.
 
 checkout_party_by_revision(PartyID, Revision) ->
     AuxSt = get_aux_state(PartyID),
