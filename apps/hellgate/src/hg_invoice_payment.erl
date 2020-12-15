@@ -799,7 +799,10 @@ check_risk_score(Route, RiskScore) ->
 
 gather_routes(Predestination, PaymentInstitution, VS, Revision) ->
     case hg_routing_rule:gather_routes(Predestination, PaymentInstitution, VS, Revision) of
-        {[], _} ->
+        {[], RejectContext} ->
+            RejectReason = unknown,
+            _ = log_reject_context(warning, RejectReason, RejectContext),
+            logger:log(info, "Fallback to legacy method of routes gathering"),
             hg_routing:gather_routes(Predestination, PaymentInstitution, VS, Revision);
         Routes ->
             Routes
