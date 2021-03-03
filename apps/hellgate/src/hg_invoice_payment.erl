@@ -1437,7 +1437,7 @@ create_adjustment(Timestamp, Params, St, Opts) ->
 create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
     Payment = get_payment(St),
     Route = get_route(St),
-    _ = assert_payment_status(captured, Payment),
+    _ = assert_payment_status([captured, refunded, charged_back], Payment),
     NewRevision = maybe_get_domain_revision(DomainRevision),
     PartyRevision = get_opts_party_revision(Opts),
     OldCashFlow = get_final_cashflow(St),
@@ -1633,6 +1633,10 @@ assert_activity(_Activity, St) ->
     #domain_InvoicePayment{status = Status} = get_payment(St),
     throw(#payproc_InvalidPaymentStatus{status = Status}).
 
+assert_payment_status([Status | _], #domain_InvoicePayment{status = {Status, _}}) ->
+    ok;
+assert_payment_status([_ | Rest], InvoicePayment) ->
+    assert_payment_status(Rest, InvoicePayment);
 assert_payment_status(Status, #domain_InvoicePayment{status = {Status, _}}) ->
     ok;
 assert_payment_status(_, #domain_InvoicePayment{status = Status}) ->
