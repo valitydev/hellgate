@@ -117,6 +117,7 @@
     new
     | risk_scoring
     | routing
+    | routing_failure
     | cash_flow_building
     | processing_session
     | processing_accounter
@@ -1772,6 +1773,7 @@ process_timeout({payment, Step}, Action, St) when
     process_session(Action, St);
 process_timeout({payment, Step}, Action, St) when
     Step =:= processing_failure orelse
+        Step =:= routing_failure orelse
         Step =:= processing_accounter orelse
         Step =:= finalizing_accounter
 ->
@@ -1925,6 +1927,7 @@ process_cash_flow_building(Action, St) ->
     MerchantTerms = get_merchant_payments_terms(Opts, Revision, Timestamp, VS1),
     ProviderTerms = get_provider_terminal_terms(Route, VS1, Revision),
     FinalCashflow = calculate_cashflow(Route, Payment, MerchantTerms, ProviderTerms, VS1, Revision, Opts),
+    _ = rollback_unused_payment_limits(St),
     _Clock = hg_accounting:hold(
         construct_payment_plan_id(Invoice, Payment),
         {1, FinalCashflow}
@@ -2162,11 +2165,16 @@ process_result({payment, processing_accounter}, Action, St) ->
     Target = get_target(St),
     NewAction = get_action(Target, Action, St),
     {done, {[?payment_status_changed(Target)], NewAction}};
-process_result({payment, processing_failure}, Action, St = #st{failure = Failure, cash_flow = CashFlow}) ->
+process_result({payment, routing_failure}, Action, St = #st{failure = Failure}) ->
     NewAction = hg_machine_action:set_timeout(0, Action),
     Routes = get_candidate_routes(St),
     _ = rollback_payment_limits(Routes, St),
-    _ = CashFlow /= undefined andalso rollback_payment_cashflow(St),
+    {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
+process_result({payment, processing_failure}, Action, St = #st{failure = Failure}) ->
+    NewAction = hg_machine_action:set_timeout(0, Action),
+    Routes = [get_route(St)],
+    _ = rollback_payment_limits(Routes, St),
+    _ = rollback_payment_cashflow(St),
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
 process_result({payment, finalizing_accounter}, Action, St) ->
     Target = get_target(St),
@@ -2174,11 +2182,10 @@ process_result({payment, finalizing_accounter}, Action, St) ->
         case Target of
             ?captured() ->
                 commit_payment_limits(St),
-                _ = rollback_unused_payment_limits(St),
                 commit_payment_cashflow(St);
             ?cancelled() ->
-                Routes = get_candidate_routes(St),
-                _ = rollback_payment_limits(Routes, St),
+                Route = get_route(St),
+                _ = rollback_payment_limits([Route], St),
                 rollback_payment_cashflow(St)
         end,
     check_recurrent_token(St),
@@ -3015,9 +3022,16 @@ merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
         St,
         Opts
     ),
+    Activity =
+        case St#st.cash_flow of
+            undefined ->
+                {payment, routing_failure};
+            _ ->
+                {payment, processing_failure}
+        end,
     St#st{
         failure = Failure,
-        activity = {payment, processing_failure},
+        activity = Activity,
         timings = accrue_status_timing(failed, Opts, St)
     };
 merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment = Payment} = St, Opts) ->
@@ -3027,6 +3041,7 @@ merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment
             || S <- [
                    risk_scoring,
                    routing,
+                   routing_failure,
                    processing_failure
                ]
         ],
