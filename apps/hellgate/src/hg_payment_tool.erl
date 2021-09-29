@@ -38,20 +38,31 @@ get_possible_methods(
         #domain_BankCard{
             payment_system_deprecated = PaymentSystem,
             token_provider_deprecated = TokenProvider,
-            tokenization_method = TokenizationMethod
+            tokenization_method = none
         } = BankCard}
-) ->
-    ordsets:add_element(
+) when PaymentSystem /= undefined andalso TokenProvider /= undefined ->
+    ordsets:from_list([
+        #domain_PaymentMethodRef{id = {bank_card_deprecated, PaymentSystem}},
+        get_possible_bank_card_methods(BankCard)
+    ]);
+get_possible_methods(
+    {bank_card,
+        #domain_BankCard{
+            payment_system_deprecated = PaymentSystem,
+            token_provider_deprecated = TokenProvider
+        } = BankCard}
+) when PaymentSystem /= undefined andalso TokenProvider /= undefined ->
+    ordsets:from_list([
         #domain_PaymentMethodRef{
             id =
                 {tokenized_bank_card_deprecated, #domain_TokenizedBankCard{
                     payment_system_deprecated = PaymentSystem,
                     token_provider_deprecated = TokenProvider,
-                    tokenization_method = TokenizationMethod
+                    tokenization_method = undefined
                 }}
         },
         get_possible_bank_card_methods(BankCard)
-    );
+    ]);
 %% ===== payment_terminal
 get_possible_methods({payment_terminal, PaymentTerminal}) ->
     filtermap_payment_methods_to_set([
