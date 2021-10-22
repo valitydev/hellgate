@@ -18,7 +18,7 @@ services:
     mem_limit: 512M
 
   dominant:
-    image: dr2.rbkmoney.com/rbkmoney/dominant:9de9cf7f9d80c6bdcf549bbed9ac3096fe5e519d
+    image: dr2.rbkmoney.com/rbkmoney/dominant:2f02d79d15db352c14359024dfcf082a51a1b17a
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -66,7 +66,7 @@ services:
       retries: 20
 
   party-management:
-    image: dr2.rbkmoney.com/rbkmoney/party-management:988193d4bf2c667123234118a1976b9f4ec1369d
+    image: dr2.rbkmoney.com/rbkmoney/party-management:2066fff761c63a6c54a1c4825b31de81ff79e815
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       - machinegun
