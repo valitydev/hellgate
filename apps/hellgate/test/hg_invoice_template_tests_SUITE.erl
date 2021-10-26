@@ -454,6 +454,7 @@ terms_retrieval(C) ->
             payment_methods = undefined
         }
     } = TermSet1,
+
     _ = hg_domain:update(construct_term_set_for_cost(5000, 11000)),
 
     TermSet2 = hg_client_invoice_templating:compute_terms(TplID1, Timestamp, {timestamp, Timestamp}, Client),

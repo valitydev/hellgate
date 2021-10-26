@@ -18,6 +18,7 @@
 -export([get_shop_currency/1]).
 -export([get_cart_amount/1]).
 -export([check_deadline/1]).
+-export([get_identification_level/1]).
 -export([get_identification_level/2]).
 
 -type amount() :: dmsl_domain_thrift:'Amount'().
@@ -36,6 +37,7 @@
 -type party_revision_param() :: dmsl_payment_processing_thrift:'PartyRevisionParam'().
 -type identification_level() :: dmsl_domain_thrift:'ContractorIdentificationLevel'().
 -type varset() :: dmsl_payment_processing_thrift:'Varset'().
+-type party_contractor() :: dmsl_domain_thrift:'PartyContractor'().
 
 -spec validate_cost(cash(), shop()) -> ok.
 validate_cost(#domain_Cash{currency = Currency, amount = Amount}, Shop) ->
@@ -176,6 +178,12 @@ get_party_client() ->
     Context = hg_context:get_party_client_context(HgContext),
     {Client, Context}.
 
+-spec get_identification_level(party_contractor() | undefined) -> identification_level().
+get_identification_level(#domain_PartyContractor{status = Status}) ->
+    Status;
+get_identification_level(undefined) ->
+    none.
+
 -spec get_identification_level(contract(), party()) -> identification_level().
 get_identification_level(#domain_Contract{contractor_id = undefined, contractor = Contractor}, _) ->
     %% TODO legacy, remove after migration
@@ -186,5 +194,4 @@ get_identification_level(#domain_Contract{contractor_id = undefined, contractor 
             none
     end;
 get_identification_level(#domain_Contract{contractor_id = ID}, #domain_Party{contractors = Contractors}) ->
-    Contractor = maps:get(ID, Contractors),
-    Contractor#domain_PartyContractor.status.
+    get_identification_level(maps:get(ID, Contractors)).
