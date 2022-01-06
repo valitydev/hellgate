@@ -49,7 +49,7 @@ xref: submodules
 	$(REBAR) xref
 
 lint:
-	elvis rock -V
+	$(REBAR) lint
 
 check_format:
 	$(REBAR) fmt -c
