@@ -30,7 +30,7 @@ jobs:
           key: |
             ${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-plt
           path: |
-            _build/default/rebar3_*_plt
+            _build/*/rebar3_*_plt
 
       - run: make
       - run: make lint
