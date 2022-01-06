@@ -1,0 +1,55 @@
+version: '3'
+services:
+
+  hellgate: # Keep in sync with $(SERVICE)
+    image: $DEV_IMAGE_TAG
+    build:
+      dockerfile: Dockerfile.dev
+      context: .
+      args:
+        ERLANG_VERSION: $ERLANG_VERSION
+        THRIFT_VERSION: $THRIFT_VERSION
+    volumes:
+      - .:$PWD
+      - $HOME/.cache:/home/$UNAME/.cache
+    working_dir: $PWD
+    command: /sbin/init
+
+  dominant:
+    image: docker.io/rbkmoney/dominant:c39b52984cd205faba34dd4bfe5df7e3ef7fa482
+    command: /opt/dominant/bin/dominant foreground
+
+  machinegun:
+    image: docker.io/rbkmoney/machinegun:c05a8c18cd4f7966d70b6ad84cac9429cdfe37ae
+    command: /opt/machinegun/bin/machinegun foreground
+    volumes:
+      - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
+      - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
+
+  limiter:
+    image: docker.io/rbkmoney/limiter:c7e96068a56da444e78cc7739a902da8e268dc63
+    command: /opt/limiter/bin/limiter foreground
+
+  shumway:
+    image: docker.io/rbkmoney/shumway:44eb989065b27be619acd16b12ebdb2288b46c36
+    restart: unless-stopped
+    entrypoint:
+      - java
+      - -Xmx512m
+      - -jar
+      - /opt/shumway/shumway.jar
+      - --spring.datasource.url=jdbc:postgresql://shumway-db:5432/shumway
+      - --spring.datasource.username=postgres
+      - --spring.datasource.password=postgres
+      - --management.metrics.export.statsd.enabled=false
+
+  party-management:
+    image: docker.io/rbkmoney/party-management:793f6559d5e2c48c460b6f0d068466f7d946fafe
+    command: /opt/party-management/bin/party-management foreground
+
+  shumway-db:
+    image: docker.io/library/postgres:9.6
+    environment:
+      - POSTGRES_DB=shumway
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres

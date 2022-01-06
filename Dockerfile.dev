@@ -1,0 +1,9 @@
+ARG ERLANG_VERSION
+
+FROM docker.io/library/erlang:${ERLANG_VERSION}
+ARG THRIFT_VERSION
+RUN wget -q -O- "https://github.com/valitydev/thrift/releases/download/${THRIFT_VERSION}/thrift-${THRIFT_VERSION}-linux-x86_64.tar.gz" \
+    | tar -xvz -C /usr/local/bin/
+ENV CHARSET=UTF-8
+ENV LANG=C.UTF-8
+CMD /bin/bash

@@ -11,3 +11,7 @@ rebar3.crashdump
 /.idea/
 *.beam
 tags
+
+# make stuff
+/.image.*
+Makefile.env
