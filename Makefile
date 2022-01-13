@@ -23,7 +23,7 @@ all: compile
 DEV_IMAGE_TAG = $(SERVICE)-dev
 DEV_IMAGE_ID = $(file < .image.dev)
 
-.PHONY: dev-image clean-dev-image wc-shell
+.PHONY: dev-image clean-dev-image wc-shell test
 
 dev-image: .image.dev
 
@@ -41,11 +41,26 @@ DOCKER_WC_OPTIONS := -v $(PWD):$(PWD) --workdir $(PWD)
 DOCKER_WC_EXTRA_OPTIONS ?= --rm
 DOCKER_RUN = $(DOCKER) run $(DOCKER_WC_OPTIONS) $(DOCKER_WC_EXTRA_OPTIONS)
 
+DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSE) run $(DOCKER_WC_OPTIONS) $(DOCKER_WC_EXTRA_OPTIONS)
+
 wc-shell: dev-image
 	$(DOCKER_RUN) --interactive --tty $(DEV_IMAGE_TAG)
 
 wc-%: dev-image
-	$(DOCKER_RUN) $(DEV_IMAGE_TAG) $(MAKE) $*
+	$(DOCKER_RUN) $(DEV_IMAGE_TAG) make $*
+
+#  TODO docker compose down doesn't work yet
+wdeps-shell: dev-image
+	$(DOCKERCOMPOSE) up -d
+	$(DOCKERCOMPOSE_RUN) $(SERVICE) su
+	$(DOCKERCOMPOSE) down
+
+wdeps-%: dev-image
+	{
+	$(DOCKERCOMPOSE) up -d
+	$(DOCKERCOMPOSE_RUN) $(SERVICE) make $*
+	$(DOCKERCOMPOSE) down
+	}
 
 # Erlang-specific tasks
 
