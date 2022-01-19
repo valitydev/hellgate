@@ -3027,21 +3027,6 @@ construct_payment_info(idle, _Target, _St, PaymentInfo) ->
     PaymentInfo;
 construct_payment_info(
     {payment, _Step},
-    ?captured(Reason, Cost),
-    St,
-    PaymentInfo
-) when Cost =:= undefined ->
-    %% Для обратной совместимости и legacy capture
-    PaymentInfo#prxprv_PaymentInfo{
-        capture = construct_proxy_capture(
-            ?captured(
-                Reason,
-                get_payment_cost(get_payment(St))
-            )
-        )
-    };
-construct_payment_info(
-    {payment, _Step},
     Target = ?captured(),
     _St,
     PaymentInfo
