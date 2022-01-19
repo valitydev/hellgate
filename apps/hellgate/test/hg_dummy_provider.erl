@@ -435,13 +435,17 @@ mk_trx_extra(#prxprv_PaymentInfo{
         prefix_extra(<<"payment">>, mk_trx_extra(Payment))
     ]);
 mk_trx_extra(#prxprv_InvoicePayment{
+    payment_service = PaymentService,
     payer_session_info = PayerSessionInfo
 }) ->
     lists:foldl(fun maps:merge/2, #{}, [
-        prefix_extra(<<"payer_session_info">>, mk_trx_extra(PayerSessionInfo))
+        prefix_extra(<<"payer_session_info">>, mk_trx_extra(PayerSessionInfo)),
+        prefix_extra(<<"payment_service">>, mk_trx_extra(PaymentService))
     ]);
 mk_trx_extra(R = #domain_PayerSessionInfo{}) ->
     record_to_map(R, record_info(fields, domain_PayerSessionInfo));
+mk_trx_extra(#domain_PaymentService{name = Name, brand_name = BrandName}) ->
+    #{<<"name">> => Name, <<"brand_name">> => BrandName};
 mk_trx_extra(undefined) ->
     #{}.
 

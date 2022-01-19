@@ -3060,6 +3060,7 @@ construct_proxy_payment(
     #domain_InvoicePayment{
         id = ID,
         created_at = CreatedAt,
+        domain_revision = Revision,
         payer = Payer,
         payer_session_info = PayerSessionInfo,
         cost = Cost,
@@ -3069,11 +3070,13 @@ construct_proxy_payment(
     Trx
 ) ->
     ContactInfo = get_contact_info(Payer),
+    PaymentTool = get_payer_payment_tool(Payer),
     #prxprv_InvoicePayment{
         id = ID,
         created_at = CreatedAt,
         trx = Trx,
         payment_resource = construct_payment_resource(Payer),
+        payment_service = hg_payment_tool:get_payment_service(PaymentTool, Revision),
         payer_session_info = PayerSessionInfo,
         cost = construct_proxy_cash(Cost),
         contact_info = ContactInfo,

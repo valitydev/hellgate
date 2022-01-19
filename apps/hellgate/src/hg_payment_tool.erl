@@ -6,6 +6,8 @@
 
 %%
 
+-export([get_payment_service/2]).
+
 -export([has_any_payment_method/2]).
 -export([unmarshal/1]).
 
@@ -13,6 +15,14 @@
 
 -type t() :: dmsl_domain_thrift:'PaymentTool'().
 -type method() :: dmsl_domain_thrift:'PaymentMethodRef'().
+
+-spec get_payment_service(t(), hg_domain:revision()) -> dmsl_domain_thrift:'PaymentService'() | undefined.
+get_payment_service({digital_wallet, #domain_DigitalWallet{payment_service = Ref}}, Revision) ->
+    hg_domain:get(Revision, Ref);
+get_payment_service({payment_terminal, #domain_PaymentTerminal{payment_service = Ref}}, Revision) ->
+    hg_domain:get(Revision, Ref);
+get_payment_service({_, _}, _Revision) ->
+    undefined.
 
 -spec has_any_payment_method(t(), ordsets:ordset(method())) -> boolean().
 has_any_payment_method(PaymentTool, SupportedMethods) ->
