@@ -1,21 +1,11 @@
 ARG ERLANG_VERSION
-ARG THRIFT_VERSION
-
-FROM busybox
-ARG TARGETPLATFORM
-RUN echo $TARGETPLATFORM
 
 FROM docker.io/library/erlang:${ERLANG_VERSION}
 
-ARG TARGETPLATFORM
-RUN echo "${TARGETPLATFORM}"
+ARG THRIFT_VERSION
+ARG TARGETARCH
 
-RUN case "${TARGETPLATFORM}" in \
-         "linux/amd64")  PACKAGEPLATFORM=linux-x86_64  ;; \
-         "linux/arm64/v8")  PACKAGEPLATFORM=darwin-arm64  ;; \
-         *)  ;; \
-    esac; \
-    wget -q -O- "https://github.com/valitydev/thrift/releases/download/${THRIFT_VERSION}/thrift-${THRIFT_VERSION}-${PACKAGEPLATFORM}.tar.gz" \
+RUN wget -q -O- "https://github.com/valitydev/thrift/releases/download/${THRIFT_VERSION}/thrift-${THRIFT_VERSION}-linux-${TARGETARCH}.tar.gz" \
     | tar -xvz -C /usr/local/bin/
 
 ENV CHARSET=UTF-8
