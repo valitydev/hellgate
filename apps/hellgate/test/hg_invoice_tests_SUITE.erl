@@ -1965,7 +1965,21 @@ payment_w_terminal_success(C) ->
 
 -spec payment_w_terminal_success_new(config()) -> _ | no_return().
 payment_w_terminal_success_new(C) ->
-    payment_w_terminal(C, ?pmt_srv(<<"euroset-ref">>), success).
+    ?invoice_state(_, [?payment_last_trx(Trx)]) =
+        payment_w_terminal(C, Ref = ?pmt_srv(<<"euroset-ref">>), success),
+    #domain_PaymentService{
+        name = PmtSrvName,
+        brand_name = PmtSrvBrandName
+    } = hg_domain:get(Ref),
+    ?assertMatch(
+        #domain_TransactionInfo{
+            extra = #{
+                <<"payment.payment_service.name">> := PmtSrvName,
+                <<"payment.payment_service.brand_name">> := PmtSrvBrandName
+            }
+        },
+        Trx
+    ).
 
 payment_w_terminal(C, PmtSrv, success) ->
     Client = cfg(client, C),
@@ -1983,27 +1997,8 @@ payment_w_terminal(C, PmtSrv, success) ->
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
-        [PaymentSt = ?payment_state(?payment_w_status(PaymentID, ?captured()))]
-    ) = hg_client_invoicing:get(InvoiceID, Client),
-    ?payment_last_trx(Trx) = PaymentSt,
-    case PmtSrv of
-        ?pmt_srv(_) = Ref ->
-            #domain_PaymentService{
-                name = PmtSrvName,
-                brand_name = PmtSrvBrandName
-            } = hg_domain:get(Ref),
-            ?assertMatch(
-                #domain_TransactionInfo{
-                    extra = #{
-                        <<"payment.payment_service.name">> := PmtSrvName,
-                        <<"payment.payment_service.brand_name">> := PmtSrvBrandName
-                    }
-                },
-                Trx
-            );
-        _Legacy ->
-            ok
-    end.
+        [?payment_state(?payment_w_status(PaymentID, ?captured()))]
+    ) = hg_client_invoicing:get(InvoiceID, Client).
 
 -spec payment_w_crypto_currency_success(config()) -> _ | no_return().
 payment_w_crypto_currency_success(C) ->
