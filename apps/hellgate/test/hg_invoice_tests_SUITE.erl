@@ -1970,7 +1970,7 @@ payment_w_terminal_success_new(C) ->
     #domain_PaymentService{
         name = PmtSrvName,
         brand_name = PmtSrvBrandName
-    } = hg_domain:get(Ref),
+    } = hg_domain:get({payment_service, Ref}),
     ?assertMatch(
         #domain_TransactionInfo{
             extra = #{

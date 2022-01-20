@@ -18,11 +18,16 @@
 
 -spec get_payment_service(t(), hg_domain:revision()) -> dmsl_domain_thrift:'PaymentService'() | undefined.
 get_payment_service({digital_wallet, #domain_DigitalWallet{payment_service = Ref}}, Revision) ->
-    hg_domain:get(Revision, Ref);
+    try_get_payment_service_w_ref(Ref, Revision);
 get_payment_service({payment_terminal, #domain_PaymentTerminal{payment_service = Ref}}, Revision) ->
-    hg_domain:get(Revision, Ref);
+    try_get_payment_service_w_ref(Ref, Revision);
 get_payment_service({_, _}, _Revision) ->
     undefined.
+
+try_get_payment_service_w_ref(undefined, Revision) ->
+    undefined;
+try_get_payment_service_w_ref(Ref, Revision) ->
+    hg_domain:get(Revision, {payment_service, Ref}).
 
 -spec has_any_payment_method(t(), ordsets:ordset(method())) -> boolean().
 has_any_payment_method(PaymentTool, SupportedMethods) ->
