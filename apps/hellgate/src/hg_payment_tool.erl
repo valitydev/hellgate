@@ -24,7 +24,7 @@ get_payment_service({payment_terminal, #domain_PaymentTerminal{payment_service =
 get_payment_service({_, _}, _Revision) ->
     undefined.
 
-try_get_payment_service_w_ref(undefined, Revision) ->
+try_get_payment_service_w_ref(undefined, _Revision) ->
     undefined;
 try_get_payment_service_w_ref(Ref, Revision) ->
     hg_domain:get(Revision, {payment_service, Ref}).
