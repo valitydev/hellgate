@@ -11,7 +11,7 @@
         genlib,
         fault_detector_proto,
         hg_proto,
-        shumpune_proto,
+        shumaich_proto,
         cowboy,
         woody,
         scoper,  % should be before any scoper event handler usage
