@@ -349,7 +349,8 @@ construct_payment_service(Ref, Name) ->
     {payment_service, #domain_PaymentServiceObject{
         ref = Ref,
         data = #domain_PaymentService{
-            name = Name
+            name = Name,
+            brand_name = string:uppercase(Name)
         }
     }}.
 

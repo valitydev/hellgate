@@ -67,7 +67,7 @@
 -export([payment_success_additional_info/1]).
 -export([payment_success_additional_info_new/1]).
 -export([payment_w_terminal_success/1]).
--export([payment_w_terminal_success_new/1]).
+-export([payment_w_terminal_w_payment_service_success/1]).
 -export([payment_w_crypto_currency_success/1]).
 -export([payment_w_crypto_currency_success_new/1]).
 -export([payment_bank_card_category_condition/1]).
@@ -439,7 +439,7 @@ groups() ->
             payment_bank_card_category_condition,
             payment_bank_card_category_condition_new,
             payment_w_terminal_success,
-            payment_w_terminal_success_new,
+            payment_w_terminal_w_payment_service_success,
             payment_w_crypto_currency_success,
             payment_w_crypto_currency_success_new,
             payment_w_wallet_success,
@@ -1963,9 +1963,23 @@ repair_failed_cancel(InvoiceID, PaymentID, Reason, Client) ->
 payment_w_terminal_success(C) ->
     payment_w_terminal(C, euroset, success).
 
--spec payment_w_terminal_success_new(config()) -> _ | no_return().
-payment_w_terminal_success_new(C) ->
-    payment_w_terminal(C, ?pmt_srv(<<"euroset-ref">>), success).
+-spec payment_w_terminal_w_payment_service_success(config()) -> _ | no_return().
+payment_w_terminal_w_payment_service_success(C) ->
+    ?invoice_state(_, [?payment_last_trx(Trx)]) =
+        payment_w_terminal(C, Ref = ?pmt_srv(<<"euroset-ref">>), success),
+    #domain_PaymentService{
+        name = PmtSrvName,
+        brand_name = PmtSrvBrandName
+    } = hg_domain:get({payment_service, Ref}),
+    ?assertMatch(
+        #domain_TransactionInfo{
+            extra = #{
+                <<"payment.payment_service.name">> := PmtSrvName,
+                <<"payment.payment_service.brand_name">> := PmtSrvBrandName
+            }
+        },
+        Trx
+    ).
 
 payment_w_terminal(C, PmtSrv, success) ->
     Client = cfg(client, C),
