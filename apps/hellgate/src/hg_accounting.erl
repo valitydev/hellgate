@@ -25,7 +25,7 @@
 
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("shumaich_proto/include/shumpune_shumpune_thrift.hrl").
+-include_lib("shumpune_proto/include/shumpune_shumpune_thrift.hrl").
 
 -type amount() :: dmsl_domain_thrift:'Amount'().
 -type currency_code() :: dmsl_domain_thrift:'CurrencySymbolicCode'().

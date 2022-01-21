@@ -72,7 +72,7 @@
   {git,"https://github.com/valitydev/scoper.git",
        {ref,"7f3183df279bc8181efe58dafd9cae164f495e6f"}},
   0},
- {<<"shumaich_proto">>,
+ {<<"shumpune_proto">>,
   {git,"https://github.com/valitydev/shumaich-proto.git",
        {ref,"4c87f03591cae3dad41504eb463d962af536b1ab"}},
   0},
