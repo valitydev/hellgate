@@ -7,8 +7,6 @@ erl_crash.dump
 .tags*
 *.sublime-workspace
 .DS_Store
-Dockerfile
-docker-compose.yml
 /.idea/
 *.beam
 tags
