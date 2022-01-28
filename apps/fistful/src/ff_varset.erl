@@ -63,7 +63,7 @@ encode_payment_method({crypto_currency_deprecated, CryptoCurrency}) ->
     #domain_PaymentMethodRef{
         id = {crypto_currency_deprecated, CryptoCurrency}
     };
-encode_payment_method({digital_wallet, #domain_DigitalWallet{provider_deprecated = DigitalWalletType}}) ->
+encode_payment_method({digital_wallet, #domain_DigitalWallet{payment_service = PaymentService}}) ->
     #domain_PaymentMethodRef{
-        id = {digital_wallet_deprecated, DigitalWalletType}
+        id = {digital_wallet, PaymentService}
     }.

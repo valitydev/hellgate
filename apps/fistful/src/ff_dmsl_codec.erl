@@ -176,6 +176,12 @@ unmarshal(payment_system, #'domain_PaymentSystemRef'{
     #{
         id => unmarshal(string, ID)
     };
+unmarshal(payment_service, #'domain_PaymentServiceRef'{
+    id = ID
+}) ->
+    #{
+        id => unmarshal(string, ID)
+    };
 unmarshal(issuer_country, V) when is_atom(V) ->
     V;
 unmarshal(attempt_limit, #domain_AttemptLimit{
@@ -264,6 +270,10 @@ marshal(exp_date, {Month, Year}) ->
     };
 marshal(payment_system, #{id := ID}) ->
     #domain_PaymentSystemRef{
+        id = marshal(string, ID)
+    };
+marshal(payment_service, #{id := ID}) ->
+    #domain_PaymentServiceRef{
         id = marshal(string, ID)
     };
 marshal(contact_info, undefined) ->

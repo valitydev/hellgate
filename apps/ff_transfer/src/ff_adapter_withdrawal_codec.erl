@@ -81,6 +81,10 @@ marshal(payment_system, #{id := Ref}) when is_binary(Ref) ->
     #domain_PaymentSystemRef{
         id = Ref
     };
+marshal(payment_service, #{id := Ref}) when is_binary(Ref) ->
+    #domain_PaymentServiceRef{
+        id = Ref
+    };
 marshal(identity, Identity) ->
     % TODO: Add real contact fields
     #wthdm_Identity{
@@ -202,18 +206,18 @@ marshal(
 marshal(
     resource,
     {digital_wallet, #{
-        digital_wallet := #{
-            id := CryptoWalletID,
-            data := Data
+        digital_wallet := Wallet = #{
+            id := DigitalWalletID,
+            payment_service := PaymentService
         }
     }}
 ) ->
+    Token = maps:get(token, Wallet, undefined),
     {digital_wallet, #domain_DigitalWallet{
-        id = CryptoWalletID,
-        provider_deprecated = marshal(digital_wallet_provider, Data)
+        id = DigitalWalletID,
+        token = Token,
+        payment_service = marshal(payment_service, PaymentService)
     }};
-marshal(digital_wallet_provider, {Provider, _}) ->
-    Provider;
 marshal(
     withdrawal,
     #{

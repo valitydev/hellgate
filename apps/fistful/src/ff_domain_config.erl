@@ -9,7 +9,7 @@
 -export([head/0]).
 
 -type revision() :: dmt_client:version().
--type object_data() :: any().
+-type object_data() :: dmt_client:object_data().
 -type object_ref() :: dmsl_domain_thrift:'Reference'().
 
 -export_type([revision/0]).
@@ -25,12 +25,11 @@ object(ObjectRef) ->
     object(head(), ObjectRef).
 
 -spec object(dmt_client:version(), object_ref()) -> {ok, object_data()} | {error, notfound}.
-object(Version, Ref = {Type, ObjectRef}) ->
-    try dmt_client:checkout_object(Version, Ref) of
-        {Type, {_RecordName, ObjectRef, ObjectData}} ->
-            {ok, ObjectData}
-    catch
-        #'ObjectNotFound'{} ->
+object(Version, Ref) ->
+    case dmt_client:try_checkout_data(Version, Ref) of
+        {ok, Data} ->
+            {ok, Data};
+        {error, object_not_found} ->
             {error, notfound}
     end.
 

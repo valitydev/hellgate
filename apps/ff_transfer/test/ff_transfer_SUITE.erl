@@ -529,7 +529,8 @@ create_digital_destination(IID, _C) ->
         {digital_wallet, #{
             digital_wallet => #{
                 id => <<"a30e277c07400c9940628828949efd48">>,
-                data => {webmoney, #{}}
+                token => <<"a30e277c07400c9940628828949efd48">>,
+                payment_service => #{id => <<"webmoney">>}
             }
         }},
     DestID = create_destination(IID, <<"DigitalDestination">>, <<"RUB">>, Resource),

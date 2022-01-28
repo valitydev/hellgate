@@ -170,10 +170,11 @@ marshal(crypto_wallet, #{id := ID, currency := Currency}) ->
         currency = marshal(crypto_currency, Currency),
         data = marshal(crypto_data, Currency)
     };
-marshal(digital_wallet, Wallet = #{id := ID}) ->
+marshal(digital_wallet, Wallet = #{id := ID, payment_service := PaymentService}) ->
     #'DigitalWallet'{
         id = marshal(string, ID),
-        data = maybe_marshal(digital_wallet_data, maps:get(data, Wallet, undefined))
+        token = maybe_marshal(string, maps:get(token, Wallet, undefined)),
+        payment_service = marshal(payment_service, PaymentService)
     };
 marshal(exp_date, {Month, Year}) ->
     #'BankCardExpDate'{
@@ -198,8 +199,10 @@ marshal(crypto_data, {ripple, Data}) ->
     {ripple, #'CryptoDataRipple'{
         tag = maybe_marshal(string, maps:get(tag, Data, undefined))
     }};
-marshal(digital_wallet_data, {webmoney, #{}}) ->
-    {webmoney, #'DigitalDataWebmoney'{}};
+marshal(payment_service, #{id := Ref}) when is_binary(Ref) ->
+    #'PaymentServiceRef'{
+        id = Ref
+    };
 marshal(payment_system, #{id := Ref}) when is_binary(Ref) ->
     #'PaymentSystemRef'{
         id = Ref
@@ -462,13 +465,16 @@ unmarshal(crypto_data, {ripple, #'CryptoDataRipple'{tag = Tag}}) ->
     });
 unmarshal(crypto_data, _) ->
     #{};
-unmarshal(digital_wallet, #'DigitalWallet'{id = ID, data = Data}) ->
+unmarshal(digital_wallet, #'DigitalWallet'{id = ID, payment_service = PaymentService, token = Token}) ->
     genlib_map:compact(#{
         id => unmarshal(string, ID),
-        data => maybe_unmarshal(digital_wallet_data, Data)
+        payment_service => unmarshal(payment_service, PaymentService),
+        token => maybe_unmarshal(string, Token)
     });
-unmarshal(digital_wallet_data, {webmoney, #'DigitalDataWebmoney'{}}) ->
-    {webmoney, #{}};
+unmarshal(payment_service, #'PaymentServiceRef'{id = Ref}) when is_binary(Ref) ->
+    #{
+        id => Ref
+    };
 unmarshal(cash, #'Cash'{
     amount = Amount,
     currency = CurrencyRef

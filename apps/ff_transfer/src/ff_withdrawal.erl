@@ -416,6 +416,7 @@ create(Params) ->
         Identity = get_wallet_identity(Wallet),
         Destination = unwrap(destination, get_destination(DestinationID)),
         ResourceParams = ff_destination:resource(Destination),
+        valid = ff_resource:check_resource(DomainRevision, ResourceParams),
         Resource = unwrap(
             destination_resource,
             create_resource(ResourceParams, ResourceDescriptor, Identity, DomainRevision)
@@ -1166,8 +1167,16 @@ construct_payment_tool({bank_card, #{bank_card := ResourceBankCard}}) ->
     }};
 construct_payment_tool({crypto_wallet, #{crypto_wallet := #{currency := {Currency, _}}}}) ->
     {crypto_currency_deprecated, Currency};
-construct_payment_tool({digital_wallet, #{digital_wallet := #{id := ID, data := {DigitalWalletType, _}}}}) ->
-    {digital_wallet, #domain_DigitalWallet{id = ID, provider_deprecated = DigitalWalletType}}.
+construct_payment_tool({digital_wallet, #{digital_wallet := Wallet = #{
+    id := ID,
+    payment_service := PaymentService
+}}}) ->
+    Token = maps:get(token, Wallet, undefined),
+    {digital_wallet, #domain_DigitalWallet{
+        id = ID,
+        payment_service = ff_dmsl_codec:marshal(payment_service, PaymentService),
+        token = Token
+    }}.
 
 %% Quote helpers
 

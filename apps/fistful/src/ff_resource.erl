@@ -53,7 +53,8 @@
 
 -type digital_wallet_params() :: #{
     id := binary(),
-    data := digital_wallet_data()
+    payment_service := payment_service(),
+    token => binary()
 }.
 
 -type bank_card() :: #{
@@ -74,6 +75,9 @@
 -type token() :: binary().
 -type bin() :: binary().
 -type payment_system() :: #{
+    id := binary()
+}.
+-type payment_service() :: #{
     id := binary()
 }.
 
@@ -116,11 +120,9 @@
 
 -type digital_wallet() :: #{
     id := binary(),
-    data := digital_wallet_data()
+    payment_service := payment_service(),
+    token => binary()
 }.
-
--type digital_wallet_data() ::
-    {webmoney, #{}}.
 
 -export_type([resource_descriptor/0]).
 -export_type([resource/0]).
@@ -140,6 +142,8 @@
 -export_type([card_type/0]).
 
 -export([get_bin_data/2]).
+-export([check_resource/1]).
+-export([check_resource/2]).
 -export([create_resource/1]).
 -export([create_resource/2]).
 -export([create_bank_card_basic/3]).
@@ -216,6 +220,20 @@ get_bin_data(Token, undefined) ->
 get_bin_data(Token, {bank_card, ResourceID}) ->
     ff_bin_data:get(Token, ResourceID).
 
+-spec check_resource(resource()) ->
+    valid | no_return().
+check_resource(Resource) ->
+    check_resource(ff_domain_config:head(), Resource).
+
+-spec check_resource(ff_domain_config:revision(), resource()) ->
+    valid | no_return().
+check_resource(Revision, {digital_wallet, #{digital_wallet := #{payment_service := PaymentService}}}) ->
+    MarshalledPaymentService = ff_dmsl_codec:marshal(payment_service, PaymentService),
+    {ok, _} = ff_domain_config:object(Revision, {payment_service, MarshalledPaymentService}),
+    valid;
+check_resource(_, _) ->
+    valid.
+
 -spec create_resource(resource_params()) ->
     {ok, resource()}
     | {error, {bin_data, bin_data_error()}}.
@@ -273,15 +291,17 @@ create_crypto_wallet(#{
 
 -spec create_digital_wallet(resource_digital_wallet_params()) -> {ok, resource()}.
 create_digital_wallet(#{
-    digital_wallet := #{
+    digital_wallet := Wallet = #{
         id := ID,
-        data := Data
+        payment_service := PaymentService
     }
 }) ->
+    Token = maps:get(token, Wallet, undefined),
     {ok,
         {digital_wallet, #{
-            digital_wallet => #{
+            digital_wallet => genlib_map:compact(#{
                 id => ID,
-                data => Data
-            }
+                payment_service => PaymentService,
+                token => Token
+            })
         }}}.

@@ -112,7 +112,8 @@ create_digital_wallet_destination_ok(C) ->
         {digital_wallet, #'ResourceDigitalWallet'{
             digital_wallet = #'DigitalWallet'{
                 id = <<"f195298af836f41d072cb390ee62bee8">>,
-                data = {webmoney, #'DigitalDataWebmoney'{}}
+                token = <<"a30e277c07400c9940628828949efd48">>,
+                payment_service = #'PaymentServiceRef'{id = <<"webmoney">>}
             }
         }},
     create_destination_ok(Resource, C).

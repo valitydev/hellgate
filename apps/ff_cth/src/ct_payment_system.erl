@@ -596,7 +596,9 @@ domain_config(Options, C) ->
         ct_domain:payment_method(?pmt(bank_card_deprecated, mastercard)),
 
         ct_domain:payment_system(?pmtsys(<<"VISA">>), <<"VISA">>),
-        ct_domain:payment_system(?pmtsys(<<"NSPK MIR">>), <<"NSPK MIR">>)
+        ct_domain:payment_system(?pmtsys(<<"NSPK MIR">>), <<"NSPK MIR">>),
+
+        ct_domain:payment_service(?pmtsrv(<<"webmoney">>), <<"Webmoney">>)
     ],
     maps:get(domain_config, Options, Default).
 
