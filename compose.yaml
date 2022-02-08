@@ -84,7 +84,7 @@ services:
       retries: 20
 
   party-management:
-    image: docker.io/rbkmoney/party-management:793f6559d5e2c48c460b6f0d068466f7d946fafe
+    image: ghcr.io/valitydev/party-management:sha-a405fce
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
@@ -94,7 +94,7 @@ services:
       shumway:
         condition: service_healthy
     healthcheck:
-      test: "curl -f http://localhost:8022/health"
+      test: "curl http://localhost:8022/"
       interval: 5s
       timeout: 1s
       retries: 20
