@@ -31,7 +31,7 @@ services:
       machinegun:
         condition: service_healthy
     healthcheck:
-      test: "curl -f http://localhost:8022/health"
+      test: "curl http://localhost:8022/"
       interval: 5s
       timeout: 1s
       retries: 20
@@ -43,7 +43,7 @@ services:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
       - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
     healthcheck:
-      test: "curl -f http://localhost:8022/health"
+      test: "curl http://localhost:8022/"
       interval: 5s
       timeout: 1s
       retries: 20
@@ -57,7 +57,7 @@ services:
       shumway:
         condition: service_healthy
     healthcheck:
-      test: "curl -f http://localhost:8022/health"
+      test: "curl http://localhost:8022/"
       interval: 5s
       timeout: 1s
       retries: 20
@@ -78,7 +78,7 @@ services:
       shumway-db:
         condition: service_healthy
     healthcheck:
-      test: "curl -f http://localhost:8023/actuator/health"
+      test: "curl http://localhost:8022/"
       interval: 5s
       timeout: 1s
       retries: 20
