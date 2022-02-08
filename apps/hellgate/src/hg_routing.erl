@@ -343,33 +343,27 @@ get_route_choice_context({ChosenScores, ChosenRoute}, {IdealScores, IdealRoute})
 
 -spec get_logger_metadata(route_choice_context(), revision()) -> LoggerFormattedMetadata :: map().
 get_logger_metadata(RouteChoiceContext, Revision) ->
-    #{route_choice_metadata => format_logger_metadata(RouteChoiceContext, Revision)}.
-
-format_logger_metadata(RouteChoiceContext, Revision) ->
     maps:fold(
         fun(K, V, Acc) ->
-            Acc ++ format_logger_metadata(K, V, Revision)
+            Acc#{K => format_logger_metadata(K, V, Revision)}
         end,
-        [],
+        #{},
         RouteChoiceContext
     ).
 
 format_logger_metadata(reject_reason, Reason, _) ->
-    [{reject_reason, Reason}];
-format_logger_metadata(Meta, Route, Revision) when Meta =:= chosen_route; Meta =:= preferable_route ->
-    RouteInfo = add_route_name(Route, Revision),
-    [{Meta, maps:to_list(RouteInfo)}].
-
-add_route_name(Route, Revision) ->
-    ProviderRef = provider_ref(Route),
-    TerminalRef = terminal_ref(Route),
-    #domain_Provider{name = PName} = hg_domain:get(Revision, {provider, ProviderRef}),
-    #domain_Terminal{name = TName} = hg_domain:get(Revision, {terminal, TerminalRef}),
+    Reason;
+format_logger_metadata(Meta, Route, Revision) when
+    Meta =:= chosen_route;
+    Meta =:= preferable_route
+->
+    ProviderRef = #domain_ProviderRef{id = ProviderID} = provider_ref(Route),
+    TerminalRef = #domain_TerminalRef{id = TerminalID} = terminal_ref(Route),
+    #domain_Provider{name = ProviderName} = hg_domain:get(Revision, {provider, ProviderRef}),
+    #domain_Terminal{name = TerminalName} = hg_domain:get(Revision, {terminal, TerminalRef}),
     genlib_map:compact(#{
-        provider_name => PName,
-        terminal_name => TName,
-        provider_ref => ProviderRef,
-        terminal_ref => TerminalRef,
+        provider => #{id => ProviderID, name => ProviderName},
+        terminal => #{id => TerminalID, name => TerminalName},
         priority => priority(Route),
         weight => weight(Route)
     }).
