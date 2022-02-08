@@ -11,16 +11,11 @@ services:
       - .:$PWD
     hostname: hellgate
     depends_on:
-      machinegun:
-        condition: service_healthy
-      dominant:
-        condition: service_healthy
-      party-management:
-        condition: service_healthy
-      limiter:
-        condition: service_healthy
-      shumway:
-        condition: service_healthy
+      - machinegun
+      - dominant
+      - party-management
+      - limiter
+      - shumway
     working_dir: $PWD
     command: /sbin/init
 
@@ -28,8 +23,7 @@ services:
     image: ghcr.io/valitydev/dominant:sha-8bd7828
     command: /opt/dominant/bin/dominant foreground
     depends_on:
-      machinegun:
-        condition: service_healthy
+      - machinegun
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
@@ -52,10 +46,8 @@ services:
     image: docker.io/rbkmoney/limiter:c7e96068a56da444e78cc7739a902da8e268dc63
     command: /opt/limiter/bin/limiter foreground
     depends_on:
-      machinegun:
-        condition: service_healthy
-      shumway:
-        condition: service_healthy
+      - machinegun
+      - shumway
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
@@ -75,8 +67,7 @@ services:
       - --spring.datasource.password=postgres
       - --management.metrics.export.statsd.enabled=false
     depends_on:
-      shumway-db:
-        condition: service_healthy
+      - shumway-db
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
@@ -87,12 +78,9 @@ services:
     image: ghcr.io/valitydev/party-management:sha-a405fce
     command: /opt/party-management/bin/party-management foreground
     depends_on:
-      machinegun:
-        condition: service_healthy
-      dominant:
-        condition: service_healthy
-      shumway:
-        condition: service_healthy
+      - machinegun
+      - dominant
+      - shumway
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
