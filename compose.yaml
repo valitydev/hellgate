@@ -84,7 +84,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-a405fce
+    image: docker.io/rbkmoney/party-management:793f6559d5e2c48c460b6f0d068466f7d946fafe
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
