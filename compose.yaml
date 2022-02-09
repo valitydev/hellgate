@@ -16,7 +16,7 @@ services:
       dominant:
         condition: service_healthy
       party-management:
-        condition: service_healthy
+        condition: service_started
       limiter:
         condition: service_healthy
       shumway:
@@ -88,9 +88,9 @@ services:
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
-        condition: service_healthy
+        condition: service_started
       dominant:
-        condition: service_healthy
+        condition: service_started
       shumway:
         condition: service_started
     healthcheck:
