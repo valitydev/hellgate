@@ -11,16 +11,17 @@ services:
       - .:$PWD
     hostname: hellgate
     depends_on:
+      # FIXME: Switch all service_started to service_healthy when its possible to debug its problems
       machinegun:
-        condition: service_healthy
+        condition: service_started
       dominant:
-        condition: service_healthy
+        condition: service_started
       party-management:
         condition: service_started
       limiter:
-        condition: service_healthy
+        condition: service_started
       shumway:
-        condition: service_healthy
+        condition: service_started
     working_dir: $PWD
     command: /sbin/init
 
@@ -29,7 +30,7 @@ services:
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
@@ -53,9 +54,9 @@ services:
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
-        condition: service_healthy
+        condition: service_started
       shumway:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
