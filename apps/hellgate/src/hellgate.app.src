@@ -21,8 +21,6 @@
         woody_user_identity,
         payproc_errors,
         erl_health,
-        prometheus,
-        prometheus_cowboy,
         limiter_proto
     ]},
     {env, []},
@@ -31,5 +29,5 @@
         "Andrey Mayorov <a.mayorov@rbkmoney.com>"
     ]},
     {licenses, []},
-    {links, ["https://github.com/rbkmoney/hellgate"]}
+    {links, ["https://github.com/valitydev/hellgate"]}
 ]}.

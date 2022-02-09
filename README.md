@@ -4,29 +4,46 @@ Core logic service for payment states processing.
 
 ## Building
 
-We widelly use Thrift to define RPC protocols.
-So it needs to have [our Thrift compiler](https://github.com/rbkmoney/thrift) in PATH to build this service.
-The recommended way to achieve this is by using our [build image](https://github.com/rbkmoney/image-build-erlang).
+To build the project, run the following command:
 
-We are still experimenting on opening our build infrastructure so that you can use the explicit public registry setting for now.
-You can adjust this parameter by exporting the environment variable `REGISTRY`.
-
-### Сheatsheet
-
-To build the service image without access to the internal RBK.money registry:
-
-```shell
-make submodules && REGISTRY=ghcr.io make wc_release build_image
+```bash
+$ make compile
 ```
 
-To compile:
+## Running
 
-```shell
-make submodules && REGISTRY=ghcr.io make wc_compile
+To enter the [Erlang shell][1] with the project running, run the following command:
+
+```bash
+$ make rebar-shell
 ```
 
-To run the service tests (you need either to have access to the internal RBK.money registry or to modify `docker-compose.sh`):
+## Development environment
 
-```shell
-make wdeps_test
+### Run in a docker container
+
+You can run any of the tasks defined in the Makefile from inside of a docker container (defined in `Dockerfile.dev`) by prefixing the task name with `wc-`. To successfully build the dev container you need `Docker BuildKit` enabled. This can be accomplished by either installing [docker-buildx](https://docs.docker.com/buildx/working-with-buildx/) locally, or exporting the `DOCKER_BUILDKIT=1` environment variable.
+
+#### Example
+
+* This command will run the `compile` task in a docker container:
+```bash
+$ make wc-compile
 ```
+
+### Run in a docker-compose environment
+
+Similarly, you can run any of the tasks defined in the Makefile from inside of a docker-compose environment (defined in `docker-compose.yaml`) by prefixing the task name with `wdeps-`. To successfully build the dev container you need `Docker BuildKit` enabled (see `Run in a docker container` section). It *may* also be necessary to export a `COMPOSE_DOCKER_CLI_BUILD=1` environment variable for `docker-compose` container builds to work properly.
+
+#### Example
+
+* This command will run the `test` task in a docker-compose environment:
+```bash
+$ make wdeps-test
+```
+
+## Documentation
+
+@TODO Please write a couple of words about what your project does and how it does it.
+
+[1]: http://erlang.org/doc/man/shell.html

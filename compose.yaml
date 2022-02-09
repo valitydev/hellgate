@@ -1,31 +1,44 @@
-#!/bin/bash
-cat <<EOF
-version: '2.1'
 services:
-
-  ${SERVICE_NAME}:
-    image: ${BUILD_IMAGE}
+  testrunner:
+    image: $DEV_IMAGE_TAG
+    build:
+      dockerfile: Dockerfile.dev
+      context: .
+      args:
+        OTP_VERSION: $OTP_VERSION
+        THRIFT_VERSION: $THRIFT_VERSION
     volumes:
       - .:$PWD
-      - $HOME/.cache:/home/$UNAME/.cache
-    working_dir: $PWD
-    command: /sbin/init
+    hostname: hellgate
     depends_on:
+      # FIXME: Switch all service_started to service_healthy when its possible to debug its problems
       machinegun:
         condition: service_healthy
-      shumway:
+      dominant:
+        condition: service_started
+      party-management:
+        condition: service_started
+      limiter:
         condition: service_healthy
-    mem_limit: 512M
+      shumway:
+        condition: service_started
+    working_dir: $PWD
+    command: /sbin/init
 
   dominant:
-    image: dr2.rbkmoney.com/rbkmoney/dominant:ea1a6680e3a68db92b485102e5c1c9525c9d874f
+    image: ghcr.io/valitydev/dominant:sha-8bd7828
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
         condition: service_healthy
+    healthcheck:
+      test: "curl http://localhost:8022/"
+      interval: 5s
+      timeout: 1s
+      retries: 20
 
   machinegun:
-    image: dr2.rbkmoney.com/rbkmoney/machinegun:9c3248a68fe530d23a8266057a40a1a339a161b8
+    image: docker.io/rbkmoney/machinegun:c05a8c18cd4f7966d70b6ad84cac9429cdfe37ae
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
@@ -37,16 +50,21 @@ services:
       retries: 20
 
   limiter:
-    image: dr2.rbkmoney.com/rbkmoney/limiter:c7e96068a56da444e78cc7739a902da8e268dc63
+    image: docker.io/rbkmoney/limiter:c7e96068a56da444e78cc7739a902da8e268dc63
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
         condition: service_healthy
       shumway:
-        condition: service_healthy
+        condition: service_started
+    healthcheck:
+      test: "curl http://localhost:8022/"
+      interval: 5s
+      timeout: 1s
+      retries: 20
 
   shumway:
-    image: dr2.rbkmoney.com/rbkmoney/shumway:658c9aec229b5a70d745a49cb938bb1a132b5ca2
+    image: docker.io/rbkmoney/shumway:44eb989065b27be619acd16b12ebdb2288b46c36
     restart: unless-stopped
     entrypoint:
       - java
@@ -58,7 +76,8 @@ services:
       - --spring.datasource.password=postgres
       - --management.metrics.export.statsd.enabled=false
     depends_on:
-      - shumway-db
+      shumway-db:
+        condition: service_healthy
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
@@ -66,12 +85,15 @@ services:
       retries: 20
 
   party-management:
-    image: dr2.rbkmoney.com/rbkmoney/party-management:ac0feed5de13797941c3a576c04b0a5b7302c549
+    image: ghcr.io/valitydev/party-management:sha-a405fce
     command: /opt/party-management/bin/party-management foreground
     depends_on:
-      - machinegun
-      - dominant
-      - shumway
+      machinegun:
+        condition: service_healthy
+      dominant:
+        condition: service_started
+      shumway:
+        condition: service_started
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
@@ -79,10 +101,14 @@ services:
       retries: 20
 
   shumway-db:
-    image: dr2.rbkmoney.com/rbkmoney/postgres:9.6
+    image: docker.io/library/postgres:9.6
     environment:
       - POSTGRES_DB=shumway
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - SERVICE_NAME=shumway-db
-EOF
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
