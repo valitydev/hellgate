@@ -12,15 +12,15 @@ services:
     hostname: hellgate
     depends_on:
       machinegun:
-        condition: service_started
+        condition: service_healthy
       dominant:
-        condition: service_started
+        condition: service_healthy
       party-management:
-        condition: service_started
+        condition: service_healthy
       limiter:
-        condition: service_started
+        condition: service_healthy
       shumway:
-        condition: service_started
+        condition: service_healthy
     working_dir: $PWD
     command: /sbin/init
 
@@ -92,7 +92,7 @@ services:
       dominant:
         condition: service_healthy
       shumway:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
