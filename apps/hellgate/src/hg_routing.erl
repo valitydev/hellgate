@@ -343,33 +343,27 @@ get_route_choice_context({ChosenScores, ChosenRoute}, {IdealScores, IdealRoute})
 
 -spec get_logger_metadata(route_choice_context(), revision()) -> LoggerFormattedMetadata :: map().
 get_logger_metadata(RouteChoiceContext, Revision) ->
-    #{route_choice_metadata => format_logger_metadata(RouteChoiceContext, Revision)}.
-
-format_logger_metadata(RouteChoiceContext, Revision) ->
     maps:fold(
         fun(K, V, Acc) ->
-            Acc ++ format_logger_metadata(K, V, Revision)
+            Acc#{K => format_logger_metadata(K, V, Revision)}
         end,
-        [],
+        #{},
         RouteChoiceContext
     ).
 
 format_logger_metadata(reject_reason, Reason, _) ->
-    [{reject_reason, Reason}];
-format_logger_metadata(Meta, Route, Revision) when Meta =:= chosen_route; Meta =:= preferable_route ->
-    RouteInfo = add_route_name(Route, Revision),
-    [{Meta, maps:to_list(RouteInfo)}].
-
-add_route_name(Route, Revision) ->
-    ProviderRef = provider_ref(Route),
-    TerminalRef = terminal_ref(Route),
-    #domain_Provider{name = PName} = hg_domain:get(Revision, {provider, ProviderRef}),
-    #domain_Terminal{name = TName} = hg_domain:get(Revision, {terminal, TerminalRef}),
+    Reason;
+format_logger_metadata(Meta, Route, Revision) when
+    Meta =:= chosen_route;
+    Meta =:= preferable_route
+->
+    ProviderRef = #domain_ProviderRef{id = ProviderID} = provider_ref(Route),
+    TerminalRef = #domain_TerminalRef{id = TerminalID} = terminal_ref(Route),
+    #domain_Provider{name = ProviderName} = hg_domain:get(Revision, {provider, ProviderRef}),
+    #domain_Terminal{name = TerminalName} = hg_domain:get(Revision, {terminal, TerminalRef}),
     genlib_map:compact(#{
-        provider_name => PName,
-        terminal_name => TName,
-        provider_ref => ProviderRef,
-        terminal_ref => TerminalRef,
+        provider => #{id => ProviderID, name => ProviderName},
+        terminal => #{id => TerminalID, name => TerminalName},
         priority => priority(Route),
         weight => weight(Route)
     }).
@@ -772,6 +766,7 @@ unmarshal(_, Other) ->
 -include_lib("eunit/include/eunit.hrl").
 
 -spec test() -> _.
+-type testcase() :: {_, fun(() -> _)}.
 
 -define(prv(ID), #domain_ProviderRef{id = ID}).
 -define(trm(ID), #domain_TerminalRef{id = ID}).
@@ -800,10 +795,10 @@ record_comparsion_test() ->
         },
         {99, 99}
     },
-    Bigger = select_better_route(Bigger, Smaller).
+    ?assertEqual(Bigger, select_better_route(Bigger, Smaller)).
 
--spec balance_routes_test() -> list().
-balance_routes_test() ->
+-spec balance_routes_test_() -> [testcase()].
+balance_routes_test_() ->
     Status = {{alive, 0.0}, {normal, 0.0}},
     WithWeight = [
         {new(?prv(1), ?trm(1), 1, ?DOMAIN_CANDIDATE_PRIORITY), Status},
@@ -835,13 +830,13 @@ balance_routes_test() ->
         {new(?prv(5), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status}
     ],
     [
-        ?assertEqual(Result1, lists:reverse(calc_random_condition(0.0, 0.2, WithWeight, []))),
-        ?assertEqual(Result2, lists:reverse(calc_random_condition(0.0, 1.5, WithWeight, []))),
-        ?assertEqual(Result3, lists:reverse(calc_random_condition(0.0, 4.0, WithWeight, [])))
+        ?_assertEqual(Result1, lists:reverse(calc_random_condition(0.0, 0.2, WithWeight, []))),
+        ?_assertEqual(Result2, lists:reverse(calc_random_condition(0.0, 1.5, WithWeight, []))),
+        ?_assertEqual(Result3, lists:reverse(calc_random_condition(0.0, 4.0, WithWeight, [])))
     ].
 
--spec balance_routes_with_default_weight_test() -> list().
-balance_routes_with_default_weight_test() ->
+-spec balance_routes_with_default_weight_test_() -> testcase().
+balance_routes_with_default_weight_test_() ->
     Status = {{alive, 0.0}, {normal, 0.0}},
     Routes = [
         {new(?prv(1), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status},
@@ -851,8 +846,59 @@ balance_routes_with_default_weight_test() ->
         {new(?prv(1), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status},
         {new(?prv(2), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status}
     ],
+    ?_assertEqual(Result, set_routes_random_condition(Routes)).
+
+-spec preferable_route_scoring_test_() -> [testcase()].
+preferable_route_scoring_test_() ->
+    StatusAlive = {{alive, 0.0}, {normal, 0.0}},
+    StatusDead = {{dead, 0.4}, {lacking, 0.6}},
+    StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
+    StatusBroken = {{alive, 0.1}, {lacking, 0.8}},
+    RoutePreferred1 = new(?prv(1), ?trm(1), 0, 1),
+    RoutePreferred2 = new(?prv(1), ?trm(2), 0, 1),
+    RouteFallback = new(?prv(2), ?trm(2), 0, 0),
     [
-        ?assertEqual(Result, set_routes_random_condition(Routes))
+        ?_assertMatch(
+            {RoutePreferred1, #{}},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertMatch(
+            {RouteFallback, #{
+                preferable_route := RoutePreferred1,
+                reject_reason := availability_condition
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusDead},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertMatch(
+            {RouteFallback, #{
+                preferable_route := RoutePreferred1,
+                reject_reason := conversion_condition
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusBroken},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        % TODO TD-167
+        % We rely here on inverted order of preference which is just an accidental
+        % side effect.
+        ?_assertMatch(
+            {RoutePreferred1, #{
+                preferable_route := RoutePreferred2,
+                reject_reason := availability
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RoutePreferred2, StatusDegraded},
+                {RouteFallback, StatusAlive}
+            ])
+        )
     ].
 
 -endif.

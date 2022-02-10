@@ -15,9 +15,9 @@ services:
       machinegun:
         condition: service_healthy
       dominant:
-        condition: service_started
+        condition: service_healthy
       party-management:
-        condition: service_started
+        condition: service_healthy
       limiter:
         condition: service_healthy
       shumway:
@@ -32,10 +32,10 @@ services:
       machinegun:
         condition: service_healthy
     healthcheck:
-      test: "curl http://localhost:8022/"
-      interval: 5s
-      timeout: 1s
-      retries: 20
+      test: "/opt/dominant/bin/dominant ping"
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   machinegun:
     image: docker.io/rbkmoney/machinegun:c05a8c18cd4f7966d70b6ad84cac9429cdfe37ae
@@ -95,10 +95,10 @@ services:
       shumway:
         condition: service_started
     healthcheck:
-      test: "curl http://localhost:8022/"
-      interval: 5s
-      timeout: 1s
-      retries: 20
+      test: "/opt/party-management/bin/party-management ping"
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   shumway-db:
     image: docker.io/library/postgres:9.6
