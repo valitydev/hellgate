@@ -885,14 +885,17 @@ preferable_route_scoring_test_() ->
                 {RouteFallback, StatusAlive}
             ])
         ),
+        % TODO TD-167
+        % We rely here on inverted order of preference which is just an accidental
+        % side effect.
         ?_assertMatch(
-            {RoutePreferred2, #{
-                preferable_route := RoutePreferred1,
+            {RoutePreferred1, #{
+                preferable_route := RoutePreferred2,
                 reject_reason := availability
             }},
             choose_rated_route([
-                {RoutePreferred1, StatusDegraded},
-                {RoutePreferred2, StatusAlive},
+                {RoutePreferred1, StatusAlive},
+                {RoutePreferred2, StatusDegraded},
                 {RouteFallback, StatusAlive}
             ])
         )
