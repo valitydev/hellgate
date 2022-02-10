@@ -367,6 +367,8 @@ process_payment(
     _Opts
 ) when Capture =/= undefined ->
     case get_payment_info_scenario(PaymentInfo) of
+        unexpected_failure_on_capture ->
+            error(unexpected_failure);
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
         _ ->

@@ -90,6 +90,9 @@ eunit:
 common-test:
 	$(REBAR) ct --cover
 
+common-test.%: apps/hellgate/test/hg_%_tests_SUITE.erl
+	$(REBAR) ct --cover --suite=$^
+
 cover:
 	$(REBAR) covertool generate
 
