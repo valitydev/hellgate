@@ -763,6 +763,7 @@ unmarshal(_, Other) ->
 -include_lib("eunit/include/eunit.hrl").
 
 -spec test() -> _.
+-type testcase() :: {_, fun(() -> _)}.
 
 -define(prv(ID), #domain_ProviderRef{id = ID}).
 -define(trm(ID), #domain_TerminalRef{id = ID}).
@@ -793,7 +794,7 @@ record_comparsion_test() ->
     },
     ?assertEqual(Bigger, select_better_route(Bigger, Smaller)).
 
--spec balance_routes_test_() -> list().
+-spec balance_routes_test_() -> [testcase()].
 balance_routes_test_() ->
     Status = {{alive, 0.0}, {normal, 0.0}},
     WithWeight = [
@@ -831,7 +832,7 @@ balance_routes_test_() ->
         ?_assertEqual(Result3, lists:reverse(calc_random_condition(0.0, 4.0, WithWeight, [])))
     ].
 
--spec balance_routes_with_default_weight_test_() -> list().
+-spec balance_routes_with_default_weight_test_() -> testcase().
 balance_routes_with_default_weight_test_() ->
     Status = {{alive, 0.0}, {normal, 0.0}},
     Routes = [
@@ -844,7 +845,7 @@ balance_routes_with_default_weight_test_() ->
     ],
     ?_assertEqual(Result, set_routes_random_condition(Routes)).
 
--spec preferable_route_scoring_test_() -> list().
+-spec preferable_route_scoring_test_() -> [testcase()].
 preferable_route_scoring_test_() ->
     StatusAlive = {{alive, 0.0}, {normal, 0.0}},
     StatusDead = {{dead, 0.4}, {lacking, 0.6}},
