@@ -311,20 +311,23 @@ find_best_routes([First | Rest]) ->
 select_better_route(Left, Right) ->
     max(Left, Right).
 
-select_better_route_ideal(Route = {RouteScores, _}, Max = {MaxScores, _}) ->
-    RouteScoresIdeal = set_ideal_score(RouteScores),
-    MaxScoresIdeal = set_ideal_score(MaxScores),
-    case max(RouteScoresIdeal, MaxScoresIdeal) of
-        MaxScoresIdeal -> Max;
-        RouteScoresIdeal -> Route
+select_better_route_ideal(Left, Right) ->
+    IdealLeft = set_ideal_score(Left),
+    IdealRight = set_ideal_score(Right),
+    case select_better_route(IdealLeft, IdealRight) of
+        IdealLeft -> Left;
+        IdealRight -> Right
     end.
 
-set_ideal_score(RouteScores) ->
-    RouteScores#route_scores{
-        availability_condition = 1,
-        availability = 1.0,
-        conversion_condition = 1,
-        conversion = 1.0
+set_ideal_score({RouteScores, PT}) ->
+    {
+        RouteScores#route_scores{
+            availability_condition = 1,
+            availability = 1.0,
+            conversion_condition = 1,
+            conversion = 1.0
+        },
+        PT
     }.
 
 get_route_choice_context({_, SameRoute}, {_, SameRoute}) ->
