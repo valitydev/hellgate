@@ -84,22 +84,29 @@ get_repair_state(Activity, Scenario, St) ->
 
 check_activity_compatibility(?SCENARIO_COMPLEX(Scenarios), Activity) ->
     lists:foreach(fun(Scenario) -> check_activity_compatibility(Scenario, Activity) end, Scenarios);
-
-check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, new}) -> ok;
-check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, risk_scoring}) -> ok;
-check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, routing}) -> ok;
-check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, cash_flow_building}) -> ok;
-
-check_activity_compatibility(?SCENARIO_SKIP_INSPECTOR, {payment, new}) -> ok;
-check_activity_compatibility(?SCENARIO_SKIP_INSPECTOR, {payment, risk_scoring}) -> ok;
-
-check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, processing_session}) -> ok;
-check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, processing_capture}) -> ok;
-check_activity_compatibility(?SCENARIO_FAIL_SESSION, {refund_session, _}) -> ok;
-
-check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, processing_session}) -> ok;
-check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, processing_capture}) -> ok;
-check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {refund_session, _}) -> ok;
-
+check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, new}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, risk_scoring}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, routing}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, {payment, cash_flow_building}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_SKIP_INSPECTOR, {payment, new}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_SKIP_INSPECTOR, {payment, risk_scoring}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, processing_session}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, processing_capture}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FAIL_SESSION, {refund_session, _}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, processing_session}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, processing_capture}) ->
+    ok;
+check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {refund_session, _}) ->
+    ok;
 check_activity_compatibility(Scenario, Activity) ->
     throw({exception, {activity_not_compatible_with_scenario, Activity, Scenario}}).

@@ -622,6 +622,8 @@ get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_f
     unexpected_failure_no_trx;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure">>}}) ->
     unexpected_failure;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure_on_capture">>}}) ->
+    unexpected_failure_on_capture;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"scenario_", BinScenario/binary>>}}) ->
     Scenario = decode_failure_scenario(BinScenario),
     {temporary_unavailability, Scenario};
@@ -677,6 +679,7 @@ get_payment_tool_scenario(
     | forbidden
     | unexpected_failure
     | unexpected_failure_no_trx
+    | unexpected_failure_on_capture
     | preauth_3ds
     | no_preauth
     | no_preauth_timeout
@@ -696,7 +699,8 @@ make_payment_tool(Code, PSys) when
         Code =:= preauth_3ds_offsite orelse
         Code =:= forbidden orelse
         Code =:= unexpected_failure orelse
-        Code =:= unexpected_failure_no_trx
+        Code =:= unexpected_failure_no_trx orelse
+        Code =:= unexpected_failure_on_capture
 ->
     ?SESSION42(make_bank_card_payment_tool(atom_to_binary(Code, utf8), PSys));
 make_payment_tool(empty_cvv, PSys) ->
