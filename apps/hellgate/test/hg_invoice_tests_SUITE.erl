@@ -706,6 +706,12 @@ init_per_suite(C) ->
         [woody, scoper, dmt_client, party_client, hellgate, snowflake, {cowboy, CowboySpec}]
     ),
 
+    _ = logger:set_primary_config(level, info),
+    _ = logger:set_handler_config(cth_log_redirect, formatter, {logger_logstash_formatter, #{}}),
+
+    ct:pal("~p", [logger:get_config()]),
+    ct:pal("~p", [logger:get_handler_config()]),
+
     _ = hg_domain:insert(construct_domain_fixture()),
     {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
         limiter_create_params(?LIMIT_ID),

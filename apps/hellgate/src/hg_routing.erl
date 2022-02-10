@@ -287,8 +287,11 @@ choose_route(Routes) ->
 
 -spec choose_rated_route([fail_rated_route()]) -> {route(), route_choice_context()}.
 choose_rated_route(FailRatedRoutes) ->
+    ct:pal("FailRatedRoutes = ~p", [FailRatedRoutes]),
     BalancedRoutes = balance_routes(FailRatedRoutes),
+    ct:pal("BalancedRoutes = ~p", [BalancedRoutes]),
     ScoredRoutes = score_routes(BalancedRoutes),
+    ct:pal("ScoredRoutes = ~p", [ScoredRoutes]),
     {ChosenScoredRoute, IdealRoute} = find_best_routes(ScoredRoutes),
     RouteChoiceContext = get_route_choice_context(ChosenScoredRoute, IdealRoute),
     {_, Route} = ChosenScoredRoute,
@@ -302,6 +305,9 @@ find_best_routes([First | Rest]) ->
         fun(RouteIn, {CurrentRouteChosen, CurrentRouteIdeal}) ->
             NewRouteIdeal = select_better_route_ideal(RouteIn, CurrentRouteIdeal),
             NewRouteChosen = select_better_route(RouteIn, CurrentRouteChosen),
+            ct:pal("*****", []),
+            ct:pal("CHOSEN = ~p", [NewRouteChosen]),
+            ct:pal("IDEAL = ~p", [NewRouteIdeal]),
             {NewRouteChosen, NewRouteIdeal}
         end,
         {First, First},
@@ -384,7 +390,7 @@ find_idx_of_difference(_, I) ->
 
 -spec balance_routes([fail_rated_route()]) -> [fail_rated_route()].
 balance_routes(FailRatedRoutes) ->
-    FilteredRouteGroups = lists:foldl(
+    FilteredRouteGroups = lists:foldr(
         fun group_routes_by_priority/2,
         #{},
         FailRatedRoutes
