@@ -22,6 +22,7 @@
 -export([rejected_by_table_prohibitions/1]).
 -export([empty_candidate_ok/1]).
 -export([ruleset_misconfig/1]).
+-export([choice_context_formats_ok/1]).
 -export([routes_selected_for_high_risk_score/1]).
 -export([routes_selected_for_low_risk_score/1]).
 
@@ -82,7 +83,8 @@ groups() ->
             prefer_higher_conversion,
             prefer_weight_over_availability,
             prefer_weight_over_conversion,
-            gathers_fail_rated_routes
+            gathers_fail_rated_routes,
+            choice_context_formats_ok
         ]},
         {terminal_priority, [], [
             terminal_priority_for_shop
@@ -536,6 +538,57 @@ gathers_fail_rated_routes(_C) ->
             {hg_routing:new(?prv(23), ?trm(23)), {{alive, 0.0}, {normal, 0.0}}}
         ],
         lists:sort(Result)
+    ).
+
+-spec choice_context_formats_ok(config()) -> test_return().
+choice_context_formats_ok(_C) ->
+    % TODO TD-167
+    VS = #{
+        category => ?cat(1),
+        currency => ?cur(<<"RUB">>),
+        cost => ?cash(1000, <<"RUB">>),
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
+        party_id => <<"12345">>
+    },
+
+    Revision = hg_domain:head(),
+    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    {ok, {Routes = [R1, R2, R3], _RC}} = hg_routing:gather_routes(
+        payment,
+        PaymentInstitution,
+        VS,
+        Revision
+    ),
+    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
+
+    FailRatedRoutes = [
+        {R1, {{alive, 0.1}, {normal, 0.1}}},
+        {R2, {{alive, 0.0}, {normal, 0.1}}},
+        {R3, {{dead, 1.0}, {lacking, 1.0}}}
+    ],
+
+    Result = {_, Context} = hg_routing:choose_rated_route(FailRatedRoutes),
+    ?assertMatch(
+        {R2, #{reject_reason := availability_condition, preferable_route := R3}},
+        Result
+    ),
+    ?assertMatch(
+        #{
+            reject_reason := availability_condition,
+            chosen_route := #{
+                provider := #{id := 22, name := <<_/binary>>},
+                terminal := #{id := 22, name := <<_/binary>>},
+                priority := ?DOMAIN_CANDIDATE_PRIORITY,
+                weight := ?DOMAIN_CANDIDATE_WEIGHT
+            },
+            preferable_route := #{
+                provider := #{id := 23, name := <<_/binary>>},
+                terminal := #{id := 23, name := <<_/binary>>},
+                priority := ?DOMAIN_CANDIDATE_PRIORITY,
+                weight := ?DOMAIN_CANDIDATE_WEIGHT
+            }
+        },
+        hg_routing:get_logger_metadata(Context, Revision)
     ).
 
 %%% Terminal priority tests
