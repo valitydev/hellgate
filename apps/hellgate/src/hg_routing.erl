@@ -794,10 +794,10 @@ record_comparsion_test() ->
         },
         {99, 99}
     },
-    Bigger = select_better_route(Bigger, Smaller).
+    ?assertEqual(Bigger, select_better_route(Bigger, Smaller)).
 
--spec balance_routes_test() -> list().
-balance_routes_test() ->
+-spec balance_routes_test_() -> list().
+balance_routes_test_() ->
     Status = {{alive, 0.0}, {normal, 0.0}},
     WithWeight = [
         {new(?prv(1), ?trm(1), 1, ?DOMAIN_CANDIDATE_PRIORITY), Status},
@@ -829,13 +829,13 @@ balance_routes_test() ->
         {new(?prv(5), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status}
     ],
     [
-        ?assertEqual(Result1, lists:reverse(calc_random_condition(0.0, 0.2, WithWeight, []))),
-        ?assertEqual(Result2, lists:reverse(calc_random_condition(0.0, 1.5, WithWeight, []))),
-        ?assertEqual(Result3, lists:reverse(calc_random_condition(0.0, 4.0, WithWeight, [])))
+        ?_assertEqual(Result1, lists:reverse(calc_random_condition(0.0, 0.2, WithWeight, []))),
+        ?_assertEqual(Result2, lists:reverse(calc_random_condition(0.0, 1.5, WithWeight, []))),
+        ?_assertEqual(Result3, lists:reverse(calc_random_condition(0.0, 4.0, WithWeight, [])))
     ].
 
--spec balance_routes_with_default_weight_test() -> list().
-balance_routes_with_default_weight_test() ->
+-spec balance_routes_with_default_weight_test_() -> list().
+balance_routes_with_default_weight_test_() ->
     Status = {{alive, 0.0}, {normal, 0.0}},
     Routes = [
         {new(?prv(1), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status},
@@ -845,8 +845,56 @@ balance_routes_with_default_weight_test() ->
         {new(?prv(1), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status},
         {new(?prv(2), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY), Status}
     ],
+    ?_assertEqual(Result, set_routes_random_condition(Routes)).
+
+-spec preferable_route_scoring_test_() -> list().
+preferable_route_scoring_test_() ->
+    StatusAlive = {{alive, 0.0}, {normal, 0.0}},
+    StatusDead = {{dead, 0.4}, {lacking, 0.6}},
+    StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
+    StatusBroken = {{alive, 0.1}, {lacking, 0.8}},
+    RoutePreferred1 = new(?prv(1), ?trm(1), 0, 1),
+    RoutePreferred2 = new(?prv(1), ?trm(2), 0, 1),
+    RouteFallback = new(?prv(2), ?trm(2), 0, 0),
     [
-        ?assertEqual(Result, set_routes_random_condition(Routes))
+        ?_assertMatch(
+            {RoutePreferred1, #{}},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertMatch(
+            {RouteFallback, #{
+                preferable_route := RoutePreferred1,
+                reject_reason := availability_condition
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusDead},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertMatch(
+            {RouteFallback, #{
+                preferable_route := RoutePreferred1,
+                reject_reason := conversion_condition
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusBroken},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertMatch(
+            {RoutePreferred2, #{
+                preferable_route := RoutePreferred1,
+                reject_reason := availability
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusDegraded},
+                {RoutePreferred2, StatusAlive},
+                {RouteFallback, StatusAlive}
+            ])
+        )
     ].
 
 -endif.
