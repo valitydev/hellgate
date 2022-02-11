@@ -330,6 +330,8 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
             sleep(1, <<"sleeping">>, undefined, get_payment_id(PaymentInfo));
         unexpected_failure_no_trx ->
             error(unexpected_failure);
+        unexpected_failure_on_capture ->
+            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo));
         {temporary_unavailability, _Scenario} ->
             sleep(0, <<"sleeping">>)
     end;
