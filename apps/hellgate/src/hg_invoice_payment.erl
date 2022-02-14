@@ -2368,8 +2368,16 @@ process_session(undefined, Action, St0) ->
         Failure ->
             process_failure(get_activity(St0), [], Action, Failure, St0)
     end;
-process_session(Session, Action, St) ->
-    process_session(Session, Action, [], St).
+process_session(Session, Action, St = #st{repair_scenario = undefined}) ->
+    process_session(Session, Action, [], St);
+process_session(Session, Action, St = #st{repair_scenario = Scenario}) ->
+    case hg_invoice_repair:check_for_action(repair_session, Scenario) of
+        {result, ProxyResult} ->
+            Result = handle_proxy_result(ProxyResult, Action, [], Session),
+            finish_session_processing(Result, St);
+        call ->
+            process_session(Session, Action, [], St)
+    end.
 
 process_session(Session, Action, Events, St) ->
     Status = get_session_status(Session),
@@ -2383,17 +2391,9 @@ process_session(suspended, Session, Action, Events, St) ->
 
 -spec process_active_session(action(), session(), events(), st()) -> machine_result().
 process_active_session(Action, Session, Events, St) ->
-    {ok, ProxyResult} = repair_session(St),
+    {ok, ProxyResult} = process_payment_session(St),
     Result = handle_proxy_result(ProxyResult, Action, Events, Session),
     finish_session_processing(Result, St).
-
-repair_session(St = #st{repair_scenario = Scenario}) ->
-    case hg_invoice_repair:check_for_action(repair_session, Scenario) of
-        {result, Result} ->
-            {ok, Result};
-        call ->
-            process_payment_session(St)
-    end.
 
 -spec finalize_payment(action(), st()) -> machine_result().
 finalize_payment(Action, St) ->
