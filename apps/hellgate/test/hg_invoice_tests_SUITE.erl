@@ -6086,6 +6086,7 @@ repair_fail_session_on_captured_succeeded(C, PmtSys) ->
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
     ] = next_event(InvoiceID, Client),
     [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
     ] = next_event(InvoiceID, Client),
     [
@@ -6258,6 +6259,7 @@ repair_fulfill_session_on_captured_succeeded(C, PmtSys) ->
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
     ] = next_event(InvoiceID, Client),
     [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
     ] = next_event(InvoiceID, Client),
     [
