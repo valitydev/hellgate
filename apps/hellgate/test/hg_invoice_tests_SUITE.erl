@@ -6278,7 +6278,8 @@ repair_fulfill_session_on_captured_succeeded(C, PmtSys) ->
         ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_finished(?session_succeeded())))
     ] = next_event(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?payment_status_changed(?captured()))
+        ?payment_ev(PaymentID, ?payment_status_changed(?captured(_, _, _, _))),
+        ?invoice_status_changed(?invoice_paid())
     ] = next_event(InvoiceID, Client).
 
 -spec repair_fulfill_session_on_pre_processing_failed(config()) -> test_return().
