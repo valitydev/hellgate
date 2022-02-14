@@ -6093,6 +6093,7 @@ repair_fail_session_on_captured_succeeded(C, PmtSys) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_event(InvoiceID, Client),
     [
+        ?payment_ev(PaymentID, ?payment_capture_started(_, _, _, _)),
         ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started()))
     ] = next_event(InvoiceID, Client),
 
@@ -6266,6 +6267,7 @@ repair_fulfill_session_on_captured_succeeded(C, PmtSys) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_event(InvoiceID, Client),
     [
+        ?payment_ev(PaymentID, ?payment_capture_started(_, _, _, _)),
         ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started()))
     ] = next_event(InvoiceID, Client),
 
