@@ -772,7 +772,6 @@ end_per_suite(C) ->
 -define(invoice(ID), #domain_Invoice{id = ID}).
 -define(payment(ID), #domain_InvoicePayment{id = ID}).
 -define(payment(ID, Revision), #domain_InvoicePayment{id = ID, party_revision = Revision}).
--define(customer(ID), #payproc_Customer{id = ID}).
 -define(adjustment(ID), #domain_InvoicePaymentAdjustment{id = ID}).
 -define(adjustment(ID, Status), #domain_InvoicePaymentAdjustment{id = ID, status = Status}).
 -define(adjustment_revision(Revision), #domain_InvoicePaymentAdjustment{party_revision = Revision}).
