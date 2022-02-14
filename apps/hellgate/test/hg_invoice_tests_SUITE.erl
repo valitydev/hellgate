@@ -292,10 +292,12 @@
 -export([repair_fail_pre_processing_succeeded/1]).
 -export([repair_skip_inspector_succeeded/1]).
 -export([repair_fail_session_succeeded/1]).
+-export([repair_fail_suspended_session_succeeded/1]).
 -export([repair_fail_session_on_pre_processing/1]).
 -export([repair_complex_succeeded_first/1]).
 -export([repair_complex_succeeded_second/1]).
 -export([repair_fulfill_session_succeeded/1]).
+-export([repair_fulfill_suspended_session_succeeded/1]).
 -export([repair_fulfill_session_on_pre_processing_failed/1]).
 -export([repair_fulfill_session_with_trx_succeeded/1]).
 
@@ -661,10 +663,12 @@ groups() ->
             repair_fail_pre_processing_succeeded,
             repair_skip_inspector_succeeded,
             repair_fail_session_succeeded,
+            repair_fail_suspended_session_succeeded,
             repair_fail_session_on_pre_processing,
             repair_complex_succeeded_first,
             repair_complex_succeeded_second,
             repair_fulfill_session_succeeded,
+            repair_fulfill_suspended_session_succeeded,
             repair_fulfill_session_on_pre_processing_failed,
             repair_fulfill_session_with_trx_succeeded
         ]},
@@ -6020,6 +6024,31 @@ repair_fail_session_succeeded(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_event(InvoiceID, Client).
 
+-spec repair_fail_suspended_session_succeeded(config()) -> test_return().
+repair_fail_suspended_session_succeeded(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure_when_suspended,
+        ?pmt_sys(<<"visa-ref">>)
+    ),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
+    ] = next_event(InvoiceID, Client),
+
+    timeout = next_event(InvoiceID, 2000, Client),
+    ok = repair_invoice_with_scenario(InvoiceID, fail_session, Client),
+
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_event(InvoiceID, Client).
+
 -spec repair_fail_session_on_pre_processing(config()) -> test_return().
 repair_fail_session_on_pre_processing(C) ->
     Client = cfg(client, C),
@@ -6110,6 +6139,30 @@ repair_fulfill_session_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_no_trx, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
+    ] = next_event(InvoiceID, Client),
+
+    timeout = next_event(InvoiceID, 2000, Client),
+    ok = repair_invoice_with_scenario(InvoiceID, fulfill_session, Client),
+
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_event(InvoiceID, Client).
+
+-spec repair_fulfill_suspended_session_succeeded(config()) -> test_return().
+repair_fulfill_suspended_session_succeeded(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure_when_suspended,
+        ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     [
