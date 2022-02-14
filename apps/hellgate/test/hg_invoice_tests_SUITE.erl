@@ -657,7 +657,7 @@ groups() ->
             adhoc_repair_force_invalid_transition,
             adhoc_repair_force_invalid_transition_new
         ]},
-        {repair_scenarios, [], [
+        {repair_scenarios, [parallel], [
             repair_fail_pre_processing_succeeded,
             repair_skip_inspector_succeeded,
             repair_fail_session_succeeded,
