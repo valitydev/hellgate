@@ -98,15 +98,12 @@ check_activity_compatibility(?SCENARIO_SKIP_INSPECTOR, {payment, risk_scoring}) 
     ok;
 check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, processing_session}) ->
     ok;
-%% Capture session
-check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, finalizing_session}) ->
-    ok;
 check_activity_compatibility(?SCENARIO_FAIL_SESSION, {refund_session, _}) ->
     ok;
 check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, processing_session}) ->
     ok;
-%% Capture session
 check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, finalizing_session}) ->
+    %% Capture session
     ok;
 check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {refund_session, _}) ->
     ok;

@@ -295,8 +295,6 @@
 -export([repair_skip_inspector_succeeded_new/1]).
 -export([repair_fail_session_on_processed_succeeded/1]).
 -export([repair_fail_session_on_processed_succeeded_new/1]).
--export([repair_fail_session_on_captured_succeeded/1]).
--export([repair_fail_session_on_captured_succeeded_new/1]).
 -export([repair_fail_session_on_pre_processing/1]).
 -export([repair_fail_session_on_pre_processing_new/1]).
 -export([repair_complex_succeeded_first/1]).
@@ -677,8 +675,6 @@ groups() ->
             repair_skip_inspector_succeeded_new,
             repair_fail_session_on_processed_succeeded,
             repair_fail_session_on_processed_succeeded_new,
-            repair_fail_session_on_captured_succeeded,
-            repair_fail_session_on_captured_succeeded_new,
             repair_fail_session_on_pre_processing,
             repair_fail_session_on_pre_processing_new,
             repair_complex_succeeded_first,
@@ -6062,46 +6058,6 @@ repair_fail_session_on_processed_succeeded(C, PmtSys) ->
 
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
-        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
-    ] = next_event(InvoiceID, Client).
-
--spec repair_fail_session_on_captured_succeeded(config()) -> test_return().
-repair_fail_session_on_captured_succeeded(C) ->
-    repair_fail_session_on_captured_succeeded(C, visa).
-
--spec repair_fail_session_on_captured_succeeded_new(config()) -> test_return().
-repair_fail_session_on_captured_succeeded_new(C) ->
-    repair_fail_session_on_captured_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_fail_session_on_captured_succeeded(C, PmtSys) ->
-    Client = cfg(client, C),
-    InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_on_capture, PmtSys),
-    PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))),
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?payment_capture_started(_, _, _, _)),
-        ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started()))
-    ] = next_event(InvoiceID, Client),
-
-    timeout = next_event(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, fail_session, Client),
-
-    [
-        ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_finished(?session_failed({failure, Failure})))),
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
     ] = next_event(InvoiceID, Client),
     [
