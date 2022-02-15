@@ -363,14 +363,14 @@ process_payment(
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
         _ ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
+            finish(success(PaymentInfo))
     end;
 process_payment(?cancelled(), _, PaymentInfo, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
         _ ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
+            finish(success(PaymentInfo))
     end.
 
 handle_payment_callback(?LAY_LOW_BUDDY, ?processed(), <<"suspended">>, _PaymentInfo, _Opts) ->
@@ -501,6 +501,11 @@ process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
             error(planned_scenario_error)
     end.
 
+finish(Status) ->
+    #prxprv_PaymentProxyResult{
+        intent = ?finish(Status)
+    }.
+
 finish(Status, TrxID) ->
     finish(Status, TrxID, #{}).
 
@@ -509,11 +514,6 @@ finish(Status, TrxID, Extra) ->
     #prxprv_PaymentProxyResult{
         intent = ?finish(Status),
         trx = #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo}
-    }.
-
-finish(Status) ->
-    #prxprv_PaymentProxyResult{
-        intent = ?finish(Status)
     }.
 
 sleep(Timeout, State) ->
@@ -618,6 +618,8 @@ get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_f
     unexpected_failure_no_trx;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure">>}}) ->
     unexpected_failure;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure_when_suspended">>}}) ->
+    unexpected_failure_when_suspended;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"scenario_", BinScenario/binary>>}}) ->
     Scenario = decode_failure_scenario(BinScenario),
     {temporary_unavailability, Scenario};
