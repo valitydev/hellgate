@@ -297,6 +297,8 @@
 -export([repair_fail_session_on_processed_succeeded_new/1]).
 -export([repair_fail_session_on_pre_processing/1]).
 -export([repair_fail_session_on_pre_processing_new/1]).
+-export([repair_fail_session_on_refund_succeeded/1]).
+-export([repair_fail_session_on_refund_succeeded_new/1]).
 -export([repair_complex_succeeded_first/1]).
 -export([repair_complex_succeeded_first_new/1]).
 -export([repair_complex_succeeded_second/1]).
@@ -309,6 +311,8 @@
 -export([repair_fulfill_session_on_pre_processing_failed_new/1]).
 -export([repair_fulfill_session_with_trx_succeeded/1]).
 -export([repair_fulfill_session_with_trx_succeeded_new/1]).
+-export([repair_fulfill_session_on_refund_succeeded/1]).
+-export([repair_fulfill_session_on_refund_succeeded_new/1]).
 
 -export([consistent_account_balances/1]).
 
@@ -677,6 +681,8 @@ groups() ->
             repair_fail_session_on_processed_succeeded_new,
             repair_fail_session_on_pre_processing,
             repair_fail_session_on_pre_processing_new,
+            repair_fail_session_on_refund_succeeded,
+            repair_fail_session_on_refund_succeeded_new,
             repair_complex_succeeded_first,
             repair_complex_succeeded_first_new,
             repair_complex_succeeded_second,
@@ -687,6 +693,8 @@ groups() ->
             repair_fulfill_session_on_captured_succeeded_new,
             repair_fulfill_session_on_pre_processing_failed,
             repair_fulfill_session_on_pre_processing_failed_new,
+            repair_fulfill_session_on_refund_succeeded,
+            repair_fulfill_session_on_refund_succeeded_new,
             repair_fulfill_session_with_trx_succeeded_new,
             repair_fulfill_session_with_trx_succeeded
         ]},
@@ -784,13 +792,16 @@ end_per_suite(C) ->
 -define(invoice_state(Invoice), #payproc_Invoice{invoice = Invoice}).
 -define(invoice_state(Invoice, Payments), #payproc_Invoice{invoice = Invoice, payments = Payments}).
 -define(payment_state(Payment), #payproc_InvoicePayment{payment = Payment}).
+-define(payment_state(Payment, Refunds), #payproc_InvoicePayment{payment = Payment, refunds = Refunds}).
 -define(payment_route(Route), #payproc_InvoicePayment{route = Route}).
+-define(refund_state(Refund), #payproc_InvoicePaymentRefund{refund = Refund}).
 -define(payment_cashflow(CashFlow), #payproc_InvoicePayment{cash_flow = CashFlow}).
 -define(payment_last_trx(Trx), #payproc_InvoicePayment{last_transaction_info = Trx}).
 -define(invoice_w_status(Status), #domain_Invoice{status = Status}).
 -define(invoice_w_revision(Revision), #domain_Invoice{party_revision = Revision}).
 -define(payment_w_status(Status), #domain_InvoicePayment{status = Status}).
 -define(payment_w_status(ID, Status), #domain_InvoicePayment{id = ID, status = Status}).
+-define(invoice_payment_refund(Cash, Status), #domain_InvoicePaymentRefund{cash = Cash, status = Status}).
 -define(trx_info(ID), #domain_TransactionInfo{id = ID}).
 -define(trx_info(ID, Extra), #domain_TransactionInfo{id = ID, extra = Extra}).
 -define(refund_id(RefundID), #domain_InvoicePaymentRefund{id = RefundID}).
@@ -6170,6 +6181,80 @@ repair_complex_succeeded_second(C, PmtSys) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_event(InvoiceID, Client).
 
+-spec repair_fulfill_session_on_refund_succeeded(config()) -> _ | no_return().
+repair_fulfill_session_on_refund_succeeded(C) ->
+    repair_fulfill_session_on_refund_succeeded(C, visa).
+
+-spec repair_fulfill_session_on_refund_succeeded_new(config()) -> _ | no_return().
+repair_fulfill_session_on_refund_succeeded_new(C) ->
+    repair_fulfill_session_on_refund_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
+
+repair_fulfill_session_on_refund_succeeded(C, PmtSys) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_id, C),
+        ?cat(2),
+        <<"RUB">>,
+        ?tmpl(2),
+        ?pinst(2),
+        PartyClient
+    ),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentParams = make_scenario_payment_params([good, good, error], PmtSys),
+    PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
+    RefundParams1 = make_refund_params(1000, <<"RUB">>),
+    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
+    PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID1, Client),
+    PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID1, Client),
+    timeout = next_event(InvoiceID, 2000, Client),
+    ok = repair_invoice_with_scenario(InvoiceID, {fulfill_session, ?trx_info(PaymentID, #{})}, Client),
+    PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
+    ?payment_state(
+        ?payment_w_status(?captured()),
+        [?refund_state(?invoice_payment_refund(_, ?refund_succeeded()))]
+    ) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
+
+-spec repair_fail_session_on_refund_succeeded(config()) -> _ | no_return().
+repair_fail_session_on_refund_succeeded(C) ->
+    repair_fail_session_on_refund_succeeded(C, visa).
+
+-spec repair_fail_session_on_refund_succeeded_new(config()) -> _ | no_return().
+repair_fail_session_on_refund_succeeded_new(C) ->
+    repair_fail_session_on_refund_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
+
+repair_fail_session_on_refund_succeeded(C, PmtSys) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_id, C),
+        ?cat(2),
+        <<"RUB">>,
+        ?tmpl(2),
+        ?pinst(2),
+        PartyClient
+    ),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentParams = make_scenario_payment_params([good, good, error], PmtSys),
+    PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
+    RefundParams1 = make_refund_params(1000, <<"RUB">>),
+    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
+    PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID1, Client),
+    PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID1, Client),
+    timeout = next_event(InvoiceID, 2000, Client),
+    ok = repair_invoice_with_scenario(InvoiceID, fail_session, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))),
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure)))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure))))
+    ] = next_event(InvoiceID, Client),
+    ?payment_state(
+        ?payment_w_status(?captured()),
+        [?refund_state(?invoice_payment_refund(_, ?refund_failed(Failure)))]
+    ) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
+
 -spec repair_fulfill_session_on_processed_succeeded(config()) -> test_return().
 repair_fulfill_session_on_processed_succeeded(C) ->
     repair_fulfill_session_on_processed_succeeded(C, visa).
@@ -6211,32 +6296,16 @@ repair_fulfill_session_on_captured_succeeded(C, PmtSys) ->
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_on_capture, PmtSys),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))),
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?payment_capture_started(_, _, _, _)),
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, _, _, _)),
         ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started()))
     ] = next_event(InvoiceID, Client),
 
     timeout = next_event(InvoiceID, 2000, Client),
     ok = repair_invoice_with_scenario(InvoiceID, fulfill_session, Client),
 
-    [
-        ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_finished(?session_succeeded())))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?payment_status_changed(?captured(_, _, _, _))),
-        ?invoice_status_changed(?invoice_paid())
-    ] = next_event(InvoiceID, Client).
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, 0).
 
 -spec repair_fulfill_session_on_pre_processing_failed(config()) -> test_return().
 repair_fulfill_session_on_pre_processing_failed(C) ->
