@@ -330,8 +330,6 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
             sleep(1, <<"sleeping">>, undefined, get_payment_id(PaymentInfo));
         unexpected_failure_no_trx ->
             error(unexpected_failure);
-        unexpected_failure_on_capture ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo));
         {temporary_unavailability, _Scenario} ->
             sleep(0, <<"sleeping">>)
     end;
@@ -369,8 +367,6 @@ process_payment(
     _Opts
 ) when Capture =/= undefined ->
     case get_payment_info_scenario(PaymentInfo) of
-        unexpected_failure_on_capture ->
-            error(unexpected_failure);
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
         _ ->
@@ -624,8 +620,6 @@ get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_f
     unexpected_failure_no_trx;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure">>}}) ->
     unexpected_failure;
-get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure_on_capture">>}}) ->
-    unexpected_failure_on_capture;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"scenario_", BinScenario/binary>>}}) ->
     Scenario = decode_failure_scenario(BinScenario),
     {temporary_unavailability, Scenario};
@@ -681,7 +675,6 @@ get_payment_tool_scenario(
     | forbidden
     | unexpected_failure
     | unexpected_failure_no_trx
-    | unexpected_failure_on_capture
     | preauth_3ds
     | no_preauth
     | no_preauth_timeout
@@ -701,8 +694,7 @@ make_payment_tool(Code, PSys) when
         Code =:= preauth_3ds_offsite orelse
         Code =:= forbidden orelse
         Code =:= unexpected_failure orelse
-        Code =:= unexpected_failure_no_trx orelse
-        Code =:= unexpected_failure_on_capture
+        Code =:= unexpected_failure_no_trx
 ->
     ?SESSION42(make_bank_card_payment_tool(atom_to_binary(Code, utf8), PSys));
 make_payment_tool(empty_cvv, PSys) ->

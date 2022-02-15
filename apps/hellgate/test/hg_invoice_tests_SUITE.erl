@@ -6191,16 +6191,7 @@ repair_fulfill_session_on_refund_succeeded_new(C) ->
 
 repair_fulfill_session_on_refund_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
-    PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
-        ?cat(2),
-        <<"RUB">>,
-        ?tmpl(2),
-        ?pinst(2),
-        PartyClient
-    ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentParams = make_scenario_payment_params([good, good, error], PmtSys),
     PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     RefundParams1 = make_refund_params(1000, <<"RUB">>),
@@ -6225,16 +6216,7 @@ repair_fail_session_on_refund_succeeded_new(C) ->
 
 repair_fail_session_on_refund_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
-    PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
-        ?cat(2),
-        <<"RUB">>,
-        ?tmpl(2),
-        ?pinst(2),
-        PartyClient
-    ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentParams = make_scenario_payment_params([good, good, error], PmtSys),
     PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     RefundParams1 = make_refund_params(1000, <<"RUB">>),
@@ -6294,8 +6276,7 @@ repair_fulfill_session_on_captured_succeeded_new(C) ->
 repair_fulfill_session_on_captured_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_on_capture, PmtSys),
-    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentParams = make_scenario_payment_params([good, error], PmtSys),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, _, _, _)),

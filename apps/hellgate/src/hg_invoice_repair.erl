@@ -83,7 +83,7 @@ get_repair_state(Activity, Scenario, St) ->
 -define(SCENARIO_FULFILL_SESSION, {fulfill_session, #payproc_InvoiceRepairFulfillSession{}}).
 
 check_activity_compatibility(?SCENARIO_COMPLEX(Scenarios), Activity) ->
-    lists:foreach(fun(Scenario) -> check_activity_compatibility(Scenario, Activity) end, Scenarios);
+    lists:foreach(fun(Sc) -> check_activity_compatibility(Sc, Activity) end, Scenarios);
 % TODO: {payment, new}, routing and cash_flow_building are untested
 check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, Activity) when
     Activity =:= {payment, new} orelse
