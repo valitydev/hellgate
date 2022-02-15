@@ -81,7 +81,7 @@ get_repair_state(Activity, Scenario, St) ->
 -define(SCENARIO_SKIP_INSPECTOR, {skip_inspector, #payproc_InvoiceRepairSkipInspector{}}).
 -define(SCENARIO_FAIL_SESSION, {fail_session, #payproc_InvoiceRepairFailSession{}}).
 -define(SCENARIO_FULFILL_SESSION, {fulfill_session, #payproc_InvoiceRepairFulfillSession{}}).
-
+% TODO: This case is not used anywhere? hg_invoice:repair_complex applies scenarios one by one earlier.
 check_activity_compatibility(?SCENARIO_COMPLEX(Scenarios), Activity) ->
     lists:foreach(fun(Sc) -> check_activity_compatibility(Sc, Activity) end, Scenarios);
 % TODO: {payment, new}, routing and cash_flow_building are untested
