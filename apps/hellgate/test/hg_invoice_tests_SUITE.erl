@@ -290,23 +290,16 @@
 -export([adhoc_repair_force_invalid_transition_new/1]).
 
 -export([repair_fail_pre_processing_succeeded/1]).
--export([repair_fail_pre_processing_succeeded_new/1]).
 -export([repair_skip_inspector_succeeded/1]).
--export([repair_skip_inspector_succeeded_new/1]).
 -export([repair_fail_session_succeeded/1]).
--export([repair_fail_session_succeeded_new/1]).
+-export([repair_fail_suspended_session_succeeded/1]).
 -export([repair_fail_session_on_pre_processing/1]).
--export([repair_fail_session_on_pre_processing_new/1]).
--export([repair_complex_succeeded_first/1]).
--export([repair_complex_succeeded_first_new/1]).
--export([repair_complex_succeeded_second/1]).
--export([repair_complex_succeeded_second_new/1]).
+-export([repair_complex_first_scenario_succeeded/1]).
+-export([repair_complex_second_scenario_succeeded/1]).
 -export([repair_fulfill_session_succeeded/1]).
--export([repair_fulfill_session_succeeded_new/1]).
+-export([repair_fulfill_suspended_session_succeeded/1]).
 -export([repair_fulfill_session_on_pre_processing_failed/1]).
--export([repair_fulfill_session_on_pre_processing_failed_new/1]).
 -export([repair_fulfill_session_with_trx_succeeded/1]).
--export([repair_fulfill_session_with_trx_succeeded_new/1]).
 
 -export([consistent_account_balances/1]).
 
@@ -666,24 +659,17 @@ groups() ->
             adhoc_repair_force_invalid_transition,
             adhoc_repair_force_invalid_transition_new
         ]},
-        {repair_scenarios, [], [
+        {repair_scenarios, [parallel], [
             repair_fail_pre_processing_succeeded,
-            repair_fail_pre_processing_succeeded_new,
             repair_skip_inspector_succeeded,
-            repair_skip_inspector_succeeded_new,
             repair_fail_session_succeeded,
-            repair_fail_session_succeeded_new,
+            repair_fail_suspended_session_succeeded,
             repair_fail_session_on_pre_processing,
-            repair_fail_session_on_pre_processing_new,
-            repair_complex_succeeded_first,
-            repair_complex_succeeded_first_new,
-            repair_complex_succeeded_second,
-            repair_complex_succeeded_second_new,
+            repair_complex_first_scenario_succeeded,
+            repair_complex_second_scenario_succeeded,
             repair_fulfill_session_succeeded,
-            repair_fulfill_session_succeeded_new,
+            repair_fulfill_suspended_session_succeeded,
             repair_fulfill_session_on_pre_processing_failed,
-            repair_fulfill_session_on_pre_processing_failed_new,
-            repair_fulfill_session_with_trx_succeeded_new,
             repair_fulfill_session_with_trx_succeeded
         ]},
         {allocation, [parallel], [
@@ -772,7 +758,6 @@ end_per_suite(C) ->
 -define(invoice(ID), #domain_Invoice{id = ID}).
 -define(payment(ID), #domain_InvoicePayment{id = ID}).
 -define(payment(ID, Revision), #domain_InvoicePayment{id = ID, party_revision = Revision}).
--define(customer(ID), #payproc_Customer{id = ID}).
 -define(adjustment(ID), #domain_InvoicePaymentAdjustment{id = ID}).
 -define(adjustment(ID, Status), #domain_InvoicePaymentAdjustment{id = ID, status = Status}).
 -define(adjustment_revision(Revision), #domain_InvoicePaymentAdjustment{party_revision = Revision}).
@@ -5961,13 +5946,6 @@ payment_with_tokenized_bank_card(C, PmtSrv) ->
 
 -spec repair_fail_pre_processing_succeeded(config()) -> test_return().
 repair_fail_pre_processing_succeeded(C) ->
-    repair_fail_pre_processing_succeeded(C, visa).
-
--spec repair_fail_pre_processing_succeeded_new(config()) -> test_return().
-repair_fail_pre_processing_succeeded_new(C) ->
-    repair_fail_pre_processing_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_fail_pre_processing_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
@@ -5980,7 +5958,7 @@ repair_fail_pre_processing_succeeded(C, PmtSys) ->
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     % Invoice
-    PaymentParams = make_payment_params(PmtSys),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
@@ -5994,13 +5972,6 @@ repair_fail_pre_processing_succeeded(C, PmtSys) ->
 
 -spec repair_skip_inspector_succeeded(config()) -> test_return().
 repair_skip_inspector_succeeded(C) ->
-    repair_skip_inspector_succeeded(C, visa).
-
--spec repair_skip_inspector_succeeded_new(config()) -> test_return().
-repair_skip_inspector_succeeded_new(C) ->
-    repair_skip_inspector_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_skip_inspector_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
@@ -6013,7 +5984,7 @@ repair_skip_inspector_succeeded(C, PmtSys) ->
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     % Invoice
-    PaymentParams = make_payment_params(PmtSys),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
@@ -6030,16 +6001,9 @@ repair_skip_inspector_succeeded(C, PmtSys) ->
 
 -spec repair_fail_session_succeeded(config()) -> test_return().
 repair_fail_session_succeeded(C) ->
-    repair_fail_session_succeeded(C, visa).
-
--spec repair_fail_session_succeeded_new(config()) -> test_return().
-repair_fail_session_succeeded_new(C) ->
-    repair_fail_session_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_fail_session_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, PmtSys),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -6050,7 +6014,39 @@ repair_fail_session_succeeded(C, PmtSys) ->
     ] = next_event(InvoiceID, Client),
 
     timeout = next_event(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, fail_session, Client),
+
+    Failure = payproc_errors:construct(
+        'PaymentFailure',
+        {authorization_failed, {security_policy_violated, #payprocerr_GeneralFailure{}}},
+        genlib:unique()
+    ),
+    ok = repair_invoice_with_scenario(InvoiceID, {fail_session, Failure}, Client),
+
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_event(InvoiceID, Client).
+
+-spec repair_fail_suspended_session_succeeded(config()) -> test_return().
+repair_fail_suspended_session_succeeded(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure_when_suspended,
+        ?pmt_sys(<<"visa-ref">>)
+    ),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
+    ] = next_event(InvoiceID, Client),
+
+    timeout = next_event(InvoiceID, 2000, Client),
+    Failure = construct_authorization_failure(),
+    ok = repair_invoice_with_scenario(InvoiceID, {fail_session, Failure}, Client),
 
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
@@ -6062,13 +6058,6 @@ repair_fail_session_succeeded(C, PmtSys) ->
 
 -spec repair_fail_session_on_pre_processing(config()) -> test_return().
 repair_fail_session_on_pre_processing(C) ->
-    repair_fail_session_on_pre_processing(C, visa).
-
--spec repair_fail_session_on_pre_processing_new(config()) -> test_return().
-repair_fail_session_on_pre_processing_new(C) ->
-    repair_fail_session_on_pre_processing(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_fail_session_on_pre_processing(C, PmtSys) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
@@ -6080,7 +6069,7 @@ repair_fail_session_on_pre_processing(C, PmtSys) ->
         PartyClient
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_payment_params(PmtSys),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
@@ -6090,22 +6079,15 @@ repair_fail_session_on_pre_processing(C, PmtSys) ->
     ?assertException(
         error,
         {{woody_error, {external, result_unexpected, _}}, _},
-        repair_invoice_with_scenario(InvoiceID, fail_session, Client)
+        repair_invoice_with_scenario(InvoiceID, {fail_session, construct_authorization_failure()}, Client)
     ),
     ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure})))
     ] = next_event(InvoiceID, Client).
 
--spec repair_complex_succeeded_first(config()) -> test_return().
-repair_complex_succeeded_first(C) ->
-    repair_complex_succeeded_first(C, visa).
-
--spec repair_complex_succeeded_first_new(config()) -> test_return().
-repair_complex_succeeded_first_new(C) ->
-    repair_complex_succeeded_first(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_complex_succeeded_first(C, PmtSys) ->
+-spec repair_complex_first_scenario_succeeded(config()) -> test_return().
+repair_complex_first_scenario_succeeded(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
@@ -6118,14 +6100,19 @@ repair_complex_succeeded_first(C, PmtSys) ->
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     % Invoice
-    PaymentParams = make_payment_params(PmtSys),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
     ] = next_event(InvoiceID, Client),
 
     timeout = next_event(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, complex, Client),
+
+    Scenarios = [
+        skip_inspector,
+        {fail_session, construct_authorization_failure()}
+    ],
+    ok = repair_invoice_with_scenario(InvoiceID, Scenarios, Client),
 
     _ = await_payment_cash_flow(low, ?route(?prv(2), ?trm(7)), InvoiceID, PaymentID, Client),
     [
@@ -6134,18 +6121,11 @@ repair_complex_succeeded_first(C, PmtSys) ->
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
--spec repair_complex_succeeded_second(config()) -> test_return().
-repair_complex_succeeded_second(C) ->
-    repair_complex_succeeded_second(C, visa).
-
--spec repair_complex_succeeded_second_new(config()) -> test_return().
-repair_complex_succeeded_second_new(C) ->
-    repair_complex_succeeded_second(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_complex_succeeded_second(C, PmtSys) ->
+-spec repair_complex_second_scenario_succeeded(config()) -> test_return().
+repair_complex_second_scenario_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, PmtSys),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -6156,7 +6136,11 @@ repair_complex_succeeded_second(C, PmtSys) ->
     ] = next_event(InvoiceID, Client),
 
     timeout = next_event(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, complex, Client),
+    Scenarios = [
+        skip_inspector,
+        {fail_session, Failure = construct_authorization_failure()}
+    ],
+    ok = repair_invoice_with_scenario(InvoiceID, Scenarios, Client),
 
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
@@ -6168,16 +6152,9 @@ repair_complex_succeeded_second(C, PmtSys) ->
 
 -spec repair_fulfill_session_succeeded(config()) -> test_return().
 repair_fulfill_session_succeeded(C) ->
-    repair_fulfill_session_succeeded(C, visa).
-
--spec repair_fulfill_session_succeeded_new(config()) -> test_return().
-repair_fulfill_session_succeeded_new(C) ->
-    repair_fulfill_session_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_fulfill_session_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_no_trx, PmtSys),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_no_trx, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -6192,17 +6169,36 @@ repair_fulfill_session_succeeded(C, PmtSys) ->
     ] = next_event(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-    ] = next_event(InvoiceID, Client).
+    ] = next_event(InvoiceID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
+
+-spec repair_fulfill_suspended_session_succeeded(config()) -> test_return().
+repair_fulfill_suspended_session_succeeded(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure_when_suspended,
+        ?pmt_sys(<<"visa-ref">>)
+    ),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started()))
+    ] = next_event(InvoiceID, Client),
+
+    timeout = next_event(InvoiceID, 2000, Client),
+    ok = repair_invoice_with_scenario(InvoiceID, fulfill_session, Client),
+
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_event(InvoiceID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
 -spec repair_fulfill_session_on_pre_processing_failed(config()) -> test_return().
 repair_fulfill_session_on_pre_processing_failed(C) ->
-    repair_fulfill_session_on_pre_processing_failed(C, visa).
-
--spec repair_fulfill_session_on_pre_processing_failed_new(config()) -> test_return().
-repair_fulfill_session_on_pre_processing_failed_new(C) ->
-    repair_fulfill_session_on_pre_processing_failed(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_fulfill_session_on_pre_processing_failed(C, PmtSys) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
@@ -6214,7 +6210,7 @@ repair_fulfill_session_on_pre_processing_failed(C, PmtSys) ->
         PartyClient
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_payment_params(PmtSys),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
@@ -6233,16 +6229,9 @@ repair_fulfill_session_on_pre_processing_failed(C, PmtSys) ->
 
 -spec repair_fulfill_session_with_trx_succeeded(config()) -> test_return().
 repair_fulfill_session_with_trx_succeeded(C) ->
-    repair_fulfill_session_with_trx_succeeded(C, visa).
-
--spec repair_fulfill_session_with_trx_succeeded_new(config()) -> test_return().
-repair_fulfill_session_with_trx_succeeded_new(C) ->
-    repair_fulfill_session_with_trx_succeeded(C, ?pmt_sys(<<"visa-ref">>)).
-
-repair_fulfill_session_with_trx_succeeded(C, PmtSys) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_no_trx, PmtSys),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_no_trx, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -6258,7 +6247,16 @@ repair_fulfill_session_with_trx_succeeded(C, PmtSys) ->
     ] = next_event(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-    ] = next_event(InvoiceID, Client).
+    ] = next_event(InvoiceID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
+
+construct_authorization_failure() ->
+    payproc_errors:construct(
+        'PaymentFailure',
+        {authorization_failed, {unknown, #payprocerr_GeneralFailure{}}}
+    ).
+
+%%
 
 init_allocation_group(C) ->
     PartyID = cfg(party_id, C),
@@ -6960,23 +6958,14 @@ create_repair_scenario(fail_pre_processing) ->
     {'fail_pre_processing', #'payproc_InvoiceRepairFailPreProcessing'{failure = Failure}};
 create_repair_scenario(skip_inspector) ->
     {'skip_inspector', #'payproc_InvoiceRepairSkipInspector'{risk_score = low}};
-create_repair_scenario(fail_session) ->
-    Failure = payproc_errors:construct(
-        'PaymentFailure',
-        {no_route_found, {unknown, #payprocerr_GeneralFailure{}}}
-    ),
+create_repair_scenario({fail_session, Failure}) ->
     {'fail_session', #'payproc_InvoiceRepairFailSession'{failure = Failure}};
 create_repair_scenario(fulfill_session) ->
     {'fulfill_session', #'payproc_InvoiceRepairFulfillSession'{}};
 create_repair_scenario({fulfill_session, Trx}) ->
     {'fulfill_session', #'payproc_InvoiceRepairFulfillSession'{trx = Trx}};
-create_repair_scenario(complex) ->
-    {'complex', #'payproc_InvoiceRepairComplex'{
-        scenarios = [
-            create_repair_scenario(skip_inspector),
-            create_repair_scenario(fail_session)
-        ]
-    }}.
+create_repair_scenario(Scenarios) when is_list(Scenarios) ->
+    {'complex', #'payproc_InvoiceRepairComplex'{scenarios = [create_repair_scenario(S) || S <- Scenarios]}}.
 
 repair_invoice_with_scenario(InvoiceID, Scenario, Client) ->
     hg_client_invoicing:repair_scenario(InvoiceID, create_repair_scenario(Scenario), Client).

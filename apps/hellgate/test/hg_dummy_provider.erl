@@ -26,6 +26,10 @@
 
 -define(COWBOY_PORT, 9988).
 
+-define(redirect(Uri, Form),
+    {redirect, {post_request, #'BrowserPostRequest'{uri = Uri, form = Form}}}
+).
+
 -define(sleep(To, UI),
     {sleep, #'prxprv_SleepIntent'{timer = {timeout, To}, user_interaction = UI}}
 ).
@@ -269,14 +273,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
             Uri = get_callback_url(),
-            UserInteraction = {
-                'redirect',
-                {
-                    'post_request',
-                    #'BrowserPostRequest'{uri = Uri, form = #{<<"tag">> => Tag}}
-                }
-            },
-            suspend(Tag, Timeout, <<"suspended">>, UserInteraction);
+            suspend(Tag, Timeout, <<"suspended">>, ?redirect(Uri, #{<<"tag">> => Tag}));
         no_preauth ->
             %% simple workflow without 3DS
             sleep(1, <<"sleeping">>);
@@ -286,19 +283,13 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         preauth_3ds_offsite ->
             %% user interaction in sleep intent
             Uri = get_callback_url(),
-            UserInteraction = {
-                'redirect',
-                {
-                    'post_request',
-                    #'BrowserPostRequest'{
-                        uri = Uri,
-                        form = #{
-                            <<"invoice_id">> => get_invoice_id(PaymentInfo),
-                            <<"payment_id">> => get_payment_id(PaymentInfo)
-                        }
-                    }
+            UserInteraction = ?redirect(
+                Uri,
+                #{
+                    <<"invoice_id">> => get_invoice_id(PaymentInfo),
+                    <<"payment_id">> => get_payment_id(PaymentInfo)
                 }
-            },
+            ),
             sleep(1, <<"sleeping_with_user_interaction">>, UserInteraction);
         terminal ->
             %% workflow for euroset terminal, similar to 3DS workflow
@@ -328,6 +319,8 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
             sleep(1, <<"sleeping">>);
         unexpected_failure ->
             sleep(1, <<"sleeping">>, undefined, get_payment_id(PaymentInfo));
+        unexpected_failure_when_suspended ->
+            suspend(generate_tag(<<"payment">>), 0, <<"suspended">>, undefined, {callback, <<"failure">>});
         unexpected_failure_no_trx ->
             error(unexpected_failure);
         {temporary_unavailability, _Scenario} ->
@@ -370,14 +363,14 @@ process_payment(
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
         _ ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
+            finish(success(PaymentInfo))
     end;
 process_payment(?cancelled(), _, PaymentInfo, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
         _ ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
+            finish(success(PaymentInfo))
     end.
 
 handle_payment_callback(?LAY_LOW_BUDDY, ?processed(), <<"suspended">>, _PaymentInfo, _Opts) ->
@@ -419,10 +412,15 @@ handle_payment_callback(<<"mobile_commerce finish success">>, ?processed(), <<"s
     });
 handle_payment_callback(Tag, ?processed(), <<"suspended">>, PaymentInfo, _Opts) ->
     {{ok, PaymentInfo}, _} = get_payment_info(Tag),
-    respond(<<"sure">>, #prxprv_PaymentCallbackProxyResult{
-        intent = ?sleep(1, undefined),
-        next_state = <<"sleeping">>
-    }).
+    case get_payment_info_scenario(PaymentInfo) of
+        unexpected_failure_when_suspended ->
+            error(unexpected_failure_when_suspended);
+        _ ->
+            respond(<<"sure">>, #prxprv_PaymentCallbackProxyResult{
+                intent = ?sleep(1, undefined),
+                next_state = <<"sleeping">>
+            })
+    end.
 
 %% NOTE
 %% You can stuff TransactionInfo.extra with anything you want.
@@ -503,6 +501,11 @@ process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
             error(planned_scenario_error)
     end.
 
+finish(Status) ->
+    #prxprv_PaymentProxyResult{
+        intent = ?finish(Status)
+    }.
+
 finish(Status, TrxID) ->
     finish(Status, TrxID, #{}).
 
@@ -511,11 +514,6 @@ finish(Status, TrxID, Extra) ->
     #prxprv_PaymentProxyResult{
         intent = ?finish(Status),
         trx = #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo}
-    }.
-
-finish(Status) ->
-    #prxprv_PaymentProxyResult{
-        intent = ?finish(Status)
     }.
 
 sleep(Timeout, State) ->
@@ -620,6 +618,8 @@ get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_f
     unexpected_failure_no_trx;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure">>}}) ->
     unexpected_failure;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_failure_when_suspended">>}}) ->
+    unexpected_failure_when_suspended;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"scenario_", BinScenario/binary>>}}) ->
     Scenario = decode_failure_scenario(BinScenario),
     {temporary_unavailability, Scenario};
@@ -694,6 +694,7 @@ make_payment_tool(Code, PSys) when
         Code =:= preauth_3ds_offsite orelse
         Code =:= forbidden orelse
         Code =:= unexpected_failure orelse
+        Code =:= unexpected_failure_when_suspended orelse
         Code =:= unexpected_failure_no_trx
 ->
     ?SESSION42(make_bank_card_payment_tool(atom_to_binary(Code, utf8), PSys));
