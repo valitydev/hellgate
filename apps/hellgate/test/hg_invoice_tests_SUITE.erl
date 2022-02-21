@@ -6252,7 +6252,7 @@ repair_fulfill_suspended_session_succeeded(C) ->
 repair_fulfill_session_on_captured_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    PaymentParams = make_scenario_payment_params([good, error],  ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_scenario_payment_params([good, error], ?pmt_sys(<<"visa-ref">>)),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, _, _, _)),
