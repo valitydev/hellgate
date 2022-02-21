@@ -6188,7 +6188,7 @@ repair_fail_session_on_refund_succeeded(C) ->
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID1, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID1, Client),
     timeout = next_event(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, fail_session, Client),
+    ok = repair_invoice_with_scenario(InvoiceID, {fail_session, construct_authorization_failure()}, Client),
     [
         ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure)))
