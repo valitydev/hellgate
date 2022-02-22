@@ -4,7 +4,7 @@ on:
   pull_request:
 
 jobs:
-  yamllint:
+  hadolint:
     name: hadolint
     runs-on: ubuntu-latest
     steps:
@@ -13,5 +13,17 @@ jobs:
 
       - name: 🚀 Run hadolint
         uses: reviewdog/action-hadolint@v1
+        with:
+          filter_mode: nofilter
+
+  remark-lint:
+    name: remark-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code
+        uses: actions/checkout@v2
+
+      - name: 🚀 Run remark-lint
+        uses: reviewdog/action-remark-lint@v5
         with:
           filter_mode: nofilter
