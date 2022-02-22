@@ -1,15 +1,17 @@
-name: Vality basic linters
+name: Basic linters
 
 on:
   pull_request:
-    branches:
-      - master
-      - main
-  push:
-    branches:
-      - master
-      - main
 
 jobs:
-  lint:
-    uses: valitydev/base-workflows/.github/workflows/basic-linters.yml@v1
+  yamllint:
+    name: hadolint
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code
+        uses: actions/checkout@v2
+
+      - name: 🚀 Run hadolint
+        uses: reviewdog/action-hadolint@v1
+        with:
+          filter_mode: nofilter
