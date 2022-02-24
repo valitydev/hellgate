@@ -8028,8 +8028,8 @@ construct_domain_fixture() ->
             ?ruleset(6),
             <<"SubMain">>,
             {candidates, [
-                ?candidate(<<"High priority">>, {constant, true}, ?trm(12), 1010),
                 ?candidate(<<"Middle priority">>, {constant, true}, ?trm(13), 1005),
+                ?candidate(<<"High priority">>, {constant, true}, ?trm(12), 1010),
                 ?candidate({constant, true}, ?trm(14))
             ]}
         ),

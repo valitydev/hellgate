@@ -2197,7 +2197,7 @@ process_routing(Action, St) ->
 handle_gathered_route_result({ok, RoutesNoOverflow}, Routes, Revision) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
-    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), Routes)];
+    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(Routes))];
 handle_gathered_route_result({error, not_found}, Routes, _) ->
     Failure =
         {failure,
@@ -2209,7 +2209,7 @@ handle_gathered_route_result({error, not_found}, Routes, _) ->
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be skipped. And all limit's 'hold' operations
     %% will be rolled back.
-    [?route_changed(Route, Routes), ?payment_rollback_started(Failure)].
+    [?route_changed(Route, ordsets:from_list(Routes)), ?payment_rollback_started(Failure)].
 
 handle_choose_route_error(Reason, Events, St, Action) ->
     Failure =
@@ -3287,7 +3287,7 @@ merge_change(Change = ?route_changed(Route, Candidates), St, Opts) ->
     _ = validate_transition({payment, routing}, Change, St, Opts),
     St#st{
         route = Route,
-        candidate_routes = Candidates,
+        candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building}
     };
 merge_change(Change = ?payment_capture_started(Data), #st{} = St, Opts) ->
