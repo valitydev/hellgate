@@ -73,32 +73,41 @@ check_complex_list(ActionType, [Scenario | Rest]) ->
 
 -spec get_repair_state(hg_invoice_payment:activity(), scenario(), hg_invoice_payment:st()) -> hg_invoice_payment:st().
 get_repair_state(Activity, Scenario, St) ->
-    check_activity_compatibility(Scenario, Activity),
+    ok = check_activity_compatibility(Scenario, Activity),
     hg_invoice_payment:set_repair_scenario(Scenario, St).
 
-check_activity_compatibility({complex, #payproc_InvoiceRepairComplex{scenarios = Scenarios}}, Activity) ->
+-define(SCENARIO_COMPLEX(Scenarios), {complex, #payproc_InvoiceRepairComplex{scenarios = Scenarios}}).
+-define(SCENARIO_FAIL_PRE_PROCESSING, {fail_pre_processing, #payproc_InvoiceRepairFailPreProcessing{}}).
+-define(SCENARIO_SKIP_INSPECTOR, {skip_inspector, #payproc_InvoiceRepairSkipInspector{}}).
+-define(SCENARIO_FAIL_SESSION, {fail_session, #payproc_InvoiceRepairFailSession{}}).
+-define(SCENARIO_FULFILL_SESSION, {fulfill_session, #payproc_InvoiceRepairFulfillSession{}}).
+% TODO(TD-221): This case is not used anywhere? hg_invoice:repair_complex applies scenarios one by one earlier.
+check_activity_compatibility(?SCENARIO_COMPLEX(Scenarios), Activity) ->
     lists:foreach(fun(Sc) -> check_activity_compatibility(Sc, Activity) end, Scenarios);
-check_activity_compatibility({fail_pre_processing, #payproc_InvoiceRepairFailPreProcessing{}}, Activity) when
+% TODO(TD-221): {payment, new}, routing and cash_flow_building are untested
+check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, Activity) when
     Activity =:= {payment, new} orelse
         Activity =:= {payment, risk_scoring} orelse
         Activity =:= {payment, routing} orelse
         Activity =:= {payment, cash_flow_building}
 ->
     ok;
-check_activity_compatibility({skip_inspector, #payproc_InvoiceRepairSkipInspector{}}, Activity) when
+% TODO(TD-221): {payment, new} is untested
+check_activity_compatibility(?SCENARIO_SKIP_INSPECTOR, Activity) when
     Activity =:= {payment, new} orelse
         Activity =:= {payment, risk_scoring}
 ->
     ok;
-check_activity_compatibility({fulfill_session, #payproc_InvoiceRepairFulfillSession{}}, Activity) when
-    Activity =:= {payment, processing_session}
-->
+check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, processing_session}) ->
     ok;
-check_activity_compatibility({fulfill_session, #payproc_InvoiceRepairFulfillSession{}}, {refund_session, _}) ->
+check_activity_compatibility(?SCENARIO_FAIL_SESSION, {refund_session, _}) ->
     ok;
-check_activity_compatibility({fail_session, #payproc_InvoiceRepairFailSession{}}, {payment, processing_session}) ->
+check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, processing_session}) ->
     ok;
-check_activity_compatibility({fail_session, #payproc_InvoiceRepairFailSession{}}, {refund_session, _}) ->
+check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, finalizing_session}) ->
+    %% Capture session
+    ok;
+check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {refund_session, _}) ->
     ok;
 check_activity_compatibility(Scenario, Activity) ->
     throw({exception, {activity_not_compatible_with_scenario, Activity, Scenario}}).

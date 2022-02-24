@@ -55,8 +55,11 @@ wdeps-shell: dev-image
 	$(DOCKERCOMPOSE_RUN) $(TEST_CONTAINER_NAME) su; \
 	$(DOCKERCOMPOSE_W_ENV) down
 
+# Pass CT_CASE through to container env
+wdeps-common-test.%: MAKE_ARGS=$(if $(CT_CASE),CT_CASE=$(CT_CASE))
+
 wdeps-%: dev-image
-	$(DOCKERCOMPOSE_RUN) -T $(TEST_CONTAINER_NAME) make $*; \
+	$(DOCKERCOMPOSE_RUN) -T $(TEST_CONTAINER_NAME) make $(if $(MAKE_ARGS),$(MAKE_ARGS) $*,$*); \
 	res=$$?; \
 	$(DOCKERCOMPOSE_W_ENV) down; \
 	exit $$res
@@ -89,6 +92,9 @@ eunit:
 
 common-test:
 	$(REBAR) ct --cover
+
+common-test.%: apps/hellgate/test/hg_%_tests_SUITE.erl
+	$(REBAR) ct --cover --suite=$^ $(if $(CT_CASE),--case=$(strip $(CT_CASE)))
 
 cover:
 	$(REBAR) covertool generate

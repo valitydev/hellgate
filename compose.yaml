@@ -21,12 +21,12 @@ services:
       limiter:
         condition: service_healthy
       shumway:
-        condition: service_started
+        condition: service_healthy
     working_dir: $PWD
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-8bd7828
+    image: ghcr.io/valitydev/dominant:sha-0b47590
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -56,7 +56,7 @@ services:
       machinegun:
         condition: service_healthy
       shumway:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: "curl http://localhost:8022/"
       interval: 5s
@@ -79,13 +79,13 @@ services:
       shumway-db:
         condition: service_healthy
     healthcheck:
-      test: "curl http://localhost:8022/"
+      test: "curl http://localhost:8023/actuator/health"
       interval: 5s
       timeout: 1s
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-a405fce
+    image: ghcr.io/valitydev/party-management:sha-e456e24
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
@@ -93,7 +93,7 @@ services:
       dominant:
         condition: service_started
       shumway:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: "/opt/party-management/bin/party-management ping"
       interval: 10s
