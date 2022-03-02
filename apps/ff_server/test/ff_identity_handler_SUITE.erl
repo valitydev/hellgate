@@ -66,20 +66,20 @@ create_identity_ok(_C) ->
     ProvID = <<"good-one">>,
     Ctx = #{<<"NS">> => #{<<"owner">> => PartyID}},
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
-    Identity = create_identity(EID, Name, PartyID, ProvID, Ctx, Metadata),
-    IID = Identity#idnt_IdentityState.id,
-    {ok, Identity_} = call_api('Get', {IID, #'EventRange'{}}),
+    Identity0 = create_identity(EID, Name, PartyID, ProvID, Ctx, Metadata),
+    IID = Identity0#idnt_IdentityState.id,
+    {ok, Identity1} = call_api('Get', {IID, #'EventRange'{}}),
 
-    ProvID = Identity_#idnt_IdentityState.provider_id,
-    IID = Identity_#idnt_IdentityState.id,
-    Name = Identity_#idnt_IdentityState.name,
-    PartyID = Identity_#idnt_IdentityState.party_id,
-    unblocked = Identity_#idnt_IdentityState.blocking,
-    Metadata = Identity_#idnt_IdentityState.metadata,
+    ProvID = Identity1#idnt_IdentityState.provider_id,
+    IID = Identity1#idnt_IdentityState.id,
+    Name = Identity1#idnt_IdentityState.name,
+    PartyID = Identity1#idnt_IdentityState.party_id,
+    unblocked = Identity1#idnt_IdentityState.blocking,
+    Metadata = Identity1#idnt_IdentityState.metadata,
     Ctx0 = Ctx#{
         <<"com.rbkmoney.wapi">> => #{<<"name">> => Name}
     },
-    Ctx0 = ff_entity_context_codec:unmarshal(Identity_#idnt_IdentityState.context),
+    Ctx0 = ff_entity_context_codec:unmarshal(Identity1#idnt_IdentityState.context),
     ok.
 
 get_event_unknown_identity_ok(_C) ->
@@ -94,7 +94,7 @@ get_event_unknown_identity_ok(_C) ->
         limit = 1,
         'after' = undefined
     },
-    {exception, {fistful_IdentityNotFound}} = call_api('GetEvents', {<<"bad id">>, Range}).
+    {exception, #'fistful_IdentityNotFound'{}} = call_api('GetEvents', {<<"bad id">>, Range}).
 
 %%----------
 %% INTERNAL

@@ -27,14 +27,14 @@ is_inside(Cash, CashRange = #domain_CashRange{lower = Lower, upper = Upper}) ->
             error({misconfiguration, {'Invalid cash range specified', CashRange, Cash}})
     end.
 
--define(cash(Amount, SymCode), #domain_Cash{
+-define(CASH(Amount, SymCode), #domain_Cash{
     amount = Amount,
     currency = #domain_CurrencyRef{symbolic_code = SymCode}
 }).
 
 compare_cash(_, V, {inclusive, V}) ->
     true;
-compare_cash(F, ?cash(A, C), {_, ?cash(Am, C)}) ->
+compare_cash(F, ?CASH(A, C), {_, ?CASH(Am, C)}) ->
     F(A, Am);
 compare_cash(_, _, _) ->
     error.

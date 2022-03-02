@@ -17,7 +17,6 @@
         dmt_client,
         shumpune_proto,
         party_client,
-        id_proto,
         binbase_proto
     ]},
     {env, []},
@@ -25,5 +24,5 @@
         "Andrey Mayorov <a.mayorov@rbkmoney.com>"
     ]},
     {licenses, ["Apache 2.0"]},
-    {links, ["https://github.com/rbkmoney/fistful-server"]}
+    {links, ["https://github.com/valitydev/fistful-server"]}
 ]}.

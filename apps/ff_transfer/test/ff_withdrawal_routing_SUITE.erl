@@ -48,7 +48,7 @@
 
 %% Macro helpers
 
--define(final_balance(Cash), {
+-define(FINAL_BALANCE(Cash), {
     element(1, Cash),
     {
         {inclusive, element(1, Cash)},
@@ -57,7 +57,7 @@
     element(2, Cash)
 }).
 
--define(final_balance(Amount, Currency), ?final_balance({Amount, Currency})).
+-define(FINAL_BALANCE(Amount, Currency), ?FINAL_BALANCE({Amount, Currency})).
 
 %% Common test API implementation
 
@@ -159,7 +159,7 @@ adapter_unreachable_route_retryable_test(C) ->
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)),
-    ?assertEqual(?final_balance(0, Currency), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(0, Currency), get_wallet_balance(WalletID)),
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(WalletID, ff_withdrawal:wallet_id(Withdrawal)),
     ?assertEqual(DestinationID, ff_withdrawal:destination_id(Withdrawal)),

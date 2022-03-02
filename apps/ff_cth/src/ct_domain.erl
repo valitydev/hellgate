@@ -30,12 +30,12 @@
 -include_lib("ff_cth/include/ct_domain.hrl").
 -include_lib("shumpune_proto/include/shumpune_shumpune_thrift.hrl").
 
--define(dtp(Type), dmsl_domain_thrift:Type()).
+-define(DTP(Type), dmsl_domain_thrift:Type()).
 
 -type object() ::
     dmsl_domain_thrift:'DomainObject'().
 
--spec withdrawal_provider(?dtp('ProviderRef'), ?dtp('ProxyRef'), binary(), ct_helper:config()) -> object().
+-spec withdrawal_provider(?DTP('ProviderRef'), ?DTP('ProxyRef'), binary(), ct_helper:config()) -> object().
 withdrawal_provider(?prv(16) = Ref, ProxyRef, IdentityID, C) ->
     AccountID = account(<<"RUB">>, C),
     {provider, #domain_ProviderObject{
@@ -176,7 +176,7 @@ withdrawal_provider(Ref, ProxyRef, IdentityID, C) ->
         }
     }}.
 
--spec withdrawal_terminal(?dtp('TerminalRef')) -> object().
+-spec withdrawal_terminal(?DTP('TerminalRef')) -> object().
 withdrawal_terminal(?trm(N) = Ref) when N > 0, N < 6 ->
     {terminal, #domain_TerminalObject{
         ref = Ref,
@@ -246,7 +246,7 @@ withdrawal_terminal(?trm(8) = Ref) ->
         }
     }}.
 
--spec currency(?dtp('CurrencyRef')) -> object().
+-spec currency(?DTP('CurrencyRef')) -> object().
 currency(?cur(<<"EUR">> = SymCode) = Ref) ->
     {currency, #domain_CurrencyObject{
         ref = Ref,
@@ -288,7 +288,7 @@ currency(?cur(<<"BTC">> = SymCode) = Ref) ->
         }
     }}.
 
--spec category(?dtp('CategoryRef'), binary(), ?dtp('CategoryType')) -> object().
+-spec category(?DTP('CategoryRef'), binary(), ?DTP('CategoryType')) -> object().
 category(Ref, Name, Type) ->
     {category, #domain_CategoryObject{
         ref = Ref,
@@ -299,7 +299,7 @@ category(Ref, Name, Type) ->
         }
     }}.
 
--spec payment_method(?dtp('PaymentMethodRef')) -> object().
+-spec payment_method(?DTP('PaymentMethodRef')) -> object().
 payment_method(?pmt(_Type, Name) = Ref) when is_atom(Name) ->
     payment_method(Name, Ref);
 payment_method(?pmt(_Type, #domain_BankCardPaymentMethod{} = PM) = Ref) ->
@@ -314,7 +314,7 @@ payment_method(Name, Ref) ->
         }
     }}.
 
--spec payment_system(?dtp('PaymentSystemRef'), binary()) -> object().
+-spec payment_system(?DTP('PaymentSystemRef'), binary()) -> object().
 payment_system(Ref, Name) ->
     {payment_system, #domain_PaymentSystemObject{
         ref = Ref,
@@ -323,7 +323,7 @@ payment_system(Ref, Name) ->
         }
     }}.
 
--spec payment_service(?dtp('PaymentServiceRef'), binary()) -> object().
+-spec payment_service(?DTP('PaymentServiceRef'), binary()) -> object().
 payment_service(Ref, Name) ->
     {payment_service, #domain_PaymentServiceObject{
         ref = Ref,
@@ -332,7 +332,7 @@ payment_service(Ref, Name) ->
         }
     }}.
 
--spec contract_template(?dtp('ContractTemplateRef'), ?dtp('TermSetHierarchyRef')) -> object().
+-spec contract_template(?DTP('ContractTemplateRef'), ?DTP('TermSetHierarchyRef')) -> object().
 contract_template(Ref, TermsRef) ->
     contract_template(Ref, TermsRef, undefined, undefined).
 
@@ -346,11 +346,11 @@ contract_template(Ref, TermsRef, ValidSince, ValidUntil) ->
         }
     }}.
 
--spec inspector(?dtp('InspectorRef'), binary(), ?dtp('ProxyRef')) -> object().
+-spec inspector(?DTP('InspectorRef'), binary(), ?DTP('ProxyRef')) -> object().
 inspector(Ref, Name, ProxyRef) ->
     inspector(Ref, Name, ProxyRef, #{}).
 
--spec inspector(?dtp('InspectorRef'), binary(), ?dtp('ProxyRef'), ?dtp('ProxyOptions')) -> object().
+-spec inspector(?DTP('InspectorRef'), binary(), ?DTP('ProxyRef'), ?DTP('ProxyOptions')) -> object().
 inspector(Ref, Name, ProxyRef, Additional) ->
     {inspector, #domain_InspectorObject{
         ref = Ref,
@@ -364,15 +364,15 @@ inspector(Ref, Name, ProxyRef, Additional) ->
         }
     }}.
 
--spec proxy(?dtp('ProxyRef'), Name :: binary()) -> object().
+-spec proxy(?DTP('ProxyRef'), Name :: binary()) -> object().
 proxy(Ref, Name) ->
     proxy(Ref, Name, <<>>).
 
--spec proxy(?dtp('ProxyRef'), Name :: binary(), URL :: binary()) -> object().
+-spec proxy(?DTP('ProxyRef'), Name :: binary(), URL :: binary()) -> object().
 proxy(Ref, Name, URL) ->
     proxy(Ref, Name, URL, #{}).
 
--spec proxy(?dtp('ProxyRef'), Name :: binary(), URL :: binary(), ?dtp('ProxyOptions')) -> object().
+-spec proxy(?DTP('ProxyRef'), Name :: binary(), URL :: binary(), ?DTP('ProxyOptions')) -> object().
 proxy(Ref, Name, URL, Opts) ->
     {proxy, #domain_ProxyObject{
         ref = Ref,
@@ -384,7 +384,7 @@ proxy(Ref, Name, URL, Opts) ->
         }
     }}.
 
--spec system_account_set(?dtp('SystemAccountSetRef'), binary(), ?dtp('CurrencyRef'), ct_helper:config()) -> object().
+-spec system_account_set(?DTP('SystemAccountSetRef'), binary(), ?DTP('CurrencyRef'), ct_helper:config()) -> object().
 system_account_set(Ref, Name, ?cur(SymCode), C) ->
     AccountID1 = account(SymCode, C),
     AccountID2 = account(SymCode, C),
@@ -402,7 +402,7 @@ system_account_set(Ref, Name, ?cur(SymCode), C) ->
         }
     }}.
 
--spec external_account_set(?dtp('ExternalAccountSetRef'), binary(), ?dtp('CurrencyRef'), ct_helper:config()) ->
+-spec external_account_set(?DTP('ExternalAccountSetRef'), binary(), ?DTP('CurrencyRef'), ct_helper:config()) ->
     object().
 external_account_set(Ref, Name, ?cur(SymCode), C) ->
     AccountID1 = account(SymCode, C),
@@ -421,16 +421,16 @@ external_account_set(Ref, Name, ?cur(SymCode), C) ->
         }
     }}.
 
--spec term_set_hierarchy(?dtp('TermSetHierarchyRef')) -> object().
+-spec term_set_hierarchy(?DTP('TermSetHierarchyRef')) -> object().
 term_set_hierarchy(Ref) ->
     term_set_hierarchy(Ref, []).
 
--spec term_set_hierarchy(?dtp('TermSetHierarchyRef'), [?dtp('TimedTermSet')]) -> object().
+-spec term_set_hierarchy(?DTP('TermSetHierarchyRef'), [?DTP('TimedTermSet')]) -> object().
 term_set_hierarchy(Ref, TermSets) ->
     term_set_hierarchy(Ref, undefined, TermSets).
 
--spec term_set_hierarchy(Ref, ff_maybe:maybe(Ref), [?dtp('TimedTermSet')]) -> object() when
-    Ref :: ?dtp('TermSetHierarchyRef').
+-spec term_set_hierarchy(Ref, ff_maybe:maybe(Ref), [?DTP('TimedTermSet')]) -> object() when
+    Ref :: ?DTP('TermSetHierarchyRef').
 term_set_hierarchy(Ref, ParentRef, TermSets) ->
     {term_set_hierarchy, #domain_TermSetHierarchyObject{
         ref = Ref,
@@ -440,14 +440,14 @@ term_set_hierarchy(Ref, ParentRef, TermSets) ->
         }
     }}.
 
--spec timed_term_set(?dtp('TermSet')) -> ?dtp('TimedTermSet').
+-spec timed_term_set(?DTP('TermSet')) -> ?DTP('TimedTermSet').
 timed_term_set(TermSet) ->
     #domain_TimedTermSet{
         action_time = #'TimestampInterval'{},
         terms = TermSet
     }.
 
--spec globals(?dtp('ExternalAccountSetRef'), [?dtp('PaymentInstitutionRef')]) -> object().
+-spec globals(?DTP('ExternalAccountSetRef'), [?DTP('PaymentInstitutionRef')]) -> object().
 globals(EASRef, PIRefs) ->
     {globals, #domain_GlobalsObject{
         ref = ?glob(),

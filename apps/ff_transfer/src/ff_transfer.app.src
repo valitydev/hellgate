@@ -19,5 +19,5 @@
         "Anton Belyaev <a.belyaev@rbkmoney.com>"
     ]},
     {licenses, []},
-    {links, ["https://github.com/rbkmoney/fistful-server"]}
+    {links, ["https://github.com/valitydev/fistful-server"]}
 ]}.

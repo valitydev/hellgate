@@ -35,7 +35,7 @@
 
 %% Macro helpers
 
--define(final_balance(Amount, Currency), {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency}).
+-define(FINAL_BALANCE(Amount, Currency), {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency}).
 
 %% API
 
@@ -105,8 +105,8 @@ adjustment_can_change_status_to_failed_test(C) ->
         wallet_id := WalletID,
         source_id := SourceID
     } = prepare_standard_environment({100, <<"RUB">>}, C),
-    ?assertEqual(?final_balance(100, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-100, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(100, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-100, <<"RUB">>), get_source_balance(SourceID)),
     Failure = #{code => <<"test">>},
     AdjustmentID = process_adjustment(DepositID, #{
         change => {change_status, {failed, Failure}},
@@ -117,8 +117,8 @@ adjustment_can_change_status_to_failed_test(C) ->
     ?assertEqual(<<"true_unique_id">>, ExternalID),
     ?assertEqual({failed, Failure}, get_deposit_status(DepositID)),
     assert_adjustment_same_revisions(DepositID, AdjustmentID),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_source_balance(SourceID)).
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_source_balance(SourceID)).
 
 -spec adjustment_can_change_failure_test(config()) -> test_return().
 adjustment_can_change_failure_test(C) ->
@@ -127,24 +127,24 @@ adjustment_can_change_failure_test(C) ->
         wallet_id := WalletID,
         source_id := SourceID
     } = prepare_standard_environment({100, <<"RUB">>}, C),
-    ?assertEqual(?final_balance(100, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-100, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(100, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-100, <<"RUB">>), get_source_balance(SourceID)),
     Failure1 = #{code => <<"one">>},
     AdjustmentID1 = process_adjustment(DepositID, #{
         change => {change_status, {failed, Failure1}}
     }),
     ?assertEqual({failed, Failure1}, get_deposit_status(DepositID)),
     assert_adjustment_same_revisions(DepositID, AdjustmentID1),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_source_balance(SourceID)),
     Failure2 = #{code => <<"two">>},
     AdjustmentID2 = process_adjustment(DepositID, #{
         change => {change_status, {failed, Failure2}}
     }),
     ?assertEqual({failed, Failure2}, get_deposit_status(DepositID)),
     assert_adjustment_same_revisions(DepositID, AdjustmentID2),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_source_balance(SourceID)).
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_source_balance(SourceID)).
 
 -spec adjustment_can_change_status_to_succeeded_test(config()) -> test_return().
 adjustment_can_change_status_to_succeeded_test(C) ->
@@ -152,8 +152,8 @@ adjustment_can_change_status_to_succeeded_test(C) ->
         wallet_id := WalletID,
         source_id := SourceID
     } = prepare_standard_environment({5000000, <<"RUB">>}, C),
-    ?assertEqual(?final_balance(5000000, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-5000000, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(5000000, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-5000000, <<"RUB">>), get_source_balance(SourceID)),
     DepositID = generate_id(),
     Params = #{
         id => DepositID,
@@ -169,8 +169,8 @@ adjustment_can_change_status_to_succeeded_test(C) ->
     ?assertMatch(succeeded, get_adjustment_status(DepositID, AdjustmentID)),
     ?assertMatch(succeeded, get_deposit_status(DepositID)),
     assert_adjustment_same_revisions(DepositID, AdjustmentID),
-    ?assertEqual(?final_balance(5000100, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-5000100, <<"RUB">>), get_source_balance(SourceID)).
+    ?assertEqual(?FINAL_BALANCE(5000100, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-5000100, <<"RUB">>), get_source_balance(SourceID)).
 
 -spec adjustment_can_not_change_status_to_pending_test(config()) -> test_return().
 adjustment_can_not_change_status_to_pending_test(C) ->
@@ -201,21 +201,21 @@ adjustment_sequence_test(C) ->
         wallet_id := WalletID,
         source_id := SourceID
     } = prepare_standard_environment({100, <<"RUB">>}, C),
-    ?assertEqual(?final_balance(100, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-100, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(100, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-100, <<"RUB">>), get_source_balance(SourceID)),
     MakeFailed = fun() ->
         _ = process_adjustment(DepositID, #{
             change => {change_status, {failed, #{code => <<"test">>}}}
         }),
-        ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletID)),
-        ?assertEqual(?final_balance(0, <<"RUB">>), get_source_balance(SourceID))
+        ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletID)),
+        ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_source_balance(SourceID))
     end,
     MakeSucceeded = fun() ->
         _ = process_adjustment(DepositID, #{
             change => {change_status, succeeded}
         }),
-        ?assertEqual(?final_balance(100, <<"RUB">>), get_wallet_balance(WalletID)),
-        ?assertEqual(?final_balance(-100, <<"RUB">>), get_source_balance(SourceID))
+        ?assertEqual(?FINAL_BALANCE(100, <<"RUB">>), get_wallet_balance(WalletID)),
+        ?assertEqual(?FINAL_BALANCE(-100, <<"RUB">>), get_source_balance(SourceID))
     end,
     MakeFailed(),
     MakeSucceeded(),
@@ -230,8 +230,8 @@ adjustment_idempotency_test(C) ->
         wallet_id := WalletID,
         source_id := SourceID
     } = prepare_standard_environment({100, <<"RUB">>}, C),
-    ?assertEqual(?final_balance(100, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-100, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(100, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-100, <<"RUB">>), get_source_balance(SourceID)),
     Params = #{
         id => generate_id(),
         change => {change_status, {failed, #{code => <<"test">>}}}
@@ -242,8 +242,8 @@ adjustment_idempotency_test(C) ->
     _ = process_adjustment(DepositID, Params),
     Deposit = get_deposit(DepositID),
     ?assertMatch([_], ff_deposit:adjustments(Deposit)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_source_balance(SourceID)).
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_source_balance(SourceID)).
 
 -spec no_parallel_adjustments_test(config()) -> test_return().
 no_parallel_adjustments_test(C) ->

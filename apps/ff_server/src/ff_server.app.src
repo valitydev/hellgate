@@ -8,8 +8,6 @@
         stdlib,
         woody,
         erl_health,
-        prometheus,
-        prometheus_cowboy,
         scoper,
         party_client,
         fistful_proto,
@@ -24,5 +22,5 @@
         "Andrey Mayorov <a.mayorov@rbkmoney.com>"
     ]},
     {licenses, ["Apache 2.0"]},
-    {links, ["https://github.com/rbkmoney/fistful-server"]}
+    {links, ["https://github.com/valitydev/fistful-server"]}
 ]}.

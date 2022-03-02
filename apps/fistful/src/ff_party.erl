@@ -543,15 +543,15 @@ construct_inaccessibilty({suspension, _}) ->
 
 %%
 
--define(contractor_mod(ID, Mod),
+-define(CONTRACTOR_MOD(ID, Mod),
     {contractor_modification, #payproc_ContractorModificationUnit{id = ID, modification = Mod}}
 ).
 
--define(contract_mod(ID, Mod),
+-define(CONTRACT_MOD(ID, Mod),
     {contract_modification, #payproc_ContractModificationUnit{id = ID, modification = Mod}}
 ).
 
--define(wallet_mod(ID, Mod),
+-define(WALLET_MOD(ID, Mod),
     {wallet_modification, #payproc_WalletModificationUnit{id = ID, modification = Mod}}
 ).
 
@@ -568,7 +568,7 @@ construct_contract_changeset(ContractID, #{
     contractor_level := ContractorLevel
 }) ->
     [
-        ?contractor_mod(
+        ?CONTRACTOR_MOD(
             ContractID,
             {creation,
                 {private_entity,
@@ -580,11 +580,11 @@ construct_contract_changeset(ContractID, #{
                         contact_info = #domain_ContactInfo{}
                     }}}}
         ),
-        ?contractor_mod(
+        ?CONTRACTOR_MOD(
             ContractID,
             {identification_level_modification, ContractorLevel}
         ),
-        ?contract_mod(
+        ?CONTRACT_MOD(
             ContractID,
             {creation, #payproc_ContractParams{
                 contractor_id = ContractID,
@@ -596,7 +596,7 @@ construct_contract_changeset(ContractID, #{
 
 construct_level_changeset(ContractID, ContractorLevel) ->
     [
-        ?contractor_mod(
+        ?CONTRACTOR_MOD(
             ContractID,
             {identification_level_modification, ContractorLevel}
         )

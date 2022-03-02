@@ -35,7 +35,7 @@
 
 %% Macro helpers
 
--define(final_balance(Amount, Currency), {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency}).
+-define(FINAL_BALANCE(Amount, Currency), {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency}).
 
 %% API
 
@@ -111,7 +111,7 @@ limit_check_fail_test(C) ->
         wallet_to_id => WalletToID,
         external_id => W2WTransferID
     },
-    ?assertEqual(?final_balance(50000, <<"RUB">>), get_wallet_balance(WalletFromID)),
+    ?assertEqual(?FINAL_BALANCE(50000, <<"RUB">>), get_wallet_balance(WalletFromID)),
     ok = w2w_transfer_machine:create(W2WTransferParams, ff_entity_context:new()),
     Result = await_final_w2w_transfer_status(W2WTransferID),
     ?assertMatch(
@@ -123,8 +123,8 @@ limit_check_fail_test(C) ->
         }},
         Result
     ),
-    ?assertEqual(?final_balance(50000, <<"RUB">>), get_wallet_balance(WalletFromID)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletToID)).
+    ?assertEqual(?FINAL_BALANCE(50000, <<"RUB">>), get_wallet_balance(WalletFromID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletToID)).
 
 -spec create_bad_amount_test(config()) -> test_return().
 create_bad_amount_test(C) ->
@@ -239,12 +239,12 @@ create_ok_test(C) ->
         wallet_to_id => WalletToID,
         external_id => W2WTransferID
     },
-    ?assertEqual(?final_balance(50000, <<"RUB">>), get_wallet_balance(WalletFromID)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletToID)),
+    ?assertEqual(?FINAL_BALANCE(50000, <<"RUB">>), get_wallet_balance(WalletFromID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletToID)),
     ok = w2w_transfer_machine:create(W2WTransferParams, ff_entity_context:new()),
     succeeded = await_final_w2w_transfer_status(W2WTransferID),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletFromID)),
-    ?assertEqual(?final_balance(50000, <<"RUB">>), get_wallet_balance(WalletToID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletFromID)),
+    ?assertEqual(?FINAL_BALANCE(50000, <<"RUB">>), get_wallet_balance(WalletToID)),
     W2WTransfer = get_w2w_transfer(W2WTransferID),
     W2WTransferCash = w2w_transfer:body(W2WTransfer),
     WalletFromID = w2w_transfer:wallet_from_id(W2WTransfer),

@@ -32,10 +32,6 @@
 -type group_name() :: ct_helper:group_name().
 -type test_return() :: _ | no_return().
 
-%% Macro helpers
-
--define(final_balance(Amount, Currency), {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency}).
-
 %% API
 
 -spec all() -> [test_case_name() | {group, group_name()}].

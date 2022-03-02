@@ -10,12 +10,6 @@
 -export([marshal/2]).
 -export([unmarshal/2]).
 
-%% Data transform
-
--define(to_session_event(SessionID, Payload),
-    {session, #{id => SessionID, payload => Payload}}
-).
-
 %% API
 
 -spec marshal_w2w_transfer_state(w2w_transfer:w2w_transfer_state(), ff_entity_context:context()) ->

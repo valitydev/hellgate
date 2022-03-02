@@ -7,12 +7,6 @@
 -export([marshal/2]).
 -export([unmarshal/2]).
 
-%% Data transform
-
--define(to_session_event(SessionID, Payload),
-    {session, #{id => SessionID, payload => Payload}}
-).
-
 %% API
 
 -spec marshal(ff_codec:type_name(), ff_codec:decoded_value()) -> ff_codec:encoded_value().

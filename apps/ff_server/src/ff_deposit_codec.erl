@@ -8,12 +8,6 @@
 -export([marshal/2]).
 -export([unmarshal/2]).
 
-%% Data transform
-
--define(to_session_event(SessionID, Payload),
-    {session, #{id => SessionID, payload => Payload}}
-).
-
 -spec marshal_deposit_state(ff_deposit:deposit_state(), ff_entity_context:context()) ->
     ff_proto_deposit_thrift:'DepositState'().
 marshal_deposit_state(DepositState, Context) ->

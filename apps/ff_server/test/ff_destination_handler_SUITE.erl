@@ -152,8 +152,6 @@ create_destination_ok(Resource, C) ->
     IdentityID = Account#account_Account.identity,
     #'CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
 
-    {unauthorized, #dst_Unauthorized{}} = Dst#dst_DestinationState.status,
-
     {authorized, #dst_Authorized{}} = ct_helper:await(
         {authorized, #dst_Authorized{}},
         fun() ->

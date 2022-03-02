@@ -38,7 +38,7 @@
 
 %% Macro helpers
 
--define(final_balance(Amount, Currency), {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency}).
+-define(FINAL_BALANCE(Amount, Currency), {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency}).
 
 %% API
 
@@ -114,8 +114,8 @@ revert_ok_test(C) ->
     RevertID = process_revert(DepositID, #{
         body => {5000, <<"RUB">>}
     }),
-    ?assertEqual(?final_balance(5000, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-5000, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(5000, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-5000, <<"RUB">>), get_source_balance(SourceID)),
     Revert = get_revert(RevertID, DepositID),
     ?assertEqual(undefined, ff_deposit_revert:reason(Revert)),
     ?assertEqual(undefined, ff_deposit_revert:external_id(Revert)),
@@ -134,11 +134,11 @@ multiple_reverts_ok_test(C) ->
         wallet_id := WalletID
     } = prepare_standard_environment({10000, <<"RUB">>}, C),
     _ = process_revert(DepositID, #{body => {1000, <<"RUB">>}}),
-    ?assertEqual(?final_balance(9000, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(9000, <<"RUB">>), get_wallet_balance(WalletID)),
     _ = process_revert(DepositID, #{body => {1000, <<"RUB">>}}),
-    ?assertEqual(?final_balance(8000, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(8000, <<"RUB">>), get_wallet_balance(WalletID)),
     _ = process_revert(DepositID, #{body => {1000, <<"RUB">>}}),
-    ?assertEqual(?final_balance(7000, <<"RUB">>), get_wallet_balance(WalletID)).
+    ?assertEqual(?FINAL_BALANCE(7000, <<"RUB">>), get_wallet_balance(WalletID)).
 
 -spec multiple_parallel_reverts_ok_test(config()) -> test_return().
 multiple_parallel_reverts_ok_test(C) ->
@@ -154,8 +154,8 @@ multiple_parallel_reverts_ok_test(C) ->
         end,
         lists:seq(1, 10)
     ),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(0, <<"RUB">>), get_source_balance(SourceID)).
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_source_balance(SourceID)).
 
 -spec idempotency_test(config()) -> test_return().
 idempotency_test(C) ->
@@ -175,8 +175,8 @@ idempotency_test(C) ->
     ok = ff_deposit_machine:start_revert(DepositID, Params),
     RevertID = process_revert(DepositID, Params),
     ?assertEqual(1, erlang:length(get_reverts(DepositID))),
-    ?assertEqual(?final_balance(5000, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-5000, <<"RUB">>), get_source_balance(SourceID)).
+    ?assertEqual(?FINAL_BALANCE(5000, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-5000, <<"RUB">>), get_source_balance(SourceID)).
 
 -spec optional_fields_test(config()) -> test_return().
 optional_fields_test(C) ->
@@ -191,8 +191,8 @@ optional_fields_test(C) ->
         reason => <<"Why not">>,
         external_id => <<"001">>
     }),
-    ?assertEqual(?final_balance(5000, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-5000, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(5000, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-5000, <<"RUB">>), get_source_balance(SourceID)),
 
     Revert = get_revert(RevertID, DepositID),
     ?assertEqual(<<"Why not">>, ff_deposit_revert:reason(Revert)),
@@ -259,16 +259,16 @@ wallet_limit_check_fail_test(C) ->
         source_id := SourceID
     } = prepare_standard_environment({1000, <<"RUB">>}, C),
     ok = set_wallet_balance({900, <<"RUB">>}, WalletID),
-    ?assertEqual(?final_balance(900, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-1000, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(900, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-1000, <<"RUB">>), get_source_balance(SourceID)),
     RevertID = generate_id(),
     ok = ff_deposit_machine:start_revert(DepositID, #{
         id => RevertID,
         body => {1000, <<"RUB">>}
     }),
     Status = await_final_revert_status(RevertID, DepositID),
-    ?assertEqual(?final_balance(900, <<"RUB">>), get_wallet_balance(WalletID)),
-    ?assertEqual(?final_balance(-1000, <<"RUB">>), get_source_balance(SourceID)),
+    ?assertEqual(?FINAL_BALANCE(900, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-1000, <<"RUB">>), get_source_balance(SourceID)),
     ?assertMatch({failed, _}, Status),
     {failed, Failure} = Status,
     ?assertMatch(#{code := <<"unknown">>}, Failure).
@@ -294,8 +294,8 @@ multiple_parallel_reverts_limit_fail_test(C) ->
         end,
         lists:seq(1, 10)
     ),
-    ?final_balance(WalletBalance, <<"RUB">>) = get_wallet_balance(WalletID),
-    ?final_balance(SourceBalance, <<"RUB">>) = get_source_balance(SourceID),
+    ?FINAL_BALANCE(WalletBalance, <<"RUB">>) = get_wallet_balance(WalletID),
+    ?FINAL_BALANCE(SourceBalance, <<"RUB">>) = get_source_balance(SourceID),
     ?assertEqual(-WalletBalance, SourceBalance + Lack),
     ?assert(WalletBalance >= 0).
 
