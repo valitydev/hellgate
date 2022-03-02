@@ -484,8 +484,8 @@ get_provider_status(ProviderRef, FDStats) ->
     {AvailabilityStatus, ConversionStatus}.
 
 get_provider_availability_status(FDID, Stats) ->
-    AvailabilityConfig = genlib_app:env(hellgate, fault_detector_availability, #{}),
-    CriticalFailRate = genlib_map:get(critical_fail_rate, AvailabilityConfig, 0.7),
+    AvailabilityConfig = maps:get(availability, genlib_app:env(hellgate, fault_detector, #{}), #{}),
+    CriticalFailRate = maps:get(critical_fail_rate, AvailabilityConfig, 0.7),
     case lists:keysearch(FDID, #fault_detector_ServiceStatistics.service_id, Stats) of
         {value, #fault_detector_ServiceStatistics{failure_rate = FailRate}} when FailRate >= CriticalFailRate ->
             {dead, FailRate};
@@ -496,8 +496,8 @@ get_provider_availability_status(FDID, Stats) ->
     end.
 
 get_provider_conversion_status(FDID, Stats) ->
-    ConversionConfig = genlib_app:env(hellgate, fault_detector_conversion, #{}),
-    CriticalFailRate = genlib_map:get(critical_fail_rate, ConversionConfig, 0.7),
+    ConversionConfig = maps:get(conversion, genlib_app:env(hellgate, fault_detector, #{}), #{}),
+    CriticalFailRate = maps:get(critical_fail_rate, ConversionConfig, 0.7),
     case lists:keysearch(FDID, #fault_detector_ServiceStatistics.service_id, Stats) of
         {value, #fault_detector_ServiceStatistics{failure_rate = FailRate}} when FailRate >= CriticalFailRate ->
             {lacking, FailRate};
