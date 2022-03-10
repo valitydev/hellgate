@@ -31,9 +31,9 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
     ok = scoper:add_meta(maps:with([id, wallet_from_id, wallet_to_id, external_id], Params)),
     case w2w_transfer_machine:create(Params, Context) of
         ok ->
-            handle_function_('Get', {W2WTransferID, #'EventRange'{}}, Opts);
+            handle_function_('Get', {W2WTransferID, #'fistful_base_EventRange'{}}, Opts);
         {error, exists} ->
-            handle_function_('Get', {W2WTransferID, #'EventRange'{}}, Opts);
+            handle_function_('Get', {W2WTransferID, #'fistful_base_EventRange'{}}, Opts);
         {error, {wallet_from, notfound}} ->
             woody_error:raise(business, #fistful_WalletNotFound{
                 id = MarshaledParams#w2w_transfer_W2WTransferParams.wallet_from_id

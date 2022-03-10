@@ -89,7 +89,6 @@ accounter_account_id(#{accounter_account_id := AccounterID}) ->
 -spec create(id(), identity(), currency()) -> {ok, [event()]} | {error, create_error()}.
 create(ID, Identity, Currency) ->
     do(fun() ->
-        ContractID = ff_identity:contract(Identity),
         PartyID = ff_identity:party(Identity),
         accessible = unwrap(party, ff_party:is_accessible(PartyID)),
         TermVarset = #{
@@ -98,14 +97,11 @@ create(ID, Identity, Currency) ->
         },
         {ok, PartyRevision} = ff_party:get_revision(PartyID),
         DomainRevision = ff_domain_config:head(),
-        {ok, Terms} = ff_party:get_contract_terms(
-            PartyID,
-            ContractID,
-            TermVarset,
-            ff_time:now(),
-            PartyRevision,
-            DomainRevision
-        ),
+        Terms = ff_identity:get_terms(Identity, #{
+            party_revision => PartyRevision,
+            domain_revision => DomainRevision,
+            varset => TermVarset
+        }),
         CurrencyID = ff_currency:id(Currency),
         valid = unwrap(terms, ff_party:validate_account_creation(Terms, CurrencyID)),
         {ok, AccounterID} = create_account(ID, Currency),

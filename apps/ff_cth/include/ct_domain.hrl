@@ -8,8 +8,10 @@
 -define(glob(), #domain_GlobalsRef{}).
 -define(cur(ID), #domain_CurrencyRef{symbolic_code = ID}).
 -define(pmt(C, T), #domain_PaymentMethodRef{id = {C, T}}).
+-define(pmt(Ref), #domain_PaymentMethodRef{id = Ref}).
 -define(pmtsys(ID), #domain_PaymentSystemRef{id = ID}).
 -define(pmtsrv(ID), #domain_PaymentServiceRef{id = ID}).
+-define(crptcur(ID), #domain_CryptoCurrencyRef{id = ID}).
 -define(cat(ID), #domain_CategoryRef{id = ID}).
 -define(prx(ID), #domain_ProxyRef{id = ID}).
 -define(prv(ID), #domain_ProviderRef{id = ID}).
@@ -75,6 +77,26 @@
         payment_system_deprecated = visa,
         issuer_country = rus
     }}
+).
+
+-define(PAYMENT_METHOD_GENERIC(ID),
+    {generic, #'domain_GenericPaymentMethod'{
+        payment_service = #domain_PaymentServiceRef{id = ID}
+    }}
+).
+
+-define(PAYMENT_METHOD_BANK_CARD(ID),
+    {bank_card, #'domain_BankCardPaymentMethod'{
+        payment_system = #domain_PaymentSystemRef{id = ID}
+    }}
+).
+
+-define(PAYMENT_METHOD_DIGITAL_WALLET(ID),
+    {digital_wallet, #domain_PaymentServiceRef{id = ID}}
+).
+
+-define(PAYMENT_METHOD_CRYPTO_CURRENCY(ID),
+    {crypto_currency, #domain_CryptoCurrencyRef{id = ID}}
 ).
 
 -endif.

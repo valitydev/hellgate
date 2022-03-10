@@ -35,6 +35,7 @@
 -export([create_destination_notfound_test/1]).
 -export([create_wallet_notfound_test/1]).
 -export([create_ok_test/1]).
+-export([create_with_generic_ok_test/1]).
 -export([quota_ok_test/1]).
 -export([crypto_quota_ok_test/1]).
 -export([preserve_revisions_test/1]).
@@ -93,6 +94,7 @@ groups() ->
             create_destination_notfound_test,
             create_wallet_notfound_test,
             create_ok_test,
+            create_with_generic_ok_test,
             quota_ok_test,
             crypto_quota_ok_test,
             preserve_revisions_test,
@@ -467,6 +469,31 @@ create_ok_test(C) ->
     ?assertEqual(Cash, ff_withdrawal:body(Withdrawal)),
     ?assertEqual(WithdrawalID, ff_withdrawal:external_id(Withdrawal)).
 
+-spec create_with_generic_ok_test(config()) -> test_return().
+create_with_generic_ok_test(C) ->
+    Cash = {100, <<"RUB">>},
+    #{
+        wallet_id := WalletID,
+        identity_id := IdentityID
+    } = prepare_standard_environment(Cash, C),
+    DestinationID = create_generic_destination(<<"IND">>, IdentityID, C),
+    WithdrawalID = generate_id(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        body => Cash,
+        external_id => WithdrawalID
+    },
+    ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
+    ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)),
+    ?assertEqual(?FINAL_BALANCE(0, <<"RUB">>), get_wallet_balance(WalletID)),
+    Withdrawal = get_withdrawal(WithdrawalID),
+    ?assertEqual(WalletID, ff_withdrawal:wallet_id(Withdrawal)),
+    ?assertEqual(DestinationID, ff_withdrawal:destination_id(Withdrawal)),
+    ?assertEqual(Cash, ff_withdrawal:body(Withdrawal)),
+    ?assertEqual(WithdrawalID, ff_withdrawal:external_id(Withdrawal)).
+
 -spec quota_ok_test(config()) -> test_return().
 quota_ok_test(C) ->
     Cash = {100, <<"RUB">>},
@@ -597,7 +624,7 @@ force_status_change_test(C) ->
                     {status_changed, #wthd_StatusChange{
                         status =
                             {failed, #wthd_status_Failed{
-                                failure = #'Failure'{
+                                failure = #'fistful_base_Failure'{
                                     code = <<"Withdrawal failed by manual intervention">>
                                 }
                             }}
@@ -928,6 +955,29 @@ create_crypto_destination(IID, _C) ->
     ),
     ID.
 
+create_generic_destination(Provider, IID, _C) ->
+    ID = generate_id(),
+    Resource =
+        {generic, #{
+            generic => #{
+                provider => #{id => Provider},
+                data => #{type => <<"application/json">>, data => <<"{}">>}
+            }
+        }},
+    Params = #{
+        id => ID, identity => IID, name => <<"GenericDestination">>, currency => <<"RUB">>, resource => Resource
+    },
+    ok = ff_destination_machine:create(Params, ff_entity_context:new()),
+    authorized = ct_helper:await(
+        authorized,
+        fun() ->
+            {ok, Machine} = ff_destination_machine:get(ID),
+            Destination = ff_destination_machine:destination(Machine),
+            ff_destination:status(Destination)
+        end
+    ),
+    ID.
+
 set_wallet_balance({Amount, Currency}, ID) ->
     TransactionID = generate_id(),
     {ok, Machine} = ff_wallet_machine:get(ID),
@@ -977,7 +1027,7 @@ repair_withdrawal_session(WithdrawalID) ->
         {set_session_result, #wthd_session_SetResultRepair{
             result =
                 {success, #wthd_session_SessionResultSuccess{
-                    trx_info = #'TransactionInfo'{
+                    trx_info = #'fistful_base_TransactionInfo'{
                         id = SessionID,
                         extra = #{}
                     }

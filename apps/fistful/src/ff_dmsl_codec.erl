@@ -90,6 +90,18 @@ unmarshal(sub_failure, #domain_SubFailure{
         code => unmarshal(string, Code),
         sub => maybe_unmarshal(sub_failure, SubFailure)
     });
+unmarshal(payment_method_ref, #domain_PaymentMethodRef{
+    id = PaymentMethod
+}) ->
+    #{id => unmarshal(payment_method, PaymentMethod)};
+unmarshal(payment_method, {generic, #domain_GenericPaymentMethod{payment_service = PaymentService}}) ->
+    {generic, #{payment_service => unmarshal(payment_service, PaymentService)}};
+unmarshal(payment_method, {digital_wallet, PaymentServiceRef}) ->
+    {digital_wallet, unmarshal(payment_service, PaymentServiceRef)};
+unmarshal(payment_method, {crypto_currency, CryptoCurrencyRef}) ->
+    {crypto_currency, unmarshal(crypto_currency, CryptoCurrencyRef)};
+unmarshal(payment_method, {bank_card, #domain_BankCardPaymentMethod{payment_system = PaymentSystem}}) ->
+    {bank_card, #{payment_system => unmarshal(payment_system, PaymentSystem)}};
 unmarshal(cash, #domain_Cash{
     amount = Amount,
     currency = CurrencyRef
@@ -182,6 +194,12 @@ unmarshal(payment_service, #'domain_PaymentServiceRef'{
     #{
         id => unmarshal(string, ID)
     };
+unmarshal(crypto_currency, #'domain_CryptoCurrencyRef'{
+    id = ID
+}) ->
+    #{
+        id => unmarshal(string, ID)
+    };
 unmarshal(issuer_country, V) when is_atom(V) ->
     V;
 unmarshal(attempt_limit, #domain_AttemptLimit{
@@ -227,6 +245,18 @@ marshal(currency, #{
         numeric_code = Numcode,
         exponent = Exponent
     };
+marshal(payment_method_ref, #{id := PaymentMethod}) ->
+    #domain_PaymentMethodRef{
+        id = marshal(payment_method, PaymentMethod)
+    };
+marshal(payment_method, {generic, #{payment_service := PaymentService}}) ->
+    {generic, #domain_GenericPaymentMethod{payment_service = marshal(payment_service, PaymentService)}};
+marshal(payment_method, {digital_wallet, PaymentServiceRef}) ->
+    {digital_wallet, marshal(payment_service, PaymentServiceRef)};
+marshal(payment_method, {crypto_currency, CryptoCurrencyRef}) ->
+    {crypto_currency, marshal(crypto_currency, CryptoCurrencyRef)};
+marshal(payment_method, {bank_card, #{payment_system := PaymentSystem}}) ->
+    {bank_card, #domain_BankCardPaymentMethod{payment_system = marshal(payment_system, PaymentSystem)}};
 marshal(payment_resource_payer, Payer = #{resource := Resource}) ->
     ClientInfo = maps:get(client_info, Payer, undefined),
     ContactInfo = maps:get(contact_info, Payer, undefined),
@@ -242,6 +272,12 @@ marshal(disposable_payment_resource, {Resource, ClientInfo}) ->
     };
 marshal(payment_tool, {bank_card, #{bank_card := BankCard}}) ->
     {bank_card, marshal(bank_card, BankCard)};
+marshal(payment_tool, {generic, #{generic := GenericResource = #{provider := PaymentService}}}) ->
+    Data = maps:get(data, GenericResource, undefined),
+    {generic, #domain_GenericPaymentTool{
+        data = maybe_marshal(content, Data),
+        payment_service = marshal(payment_service, PaymentService)
+    }};
 marshal(bin_data, #{payment_system := PaymentSystem} = BinData) ->
     BankName = maps:get(bank_name, BinData, undefined),
     #domain_BinData{
@@ -276,6 +312,10 @@ marshal(payment_service, #{id := ID}) ->
     #domain_PaymentServiceRef{
         id = marshal(string, ID)
     };
+marshal(crypto_currency, #{id := ID}) ->
+    #domain_CryptoCurrencyRef{
+        id = marshal(string, ID)
+    };
 marshal(contact_info, undefined) ->
     #domain_ContactInfo{};
 marshal(contact_info, ContactInfo) ->
@@ -293,6 +333,11 @@ marshal(client_info, ClientInfo) ->
 marshal(attempt_limit, Limit) ->
     #domain_AttemptLimit{
         attempts = Limit
+    };
+marshal(content, #{type := Type, data := Data}) ->
+    #'Content'{
+        type = marshal(string, Type),
+        data = Data
     };
 marshal(risk_score, low) ->
     low;

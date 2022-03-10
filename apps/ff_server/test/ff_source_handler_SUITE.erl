@@ -81,7 +81,7 @@ get_source_events_ok_test(C) ->
         }},
     State = create_source_ok(Resource, C),
     ID = State#src_SourceState.id,
-    {ok, [_Event | _Rest]} = call_service('GetEvents', {ID, #'EventRange'{}}).
+    {ok, [_Event | _Rest]} = call_service('GetEvents', {ID, #'fistful_base_EventRange'{}}).
 
 -spec get_source_context_ok_test(config()) -> test_return().
 get_source_context_ok_test(C) ->
@@ -104,7 +104,7 @@ create_source_ok_test(C) ->
 -spec unknown_test(config()) -> test_return().
 unknown_test(_C) ->
     ID = <<"unknown_id">>,
-    Result = call_service('Get', {ID, #'EventRange'{}}),
+    Result = call_service('Get', {ID, #'fistful_base_EventRange'{}}),
     ExpectedError = #fistful_SourceNotFound{},
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -125,7 +125,7 @@ create_source_ok(Resource, C) ->
         id = ID,
         identity_id = IdentityID,
         name = Name,
-        currency = #'CurrencyRef'{symbolic_code = Currency},
+        currency = #'fistful_base_CurrencyRef'{symbolic_code = Currency},
         resource = Resource,
         external_id = ExternalId,
         metadata = Metadata
@@ -140,7 +140,7 @@ create_source_ok(Resource, C) ->
 
     Account = Src#src_SourceState.account,
     IdentityID = Account#account_Account.identity,
-    #'CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
+    #'fistful_base_CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
 
     {unauthorized, #src_Unauthorized{}} = Src#src_SourceState.status,
 
@@ -148,13 +148,13 @@ create_source_ok(Resource, C) ->
         {authorized, #src_Authorized{}},
         fun() ->
             {ok, #src_SourceState{status = Status}} =
-                call_service('Get', {ID, #'EventRange'{}}),
+                call_service('Get', {ID, #'fistful_base_EventRange'{}}),
             Status
         end,
         genlib_retry:linear(15, 1000)
     ),
 
-    {ok, #src_SourceState{} = State} = call_service('Get', {ID, #'EventRange'{}}),
+    {ok, #src_SourceState{} = State} = call_service('Get', {ID, #'fistful_base_EventRange'{}}),
     State.
 
 call_service(Fun, Args) ->

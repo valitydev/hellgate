@@ -145,7 +145,7 @@ external_id(#{external_id := ExternalID}) ->
 external_id(_Source) ->
     undefined.
 
--spec created_at(source_state()) -> ff_time:timestamp_ms() | undefiend.
+-spec created_at(source_state()) -> ff_time:timestamp_ms() | undefined.
 created_at(#{created_at := CreatedAt}) ->
     CreatedAt;
 created_at(_Source) ->

@@ -31,9 +31,9 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
     ok = scoper:add_meta(maps:with([id, wallet_id, source_id, external_id], Params)),
     case ff_deposit_machine:create(Params, Context) of
         ok ->
-            handle_function_('Get', {maps:get(id, Params), #'EventRange'{}}, Opts);
+            handle_function_('Get', {maps:get(id, Params), #'fistful_base_EventRange'{}}, Opts);
         {error, exists} ->
-            handle_function_('Get', {maps:get(id, Params), #'EventRange'{}}, Opts);
+            handle_function_('Get', {maps:get(id, Params), #'fistful_base_EventRange'{}}, Opts);
         {error, {wallet, notfound}} ->
             woody_error:raise(business, #fistful_WalletNotFound{});
         {error, {source, notfound}} ->

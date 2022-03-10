@@ -77,12 +77,20 @@
     | ff_party:inaccessibility()
     | invalid.
 
+-type get_terms_params() :: #{
+    party_revision => ff_party:revision(),
+    domain_revision => ff_domain_config:revision(),
+    timestamp => ff_time:timestamp_ms(),
+    varset => ff_varset:varset()
+}.
+
 -export_type([identity/0]).
 -export_type([identity_state/0]).
 -export_type([event/0]).
 -export_type([id/0]).
 -export_type([create_error/0]).
 -export_type([params/0]).
+-export_type([get_terms_params/0]).
 
 -export([id/1]).
 -export([name/1]).
@@ -98,6 +106,9 @@
 -export([set_blocking/1]).
 
 -export([create/1]).
+-export([get_withdrawal_methods/1]).
+-export([get_withdrawal_methods/2]).
+-export([get_terms/2]).
 
 -export([apply_event/2]).
 
@@ -192,6 +203,39 @@ create(Params = #{id := ID, name := Name, party := Party, provider := ProviderID
                 })}
         ]
     end).
+
+-spec get_withdrawal_methods(identity_state()) ->
+    ordsets:ordset(ff_party:method_ref()).
+get_withdrawal_methods(Identity) ->
+    get_withdrawal_methods(Identity, #{}).
+
+-spec get_withdrawal_methods(identity_state(), get_terms_params()) ->
+    ordsets:ordset(ff_party:method_ref()).
+get_withdrawal_methods(Identity, Params) ->
+    ff_party:get_withdrawal_methods(get_terms(Identity, Params)).
+
+-spec get_terms(identity_state(), get_terms_params()) ->
+    ff_party:terms().
+get_terms(Identity, Params) ->
+    PartyID = ff_identity:party(Identity),
+    ContractID = ff_identity:contract(Identity),
+    PartyRevision =
+        case maps:get(party_revision, Params, undefined) of
+            Revision when Revision =/= undefined ->
+                Revision;
+            _ ->
+                {ok, PartyRevisionDef} = ff_party:get_revision(PartyID),
+                PartyRevisionDef
+        end,
+    {ok, Terms} = ff_party:get_contract_terms(
+        PartyID,
+        ContractID,
+        maps:get(varset, Params, #{}),
+        maps:get(timestamp, Params, ff_time:now()),
+        PartyRevision,
+        maps:get(domain_revision, Params, ff_domain_config:head())
+    ),
+    Terms.
 
 %%
 

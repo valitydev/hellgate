@@ -295,21 +295,20 @@ create(Params) ->
         Identity = get_wallet_identity(Wallet),
         PartyID = ff_identity:party(Identity),
         {ok, PartyRevision} = ff_party:get_revision(PartyID),
-        ContractID = ff_identity:contract(Identity),
         {_Amount, Currency} = Body,
         Varset = genlib_map:compact(#{
             currency => ff_dmsl_codec:marshal(currency_ref, Currency),
             cost => ff_dmsl_codec:marshal(cash, Body),
             wallet_id => WalletID
         }),
-        {ok, Terms} = ff_party:get_contract_terms(
-            PartyID,
-            ContractID,
-            Varset,
-            CreatedAt,
-            PartyRevision,
-            DomainRevision
-        ),
+
+        Terms = ff_identity:get_terms(Identity, #{
+            timestamp => CreatedAt,
+            party_revision => PartyRevision,
+            domain_revision => DomainRevision,
+            varset => Varset
+        }),
+
         valid = unwrap(validate_deposit_creation(Terms, Params, Source, Wallet)),
         TransferParams = #{
             wallet_id => WalletID,
@@ -550,9 +549,7 @@ process_limit_check(Deposit) ->
     DomainRevision = operation_domain_revision(Deposit),
     {ok, Wallet} = get_wallet(WalletID),
     Identity = get_wallet_identity(Wallet),
-    PartyID = ff_identity:party(Identity),
     PartyRevision = operation_party_revision(Deposit),
-    ContractID = ff_identity:contract(Identity),
     {_Amount, Currency} = Body,
     Timestamp = operation_timestamp(Deposit),
     Varset = genlib_map:compact(#{
@@ -560,14 +557,12 @@ process_limit_check(Deposit) ->
         cost => ff_dmsl_codec:marshal(cash, Body),
         wallet_id => WalletID
     }),
-    {ok, Terms} = ff_party:get_contract_terms(
-        PartyID,
-        ContractID,
-        Varset,
-        Timestamp,
-        PartyRevision,
-        DomainRevision
-    ),
+    Terms = ff_identity:get_terms(Identity, #{
+        timestamp => Timestamp,
+        party_revision => PartyRevision,
+        domain_revision => DomainRevision,
+        varset => Varset
+    }),
     Clock = ff_postings_transfer:clock(p_transfer(Deposit)),
     Events =
         case validate_wallet_limits(Terms, Wallet, Clock) of

@@ -11,9 +11,11 @@
 
 -export([create_identity_ok/1]).
 -export([get_event_unknown_identity_ok/1]).
+-export([get_withdrawal_methods_ok/1]).
 
 -spec create_identity_ok(config()) -> test_return().
 -spec get_event_unknown_identity_ok(config()) -> test_return().
+-spec get_withdrawal_methods_ok(config()) -> test_return().
 
 %%
 
@@ -26,7 +28,8 @@
 all() ->
     [
         create_identity_ok,
-        get_event_unknown_identity_ok
+        get_event_unknown_identity_ok,
+        get_withdrawal_methods_ok
     ].
 
 -spec init_per_suite(config()) -> config().
@@ -68,7 +71,7 @@ create_identity_ok(_C) ->
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     Identity0 = create_identity(EID, Name, PartyID, ProvID, Ctx, Metadata),
     IID = Identity0#idnt_IdentityState.id,
-    {ok, Identity1} = call_api('Get', {IID, #'EventRange'{}}),
+    {ok, Identity1} = call_api('Get', {IID, #'fistful_base_EventRange'{}}),
 
     ProvID = Identity1#idnt_IdentityState.provider_id,
     IID = Identity1#idnt_IdentityState.id,
@@ -90,11 +93,26 @@ get_event_unknown_identity_ok(_C) ->
     ProvID = <<"good-one">>,
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     create_identity(EID, Name, PID, ProvID, Ctx, Metadata),
-    Range = #'EventRange'{
+    Range = #'fistful_base_EventRange'{
         limit = 1,
         'after' = undefined
     },
     {exception, #'fistful_IdentityNotFound'{}} = call_api('GetEvents', {<<"bad id">>, Range}).
+
+get_withdrawal_methods_ok(_C) ->
+    Ctx = #{<<"NS">> => #{}},
+    EID = genlib:unique(),
+    PID = create_party(),
+    Name = <<"Identity Name">>,
+    ProvID = <<"good-one">>,
+    Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
+    #idnt_IdentityState{id = ID} = create_identity(EID, Name, PID, ProvID, Ctx, Metadata),
+    {ok, [
+        {bank_card, _},
+        {crypto_currency, _},
+        {digital_wallet, _},
+        {generic, _}
+    ]} = call_api('GetWithdrawalMethods', {ID}).
 
 %%----------
 %% INTERNAL

@@ -325,9 +325,9 @@ get_legacy_provider_id(#{provider_id := Provider}) when is_integer(Provider) ->
 withdrawal_symmetry_test() ->
     In = #wthd_Withdrawal{
         id = genlib:unique(),
-        body = #'Cash'{
+        body = #'fistful_base_Cash'{
             amount = 10101,
-            currency = #'CurrencyRef'{symbolic_code = <<"Banana Republic">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Banana Republic">>}
         },
         wallet_id = genlib:unique(),
         destination_id = genlib:unique(),
@@ -347,9 +347,9 @@ withdrawal_symmetry_test() ->
 withdrawal_params_symmetry_test() ->
     In = #wthd_WithdrawalParams{
         id = genlib:unique(),
-        body = #'Cash'{
+        body = #'fistful_base_Cash'{
             amount = 10101,
-            currency = #'CurrencyRef'{symbolic_code = <<"Banana Republic">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Banana Republic">>}
         },
         wallet_id = genlib:unique(),
         destination_id = genlib:unique(),
@@ -360,13 +360,13 @@ withdrawal_params_symmetry_test() ->
 -spec quote_state_symmetry_test() -> _.
 quote_state_symmetry_test() ->
     In = #wthd_QuoteState{
-        cash_from = #'Cash'{
+        cash_from = #'fistful_base_Cash'{
             amount = 10101,
-            currency = #'CurrencyRef'{symbolic_code = <<"Banana Republic">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Banana Republic">>}
         },
-        cash_to = #'Cash'{
+        cash_to = #'fistful_base_Cash'{
             amount = 20202,
-            currency = #'CurrencyRef'{symbolic_code = <<"Pineapple Empire">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Pineapple Empire">>}
         },
         created_at = genlib:unique(),
         expires_on = genlib:unique(),
@@ -376,7 +376,8 @@ quote_state_symmetry_test() ->
             terminal_id = 2,
             provider_id_legacy = <<>>
         },
-        resource = {bank_card, #'ResourceDescriptorBankCard'{bin_data_id = {arr, [{bin, genlib:unique()}]}}},
+        resource =
+            {bank_card, #'fistful_base_ResourceDescriptorBankCard'{bin_data_id = {arr, [{bin, genlib:unique()}]}}},
         quote_data_legacy = #{}
     },
     ?assertEqual(In, marshal(quote_state, unmarshal(quote_state, In))).
@@ -384,13 +385,13 @@ quote_state_symmetry_test() ->
 -spec quote_symmetry_test() -> _.
 quote_symmetry_test() ->
     In = #wthd_Quote{
-        cash_from = #'Cash'{
+        cash_from = #'fistful_base_Cash'{
             amount = 10101,
-            currency = #'CurrencyRef'{symbolic_code = <<"Banana Republic">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Banana Republic">>}
         },
-        cash_to = #'Cash'{
+        cash_to = #'fistful_base_Cash'{
             amount = 20202,
-            currency = #'CurrencyRef'{symbolic_code = <<"Pineapple Empire">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Pineapple Empire">>}
         },
         created_at = genlib:unique(),
         expires_on = genlib:unique(),
@@ -400,7 +401,8 @@ quote_symmetry_test() ->
             terminal_id = 2,
             provider_id_legacy = <<"drovider">>
         },
-        resource = {bank_card, #'ResourceDescriptorBankCard'{bin_data_id = {arr, [{bin, genlib:unique()}]}}},
+        resource =
+            {bank_card, #'fistful_base_ResourceDescriptorBankCard'{bin_data_id = {arr, [{bin, genlib:unique()}]}}},
         domain_revision = 1,
         party_revision = 2,
         operation_timestamp = <<"2020-01-01T01:00:00Z">>

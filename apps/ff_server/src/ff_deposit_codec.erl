@@ -181,9 +181,9 @@ maybe_marshal(Type, Value) ->
 
 deposit_symmetry_test() ->
     Encoded = #deposit_Deposit{
-        body = #'Cash'{
+        body = #'fistful_base_Cash'{
             amount = 10101,
-            currency = #'CurrencyRef'{symbolic_code = <<"Banana Republic">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Banana Republic">>}
         },
         source_id = genlib:unique(),
         wallet_id = genlib:unique(),
@@ -200,9 +200,9 @@ deposit_symmetry_test() ->
 deposit_params_symmetry_test() ->
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     Encoded = #deposit_DepositParams{
-        body = #'Cash'{
+        body = #'fistful_base_Cash'{
             amount = 10101,
-            currency = #'CurrencyRef'{symbolic_code = <<"Banana Republic">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Banana Republic">>}
         },
         source_id = genlib:unique(),
         wallet_id = genlib:unique(),

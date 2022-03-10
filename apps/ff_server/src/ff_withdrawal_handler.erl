@@ -48,6 +48,8 @@ handle_function_('GetQuote', {MarshaledParams}, _Opts) ->
                 amount = ff_codec:marshal(cash, Cash),
                 allowed_range = ff_codec:marshal(cash_range, Range)
             });
+        {error, {terms, {terms_violation, {not_allowed_withdrawal_method, _}}}} ->
+            woody_error:raise(business, #fistful_ForbiddenWithdrawalMethod{});
         {error, {inconsistent_currency, {Withdrawal, Wallet, Destination}}} ->
             woody_error:raise(business, #wthd_InconsistentWithdrawalCurrency{
                 withdrawal_currency = ff_codec:marshal(currency_ref, Withdrawal),
@@ -68,9 +70,9 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
     ok = scoper:add_meta(maps:with([id, wallet_id, destination_id, external_id], Params)),
     case ff_withdrawal_machine:create(Params, Context) of
         ok ->
-            handle_function_('Get', {maps:get(id, Params), #'EventRange'{}}, Opts);
+            handle_function_('Get', {maps:get(id, Params), #'fistful_base_EventRange'{}}, Opts);
         {error, exists} ->
-            handle_function_('Get', {maps:get(id, Params), #'EventRange'{}}, Opts);
+            handle_function_('Get', {maps:get(id, Params), #'fistful_base_EventRange'{}}, Opts);
         {error, {wallet, notfound}} ->
             woody_error:raise(business, #fistful_WalletNotFound{});
         {error, {destination, notfound}} ->
@@ -93,6 +95,8 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
                 amount = ff_codec:marshal(cash, Cash),
                 allowed_range = ff_codec:marshal(cash_range, Range)
             });
+        {error, {terms, {terms_violation, {not_allowed_withdrawal_method, _}}}} ->
+            woody_error:raise(business, #fistful_ForbiddenWithdrawalMethod{});
         {error, {inconsistent_currency, {Withdrawal, Wallet, Destination}}} ->
             woody_error:raise(business, #wthd_InconsistentWithdrawalCurrency{
                 withdrawal_currency = ff_codec:marshal(currency_ref, Withdrawal),

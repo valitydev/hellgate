@@ -22,6 +22,7 @@
 -export([deposit_quote_withdrawal_ok/1]).
 -export([deposit_withdrawal_to_crypto_wallet/1]).
 -export([deposit_withdrawal_to_digital_wallet/1]).
+-export([deposit_withdrawal_to_generic/1]).
 
 -type config() :: ct_helper:config().
 -type test_case_name() :: ct_helper:test_case_name().
@@ -44,7 +45,8 @@ groups() ->
             deposit_withdrawal_ok,
             deposit_quote_withdrawal_ok,
             deposit_withdrawal_to_crypto_wallet,
-            deposit_withdrawal_to_digital_wallet
+            deposit_withdrawal_to_digital_wallet,
+            deposit_withdrawal_to_generic
         ]}
     ].
 
@@ -94,6 +96,7 @@ end_per_testcase(_Name, _C) ->
 -spec deposit_withdrawal_ok(config()) -> test_return().
 -spec deposit_withdrawal_to_crypto_wallet(config()) -> test_return().
 -spec deposit_withdrawal_to_digital_wallet(config()) -> test_return().
+-spec deposit_withdrawal_to_generic(config()) -> test_return().
 -spec deposit_quote_withdrawal_ok(config()) -> test_return().
 
 get_missing_fails(_C) ->
@@ -115,7 +118,7 @@ deposit_via_admin_ok(C) ->
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
-                currency = #'CurrencyRef'{symbolic_code = <<"RUB">>},
+                currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
                 resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
             }
         }
@@ -138,9 +141,9 @@ deposit_via_admin_ok(C) ->
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
-                body = #'Cash'{
+                body = #'fistful_base_Cash'{
                     amount = 20000,
-                    currency = #'CurrencyRef'{symbolic_code = <<"RUB">>}
+                    currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>}
                 }
             }
         }
@@ -173,7 +176,7 @@ deposit_via_admin_fails(C) ->
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
-                currency = #'CurrencyRef'{symbolic_code = <<"RUB">>},
+                currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
                 resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
             }
         }
@@ -195,9 +198,9 @@ deposit_via_admin_fails(C) ->
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
-                body = #'Cash'{
+                body = #'fistful_base_Cash'{
                     amount = 10000002,
-                    currency = #'CurrencyRef'{symbolic_code = <<"RUB">>}
+                    currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>}
                 }
             }
         }
@@ -232,7 +235,7 @@ deposit_via_admin_amount_fails(C) ->
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
-                currency = #'CurrencyRef'{symbolic_code = <<"RUB">>},
+                currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
                 resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
             }
         }
@@ -253,9 +256,9 @@ deposit_via_admin_amount_fails(C) ->
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
-                body = #'Cash'{
+                body = #'fistful_base_Cash'{
                     amount = -1,
-                    currency = #'CurrencyRef'{symbolic_code = <<"RUB">>}
+                    currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>}
                 }
             }
         }
@@ -277,7 +280,7 @@ deposit_via_admin_currency_fails(C) ->
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
-                currency = #'CurrencyRef'{symbolic_code = <<"RUB">>},
+                currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
                 resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
             }
         }
@@ -299,9 +302,9 @@ deposit_via_admin_currency_fails(C) ->
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
-                body = #'Cash'{
+                body = #'fistful_base_Cash'{
                     amount = 1000,
-                    currency = #'CurrencyRef'{symbolic_code = BadCurrency}
+                    currency = #'fistful_base_CurrencyRef'{symbolic_code = BadCurrency}
                 }
             }
         }
@@ -344,6 +347,18 @@ deposit_withdrawal_to_digital_wallet(C) ->
     WdrID = process_withdrawal(WalID, DestID),
     Events = get_withdrawal_events(WdrID),
     [3] = route_changes(Events).
+
+deposit_withdrawal_to_generic(C) ->
+    Party = create_party(C),
+    IID = create_identity(Party, C),
+    WalID = create_wallet(IID, <<"WalletName">>, <<"RUB">>, C),
+    ok = await_wallet_balance({0, <<"RUB">>}, WalID),
+    SrcID = create_source(IID, C),
+    ok = process_deposit(SrcID, WalID),
+    DestID = create_generic_destination(IID, C),
+    WdrID = process_withdrawal(WalID, DestID),
+    Events = get_withdrawal_events(WdrID),
+    [2] = route_changes(Events).
 
 deposit_quote_withdrawal_ok(C) ->
     Party = create_party(C),
@@ -544,6 +559,29 @@ create_digital_destination(IID, _C) ->
     ),
     DestID.
 
+create_generic_destination(IID, _C) ->
+    ID = generate_id(),
+    Resource =
+        {generic, #{
+            generic => #{
+                provider => #{id => <<"IND">>},
+                data => #{type => <<"application/json">>, data => <<"{}">>}
+            }
+        }},
+    Params = #{
+        id => ID, identity => IID, name => <<"GenericDestination">>, currency => <<"RUB">>, resource => Resource
+    },
+    ok = ff_destination_machine:create(Params, ff_entity_context:new()),
+    authorized = ct_helper:await(
+        authorized,
+        fun() ->
+            {ok, Machine} = ff_destination_machine:get(ID),
+            Destination = ff_destination_machine:destination(Machine),
+            ff_destination:status(Destination)
+        end
+    ),
+    ID.
+
 process_withdrawal(WalID, DestID) ->
     process_withdrawal(WalID, DestID, #{wallet_id => WalID, destination_id => DestID, body => {4240, <<"RUB">>}}).
 
@@ -569,7 +607,7 @@ process_withdrawal(WalID, DestID, Params) ->
 
 get_withdrawal_events(WdrID) ->
     Service = {{ff_proto_withdrawal_thrift, 'Management'}, <<"/v1/withdrawal">>},
-    {ok, Events} = call('GetEvents', Service, {WdrID, #'EventRange'{'after' = 0, limit = 1000}}),
+    {ok, Events} = call('GetEvents', Service, {WdrID, #'fistful_base_EventRange'{'after' = 0, limit = 1000}}),
     Events.
 
 call(Function, Service, Args) ->

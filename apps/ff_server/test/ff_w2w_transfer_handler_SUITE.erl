@@ -93,7 +93,7 @@ create_adjustment_ok_test(C) ->
         id = AdjustmentID,
         change =
             {change_status, #w2w_adj_ChangeStatusRequest{
-                new_status = {failed, #w2w_status_Failed{failure = #'Failure'{code = <<"Ooops">>}}}
+                new_status = {failed, #w2w_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
             }},
         external_id = ExternalID
     },
@@ -136,7 +136,7 @@ check_balance_w2w_transfer_ok_test(C) ->
         w2w_transfer_id := ID,
         wallet_to_id := WalletID2
     } = prepare_standard_environment(Cash, C),
-    {ok, _W2WTransferState} = call_w2w('Get', {ID, #'EventRange'{}}),
+    {ok, _W2WTransferState} = call_w2w('Get', {ID, #'fistful_base_EventRange'{}}),
     ok = await_wallet_balance({200, <<"RUB">>}, WalletID2).
 
 -spec get_w2w_transfer_ok_test(config()) -> test_return().
@@ -145,7 +145,7 @@ get_w2w_transfer_ok_test(C) ->
     #{
         w2w_transfer_id := ID
     } = prepare_standard_environment(Cash, C),
-    {ok, W2WTransferState} = call_w2w('Get', {ID, #'EventRange'{}}),
+    {ok, W2WTransferState} = call_w2w('Get', {ID, #'fistful_base_EventRange'{}}),
     ?assertEqual(ID, W2WTransferState#w2w_transfer_W2WTransferState.id).
 
 -spec create_w2w_transfer_ok_test(config()) -> test_return().
@@ -190,7 +190,7 @@ create_w2w_transfer_ok_test(C) ->
 -spec unknown_test(config()) -> test_return().
 unknown_test(_C) ->
     ID = <<"unknown_id">>,
-    Result = call_w2w('Get', {ID, #'EventRange'{}}),
+    Result = call_w2w('Get', {ID, #'fistful_base_EventRange'{}}),
     ExpectedError = #fistful_W2WNotFound{},
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -225,9 +225,9 @@ get_adjustment(ID, AdjustmentID) ->
     Adjustment.
 
 make_cash({Amount, Currency}) ->
-    #'Cash'{
+    #'fistful_base_Cash'{
         amount = Amount,
-        currency = #'CurrencyRef'{symbolic_code = Currency}
+        currency = #'fistful_base_CurrencyRef'{symbolic_code = Currency}
     }.
 
 call_w2w(Fun, Args) ->
@@ -240,9 +240,9 @@ call_w2w(Fun, Args) ->
     ff_woody_client:call(Client, Request).
 
 prepare_standard_environment(Body, C) ->
-    #'Cash'{
+    #'fistful_base_Cash'{
         amount = Amount,
-        currency = #'CurrencyRef'{symbolic_code = Currency}
+        currency = #'fistful_base_CurrencyRef'{symbolic_code = Currency}
     } = Body,
     Party = create_party(C),
     IdentityID = create_identity(Party, C),

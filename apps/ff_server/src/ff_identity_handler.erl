@@ -29,7 +29,7 @@ handle_function_('Create', {IdentityParams, Context}, Opts) ->
     Params = #{id := IdentityID} = ff_identity_codec:unmarshal_identity_params(IdentityParams),
     case ff_identity_machine:create(Params, ff_identity_codec:unmarshal(ctx, Context)) of
         ok ->
-            handle_function_('Get', {IdentityID, #'EventRange'{}}, Opts);
+            handle_function_('Get', {IdentityID, #'fistful_base_EventRange'{}}, Opts);
         {error, {provider, notfound}} ->
             woody_error:raise(business, #fistful_ProviderNotFound{});
         {error, {party, notfound}} ->
@@ -37,7 +37,7 @@ handle_function_('Create', {IdentityParams, Context}, Opts) ->
         {error, {inaccessible, _}} ->
             woody_error:raise(business, #fistful_PartyInaccessible{});
         {error, exists} ->
-            handle_function_('Get', {IdentityID, #'EventRange'{}}, Opts);
+            handle_function_('Get', {IdentityID, #'fistful_base_EventRange'{}}, Opts);
         {error, Error} ->
             woody_error:raise(system, {internal, result_unexpected, woody_error:format_details(Error)})
     end;
@@ -48,6 +48,21 @@ handle_function_('Get', {ID, EventRange}, _Opts) ->
             Context = ff_identity_machine:ctx(Machine),
             Response = ff_identity_codec:marshal_identity_state(Identity, Context),
             {ok, Response};
+        {error, notfound} ->
+            woody_error:raise(business, #fistful_IdentityNotFound{})
+    end;
+handle_function_('GetWithdrawalMethods', {ID}, _Opts) ->
+    case ff_identity_machine:get(ID) of
+        {ok, Machine} ->
+            DmslMethods = ff_identity:get_withdrawal_methods(ff_identity_machine:identity(Machine)),
+            Methods = lists:map(
+                fun(DmslMethod) ->
+                    Method = ff_dmsl_codec:unmarshal(payment_method_ref, DmslMethod),
+                    ff_codec:marshal(withdrawal_method, Method)
+                end,
+                DmslMethods
+            ),
+            {ok, Methods};
         {error, notfound} ->
             woody_error:raise(business, #fistful_IdentityNotFound{})
     end;

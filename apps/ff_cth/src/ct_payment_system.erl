@@ -409,6 +409,16 @@ domain_config(Options, C) ->
                             then_ = {value, [?prv(2)]}
                         },
                         #domain_ProviderDecision{
+                            if_ =
+                                {condition,
+                                    {payment_tool,
+                                        {generic,
+                                            {payment_service_is, #domain_PaymentServiceRef{
+                                                id = <<"IND">>
+                                            }}}}},
+                            then_ = {value, [?prv(2)]}
+                        },
+                        #domain_ProviderDecision{
                             if_ = {constant, true},
                             then_ = {value, []}
                         }
@@ -591,11 +601,18 @@ domain_config(Options, C) ->
 
         ct_domain:payment_method(?pmt(bank_card_deprecated, visa)),
         ct_domain:payment_method(?pmt(bank_card_deprecated, mastercard)),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_BANK_CARD(<<"VISA">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_GENERIC(<<"IND">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_DIGITAL_WALLET(<<"webmoney">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"Litecoin">>))),
 
         ct_domain:payment_system(?pmtsys(<<"VISA">>), <<"VISA">>),
         ct_domain:payment_system(?pmtsys(<<"NSPK MIR">>), <<"NSPK MIR">>),
 
-        ct_domain:payment_service(?pmtsrv(<<"webmoney">>), <<"Webmoney">>)
+        ct_domain:payment_service(?pmtsrv(<<"webmoney">>), <<"Webmoney">>),
+        ct_domain:payment_service(?pmtsrv(<<"qiwi">>), <<"Qiwi">>),
+        ct_domain:payment_service(?pmtsrv(<<"IND">>), <<"INDbank">>),
+        ct_domain:crypto_currency(?crptcur(<<"Litecoin">>), <<"Litecoin">>)
     ],
     maps:get(domain_config, Options, Default).
 
@@ -657,6 +674,14 @@ default_termset(Options) ->
                                     )}
                         }
                     ]},
+                methods =
+                    {value,
+                        ?ordset([
+                            ?pmt(?PAYMENT_METHOD_BANK_CARD(<<"VISA">>)),
+                            ?pmt(?PAYMENT_METHOD_GENERIC(<<"IND">>)),
+                            ?pmt(?PAYMENT_METHOD_DIGITAL_WALLET(<<"webmoney">>)),
+                            ?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"Litecoin">>))
+                        ])},
                 cash_flow =
                     {decisions, [
                         % this is impossible cash flow decision to check
@@ -800,6 +825,68 @@ default_termset(Options) ->
                                     ?ordset([
                                         {condition, {currency_is, ?cur(<<"RUB">>)}},
                                         {condition, {payment_tool, {digital_wallet, #domain_DigitalWalletCondition{}}}}
+                                    ])},
+                            then_ =
+                                {value, [
+                                    ?cfpost(
+                                        {wallet, sender_settlement},
+                                        {wallet, receiver_destination},
+                                        ?share(1, 1, operation_amount)
+                                    ),
+                                    ?cfpost(
+                                        {wallet, receiver_destination},
+                                        {system, settlement},
+                                        ?share(10, 100, operation_amount)
+                                    ),
+                                    ?cfpost(
+                                        {wallet, receiver_destination},
+                                        {system, subagent},
+                                        ?share(10, 100, operation_amount)
+                                    )
+                                ]}
+                        },
+                        #domain_CashFlowDecision{
+                            if_ =
+                                {all_of,
+                                    ?ordset([
+                                        {condition, {currency_is, ?cur(<<"RUB">>)}},
+                                        {condition,
+                                            {payment_tool,
+                                                {generic,
+                                                    {payment_service_is, #domain_PaymentServiceRef{
+                                                        id = <<"IND">>
+                                                    }}}}}
+                                    ])},
+                            then_ =
+                                {value, [
+                                    ?cfpost(
+                                        {wallet, sender_settlement},
+                                        {wallet, receiver_destination},
+                                        ?share(1, 1, operation_amount)
+                                    ),
+                                    ?cfpost(
+                                        {wallet, receiver_destination},
+                                        {system, settlement},
+                                        ?share(10, 100, operation_amount)
+                                    ),
+                                    ?cfpost(
+                                        {wallet, receiver_destination},
+                                        {system, subagent},
+                                        ?share(10, 100, operation_amount)
+                                    )
+                                ]}
+                        },
+                        #domain_CashFlowDecision{
+                            if_ =
+                                {all_of,
+                                    ?ordset([
+                                        {condition, {currency_is, ?cur(<<"RUB">>)}},
+                                        {condition,
+                                            {payment_tool,
+                                                {generic,
+                                                    {payment_service_is, #domain_PaymentServiceRef{
+                                                        id = <<"qiwi">>
+                                                    }}}}}
                                     ])},
                             then_ =
                                 {value, [

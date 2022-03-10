@@ -169,9 +169,9 @@ maybe_marshal(Type, Value) ->
 
 w2w_transfer_symmetry_test() ->
     Encoded = #w2w_transfer_W2WTransfer{
-        body = #'Cash'{
+        body = #'fistful_base_Cash'{
             amount = 10101,
-            currency = #'CurrencyRef'{symbolic_code = <<"Banana Republic">>}
+            currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"Banana Republic">>}
         },
         wallet_from_id = genlib:unique(),
         wallet_to_id = genlib:unique(),

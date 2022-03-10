@@ -64,6 +64,7 @@
     {identity, notfound}
     | {currency, notfound}
     | ff_account:create_error()
+    | {terms, ff_party:withdrawal_method_validation_error()}
     | {identity, ff_party:inaccessibility()}.
 
 -export_type([id/0]).
@@ -149,7 +150,7 @@ external_id(#{external_id := ExternalID}) ->
 external_id(_Destination) ->
     undefined.
 
--spec created_at(destination_state()) -> ff_time:timestamp_ms() | undefiend.
+-spec created_at(destination_state()) -> ff_time:timestamp_ms() | undefined.
 created_at(#{created_at := CreatedAt}) ->
     CreatedAt;
 created_at(_Destination) ->
@@ -178,9 +179,12 @@ create(Params) ->
         Identity = ff_identity_machine:identity(unwrap(identity, ff_identity_machine:get(IdentityID))),
         accessible = unwrap(identity, ff_identity:is_accessible(Identity)),
         valid = ff_resource:check_resource(Resource),
+        CreatedAt = ff_time:now(),
+        Method = ff_resource:method(Resource),
+        Terms = ff_identity:get_terms(Identity, #{timestamp => CreatedAt}),
+        valid = unwrap(terms, ff_party:validate_destination_creation(Terms, Method)),
         Currency = unwrap(currency, ff_currency:get(CurrencyID)),
         Events = unwrap(ff_account:create(ID, Identity, Currency)),
-        CreatedAt = ff_time:now(),
         [
             {created,
                 genlib_map:compact(#{

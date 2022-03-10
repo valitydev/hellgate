@@ -86,7 +86,7 @@ repair_failed_session_with_success(C) ->
         {set_session_result, #wthd_session_SetResultRepair{
             result =
                 {success, #wthd_session_SessionResultSuccess{
-                    trx_info = #'TransactionInfo'{
+                    trx_info = #'fistful_base_TransactionInfo'{
                         id = SessionID,
                         extra = #{}
                     }
@@ -109,7 +109,7 @@ repair_failed_session_with_failure(C) ->
         {set_session_result, #wthd_session_SetResultRepair{
             result =
                 {failed, #wthd_session_SessionResultFailed{
-                    failure = #'Failure'{
+                    failure = #'fistful_base_Failure'{
                         code = SessionID
                     }
                 }}

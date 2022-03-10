@@ -218,6 +218,8 @@ marshal(
         token = Token,
         payment_service = marshal(payment_service, PaymentService)
     }};
+marshal(resource, Resource = {generic, _}) ->
+    ff_dmsl_codec:marshal(payment_tool, Resource);
 marshal(
     withdrawal,
     #{

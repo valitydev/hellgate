@@ -255,21 +255,18 @@ create(Params) ->
         Identity = get_wallet_identity(WalletFrom),
         PartyID = ff_identity:party(Identity),
         {ok, PartyRevision} = ff_party:get_revision(PartyID),
-        ContractID = ff_identity:contract(Identity),
         {_Amount, Currency} = Body,
         Varset = genlib_map:compact(#{
             currency => ff_dmsl_codec:marshal(currency_ref, Currency),
             cost => ff_dmsl_codec:marshal(cash, Body),
             wallet_id => WalletFromID
         }),
-        {ok, Terms} = ff_party:get_contract_terms(
-            PartyID,
-            ContractID,
-            Varset,
-            CreatedAt,
-            PartyRevision,
-            DomainRevision
-        ),
+        Terms = ff_identity:get_terms(Identity, #{
+            timestamp => CreatedAt,
+            party_revision => PartyRevision,
+            domain_revision => DomainRevision,
+            varset => Varset
+        }),
         valid = unwrap(terms, validate_w2w_transfer_creation(Terms, Params, WalletFrom, WalletTo)),
         ExternalID = maps:get(external_id, Params, undefined),
         Metadata = maps:get(metadata, Params, undefined),
@@ -491,18 +488,14 @@ make_final_cash_flow(W2WTransferState) ->
         {wallet, receiver_settlement} => WalletToAccount
     },
 
-    PartyID = ff_identity:party(Identity),
     PartyRevision = party_revision(W2WTransferState),
-    ContractID = ff_identity:contract(Identity),
     Timestamp = operation_timestamp(W2WTransferState),
-    {ok, Terms} = ff_party:get_contract_terms(
-        PartyID,
-        ContractID,
-        Varset,
-        Timestamp,
-        PartyRevision,
-        DomainRevision
-    ),
+    Terms = ff_identity:get_terms(Identity, #{
+        timestamp => Timestamp,
+        party_revision => PartyRevision,
+        domain_revision => DomainRevision,
+        varset => Varset
+    }),
     {ok, CashFlowPlan} = ff_party:get_w2w_cash_flow_plan(Terms),
 
     {ok, FinalCashFlow} = ff_cash_flow:finalize(CashFlowPlan, Accounts, Constants),
@@ -608,9 +601,7 @@ process_wallet_limit_check(WalletID, W2WTransferState) ->
     {ok, Wallet} = get_wallet(WalletID),
     DomainRevision = operation_domain_revision(W2WTransferState),
     Identity = get_wallet_identity(Wallet),
-    PartyID = ff_identity:party(Identity),
     PartyRevision = operation_party_revision(W2WTransferState),
-    ContractID = ff_identity:contract(Identity),
     {_Amount, Currency} = Body,
     Timestamp = operation_timestamp(W2WTransferState),
     Varset = genlib_map:compact(#{
@@ -618,14 +609,12 @@ process_wallet_limit_check(WalletID, W2WTransferState) ->
         cost => ff_dmsl_codec:marshal(cash, Body),
         wallet_id => WalletID
     }),
-    {ok, Terms} = ff_party:get_contract_terms(
-        PartyID,
-        ContractID,
-        Varset,
-        Timestamp,
-        PartyRevision,
-        DomainRevision
-    ),
+    Terms = ff_identity:get_terms(Identity, #{
+        timestamp => Timestamp,
+        party_revision => PartyRevision,
+        domain_revision => DomainRevision,
+        varset => Varset
+    }),
     Clock = ff_postings_transfer:clock(p_transfer(W2WTransferState)),
     case validate_wallet_limits(Terms, Wallet, Clock) of
         {ok, valid} ->

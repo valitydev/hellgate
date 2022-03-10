@@ -25,6 +25,7 @@
 -export([create_currency_validation_error_test/1]).
 -export([create_destination_resource_notfound_test/1]).
 -export([create_destination_notfound_test/1]).
+-export([create_destination_generic_ok_test/1]).
 -export([create_wallet_notfound_test/1]).
 -export([unknown_test/1]).
 -export([get_context_test/1]).
@@ -57,6 +58,7 @@ groups() ->
             create_inconsistent_currency_validation_error_test,
             create_destination_resource_notfound_test,
             create_destination_notfound_test,
+            create_destination_generic_ok_test,
             create_wallet_notfound_test,
             unknown_test,
             get_context_test,
@@ -128,9 +130,9 @@ create_withdrawal_and_get_session_ok_test(C) ->
     {ok, _WithdrawalState} = call_withdrawal('Create', {Params, Ctx}),
 
     succeeded = await_final_withdrawal_status(WithdrawalID),
-    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'EventRange'{}}),
+    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
     [#wthd_SessionState{id = SessionID} | _Rest] = FinalWithdrawalState#wthd_WithdrawalState.sessions,
-    {ok, _Session} = call_withdrawal_session('Get', {SessionID, #'EventRange'{}}).
+    {ok, _Session} = call_withdrawal_session('Get', {SessionID, #'fistful_base_EventRange'{}}).
 
 -spec session_get_context_test(config()) -> test_return().
 session_get_context_test(C) ->
@@ -154,14 +156,14 @@ session_get_context_test(C) ->
     {ok, _WithdrawalState} = call_withdrawal('Create', {Params, Ctx}),
 
     succeeded = await_final_withdrawal_status(WithdrawalID),
-    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'EventRange'{}}),
+    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
     [#wthd_SessionState{id = SessionID} | _Rest] = FinalWithdrawalState#wthd_WithdrawalState.sessions,
     {ok, _Session} = call_withdrawal_session('GetContext', {SessionID}).
 
 -spec session_unknown_test(config()) -> test_return().
 session_unknown_test(_C) ->
     WithdrawalSessionID = <<"unknown_withdrawal_session">>,
-    Result = call_withdrawal_session('Get', {WithdrawalSessionID, #'EventRange'{}}),
+    Result = call_withdrawal_session('Get', {WithdrawalSessionID, #'fistful_base_EventRange'{}}),
     ExpectedError = #fistful_WithdrawalSessionNotFound{},
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -207,7 +209,7 @@ create_withdrawal_ok_test(C) ->
     ),
 
     succeeded = await_final_withdrawal_status(WithdrawalID),
-    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'EventRange'{}}),
+    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
     ?assertMatch(
         {succeeded, _},
         FinalWithdrawalState#wthd_WithdrawalState.status
@@ -229,7 +231,7 @@ create_cashlimit_validation_error_test(C) ->
     Result = call_withdrawal('Create', {Params, #{}}),
     ExpectedError = #fistful_ForbiddenOperationAmount{
         amount = make_cash({20000000, <<"RUB">>}),
-        allowed_range = #'CashRange'{
+        allowed_range = #'fistful_base_CashRange'{
             lower = {inclusive, make_cash({0, <<"RUB">>})},
             upper = {exclusive, make_cash({10000001, <<"RUB">>})}
         }
@@ -251,9 +253,9 @@ create_currency_validation_error_test(C) ->
     },
     Result = call_withdrawal('Create', {Params, #{}}),
     ExpectedError = #fistful_ForbiddenOperationCurrency{
-        currency = #'CurrencyRef'{symbolic_code = <<"USD">>},
+        currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"USD">>},
         allowed_currencies = [
-            #'CurrencyRef'{symbolic_code = <<"RUB">>}
+            #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>}
         ]
     },
     ?assertEqual({exception, ExpectedError}, Result).
@@ -273,9 +275,9 @@ create_inconsistent_currency_validation_error_test(C) ->
     },
     Result = call_withdrawal('Create', {Params, #{}}),
     ExpectedError = #wthd_InconsistentWithdrawalCurrency{
-        withdrawal_currency = #'CurrencyRef'{symbolic_code = <<"RUB">>},
-        destination_currency = #'CurrencyRef'{symbolic_code = <<"USD">>},
-        wallet_currency = #'CurrencyRef'{symbolic_code = <<"USD">>}
+        withdrawal_currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
+        destination_currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"USD">>},
+        wallet_currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"USD">>}
     },
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -312,6 +314,55 @@ create_destination_notfound_test(C) ->
     ExpectedError = #fistful_DestinationNotFound{},
     ?assertEqual({exception, ExpectedError}, Result).
 
+-spec create_destination_generic_ok_test(config()) -> test_return().
+create_destination_generic_ok_test(C) ->
+    Cash = make_cash({1000, <<"RUB">>}),
+    #{
+        wallet_id := WalletID,
+        identity_id := IdentityID
+    } = prepare_standard_environment(Cash, C),
+    DestinationID = create_generic_destination(<<"IND">>, IdentityID, C),
+    WithdrawalID = generate_id(),
+    ExternalID = generate_id(),
+    Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
+    Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
+    Params = #wthd_WithdrawalParams{
+        id = WithdrawalID,
+        wallet_id = WalletID,
+        destination_id = DestinationID,
+        body = Cash,
+        metadata = Metadata,
+        external_id = ExternalID
+    },
+    {ok, WithdrawalState} = call_withdrawal('Create', {Params, Ctx}),
+
+    Expected = get_withdrawal(WithdrawalID),
+    ?assertEqual(WithdrawalID, WithdrawalState#wthd_WithdrawalState.id),
+    ?assertEqual(ExternalID, WithdrawalState#wthd_WithdrawalState.external_id),
+    ?assertEqual(WalletID, WithdrawalState#wthd_WithdrawalState.wallet_id),
+    ?assertEqual(DestinationID, WithdrawalState#wthd_WithdrawalState.destination_id),
+    ?assertEqual(Cash, WithdrawalState#wthd_WithdrawalState.body),
+    ?assertEqual(Metadata, WithdrawalState#wthd_WithdrawalState.metadata),
+    ?assertEqual(
+        ff_withdrawal:domain_revision(Expected),
+        WithdrawalState#wthd_WithdrawalState.domain_revision
+    ),
+    ?assertEqual(
+        ff_withdrawal:party_revision(Expected),
+        WithdrawalState#wthd_WithdrawalState.party_revision
+    ),
+    ?assertEqual(
+        ff_withdrawal:created_at(Expected),
+        ff_codec:unmarshal(timestamp_ms, WithdrawalState#wthd_WithdrawalState.created_at)
+    ),
+
+    succeeded = await_final_withdrawal_status(WithdrawalID),
+    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
+    ?assertMatch(
+        {succeeded, _},
+        FinalWithdrawalState#wthd_WithdrawalState.status
+    ).
+
 -spec create_wallet_notfound_test(config()) -> test_return().
 create_wallet_notfound_test(C) ->
     Cash = make_cash({100, <<"RUB">>}),
@@ -331,7 +382,7 @@ create_wallet_notfound_test(C) ->
 -spec unknown_test(config()) -> test_return().
 unknown_test(_C) ->
     WithdrawalID = <<"unknown_withdrawal">>,
-    Result = call_withdrawal('Get', {WithdrawalID, #'EventRange'{}}),
+    Result = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
     ExpectedError = #fistful_WithdrawalNotFound{},
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -367,7 +418,7 @@ create_adjustment_ok_test(C) ->
         id = AdjustmentID,
         change =
             {change_status, #wthd_adj_ChangeStatusRequest{
-                new_status = {failed, #wthd_status_Failed{failure = #'Failure'{code = <<"Ooops">>}}}
+                new_status = {failed, #wthd_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
             }},
         external_id = ExternalID
     },
@@ -438,11 +489,11 @@ withdrawal_state_content_test(C) ->
         id = generate_id(),
         change =
             {change_status, #wthd_adj_ChangeStatusRequest{
-                new_status = {failed, #wthd_status_Failed{failure = #'Failure'{code = <<"Ooops">>}}}
+                new_status = {failed, #wthd_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
             }}
     },
     {ok, _AdjustmentState} = call_withdrawal('CreateAdjustment', {WithdrawalID, Params}),
-    {ok, WithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'EventRange'{}}),
+    {ok, WithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
     ?assertMatch([_], WithdrawalState#wthd_WithdrawalState.sessions),
     ?assertMatch([_], WithdrawalState#wthd_WithdrawalState.adjustments),
     ?assertNotEqual(
@@ -476,9 +527,9 @@ prepare_standard_environment(Body, C) ->
     prepare_standard_environment(Body, undefined, C).
 
 prepare_standard_environment(Body, Token, C) ->
-    #'Cash'{
+    #'fistful_base_Cash'{
         amount = Amount,
-        currency = #'CurrencyRef'{symbolic_code = Currency}
+        currency = #'fistful_base_CurrencyRef'{symbolic_code = Currency}
     } = Body,
     Party = create_party(C),
     IdentityID = create_identity(Party, C),
@@ -628,6 +679,29 @@ create_destination(IID, Currency, Token, C) ->
     ),
     ID.
 
+create_generic_destination(Provider, IID, _C) ->
+    ID = generate_id(),
+    Resource =
+        {generic, #{
+            generic => #{
+                provider => #{id => Provider},
+                data => #{type => <<"application/json">>, data => <<"{}">>}
+            }
+        }},
+    Params = #{
+        id => ID, identity => IID, name => <<"GenericDestination">>, currency => <<"RUB">>, resource => Resource
+    },
+    ok = ff_destination_machine:create(Params, ff_entity_context:new()),
+    authorized = ct_helper:await(
+        authorized,
+        fun() ->
+            {ok, Machine} = ff_destination_machine:get(ID),
+            Destination = ff_destination_machine:destination(Machine),
+            ff_destination:status(Destination)
+        end
+    ),
+    ID.
+
 set_wallet_balance({Amount, Currency}, ID) ->
     TransactionID = generate_id(),
     {ok, Machine} = ff_wallet_machine:get(ID),
@@ -660,7 +734,7 @@ call_accounter(Function, Args) ->
     ff_woody_client:call(accounter, {Service, Function, Args}, woody_context:new()).
 
 make_cash({Amount, Currency}) ->
-    #'Cash'{
+    #'fistful_base_Cash'{
         amount = Amount,
-        currency = #'CurrencyRef'{symbolic_code = Currency}
+        currency = #'fistful_base_CurrencyRef'{symbolic_code = Currency}
     }.

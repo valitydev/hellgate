@@ -15,6 +15,8 @@
 -export([create_crypto_wallet_destination_ok/1]).
 -export([create_ripple_wallet_destination_ok/1]).
 -export([create_digital_wallet_destination_ok/1]).
+-export([create_generic_destination_ok/1]).
+-export([create_destination_forbidden_withdrawal_method_fail/1]).
 
 -type config() :: ct_helper:config().
 -type test_case_name() :: ct_helper:test_case_name().
@@ -32,7 +34,9 @@ groups() ->
             create_bank_card_destination_ok,
             create_crypto_wallet_destination_ok,
             create_ripple_wallet_destination_ok,
-            create_digital_wallet_destination_ok
+            create_digital_wallet_destination_ok,
+            create_generic_destination_ok,
+            create_destination_forbidden_withdrawal_method_fail
         ]}
     ].
 
@@ -75,8 +79,8 @@ end_per_testcase(_Name, _C) ->
 -spec create_bank_card_destination_ok(config()) -> test_return().
 create_bank_card_destination_ok(C) ->
     Resource =
-        {bank_card, #'ResourceBankCard'{
-            bank_card = #'BankCard'{
+        {bank_card, #'fistful_base_ResourceBankCard'{
+            bank_card = #'fistful_base_BankCard'{
                 token = <<"TOKEN shmOKEN">>
             }
         }},
@@ -85,11 +89,11 @@ create_bank_card_destination_ok(C) ->
 -spec create_crypto_wallet_destination_ok(config()) -> test_return().
 create_crypto_wallet_destination_ok(C) ->
     Resource =
-        {crypto_wallet, #'ResourceCryptoWallet'{
-            crypto_wallet = #'CryptoWallet'{
+        {crypto_wallet, #'fistful_base_ResourceCryptoWallet'{
+            crypto_wallet = #'fistful_base_CryptoWallet'{
                 id = <<"f195298af836f41d072cb390ee62bee8">>,
                 currency = bitcoin_cash,
-                data = {bitcoin_cash, #'CryptoDataBitcoinCash'{}}
+                data = {bitcoin_cash, #'fistful_base_CryptoDataBitcoinCash'{}}
             }
         }},
     create_destination_ok(Resource, C).
@@ -97,11 +101,11 @@ create_crypto_wallet_destination_ok(C) ->
 -spec create_ripple_wallet_destination_ok(config()) -> test_return().
 create_ripple_wallet_destination_ok(C) ->
     Resource =
-        {crypto_wallet, #'ResourceCryptoWallet'{
-            crypto_wallet = #'CryptoWallet'{
+        {crypto_wallet, #'fistful_base_ResourceCryptoWallet'{
+            crypto_wallet = #'fistful_base_CryptoWallet'{
                 id = <<"ab843336bf7738dc697522fbb90508de">>,
                 currency = ripple,
-                data = {ripple, #'CryptoDataRipple'{tag = undefined}}
+                data = {ripple, #'fistful_base_CryptoDataRipple'{tag = undefined}}
             }
         }},
     create_destination_ok(Resource, C).
@@ -109,14 +113,53 @@ create_ripple_wallet_destination_ok(C) ->
 -spec create_digital_wallet_destination_ok(config()) -> test_return().
 create_digital_wallet_destination_ok(C) ->
     Resource =
-        {digital_wallet, #'ResourceDigitalWallet'{
-            digital_wallet = #'DigitalWallet'{
+        {digital_wallet, #'fistful_base_ResourceDigitalWallet'{
+            digital_wallet = #'fistful_base_DigitalWallet'{
                 id = <<"f195298af836f41d072cb390ee62bee8">>,
                 token = <<"a30e277c07400c9940628828949efd48">>,
-                payment_service = #'PaymentServiceRef'{id = <<"webmoney">>}
+                payment_service = #'fistful_base_PaymentServiceRef'{id = <<"webmoney">>}
             }
         }},
     create_destination_ok(Resource, C).
+
+-spec create_generic_destination_ok(config()) -> test_return().
+create_generic_destination_ok(C) ->
+    Resource =
+        {generic, #'fistful_base_ResourceGeneric'{
+            generic = #'fistful_base_ResourceGenericData'{
+                data = #'fistful_base_Content'{type = <<"application/json">>, data = <<"{}">>},
+                provider = #'fistful_base_PaymentServiceRef'{id = <<"IND">>}
+            }
+        }},
+    create_destination_ok(Resource, C).
+
+-spec create_destination_forbidden_withdrawal_method_fail(config()) -> test_return().
+create_destination_forbidden_withdrawal_method_fail(C) ->
+    Resource =
+        {generic, #'fistful_base_ResourceGeneric'{
+            generic = #'fistful_base_ResourceGenericData'{
+                data = #'fistful_base_Content'{type = <<"application/json">>, data = <<"{}">>},
+                provider = #'fistful_base_PaymentServiceRef'{id = <<"qiwi">>}
+            }
+        }},
+    Party = create_party(C),
+    Currency = <<"RUB">>,
+    DstName = <<"loSHara card">>,
+    ID = genlib:unique(),
+    ExternalId = genlib:unique(),
+    IdentityID = create_identity(Party, C),
+    Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
+    Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
+    Params = #dst_DestinationParams{
+        id = ID,
+        identity = IdentityID,
+        name = DstName,
+        currency = Currency,
+        resource = Resource,
+        external_id = ExternalId,
+        metadata = Metadata
+    },
+    {exception, #fistful_ForbiddenWithdrawalMethod{}} = call_service('Create', {Params, Ctx}).
 
 %%----------------------------------------------------------------------
 %%  Internal functions
@@ -150,19 +193,19 @@ create_destination_ok(Resource, C) ->
 
     Account = Dst#dst_DestinationState.account,
     IdentityID = Account#account_Account.identity,
-    #'CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
+    #'fistful_base_CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
 
     {authorized, #dst_Authorized{}} = ct_helper:await(
         {authorized, #dst_Authorized{}},
         fun() ->
             {ok, #dst_DestinationState{status = Status}} =
-                call_service('Get', {ID, #'EventRange'{}}),
+                call_service('Get', {ID, #'fistful_base_EventRange'{}}),
             Status
         end,
         genlib_retry:linear(15, 1000)
     ),
 
-    {ok, #dst_DestinationState{}} = call_service('Get', {ID, #'EventRange'{}}).
+    {ok, #dst_DestinationState{}} = call_service('Get', {ID, #'fistful_base_EventRange'{}}).
 
 call_service(Fun, Args) ->
     Service = {ff_proto_destination_thrift, 'Management'},

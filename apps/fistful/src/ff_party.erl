@@ -34,8 +34,12 @@
     | {contract_not_found, id()}
     | {party_not_exists_yet, id()}.
 
+-type validate_destination_creation_error() ::
+    withdrawal_method_validation_error().
+
 -type validate_withdrawal_creation_error() ::
     currency_validation_error()
+    | withdrawal_method_validation_error()
     | cash_range_validation_error().
 
 -type validate_w2w_transfer_creation_error() ::
@@ -53,12 +57,15 @@
 -export_type([validate_deposit_creation_error/0]).
 -export_type([validate_account_creation_error/0]).
 -export_type([get_contract_terms_error/0]).
+-export_type([validate_destination_creation_error/0]).
 -export_type([validate_withdrawal_creation_error/0]).
+-export_type([withdrawal_method_validation_error/0]).
 -export_type([validate_w2w_transfer_creation_error/0]).
 -export_type([cash/0]).
 -export_type([cash_range/0]).
 -export_type([attempt_limit/0]).
 -export_type([provision_term_set/0]).
+-export_type([method_ref/0]).
 
 -type inaccessibility() ::
     {inaccessible, blocked | suspended}.
@@ -72,7 +79,9 @@
 -export([get_revision/1]).
 -export([change_contractor_level/3]).
 -export([validate_account_creation/2]).
--export([validate_withdrawal_creation/2]).
+-export([validate_destination_creation/2]).
+-export([get_withdrawal_methods/1]).
+-export([validate_withdrawal_creation/3]).
 -export([validate_deposit_creation/2]).
 -export([validate_w2w_transfer_creation/2]).
 -export([validate_wallet_limits/3]).
@@ -87,6 +96,7 @@
 
 %% Internal types
 -type cash() :: ff_cash:cash().
+-type method() :: ff_resource:method().
 -type wallet_terms() :: dmsl_domain_thrift:'WalletServiceTerms'().
 -type withdrawal_terms() :: dmsl_domain_thrift:'WithdrawalServiceTerms'().
 -type w2w_terms() :: dmsl_domain_thrift:'W2WServiceTerms'().
@@ -104,6 +114,7 @@
 -type routing_ruleset() :: dmsl_domain_thrift:'RoutingRuleset'().
 -type provider_ref() :: dmsl_domain_thrift:'ProviderRef'().
 -type terminal_ref() :: dmsl_domain_thrift:'TerminalRef'().
+-type method_ref() :: dmsl_domain_thrift:'PaymentMethodRef'().
 -type provider() :: dmsl_domain_thrift:'Provider'().
 -type provision_term_set() :: dmsl_domain_thrift:'ProvisionTermSet'().
 -type bound_type() :: 'exclusive' | 'inclusive'.
@@ -131,6 +142,9 @@
     {invalid_terms, not_reduced_error()}
     | {invalid_terms, undefined_wallet_terms}
     | {invalid_terms, {undefined_w2w_terms, wallet_terms()}}.
+
+-type withdrawal_method_validation_error() ::
+    {terms_violation, {not_allowed_withdrawal_method, {method_ref(), ordsets:ordset(method_ref())}}}.
 
 %% Pipeline
 
@@ -367,10 +381,27 @@ validate_account_creation(Terms, CurrencyID) ->
         valid = unwrap(validate_wallet_terms_currency(CurrencyID, WalletTerms))
     end).
 
--spec validate_withdrawal_creation(terms(), cash()) -> Result when
+-spec get_withdrawal_methods(terms()) ->
+    ordsets:ordset(method_ref()).
+get_withdrawal_methods(Terms) ->
+    #domain_TermSet{wallets = WalletTerms} = Terms,
+    #domain_WalletServiceTerms{withdrawals = WithdrawalTerms} = WalletTerms,
+    #domain_WithdrawalServiceTerms{methods = MethodsSelector} = WithdrawalTerms,
+    {ok, valid} = do_validate_terms_is_reduced([{withdrawal_methods, MethodsSelector}]),
+    {value, Methods} = MethodsSelector,
+    Methods.
+
+-spec validate_destination_creation(terms(), method()) -> Result when
+    Result :: {ok, valid} | {error, Error},
+    Error :: validate_destination_creation_error().
+validate_destination_creation(Terms, Method) ->
+    Methods = get_withdrawal_methods(Terms),
+    validate_withdrawal_terms_method(Method, Methods).
+
+-spec validate_withdrawal_creation(terms(), cash(), method()) -> Result when
     Result :: {ok, valid} | {error, Error},
     Error :: validate_withdrawal_creation_error().
-validate_withdrawal_creation(Terms, {_, CurrencyID} = Cash) ->
+validate_withdrawal_creation(Terms, {_, CurrencyID} = Cash, Method) ->
     #domain_TermSet{wallets = WalletTerms} = Terms,
     do(fun() ->
         {ok, valid} = validate_withdrawal_terms_is_reduced(WalletTerms),
@@ -378,7 +409,9 @@ validate_withdrawal_creation(Terms, {_, CurrencyID} = Cash) ->
         #domain_WalletServiceTerms{withdrawals = WithdrawalTerms} = WalletTerms,
         valid = unwrap(validate_withdrawal_terms_currency(CurrencyID, WithdrawalTerms)),
         valid = unwrap(validate_withdrawal_cash_limit(Cash, WithdrawalTerms)),
-        valid = unwrap(validate_withdrawal_attempt_limit(WithdrawalTerms))
+        valid = unwrap(validate_withdrawal_attempt_limit(WithdrawalTerms)),
+        #domain_WithdrawalServiceTerms{methods = {value, Methods}} = WithdrawalTerms,
+        valid = unwrap(validate_withdrawal_terms_method(Method, Methods))
     end).
 
 -spec validate_deposit_creation(terms(), cash()) -> Result when
@@ -631,14 +664,16 @@ validate_withdrawal_terms_is_reduced(Terms) ->
         currencies = WithdrawalCurrenciesSelector,
         cash_limit = CashLimitSelector,
         cash_flow = CashFlowSelector,
-        attempt_limit = AttemptLimitSelector
+        attempt_limit = AttemptLimitSelector,
+        methods = MethodsSelector
     } = WithdrawalTerms,
     do_validate_terms_is_reduced([
         {wallet_currencies, WalletCurrenciesSelector},
         {withdrawal_currencies, WithdrawalCurrenciesSelector},
         {withdrawal_cash_limit, CashLimitSelector},
         {withdrawal_cash_flow, CashFlowSelector},
-        {withdrawal_attempt_limit, AttemptLimitSelector}
+        {withdrawal_attempt_limit, AttemptLimitSelector},
+        {withdrawal_methods, MethodsSelector}
     ]).
 
 -spec validate_w2w_terms_is_reduced(wallet_terms() | undefined) -> {ok, valid} | {error, invalid_w2w_terms_error()}.
@@ -740,6 +775,20 @@ validate_withdrawal_attempt_limit(Terms) ->
             {ok, valid};
         {value, Limit} ->
             validate_attempt_limit(ff_dmsl_codec:unmarshal(attempt_limit, Limit))
+    end.
+
+-spec validate_withdrawal_terms_method(method() | undefined, ordsets:ordset(method_ref())) ->
+    {ok, valid} | {error, withdrawal_method_validation_error()}.
+validate_withdrawal_terms_method(undefined, _MethodRefs) ->
+    %# TODO: remove this when work on TD-234
+    {ok, valid};
+validate_withdrawal_terms_method(Method, MethodRefs) ->
+    MethodRef = ff_dmsl_codec:marshal(payment_method_ref, #{id => Method}),
+    case ordsets:is_element(MethodRef, MethodRefs) of
+        true ->
+            {ok, valid};
+        false ->
+            {error, {terms_violation, {not_allowed_withdrawal_method, {MethodRef, MethodRefs}}}}
     end.
 
 -spec validate_w2w_terms_currency(currency_id(), w2w_terms()) -> {ok, valid} | {error, currency_validation_error()}.

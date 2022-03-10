@@ -95,7 +95,7 @@ create_ok(C) ->
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     Params = construct_wallet_params(ID, IdentityID, Currency, ExternalID, Metadata),
     CreateResult = call_service('Create', {Params, Ctx}),
-    GetResult = call_service('Get', {ID, #'EventRange'{}}),
+    GetResult = call_service('Get', {ID, #'fistful_base_EventRange'{}}),
     {ok, Wallet} = GetResult,
     Account = Wallet#wlt_WalletState.account,
     CurrencyRef = Account#account_Account.currency,
@@ -106,7 +106,7 @@ create_ok(C) ->
     ?assertMatch(Metadata, Wallet#wlt_WalletState.metadata),
     ?assertMatch(Ctx, Wallet#wlt_WalletState.context),
     ?assertMatch(IdentityID, Account#account_Account.identity),
-    ?assertMatch(Currency, CurrencyRef#'CurrencyRef'.symbolic_code).
+    ?assertMatch(Currency, CurrencyRef#'fistful_base_CurrencyRef'.symbolic_code).
 
 create_error_identity_not_found(_C) ->
     Currency = <<"RUB">>,
@@ -162,7 +162,7 @@ get_account_balance(C) ->
     Account = Wallet#wlt_WalletState.account,
     AccountID = Account#account_Account.id,
     ?assertMatch(AccountID, AccountBalance#account_AccountBalance.id),
-    ?assertMatch(Currency, CurrencyRef#'CurrencyRef'.symbolic_code),
+    ?assertMatch(Currency, CurrencyRef#'fistful_base_CurrencyRef'.symbolic_code),
     ?assertMatch(0, AccountBalance#account_AccountBalance.expected_min),
     ?assertMatch(0, AccountBalance#account_AccountBalance.current),
     ?assertMatch(0, AccountBalance#account_AccountBalance.expected_max).

@@ -66,4 +66,8 @@ encode_payment_method({crypto_currency_deprecated, CryptoCurrency}) ->
 encode_payment_method({digital_wallet, #domain_DigitalWallet{payment_service = PaymentService}}) ->
     #domain_PaymentMethodRef{
         id = {digital_wallet, PaymentService}
+    };
+encode_payment_method({generic, #domain_GenericPaymentTool{payment_service = PaymentService}}) ->
+    #domain_PaymentMethodRef{
+        id = {generic, #domain_GenericPaymentMethod{payment_service = PaymentService}}
     }.

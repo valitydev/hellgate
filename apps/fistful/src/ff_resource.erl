@@ -5,7 +5,8 @@
 -type resource() ::
     {bank_card, resource_bank_card()}
     | {crypto_wallet, resource_crypto_wallet()}
-    | {digital_wallet, resource_digital_wallet()}.
+    | {digital_wallet, resource_digital_wallet()}
+    | {generic, resource_generic()}.
 
 -type resource_bank_card() :: #{
     bank_card := bank_card(),
@@ -20,10 +21,15 @@
     digital_wallet := digital_wallet()
 }.
 
+-type resource_generic() :: #{
+    generic := generic_resource()
+}.
+
 -type resource_params() ::
     {bank_card, resource_bank_card_params()}
     | {crypto_wallet, resource_crypto_wallet_params()}
-    | {digital_wallet, resource_digital_wallet_params()}.
+    | {digital_wallet, resource_digital_wallet_params()}
+    | {generic, resource_generic_params()}.
 
 -type resource_bank_card_params() :: #{
     bank_card := bank_card_params(),
@@ -57,6 +63,12 @@
     token => binary()
 }.
 
+-type resource_generic_params() :: #{
+    generic := generic_resource_params()
+}.
+
+-type generic_resource_params() :: generic_resource().
+
 -type bank_card() :: #{
     token := token(),
     bin => bin(),
@@ -80,6 +92,11 @@
 -type payment_service() :: #{
     id := binary()
 }.
+
+-type method() ::
+    {bank_card, {payment_system, payment_system()}}
+    | {digital_wallet, {payment_service, payment_service()}}
+    | {generic, {payment_service, payment_service()}}.
 
 -type payment_system_deprecated() :: ff_bin_data:payment_system_deprecated().
 -type masked_pan() :: binary().
@@ -124,12 +141,24 @@
     token => binary()
 }.
 
+-type generic_resource() :: #{
+    provider := payment_service(),
+    data => generic_resource_data()
+}.
+
+-type generic_resource_data() :: #{
+    type := binary(),
+    data := binary()
+}.
+
 -export_type([resource_descriptor/0]).
 -export_type([resource/0]).
 -export_type([resource_params/0]).
+-export_type([method/0]).
 -export_type([bank_card/0]).
 -export_type([crypto_wallet/0]).
 -export_type([digital_wallet/0]).
+-export_type([generic_resource/0]).
 
 -export_type([token/0]).
 -export_type([bin/0]).
@@ -159,6 +188,7 @@
 -export([exp_date/1]).
 -export([cardholder_name/1]).
 -export([resource_descriptor/1]).
+-export([method/1]).
 
 %% Pipeline
 
@@ -212,6 +242,17 @@ resource_descriptor({bank_card, #{bank_card := #{bin_data_id := ID}}}) ->
 resource_descriptor(_) ->
     undefined.
 
+-spec method(resource()) ->
+    method() | undefined.
+method({bank_card, #{bank_card := #{payment_system := PaymentSystem}}}) ->
+    {bank_card, #{payment_system => PaymentSystem}};
+method({digital_wallet, #{digital_wallet := #{payment_service := PaymentService}}}) ->
+    {digital_wallet, PaymentService};
+method({generic, #{generic := #{provider := PaymentService}}}) ->
+    {generic, #{payment_service => PaymentService}};
+method(_) ->
+    undefined.
+
 -spec get_bin_data(binary(), resource_descriptor() | undefined) ->
     {ok, bin_data()}
     | {error, bin_data_error()}.
@@ -228,6 +269,10 @@ check_resource(Resource) ->
 -spec check_resource(ff_domain_config:revision(), resource()) ->
     valid | no_return().
 check_resource(Revision, {digital_wallet, #{digital_wallet := #{payment_service := PaymentService}}}) ->
+    MarshalledPaymentService = ff_dmsl_codec:marshal(payment_service, PaymentService),
+    {ok, _} = ff_domain_config:object(Revision, {payment_service, MarshalledPaymentService}),
+    valid;
+check_resource(Revision, {generic, #{generic := #{provider := PaymentService}}}) ->
     MarshalledPaymentService = ff_dmsl_codec:marshal(payment_service, PaymentService),
     {ok, _} = ff_domain_config:object(Revision, {payment_service, MarshalledPaymentService}),
     valid;
@@ -248,7 +293,9 @@ create_resource({bank_card, ResourceBankCardParams}, ResourceDescriptor) ->
 create_resource({crypto_wallet, ResourceCryptoWalletParams}, _ResourceDescriptor) ->
     create_crypto_wallet(ResourceCryptoWalletParams);
 create_resource({digital_wallet, ResourceDigitalWalletParams}, _ResourceDescriptor) ->
-    create_digital_wallet(ResourceDigitalWalletParams).
+    create_digital_wallet(ResourceDigitalWalletParams);
+create_resource({generic, ResourceGenericParams}, _ResourceDescriptor) ->
+    create_generic_resource(ResourceGenericParams).
 
 -spec create_bank_card(resource_bank_card_params(), resource_descriptor() | undefined) ->
     {ok, resource()}
@@ -305,3 +352,7 @@ create_digital_wallet(#{
                 token => Token
             })
         }}}.
+
+-spec create_generic_resource(resource_generic_params()) -> {ok, resource()}.
+create_generic_resource(#{generic := Generic}) ->
+    {ok, {generic, #{generic => Generic}}}.

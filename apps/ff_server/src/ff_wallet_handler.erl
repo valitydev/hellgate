@@ -32,7 +32,7 @@ handle_function_('Create', {Params, Context}, Opts) ->
         )
     of
         ok ->
-            handle_function_('Get', {WalletID, #'EventRange'{}}, Opts);
+            handle_function_('Get', {WalletID, #'fistful_base_EventRange'{}}, Opts);
         {error, {identity, notfound}} ->
             woody_error:raise(business, #fistful_IdentityNotFound{});
         {error, {currency, notfound}} ->
@@ -40,7 +40,7 @@ handle_function_('Create', {Params, Context}, Opts) ->
         {error, {party, _Inaccessible}} ->
             woody_error:raise(business, #fistful_PartyInaccessible{});
         {error, exists} ->
-            handle_function_('Get', {WalletID, #'EventRange'{}}, Opts);
+            handle_function_('Get', {WalletID, #'fistful_base_EventRange'{}}, Opts);
         {error, Error} ->
             woody_error:raise(system, {internal, result_unexpected, woody_error:format_details(Error)})
     end;
