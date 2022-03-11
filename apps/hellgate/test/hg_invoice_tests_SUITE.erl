@@ -267,6 +267,7 @@
 -export([payment_has_optional_fields_new/1]).
 -export([payment_last_trx_correct/1]).
 -export([payment_last_trx_correct_new/1]).
+-export([payment_w_misconfigured_routing_failed/1]).
 -export([payment_capture_failed/1]).
 -export([payment_capture_failed_new/1]).
 -export([payment_capture_retries_exceeded/1]).
@@ -466,6 +467,7 @@ groups() ->
             payment_last_trx_correct_new,
             invoice_success_on_third_payment,
             invoice_success_on_third_payment_new,
+            payment_w_misconfigured_routing_failed,
             payment_capture_failed,
             payment_capture_failed_new,
             payment_capture_retries_exceeded,
@@ -893,46 +895,35 @@ init_per_testcase(Name, C) when
     Fixture = get_payment_adjustment_fixture(Revision),
     _ = hg_domain:upsert(Fixture),
     [{original_domain_revision, Revision} | init_per_testcase(C)];
-init_per_testcase(Name, C) when
-    Name == rounding_cashflow_volume;
-    Name == rounding_cashflow_volume_new;
-    Name == payments_w_bank_card_issuer_conditions;
-    Name == payments_w_bank_card_issuer_conditions_new;
-    Name == payments_w_bank_conditions;
-    Name == payments_w_bank_conditions_new;
-    Name == ineligible_payment_partial_refund;
-    Name == invalid_permit_partial_capture_in_service;
-    Name == invalid_permit_partial_capture_in_provider;
-    Name == invalid_permit_partial_capture_in_provider_new
-->
-    Revision = hg_domain:head(),
-    Fixture =
-        case Name of
-            rounding_cashflow_volume ->
-                get_cashflow_rounding_fixture(Revision);
-            rounding_cashflow_volume_new ->
-                get_cashflow_rounding_fixture(Revision);
-            payments_w_bank_card_issuer_conditions ->
-                payments_w_bank_card_issuer_conditions_fixture(Revision);
-            payments_w_bank_card_issuer_conditions_new ->
-                payments_w_bank_card_issuer_conditions_fixture(Revision);
-            payments_w_bank_conditions ->
-                payments_w_bank_conditions_fixture(Revision);
-            payments_w_bank_conditions_new ->
-                payments_w_bank_conditions_fixture(Revision);
-            ineligible_payment_partial_refund ->
-                construct_term_set_for_refund_eligibility_time(1);
-            invalid_permit_partial_capture_in_service ->
-                construct_term_set_for_partial_capture_service_permit();
-            invalid_permit_partial_capture_in_provider ->
-                construct_term_set_for_partial_capture_provider_permit(Revision);
-            invalid_permit_partial_capture_in_provider_new ->
-                construct_term_set_for_partial_capture_provider_permit(Revision)
-        end,
-    _ = hg_domain:upsert(Fixture),
-    [{original_domain_revision, Revision} | init_per_testcase(C)];
+init_per_testcase(rounding_cashflow_volume, C) ->
+    override_domain_fixture(fun get_cashflow_rounding_fixture/1, C);
+init_per_testcase(rounding_cashflow_volume_new, C) ->
+    override_domain_fixture(fun get_cashflow_rounding_fixture/1, C);
+init_per_testcase(payments_w_bank_card_issuer_conditions, C) ->
+    override_domain_fixture(fun payments_w_bank_card_issuer_conditions_fixture/1, C);
+init_per_testcase(payments_w_bank_card_issuer_conditions_new, C) ->
+    override_domain_fixture(fun payments_w_bank_card_issuer_conditions_fixture/1, C);
+init_per_testcase(payments_w_bank_conditions, C) ->
+    override_domain_fixture(fun payments_w_bank_conditions_fixture/1, C);
+init_per_testcase(payments_w_bank_conditions_new, C) ->
+    override_domain_fixture(fun payments_w_bank_conditions_fixture/1, C);
+init_per_testcase(payment_w_misconfigured_routing_failed, C) ->
+    override_domain_fixture(fun payment_w_misconfigured_routing_failed_fixture/1, C);
+init_per_testcase(ineligible_payment_partial_refund, C) ->
+    override_domain_fixture(fun(_) -> construct_term_set_for_refund_eligibility_time(1) end, C);
+init_per_testcase(invalid_permit_partial_capture_in_service, C) ->
+    override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/1, C);
+init_per_testcase(invalid_permit_partial_capture_in_provider, C) ->
+    override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/1, C);
+init_per_testcase(invalid_permit_partial_capture_in_provider_new, C) ->
+    override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/1, C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
+
+override_domain_fixture(Fixture, C) ->
+    Revision = hg_domain:head(),
+    _ = hg_domain:upsert(Fixture(Revision)),
+    [{original_domain_revision, Revision} | init_per_testcase(C)].
 
 init_per_testcase(C) ->
     ApiClient = hg_ct_helper:create_client(cfg(root_url, C), cfg(party_id, C)),
@@ -1765,6 +1756,52 @@ payment_last_trx_correct(C, PmtSys) ->
     ] = next_event(InvoiceID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?payment_last_trx(TrxInfo0) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
+
+-spec payment_w_misconfigured_routing_failed(config()) -> test_return().
+payment_w_misconfigured_routing_failed(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_event(InvoiceID, Client),
+    ok = payproc_errors:match(
+        'PaymentFailure',
+        Failure,
+        fun({no_route_found, {unknown, _}}) -> ok end
+    ).
+
+payment_w_misconfigured_routing_failed_fixture(_Revision) ->
+    [
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"Main">>,
+            % NOTE
+            % Both those delegates won't evaluate so the ruleset should compute to an empty
+            % list of delegates.
+            {delegates, [
+                ?delegate(
+                    <<"Inexistent merchant">>,
+                    {condition, {party, #domain_PartyCondition{id = hg_utils:unique_id()}}},
+                    ?ruleset(1)
+                ),
+                ?delegate(
+                    <<"Common">>,
+                    {constant, false},
+                    ?ruleset(1)
+                )
+            ]}
+        )
+    ].
 
 -spec payment_capture_failed(config()) -> test_return().
 payment_capture_failed(C) ->
@@ -9817,7 +9854,7 @@ payment_manual_refund_fixture(_Revision) ->
         }}
     ].
 
-construct_term_set_for_partial_capture_service_permit() ->
+construct_term_set_for_partial_capture_service_permit(_Revision) ->
     TermSet = #domain_TermSet{
         payments = #domain_PaymentsServiceTerms{
             holds = #domain_PaymentHoldsServiceTerms{

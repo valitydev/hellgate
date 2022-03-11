@@ -798,7 +798,7 @@ gather_routes(PaymentInstitution, VS, Revision, St) ->
             Routes;
         {error, {misconfiguration, _Reason} = Error} ->
             _ = log_misconfigurations(Error),
-            throw({no_route_found, misconfiguration})
+            throw({no_route_found, unknown})
     end.
 
 -spec check_risk_score(risk_score()) -> ok | {error, risk_score_is_too_high}.
