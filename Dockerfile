@@ -8,7 +8,7 @@ ARG BUILDARCH
 # Install thrift compiler
 ARG THRIFT_VERSION
 
-RUN wget -q -O- "https://github.com/valitydev/thrift/releases/download/${THRIFT_VERSION}/thrift-${THRIFT_VERSION}-linux-${BUILDARCH}.tar.gz" \
+RUN wget -O- "https://github.com/valitydev/thrift/releases/download/${THRIFT_VERSION}/thrift-${THRIFT_VERSION}-linux-${BUILDARCH}.tar.gz" \
     | tar -xvz -C /usr/local/bin/
 
 # Copy sources
