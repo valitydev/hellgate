@@ -47,6 +47,7 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
           build-args: |
             SERVICE_NAME=${{ env.SERVICE_NAME }}
             OTP_VERSION=${{ env.OTP_VERSION }}
