@@ -946,11 +946,11 @@ collect_cash_flow_context(
         operation_amount => Cash
     }.
 
-get_available_amount(AccountID, Clock) ->
+get_available_amount(AccountID) ->
     #{
         min_available_amount := AvailableAmount
     } =
-        hg_accounting:get_balance(AccountID, Clock),
+        hg_accounting:get_balance(AccountID),
     AvailableAmount.
 
 construct_payment_plan_id(St) ->
@@ -1660,9 +1660,6 @@ construct_provider_cashflow(
     ),
     construct_final_cashflow(ProviderCashflow, Context, AccountMap).
 
-prepare_refund_cashflow(RefundSt, St) ->
-    hg_accounting:hold(construct_refund_plan_id(RefundSt, St), get_refund_cashflow_plan(RefundSt)).
-
 commit_refund_cashflow(RefundSt, St) ->
     hg_accounting:commit(construct_refund_plan_id(RefundSt, St), [get_refund_cashflow_plan(RefundSt)]).
 
@@ -2291,9 +2288,8 @@ process_refund_cashflow(ID, Action, St) ->
     hold_refund_limits(RefundSt, St),
 
     #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Party, Shop, #{}),
-    Clock = prepare_refund_cashflow(RefundSt, St),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
-    case get_available_amount(SettlementID, Clock) of
+    case get_available_amount(SettlementID) of
         % TODO we must pull this rule out of refund terms
         Available when Available >= 0 ->
             Events = [?session_ev(?refunded(), ?session_started()) | get_manual_refund_events(RefundSt)],

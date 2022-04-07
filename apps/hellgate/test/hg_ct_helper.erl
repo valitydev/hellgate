@@ -131,7 +131,7 @@ start_app(hellgate = AppName) ->
                 }
             }},
             {services, #{
-                accounter => <<"http://shumway:8022/shumpune">>,
+                accounter => <<"http://shumway:8022/accounter">>,
                 automaton => <<"http://machinegun:8022/v1/automaton">>,
                 customer_management => #{
                     url => <<"http://hellgate:8022/v1/processing/customer_management">>,
