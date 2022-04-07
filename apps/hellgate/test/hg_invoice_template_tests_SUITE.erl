@@ -12,7 +12,6 @@
 -export([init_per_testcase/2]).
 -export([end_per_testcase/2]).
 
--export([create_invalid_party/1]).
 -export([create_invalid_shop/1]).
 -export([create_invalid_party_status/1]).
 -export([create_invalid_shop_status/1]).
@@ -53,7 +52,6 @@
 -spec all() -> [test_case_name()].
 all() ->
     [
-        create_invalid_party,
         create_invalid_shop,
         create_invalid_party_status,
         create_invalid_shop_status,
@@ -88,7 +86,7 @@ init_per_suite(C) ->
     _ = hg_domain:insert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
-    Client = {party_client:create_client(), party_client:create_context(user_info())},
+    Client = {party_client:create_client(), party_client:create_context()},
     ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), Client),
     [
         {party_id, PartyID},
@@ -98,9 +96,6 @@ init_per_suite(C) ->
         {apps, Apps}
         | C
     ].
-
-user_info() ->
-    #{user_info => #{id => <<"test">>, realm => <<"service">>}}.
 
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
@@ -112,21 +107,12 @@ end_per_suite(C) ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(_Name, C) ->
     RootUrl = cfg(root_url, C),
-    PartyID = cfg(party_id, C),
-    Client = hg_client_invoice_templating:start_link(hg_ct_helper:create_client(RootUrl, PartyID)),
+    Client = hg_client_invoice_templating:start_link(hg_ct_helper:create_client(RootUrl)),
     [{client, Client} | C].
 
 -spec end_per_testcase(test_case_name(), config()) -> _.
 end_per_testcase(_Name, _C) ->
     ok.
-
--spec create_invalid_party(config()) -> _.
-create_invalid_party(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = ?MISSING_PARTY_ID,
-    Params = make_invoice_tpl_create_params(PartyID, ShopID),
-    {exception, #payproc_InvalidUser{}} = hg_client_invoice_templating:create(Params, Client).
 
 -spec create_invalid_shop(config()) -> _.
 create_invalid_shop(C) ->

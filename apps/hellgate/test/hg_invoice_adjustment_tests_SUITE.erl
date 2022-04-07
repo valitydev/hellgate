@@ -94,7 +94,7 @@ init_per_suite(C) ->
     RootUrl = maps:get(hellgate_root_url, Ret),
 
     PartyID = hg_utils:unique_id(),
-    PartyClient = {party_client:create_client(), party_client:create_context(user_info())},
+    PartyClient = {party_client:create_client(), party_client:create_context()},
     ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
 
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
@@ -111,9 +111,6 @@ init_per_suite(C) ->
     ok = start_proxies([{hg_dummy_provider, 1, NewC}, {hg_dummy_inspector, 2, NewC}]),
     NewC.
 
-user_info() ->
-    #{user_info => #{id => <<"test">>, realm => <<"service">>}}.
-
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     _ = hg_domain:cleanup(),
@@ -125,7 +122,7 @@ init_per_testcase(_Name, C) ->
     init_per_testcase(C).
 
 init_per_testcase(C) ->
-    ApiClient = hg_ct_helper:create_client(cfg(root_url, C), cfg(party_id, C)),
+    ApiClient = hg_ct_helper:create_client(cfg(root_url, C)),
     Client = hg_client_invoicing:start_link(ApiClient),
     ClientTpl = hg_client_invoice_templating:start_link(ApiClient),
     ok = hg_context:save(hg_context:create()),

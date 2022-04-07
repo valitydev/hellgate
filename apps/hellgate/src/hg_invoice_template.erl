@@ -49,42 +49,45 @@ get_invoice_template(ID) ->
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoice_templating,
-        fun() -> handle_function_(Func, Args, Opts) end
+        fun() ->
+            handle_function_(Func, remove_user_info_arg(Args), Opts)
+        end
     ).
 
+%% @TODO Delete after protocol migration
+%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
+remove_user_info_arg(Args0) ->
+    erlang:delete_element(1, Args0).
+
+add_user_info_arg(Args0) ->
+    erlang:insert_element(1, Args0, undefined).
+
 -spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
-handle_function_('Create', {UserInfo, Params}, _Opts) ->
+handle_function_('Create', {Params}, _Opts) ->
     TplID = Params#payproc_InvoiceTemplateCreateParams.template_id,
-    ok = assume_user_identity(UserInfo),
     _ = set_meta(TplID),
     Party = get_party(Params#payproc_InvoiceTemplateCreateParams.party_id),
     Shop = get_shop(Params#payproc_InvoiceTemplateCreateParams.shop_id, Party),
     ok = validate_create_params(Params, Shop),
     ok = start(TplID, Params),
     get_invoice_template(TplID);
-handle_function_('Get', {UserInfo, TplID}, _Opts) ->
-    ok = assume_user_identity(UserInfo),
+handle_function_('Get', {TplID}, _Opts) ->
     _ = set_meta(TplID),
-    Tpl = get_invoice_template(TplID),
-    _ = hg_invoice_utils:assert_party_accessible(Tpl#domain_InvoiceTemplate.owner_id),
-    Tpl;
-handle_function_('Update' = Fun, {UserInfo, TplID, Params} = Args, _Opts) ->
-    ok = assume_user_identity(UserInfo),
+    get_invoice_template(TplID);
+handle_function_('Update' = Fun, {TplID, Params} = Args, _Opts) ->
     _ = set_meta(TplID),
     Tpl = get_invoice_template(TplID),
     Party = get_party(Tpl#domain_InvoiceTemplate.owner_id),
     Shop = get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party),
     ok = validate_update_params(Params, Shop),
     call(TplID, Fun, Args);
-handle_function_('Delete' = Fun, {UserInfo, TplID} = Args, _Opts) ->
-    ok = assume_user_identity(UserInfo),
+handle_function_('Delete' = Fun, {TplID} = Args, _Opts) ->
     Tpl = get_invoice_template(TplID),
     Party = get_party(Tpl#domain_InvoiceTemplate.owner_id),
     _ = get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party),
     _ = set_meta(TplID),
     call(TplID, Fun, Args);
-handle_function_('ComputeTerms', {UserInfo, TplID, Timestamp, PartyRevision0}, _Opts) ->
-    ok = assume_user_identity(UserInfo),
+handle_function_('ComputeTerms', {TplID, Timestamp, PartyRevision0}, _Opts) ->
     _ = set_meta(TplID),
     Tpl = get_invoice_template(TplID),
     Cost =
@@ -106,11 +109,7 @@ handle_function_('ComputeTerms', {UserInfo, TplID, Timestamp, PartyRevision0}, _
         VS
     ).
 
-assume_user_identity(UserInfo) ->
-    hg_woody_handler_utils:assume_user_identity(UserInfo).
-
 get_party(PartyID) ->
-    _ = hg_invoice_utils:assert_party_accessible(PartyID),
     Party = hg_party:get_party(PartyID),
     _ = hg_invoice_utils:assert_party_operable(Party),
     Party.
@@ -157,7 +156,9 @@ start(ID, Params) ->
     map_start_error(hg_machine:start(?NS, ID, EncodedParams)).
 
 call(ID, Function, Args) ->
-    case hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, Args) of
+    case
+        hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, add_user_info_arg(Args))
+    of
         ok ->
             ok;
         {ok, Reply} ->
@@ -250,7 +251,7 @@ process_signal({repair, _}, _Machine) ->
 -spec process_call(call(), hg_machine:machine()) -> {hg_machine:response(), hg_machine:result()}.
 process_call(Call, #{history := History}) ->
     St = collapse_history(unmarshal_history(History)),
-    try handle_call(Call, St) of
+    try handle_call(remove_user_info_from_call(Call), St) of
         {ok, Changes} ->
             {ok, #{events => [marshal_event_payload(Changes)]}};
         {Reply, Changes} ->
@@ -260,10 +261,15 @@ process_call(Call, #{history := History}) ->
             {{exception, Exception}, #{}}
     end.
 
-handle_call({{'InvoiceTemplating', 'Update'}, {_UserInfo, _TplID, Params}}, Tpl) ->
+%% @TODO Delete after protocol migration
+%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
+remove_user_info_from_call({{'InvoiceTemplating', _} = Func, Args0}) ->
+    {Func, erlang:delete_element(1, Args0)}.
+
+handle_call({{'InvoiceTemplating', 'Update'}, {_TplID, Params}}, Tpl) ->
     Changes = [?tpl_updated(Params)],
     {merge_changes(Changes, Tpl), Changes};
-handle_call({{'InvoiceTemplating', 'Delete'}, {_UserInfo, _TplID}}, _Tpl) ->
+handle_call({{'InvoiceTemplating', 'Delete'}, {_TplID}}, _Tpl) ->
     {ok, [?tpl_deleted()]}.
 
 collapse_history(History) ->

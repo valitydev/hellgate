@@ -152,15 +152,8 @@ end_per_group(_GroupName, C) ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(_, C) ->
     Ctx0 = hg_context:set_party_client(cfg(party_client, C), hg_context:create()),
-    Ctx1 = hg_context:set_user_identity(
-        #{
-            id => cfg(party_id, C),
-            realm => <<"internal">>
-        },
-        Ctx0
-    ),
     PartyClientContext = party_client_context:create(#{}),
-    Ctx2 = hg_context:set_party_client_context(PartyClientContext, Ctx1),
+    Ctx2 = hg_context:set_party_client_context(PartyClientContext, Ctx0),
     ok = hg_context:save(Ctx2),
     C.
 

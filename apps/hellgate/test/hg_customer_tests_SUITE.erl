@@ -17,7 +17,6 @@
 -export([init_per_testcase/2]).
 -export([end_per_testcase/2]).
 
--export([invalid_user/1]).
 -export([invalid_party/1]).
 -export([invalid_shop/1]).
 -export([invalid_party_status/1]).
@@ -81,7 +80,7 @@ init_per_suite(C) ->
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
-    PartyClient = {party_client:create_client(), party_client:create_context(user_info())},
+    PartyClient = {party_client:create_client(), party_client:create_context()},
     ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
@@ -96,9 +95,6 @@ init_per_suite(C) ->
     ],
     ok = start_proxies([{hg_dummy_provider, 1, C1}, {hg_dummy_inspector, 2, C1}]),
     C1.
-
-user_info() ->
-    #{user_info => #{id => <<"test">>, realm => <<"service">>}}.
 
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
@@ -117,7 +113,6 @@ all() ->
 groups() ->
     [
         {invalid_customer_params, [sequence], [
-            invalid_user,
             invalid_party,
             invalid_shop,
             invalid_party_status,
@@ -158,9 +153,8 @@ groups() ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(Name, C) ->
     RootUrl = cfg(root_url, C),
-    PartyID = cfg(party_id, C),
     TraceID = hg_ct_helper:make_trace_id(Name),
-    Client = hg_client_customer:start(hg_ct_helper:create_client(RootUrl, PartyID, TraceID)),
+    Client = hg_client_customer:start(hg_ct_helper:create_client(RootUrl, TraceID)),
     [
         {test_case_name, genlib:to_binary(Name)},
         {trace_id, TraceID},
@@ -174,24 +168,16 @@ end_per_testcase(_Name, _C) ->
 
 %%
 
--spec invalid_user(config()) -> test_case_result().
 -spec invalid_party(config()) -> test_case_result().
 -spec invalid_shop(config()) -> test_case_result().
 -spec invalid_party_status(config()) -> test_case_result().
 -spec invalid_shop_status(config()) -> test_case_result().
 
-invalid_user(C) ->
-    Client = cfg(client, C),
-    PartyID = hg_utils:unique_id(),
-    ShopID = hg_utils:unique_id(),
-    Params = hg_ct_helper:make_customer_params(PartyID, ShopID, cfg(test_case_name, C)),
-    {exception, #payproc_InvalidUser{}} = hg_client_customer:create(Params, Client).
-
 invalid_party(C) ->
     RootUrl = cfg(root_url, C),
     PartyID = hg_utils:unique_id(),
     ShopID = hg_utils:unique_id(),
-    Client = hg_client_customer:start(hg_ct_helper:create_client(RootUrl, PartyID, cfg(trace_id, C))),
+    Client = hg_client_customer:start(hg_ct_helper:create_client(RootUrl, cfg(trace_id, C))),
     Params = hg_ct_helper:make_customer_params(PartyID, ShopID, cfg(test_case_name, C)),
     {exception, #payproc_PartyNotFound{}} = hg_client_customer:create(Params, Client).
 

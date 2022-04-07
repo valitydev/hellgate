@@ -747,7 +747,6 @@ handle_result_action(#{}, Acc) ->
 %%
 
 ensure_party_accessible(#payproc_RecurrentPaymentToolParams{party_id = PartyID, party_revision = Revision0}) ->
-    _ = hg_invoice_utils:assert_party_accessible(PartyID),
     Revision = ensure_party_revision_defined(PartyID, Revision0),
     hg_party:checkout(PartyID, {revision, Revision}).
 

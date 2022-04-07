@@ -47,8 +47,8 @@
  {<<"mimerl">>,{pkg,<<"mimerl">>,<<"1.2.0">>},2},
  {<<"parse_trans">>,{pkg,<<"parse_trans">>,<<"3.3.1">>},2},
  {<<"party_client">>,
-  {git,"https://github.com/valitydev/party_client_erlang.git",
-       {ref,"8fc5595c4c61c0fe3d2dc29a61f48ba94e9bdef7"}},
+  {git,"https://github.com/valitydev/party-client-erlang.git",
+       {ref,"31850a63f6c00da7e10897b23298ad38f9bf448d"}},
   0},
  {<<"payproc_errors">>,
   {git,"https://github.com/valitydev/payproc-errors-erlang.git",
@@ -76,10 +76,6 @@
  {<<"woody">>,
   {git,"https://github.com/valitydev/woody_erlang.git",
        {ref,"6f818c57e3b19f96260b1f968115c9bc5bcad4d2"}},
-  0},
- {<<"woody_user_identity">>,
-  {git,"https://github.com/valitydev/woody_erlang_user_identity.git",
-       {ref,"a480762fea8d7c08f105fb39ca809482b6cb042e"}},
   0}]}.
 [
 {pkg_hash,[
