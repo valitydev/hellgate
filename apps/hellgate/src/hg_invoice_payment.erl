@@ -1660,6 +1660,9 @@ construct_provider_cashflow(
     ),
     construct_final_cashflow(ProviderCashflow, Context, AccountMap).
 
+prepare_refund_cashflow(RefundSt, St) ->
+    hg_accounting:hold(construct_refund_plan_id(RefundSt, St), get_refund_cashflow_plan(RefundSt)).
+
 commit_refund_cashflow(RefundSt, St) ->
     hg_accounting:commit(construct_refund_plan_id(RefundSt, St), [get_refund_cashflow_plan(RefundSt)]).
 
@@ -2288,6 +2291,7 @@ process_refund_cashflow(ID, Action, St) ->
     hold_refund_limits(RefundSt, St),
 
     #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Party, Shop, #{}),
+    _ = prepare_refund_cashflow(RefundSt, St),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
     case get_available_amount(SettlementID) of
         % TODO we must pull this rule out of refund terms
@@ -2518,7 +2522,7 @@ process_result({refund_failure, ID}, Action, St) ->
 process_result({refund_accounter, ID}, Action, St) ->
     RefundSt = try_get_refund_state(ID, St),
     _ = commit_refund_limits(RefundSt, St),
-    _Clocks = commit_refund_cashflow(RefundSt, St),
+    _PostingPlanLog = commit_refund_cashflow(RefundSt, St),
     Events =
         case get_remaining_payment_amount(get_refund_cash(get_refund(RefundSt)), St) of
             ?cash(0, _) ->

@@ -173,6 +173,7 @@ hold(PlanID, Batch) ->
 
 -spec commit(plan_id(), [batch()]) -> posting_plan_log().
 commit(PlanID, Batches) ->
+    ct:pal("Commit: id: ~p batches: ~p~n", [PlanID, Batches]),
     do('CommitPlan', construct_plan(PlanID, Batches)).
 
 -spec rollback(plan_id(), [batch()]) -> posting_plan_log().
@@ -185,7 +186,7 @@ do(Op, Plan) ->
             Clock;
         {exception, Exception} ->
             % FIXME
-            error({accounting, Exception})
+            error({accounting, Op, Plan, Exception})
     end.
 
 construct_plan_change(PlanID, {BatchID, Cashflow}) ->
