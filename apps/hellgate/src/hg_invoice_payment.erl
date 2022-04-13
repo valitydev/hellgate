@@ -2497,7 +2497,7 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
 process_result({payment, finalizing_accounter}, Action, St) ->
     Target = get_target(St),
-    _Clocks =
+    _PostingPlanLog =
         case Target of
             ?captured() ->
                 commit_payment_limits(St),
@@ -2514,7 +2514,7 @@ process_result({refund_failure, ID}, Action, St) ->
     RefundSt = try_get_refund_state(ID, St),
     Failure = RefundSt#refund_st.failure,
     _ = rollback_refund_limits(RefundSt, St),
-    _Clocks = rollback_refund_cashflow(RefundSt, St),
+    _PostingPlanLog = rollback_refund_cashflow(RefundSt, St),
     Events = [
         ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure)))
     ],
