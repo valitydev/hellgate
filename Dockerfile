@@ -37,6 +37,6 @@ WORKDIR /opt/${SERVICE_NAME}
 COPY --from=builder /build/_build/prod/rel/${SERVICE_NAME} /opt/${SERVICE_NAME}
 
 ENTRYPOINT []
-CMD ["/opt/${SERVICE_NAME}/bin/${SERVICE_NAME}", "foreground"]
+CMD ["/opt/hellgate/bin/hellgate", "foreground"]
 
 EXPOSE 8022
