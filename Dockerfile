@@ -36,7 +36,10 @@ WORKDIR /opt/${SERVICE_NAME}
 
 COPY --from=builder /build/_build/prod/rel/${SERVICE_NAME} /opt/${SERVICE_NAME}
 
+RUN echo "#!/bin/sh" >> /entrypoint.sh && \
+    echo "exec /opt/${SERVICE_NAME}/bin/${SERVICE_NAME} foreground" >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
 ENTRYPOINT []
-CMD ["/opt/hellgate/bin/hellgate", "foreground"]
+CMD ["/entrypoint.sh"]
 
 EXPOSE 8022
