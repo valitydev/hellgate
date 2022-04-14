@@ -2,6 +2,7 @@ ARG OTP_VERSION
 
 # Build the release
 FROM docker.io/library/erlang:${OTP_VERSION} AS builder
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG BUILDARCH
 
@@ -17,8 +18,8 @@ COPY . /build/
 
 # Build the release
 WORKDIR /build
-RUN rebar3 compile
-RUN rebar3 as prod release
+RUN rebar3 compile && \
+    rebar3 as prod release
 
 # Make a runner image
 FROM docker.io/library/erlang:${OTP_VERSION}-slim
@@ -36,6 +37,6 @@ WORKDIR /opt/${SERVICE_NAME}
 COPY --from=builder /build/_build/prod/rel/${SERVICE_NAME} /opt/${SERVICE_NAME}
 
 ENTRYPOINT []
-CMD /opt/${SERVICE_NAME}/bin/${SERVICE_NAME} foreground
+CMD ["/opt/${SERVICE_NAME}/bin/${SERVICE_NAME}", "foreground"]
 
 EXPOSE 8022

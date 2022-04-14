@@ -9,7 +9,6 @@
 
 -export([get_account/1]).
 -export([get_balance/1]).
--export([get_balance/2]).
 -export([create_account/1]).
 -export([create_account/2]).
 -export([collect_account_map/8]).
@@ -25,7 +24,7 @@
 
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("shumpune_proto/include/shumpune_shumpune_thrift.hrl").
+-include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 
 -type amount() :: dmsl_domain_thrift:'Amount'().
 -type currency_code() :: dmsl_domain_thrift:'CurrencySymbolicCode'().
@@ -34,7 +33,8 @@
 -type batch_id() :: dmsl_accounter_thrift:'BatchID'().
 -type final_cash_flow() :: dmsl_domain_thrift:'FinalCashFlow'().
 -type batch() :: {batch_id(), final_cash_flow()}.
--type clock() :: shumpune_shumpune_thrift:'Clock'().
+-type posting_plan_log() :: dmsl_accounter_thrift:'PostingPlanLog'().
+-type thrift_account() :: dmsl_accounter_thrift:'Account'().
 
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type party() :: dmsl_domain_thrift:'Party'().
@@ -61,25 +61,13 @@
 
 -spec get_account(account_id()) -> account().
 get_account(AccountID) ->
-    case call_accounter('GetAccountByID', {AccountID}) of
-        {ok, Result} ->
-            construct_account(AccountID, Result);
-        {exception, #shumpune_AccountNotFound{}} ->
-            hg_woody_wrapper:raise(#payproc_AccountNotFound{})
-    end.
+    Account = do_get_account(AccountID),
+    construct_account(Account).
 
 -spec get_balance(account_id()) -> balance().
 get_balance(AccountID) ->
-    get_balance(AccountID, {latest, #shumpune_LatestClock{}}).
-
--spec get_balance(account_id(), clock()) -> balance().
-get_balance(AccountID, Clock) ->
-    case call_accounter('GetBalanceByID', {AccountID, Clock}) of
-        {ok, Result} ->
-            construct_balance(AccountID, Result);
-        {exception, #shumpune_AccountNotFound{}} ->
-            hg_woody_wrapper:raise(#payproc_AccountNotFound{})
-    end.
+    Account = do_get_account(AccountID),
+    construct_balance(Account).
 
 -spec create_account(currency_code()) -> account_id().
 create_account(CurrencyCode) ->
@@ -150,14 +138,24 @@ collect_external_account_map(Payment, VS, Revision, Acc) ->
             Acc
     end.
 
+-spec do_get_account(account_id()) -> thrift_account().
+do_get_account(AccountID) ->
+    case call_accounter('GetAccountByID', {AccountID}) of
+        {ok, Result} ->
+            Result;
+        {exception, #accounter_AccountNotFound{}} ->
+            hg_woody_wrapper:raise(#payproc_AccountNotFound{})
+    end.
+
 construct_prototype(CurrencyCode, Description) ->
-    #shumpune_AccountPrototype{
+    #accounter_AccountPrototype{
         currency_sym_code = CurrencyCode,
-        description = Description
+        description = Description,
+        creation_time = hg_datetime:format_now()
     }.
 
 %%
--spec plan(plan_id(), [batch()]) -> clock().
+-spec plan(plan_id(), [batch()]) -> posting_plan_log().
 plan(_PlanID, []) ->
     error(badarg);
 plan(_PlanID, Batches) when not is_list(Batches) ->
@@ -169,15 +167,15 @@ plan(PlanID, Batches) ->
         Batches
     ).
 
--spec hold(plan_id(), batch()) -> clock().
+-spec hold(plan_id(), batch()) -> posting_plan_log().
 hold(PlanID, Batch) ->
     do('Hold', construct_plan_change(PlanID, Batch)).
 
--spec commit(plan_id(), [batch()]) -> clock().
+-spec commit(plan_id(), [batch()]) -> posting_plan_log().
 commit(PlanID, Batches) ->
     do('CommitPlan', construct_plan(PlanID, Batches)).
 
--spec rollback(plan_id(), [batch()]) -> clock().
+-spec rollback(plan_id(), [batch()]) -> posting_plan_log().
 rollback(PlanID, Batches) ->
     do('RollbackPlan', construct_plan(PlanID, Batches)).
 
@@ -191,19 +189,19 @@ do(Op, Plan) ->
     end.
 
 construct_plan_change(PlanID, {BatchID, Cashflow}) ->
-    #shumpune_PostingPlanChange{
+    #accounter_PostingPlanChange{
         id = PlanID,
-        batch = #shumpune_PostingBatch{
+        batch = #accounter_PostingBatch{
             id = BatchID,
             postings = collect_postings(Cashflow)
         }
     }.
 
 construct_plan(PlanID, Batches) ->
-    #shumpune_PostingPlan{
+    #accounter_PostingPlan{
         id = PlanID,
         batch_list = [
-            #shumpune_PostingBatch{
+            #accounter_PostingBatch{
                 id = BatchID,
                 postings = collect_postings(Cashflow)
             }
@@ -213,7 +211,7 @@ construct_plan(PlanID, Batches) ->
 
 collect_postings(Cashflow) ->
     [
-        #shumpune_Posting{
+        #accounter_Posting{
             from_id = Source,
             to_id = Destination,
             amount = Amount,
@@ -239,8 +237,8 @@ construct_posting_description(undefined) ->
 %%
 
 construct_account(
-    AccountID,
-    #shumpune_Account{
+    #accounter_Account{
+        id = AccountID,
         currency_sym_code = CurrencyCode
     }
 ) ->
@@ -250,8 +248,8 @@ construct_account(
     }.
 
 construct_balance(
-    AccountID,
-    #shumpune_Balance{
+    #accounter_Account{
+        id = AccountID,
         own_amount = OwnAmount,
         min_available_amount = MinAvailableAmount,
         max_available_amount = MaxAvailableAmount

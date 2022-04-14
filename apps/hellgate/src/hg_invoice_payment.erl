@@ -946,11 +946,11 @@ collect_cash_flow_context(
         operation_amount => Cash
     }.
 
-get_available_amount(AccountID, Clock) ->
+get_available_amount(AccountID) ->
     #{
         min_available_amount := AvailableAmount
     } =
-        hg_accounting:get_balance(AccountID, Clock),
+        hg_accounting:get_balance(AccountID),
     AvailableAmount.
 
 construct_payment_plan_id(St) ->
@@ -2291,9 +2291,9 @@ process_refund_cashflow(ID, Action, St) ->
     hold_refund_limits(RefundSt, St),
 
     #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Party, Shop, #{}),
-    Clock = prepare_refund_cashflow(RefundSt, St),
+    _ = prepare_refund_cashflow(RefundSt, St),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
-    case get_available_amount(SettlementID, Clock) of
+    case get_available_amount(SettlementID) of
         % TODO we must pull this rule out of refund terms
         Available when Available >= 0 ->
             Events = [?session_ev(?refunded(), ?session_started()) | get_manual_refund_events(RefundSt)],
@@ -2497,7 +2497,7 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
 process_result({payment, finalizing_accounter}, Action, St) ->
     Target = get_target(St),
-    _Clocks =
+    _PostingPlanLog =
         case Target of
             ?captured() ->
                 commit_payment_limits(St),
@@ -2514,7 +2514,7 @@ process_result({refund_failure, ID}, Action, St) ->
     RefundSt = try_get_refund_state(ID, St),
     Failure = RefundSt#refund_st.failure,
     _ = rollback_refund_limits(RefundSt, St),
-    _Clocks = rollback_refund_cashflow(RefundSt, St),
+    _PostingPlanLog = rollback_refund_cashflow(RefundSt, St),
     Events = [
         ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure)))
     ],
@@ -2522,7 +2522,7 @@ process_result({refund_failure, ID}, Action, St) ->
 process_result({refund_accounter, ID}, Action, St) ->
     RefundSt = try_get_refund_state(ID, St),
     _ = commit_refund_limits(RefundSt, St),
-    _Clocks = commit_refund_cashflow(RefundSt, St),
+    _PostingPlanLog = commit_refund_cashflow(RefundSt, St),
     Events =
         case get_remaining_payment_amount(get_refund_cash(get_refund(RefundSt)), St) of
             ?cash(0, _) ->
