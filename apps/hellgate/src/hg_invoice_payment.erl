@@ -3928,8 +3928,6 @@ get_customer(CustomerID) ->
             Customer;
         {exception, #payproc_CustomerNotFound{}} ->
             throw_invalid_request(<<"Customer not found">>);
-        {exception, #payproc_InvalidUser{}} ->
-            throw_invalid_request(<<"Invalid customer">>);
         {exception, Error} ->
             error({<<"Can't get customer">>, Error})
     end.

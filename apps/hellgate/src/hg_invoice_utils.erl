@@ -8,7 +8,6 @@
 -export([validate_cost/2]).
 -export([validate_currency/2]).
 -export([validate_cash_range/1]).
--export([assert_party_accessible/1]).
 -export([assert_party_operable/1]).
 -export([assert_shop_exists/1]).
 -export([assert_shop_operable/1]).
@@ -48,16 +47,6 @@ validate_amount(_) ->
 -spec validate_currency(currency(), shop()) -> ok.
 validate_currency(Currency, Shop = #domain_Shop{}) ->
     validate_currency_(Currency, get_shop_currency(Shop)).
-
--spec assert_party_accessible(party_id()) -> ok.
-assert_party_accessible(PartyID) ->
-    UserIdentity = hg_woody_handler_utils:get_user_identity(),
-    case hg_access_control:check_user(UserIdentity, PartyID) of
-        ok ->
-            ok;
-        invalid_user ->
-            throw(#payproc_InvalidUser{})
-    end.
 
 -spec validate_cash_range(cash_range()) -> ok.
 validate_cash_range(#domain_CashRange{

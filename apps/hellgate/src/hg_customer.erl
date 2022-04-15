@@ -64,7 +64,6 @@ handle_function_('Create', {CustomerParams}, _Opts) ->
     ok = set_meta(CustomerID),
     PartyID = CustomerParams#payproc_CustomerParams.party_id,
     ShopID = CustomerParams#payproc_CustomerParams.shop_id,
-    ok = assert_party_accessible(PartyID),
     Party = hg_party:get_party(PartyID),
     Shop = ensure_shop_exists(hg_party:get_shop(ShopID, Party)),
     ok = assert_party_shop_operable(Shop, Party),
@@ -340,16 +339,6 @@ validate_paytool_params(PaytoolParams) ->
     try
         ok = hg_recurrent_paytool:validate_paytool_params(PaytoolParams)
     catch
-        throw:(Exception = #payproc_InvalidUser{}) ->
-            throw(Exception);
-        throw:(Exception = #payproc_InvalidPartyStatus{}) ->
-            throw(Exception);
-        throw:(Exception = #payproc_InvalidShopStatus{}) ->
-            throw(Exception);
-        throw:(Exception = #payproc_InvalidContractStatus{}) ->
-            throw(Exception);
-        throw:(Exception = #payproc_OperationNotPermitted{}) ->
-            throw(Exception);
         throw:(#payproc_InvalidPaymentMethod{}) ->
             throw(#payproc_OperationNotPermitted{})
     end.
@@ -664,11 +653,7 @@ assert_customer_present(_) ->
 
 assert_customer_accessible(St = #st{}) ->
     ok = assert_customer_present(St),
-    ok = assert_party_accessible(get_party_id(St)),
     ok.
-
-assert_party_accessible(PartyID) ->
-    hg_invoice_utils:assert_party_accessible(PartyID).
 
 assert_customer_operable(St = #st{}) ->
     ok = assert_customer_accessible(St),

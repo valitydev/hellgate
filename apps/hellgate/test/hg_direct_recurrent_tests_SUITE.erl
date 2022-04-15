@@ -126,8 +126,8 @@ init_per_suite(C) ->
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
-    PartyClient = {party_client:create_client(), party_client:create_context(user_info())},
-    CustomerClient = hg_client_customer:start(hg_ct_helper:create_client(RootUrl, PartyID)),
+    PartyClient = {party_client:create_client(), party_client:create_context()},
+    CustomerClient = hg_client_customer:start(hg_ct_helper:create_client(RootUrl)),
     _ = hg_ct_helper:create_party(PartyID, PartyClient),
     Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
     Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
@@ -146,9 +146,6 @@ init_per_suite(C) ->
     ok = start_proxies([{hg_dummy_provider, 1, C1}, {hg_dummy_inspector, 2, C1}]),
     C1.
 
-user_info() ->
-    #{user_info => #{id => <<"test">>, realm => <<"service">>}}.
-
 -spec end_per_suite(config()) -> config().
 end_per_suite(C) ->
     _ = hg_domain:cleanup(),
@@ -165,7 +162,7 @@ end_per_group(_Name, _C) ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(Name, C) ->
     TraceID = hg_ct_helper:make_trace_id(Name),
-    ApiClient = hg_ct_helper:create_client(cfg(root_url, C), cfg(party_id, C)),
+    ApiClient = hg_ct_helper:create_client(cfg(root_url, C)),
     Client = hg_client_invoicing:start_link(ApiClient),
     [
         {test_case_name, genlib:to_binary(Name)},

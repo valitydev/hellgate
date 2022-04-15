@@ -38,13 +38,13 @@ services:
       retries: 10
 
   machinegun:
-    image: docker.io/rbkmoney/machinegun:c05a8c18cd4f7966d70b6ad84cac9429cdfe37ae
+    image: ghcr.io/valitydev/machinegun:sha-7f0a21a
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
       - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
     healthcheck:
-      test: "curl http://localhost:8022/"
+      test: "/opt/machinegun/bin/machinegun ping"
       interval: 5s
       timeout: 1s
       retries: 20
@@ -82,10 +82,10 @@ services:
       test: "curl http://localhost:8023/actuator/health"
       interval: 5s
       timeout: 1s
-      retries: 20
+      retries: 40
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-f757b79
+    image: ghcr.io/valitydev/party-management:sha-76058e0
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:

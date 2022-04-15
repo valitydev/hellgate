@@ -6,8 +6,8 @@
 
 -export([cfg/2]).
 
+-export([create_client/1]).
 -export([create_client/2]).
--export([create_client/3]).
 
 -export([create_party_and_shop/6]).
 -export([create_party/2]).
@@ -296,19 +296,16 @@ cfg(Key, Config) ->
 
 %%
 
--spec create_client(woody:url(), woody_user_identity:id()) -> hg_client_api:t().
-create_client(RootUrl, UserID) ->
-    create_client_w_context(RootUrl, UserID, woody_context:new()).
+-spec create_client(woody:url()) -> hg_client_api:t().
+create_client(RootUrl) ->
+    create_client_w_context(RootUrl, woody_context:new()).
 
--spec create_client(woody:url(), woody_user_identity:id(), woody:trace_id()) -> hg_client_api:t().
-create_client(RootUrl, UserID, TraceID) ->
-    create_client_w_context(RootUrl, UserID, woody_context:new(TraceID)).
+-spec create_client(woody:url(), woody:trace_id()) -> hg_client_api:t().
+create_client(RootUrl, TraceID) ->
+    create_client_w_context(RootUrl, woody_context:new(TraceID)).
 
-create_client_w_context(RootUrl, UserID, WoodyCtx) ->
-    hg_client_api:new(RootUrl, woody_user_identity:put(make_user_identity(UserID), WoodyCtx)).
-
-make_user_identity(UserID) ->
-    #{id => genlib:to_binary(UserID), realm => <<"external">>}.
+create_client_w_context(RootUrl, WoodyCtx) ->
+    hg_client_api:new(RootUrl, WoodyCtx).
 
 %%
 
