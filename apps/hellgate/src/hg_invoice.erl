@@ -146,17 +146,9 @@ handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoicing,
         fun() ->
-            handle_function_(Func, remove_user_info_arg(Args), Opts)
+            handle_function_(Func, Args, Opts)
         end
     ).
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_arg(Args0) ->
-    erlang:delete_element(1, Args0).
-
-add_user_info_arg(Args0) ->
-    erlang:insert_element(1, Args0, undefined).
 
 -spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {InvoiceParams}, _Opts) ->
@@ -433,7 +425,7 @@ ensure_started(ID, TemplateID, PartyRevision, Params, Allocation) ->
     end.
 
 call(ID, Function, Args) ->
-    case hg_machine:thrift_call(?NS, ID, invoicing, {'Invoicing', Function}, add_user_info_arg(Args)) of
+    case hg_machine:thrift_call(?NS, ID, invoicing, {'Invoicing', Function}, Args) of
         ok -> ok;
         {ok, Reply} -> Reply;
         {exception, Exception} -> erlang:throw(Exception);
@@ -583,18 +575,11 @@ handle_expiration(St) ->
 process_call(Call, #{history := History}) ->
     St = collapse_history(unmarshal_history(History)),
     try
-        handle_result(handle_call(remove_user_info_from_call(Call), St))
+        handle_result(handle_call(Call, St))
     catch
         throw:Exception ->
             {{exception, Exception}, #{}}
     end.
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_from_call({{'Invoicing', _} = Func, Args0}) ->
-    {Func, erlang:delete_element(1, Args0)};
-remove_user_info_from_call(Call) ->
-    Call.
 
 -spec handle_call(call(), st()) -> call_result().
 handle_call({{'Invoicing', 'StartPayment'}, {_InvoiceID, PaymentParams}}, St0) ->

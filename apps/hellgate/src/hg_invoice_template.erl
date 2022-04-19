@@ -50,17 +50,9 @@ handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoice_templating,
         fun() ->
-            handle_function_(Func, remove_user_info_arg(Args), Opts)
+            handle_function_(Func, Args, Opts)
         end
     ).
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_arg(Args0) ->
-    erlang:delete_element(1, Args0).
-
-add_user_info_arg(Args0) ->
-    erlang:insert_element(1, Args0, undefined).
 
 -spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {Params}, _Opts) ->
@@ -157,7 +149,7 @@ start(ID, Params) ->
 
 call(ID, Function, Args) ->
     case
-        hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, add_user_info_arg(Args))
+        hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, Args)
     of
         ok ->
             ok;
@@ -251,7 +243,7 @@ process_signal({repair, _}, _Machine) ->
 -spec process_call(call(), hg_machine:machine()) -> {hg_machine:response(), hg_machine:result()}.
 process_call(Call, #{history := History}) ->
     St = collapse_history(unmarshal_history(History)),
-    try handle_call(remove_user_info_from_call(Call), St) of
+    try handle_call(Call, St) of
         {ok, Changes} ->
             {ok, #{events => [marshal_event_payload(Changes)]}};
         {Reply, Changes} ->
@@ -260,11 +252,6 @@ process_call(Call, #{history := History}) ->
         throw:Exception ->
             {{exception, Exception}, #{}}
     end.
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_from_call({{'InvoiceTemplating', _} = Func, Args0}) ->
-    {Func, erlang:delete_element(1, Args0)}.
 
 handle_call({{'InvoiceTemplating', 'Update'}, {_TplID, Params}}, Tpl) ->
     Changes = [?tpl_updated(Params)],
