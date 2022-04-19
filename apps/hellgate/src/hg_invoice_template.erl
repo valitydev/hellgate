@@ -148,9 +148,7 @@ start(ID, Params) ->
     map_start_error(hg_machine:start(?NS, ID, EncodedParams)).
 
 call(ID, Function, Args) ->
-    case
-        hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, Args)
-    of
+    case hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, Args) of
         ok ->
             ok;
         {ok, Reply} ->
