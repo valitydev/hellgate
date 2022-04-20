@@ -444,10 +444,7 @@ get_destination_balance(ID) ->
     get_account_balance(ff_destination:account(Destination)).
 
 get_account_balance(Account) ->
-    {ok, {Amounts, Currency}} = ff_transaction:balance(
-        Account,
-        ff_clock:latest_clock()
-    ),
+    {ok, {Amounts, Currency}} = ff_accounting:balance(Account),
     {ff_indef:current(Amounts), ff_indef:to_range(Amounts), Currency}.
 
 create_source(IdentityID, Name, Currency, Resource) ->

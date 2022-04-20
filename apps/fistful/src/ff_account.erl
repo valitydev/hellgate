@@ -9,10 +9,10 @@
 
 -module(ff_account).
 
--include_lib("shumpune_proto/include/shumpune_shumpune_thrift.hrl").
+-include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 
 -type id() :: binary().
--type accounter_account_id() :: shumpune_shumpune_thrift:'AccountID'().
+-type accounter_account_id() :: dmsl_accounter_thrift:'AccountID'().
 -type account() :: #{
     id := id(),
     identity := identity_id(),
@@ -104,7 +104,9 @@ create(ID, Identity, Currency) ->
         }),
         CurrencyID = ff_currency:id(Currency),
         valid = unwrap(terms, ff_party:validate_account_creation(Terms, CurrencyID)),
-        {ok, AccounterID} = create_account(ID, Currency),
+        CurrencyCode = ff_currency:symcode(Currency),
+        Description = ff_string:join($/, [<<"ff/account">>, ID]),
+        {ok, AccounterID} = ff_accounting:create_account(CurrencyCode, Description),
         [
             {created, #{
                 id => ID,
@@ -133,28 +135,3 @@ get_identity(Account) ->
 -spec apply_event(event(), ff_maybe:maybe(account())) -> account().
 apply_event({created, Account}, undefined) ->
     Account.
-
-%% Accounter client
-
--spec create_account(id(), currency()) ->
-    {ok, accounter_account_id()}
-    | {error, {exception, any()}}.
-create_account(ID, Currency) ->
-    CurrencyCode = ff_currency:symcode(Currency),
-    Description = ff_string:join($/, [<<"ff/account">>, ID]),
-    case call_accounter('CreateAccount', {construct_prototype(CurrencyCode, Description)}) of
-        {ok, Result} ->
-            {ok, Result};
-        {exception, Exception} ->
-            {error, {exception, Exception}}
-    end.
-
-construct_prototype(CurrencyCode, Description) ->
-    #shumpune_AccountPrototype{
-        currency_sym_code = CurrencyCode,
-        description = Description
-    }.
-
-call_accounter(Function, Args) ->
-    Service = {shumpune_shumpune_thrift, 'Accounter'},
-    ff_woody_client:call(accounter, {Service, Function, Args}).

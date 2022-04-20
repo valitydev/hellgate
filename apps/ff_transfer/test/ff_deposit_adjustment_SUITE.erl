@@ -432,10 +432,7 @@ get_source_balance(ID) ->
     get_account_balance(ff_source:account(Source)).
 
 get_account_balance(Account) ->
-    {ok, {Amounts, Currency}} = ff_transaction:balance(
-        Account,
-        ff_clock:latest_clock()
-    ),
+    {ok, {Amounts, Currency}} = ff_accounting:balance(Account),
     {ff_indef:current(Amounts), ff_indef:to_range(Amounts), Currency}.
 
 generate_id() ->

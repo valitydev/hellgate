@@ -61,7 +61,7 @@ do_setup(Options0, C0) ->
     {ok, Processing0} = start_processing_apps(Options),
     C1 = ct_helper:makeup_cfg([ct_helper:woody_ctx()], [{services, services(Options)} | C0]),
     ok = ct_helper:set_context(C1),
-    ok = setup_dominant(Options, C1),
+    ok = setup_dominant(Options),
     ok = configure_processing_apps(Options),
     ok = ct_helper:unset_context(),
     [{payment_system, Processing0} | C1].
@@ -136,8 +136,8 @@ start_optional_apps(#{optional_apps := Apps}) ->
 start_optional_apps(_) ->
     [].
 
-setup_dominant(Options, C) ->
-    DomainConfig = domain_config(Options, C),
+setup_dominant(Options) ->
+    DomainConfig = domain_config(Options),
     _ = ct_domain_config:upsert(DomainConfig),
     ok.
 
@@ -229,7 +229,7 @@ services(Options) ->
         ff_withdrawal_adapter_host => "http://fistful-server:8022/v1/ff_withdrawal_adapter_host",
         eventsink => "http://machinegun:8022/v1/event_sink",
         automaton => "http://machinegun:8022/v1/automaton",
-        accounter => "http://shumway:8022/shumpune",
+        accounter => "http://shumway:8022/accounter",
         partymgmt => "http://party-management:8022/v1/processing/partymgmt",
         binbase => "http://localhost:8222/binbase"
     },
@@ -251,7 +251,7 @@ dummy_payment_inst_identity_id(Options) ->
 dummy_provider_identity_id(Options) ->
     maps:get(dummy_provider_identity_id, Options).
 
-domain_config(Options, C) ->
+domain_config(Options) ->
     WithdrawalDecision1 =
         {delegates, [
             delegate(condition(party, <<"12345">>), ?ruleset(2)),
@@ -279,7 +279,7 @@ domain_config(Options, C) ->
 
     Default = [
         ct_domain:globals(?eas(1), [?payinst(1)]),
-        ct_domain:external_account_set(?eas(1), <<"Default">>, ?cur(<<"RUB">>), C),
+        ct_domain:external_account_set(?eas(1), <<"Default">>, ?cur(<<"RUB">>)),
 
         routing_ruleset(?ruleset(1), <<"WithdrawalRuleset#1">>, WithdrawalDecision1),
         routing_ruleset(?ruleset(2), <<"WithdrawalRuleset#2">>, WithdrawalDecision2),
@@ -553,7 +553,7 @@ domain_config(Options, C) ->
             }
         }},
 
-        ct_domain:system_account_set(?sas(1), <<"System">>, ?cur(<<"RUB">>), C),
+        ct_domain:system_account_set(?sas(1), <<"System">>, ?cur(<<"RUB">>)),
 
         ct_domain:inspector(?insp(1), <<"Low Life">>, ?prx(1), #{<<"risk_score">> => <<"low">>}),
         ct_domain:proxy(?prx(1), <<"Inspector proxy">>),
@@ -563,19 +563,19 @@ domain_config(Options, C) ->
         ct_domain:proxy(?prx(7), <<"Another down proxy">>, <<"http://localhost:8222/downbank2">>),
         ct_domain:proxy(?prx(8), <<"Sleep proxy">>, <<"http://localhost:8222/sleepybank">>),
 
-        ct_domain:withdrawal_provider(?prv(1), ?prx(2), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(2), ?prx(2), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(3), ?prx(3), dummy_provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(4), ?prx(6), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(5), ?prx(2), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(6), ?prx(6), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(7), ?prx(6), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(8), ?prx(2), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(9), ?prx(7), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(10), ?prx(6), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(11), ?prx(8), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(16), ?prx(2), provider_identity_id(Options), C),
-        ct_domain:withdrawal_provider(?prv(17), ?prx(2), provider_identity_id(Options), C),
+        ct_domain:withdrawal_provider(?prv(1), ?prx(2), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(2), ?prx(2), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(3), ?prx(3), dummy_provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(4), ?prx(6), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(5), ?prx(2), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(6), ?prx(6), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(7), ?prx(6), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(8), ?prx(2), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(9), ?prx(7), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(10), ?prx(6), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(11), ?prx(8), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(16), ?prx(2), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(17), ?prx(2), provider_identity_id(Options)),
 
         ct_domain:contract_template(?tmpl(1), ?trms(1)),
         ct_domain:term_set_hierarchy(?trms(1), [ct_domain:timed_term_set(default_termset(Options))]),

@@ -2,7 +2,6 @@
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("fistful_proto/include/ff_proto_w2w_transfer_thrift.hrl").
--include_lib("shumpune_proto/include/shumpune_shumpune_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -307,10 +306,7 @@ get_wallet_balance(ID) ->
     get_account_balance(ff_wallet:account(ff_wallet_machine:wallet(Machine))).
 
 get_account_balance(Account) ->
-    {ok, {Amounts, Currency}} = ff_transaction:balance(
-        Account,
-        ff_clock:latest_clock()
-    ),
+    {ok, {Amounts, Currency}} = ff_accounting:balance(Account),
     {ff_indef:current(Amounts), ff_indef:to_range(Amounts), Currency}.
 
 set_wallet_balance({Amount, Currency}, ID) ->
@@ -319,30 +315,11 @@ set_wallet_balance({Amount, Currency}, ID) ->
     Account = ff_wallet:account(ff_wallet_machine:wallet(Machine)),
     AccounterID = ff_account:accounter_account_id(Account),
     {CurrentAmount, _, Currency} = get_account_balance(Account),
-    {ok, AnotherAccounterID} = create_account(Currency),
+    {ok, AnotherAccounterID} = ct_helper:create_account(Currency),
     Postings = [{AnotherAccounterID, AccounterID, {Amount - CurrentAmount, Currency}}],
-    {ok, _} = ff_transaction:prepare(TransactionID, Postings),
-    {ok, _} = ff_transaction:commit(TransactionID, Postings),
+    {ok, _} = ff_accounting:prepare_trx(TransactionID, Postings),
+    {ok, _} = ff_accounting:commit_trx(TransactionID, Postings),
     ok.
-
-create_account(CurrencyCode) ->
-    Description = <<"ff_test">>,
-    case call_accounter('CreateAccount', {construct_account_prototype(CurrencyCode, Description)}) of
-        {ok, Result} ->
-            {ok, Result};
-        {exception, Exception} ->
-            {error, {exception, Exception}}
-    end.
-
-construct_account_prototype(CurrencyCode, Description) ->
-    #shumpune_AccountPrototype{
-        currency_sym_code = CurrencyCode,
-        description = Description
-    }.
-
-call_accounter(Function, Args) ->
-    Service = {shumpune_shumpune_thrift, 'Accounter'},
-    ff_woody_client:call(accounter, {Service, Function, Args}, woody_context:new()).
 
 create_identity(Party, C) ->
     create_identity(Party, <<"good-two">>, C).

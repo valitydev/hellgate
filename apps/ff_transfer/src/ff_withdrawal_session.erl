@@ -78,7 +78,7 @@
 
 -type data() :: #{
     id := id(),
-    cash := ff_transaction:body(),
+    cash := ff_accounting:body(),
     sender := ff_identity:identity_state(),
     receiver := ff_identity:identity_state(),
     quote_data => ff_adapter_withdrawal:quote_data()

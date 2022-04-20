@@ -134,7 +134,7 @@
 -type wallet() :: ff_wallet:wallet_state().
 -type source_id() :: ff_source:id().
 -type p_transfer() :: ff_postings_transfer:transfer().
--type body() :: ff_transaction:body().
+-type body() :: ff_accounting:body().
 -type action() :: machinery:action() | undefined.
 -type process_result() :: {action(), [event()]}.
 -type legacy_event() :: any().
@@ -150,7 +150,6 @@
 -type domain_revision() :: ff_domain_config:revision().
 -type identity() :: ff_identity:identity_state().
 -type terms() :: ff_party:terms().
--type clock() :: ff_transaction:clock().
 
 -type wrapped_adjustment_event() :: ff_adjustment_utils:wrapped_event().
 
@@ -425,9 +424,8 @@ process_limit_check(Revert) ->
         varset => Varset
     }),
 
-    Clock = ff_postings_transfer:clock(p_transfer(Revert)),
     Events =
-        case validate_wallet_limits(Terms, Wallet, Clock) of
+        case validate_wallet_limits(Terms, Wallet) of
             {ok, valid} ->
                 [{limit_check, {wallet_receiver, ok}}];
             {error, {terms_violation, {wallet_limit, {cash_range, {Cash, Range}}}}} ->
@@ -688,11 +686,11 @@ is_limit_check_ok({wallet_receiver, ok}) ->
 is_limit_check_ok({wallet_receiver, {failed, _Details}}) ->
     false.
 
--spec validate_wallet_limits(terms(), wallet(), clock()) ->
+-spec validate_wallet_limits(terms(), wallet()) ->
     {ok, valid}
     | {error, validation_error()}.
-validate_wallet_limits(Terms, Wallet, Clock) ->
-    case ff_party:validate_wallet_limits(Terms, Wallet, Clock) of
+validate_wallet_limits(Terms, Wallet) ->
+    case ff_party:validate_wallet_limits(Terms, Wallet) of
         {ok, valid} = Result ->
             Result;
         {error, {terms_violation, {cash_range, {Cash, CashRange}}}} ->

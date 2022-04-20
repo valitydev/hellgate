@@ -23,6 +23,8 @@
 -export([await/2]).
 -export([await/3]).
 
+-export([create_account/1]).
+
 -type test_case_name() :: atom().
 -type group_name() :: atom().
 -type config() :: [{atom(), term()}].
@@ -245,3 +247,10 @@ await(Expect, Compute, Retry0) ->
                     error({'await failed', NotYet})
             end
     end.
+
+-spec create_account(dmsl_accounter_thrift:'PlanID'()) ->
+    {ok, ff_account:accounter_account_id()}
+    | {error, {exception, any()}}.
+create_account(CurrencyCode) ->
+    Description = <<"ff_test">>,
+    ff_accounting:create_account(CurrencyCode, Description).

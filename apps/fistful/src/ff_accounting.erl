@@ -1,111 +1,118 @@
 %%%
 %%% Financial transaction between accounts
 %%%
-%%%  - Rename to `ff_posting_plan`?
-%%%
+-module(ff_accounting).
 
--module(ff_transaction).
-
--include_lib("shumpune_proto/include/shumpune_shumpune_thrift.hrl").
+-include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 
 %%
 
--type id() :: shumpune_shumpune_thrift:'PlanID'().
+-type id() :: dmsl_accounter_thrift:'PlanID'().
 -type account() :: ff_account:account().
 -type account_id() :: ff_account:accounter_account_id().
--type clock() :: ff_clock:clock().
+-type currency_code() :: dmsl_domain_thrift:'CurrencySymbolicCode'().
 -type amount() :: dmsl_domain_thrift:'Amount'().
 -type body() :: ff_cash:cash().
 -type posting() :: {account_id(), account_id(), body()}.
 -type balance() :: {ff_indef:indef(amount()), ff_currency:id()}.
+-type posting_plan_log() :: dmsl_accounter_thrift:'PostingPlanLog'().
 
 -export_type([id/0]).
 -export_type([body/0]).
 -export_type([account/0]).
 -export_type([posting/0]).
--export_type([clock/0]).
 
-%% TODO
-%%  - Module name is misleading then
--export([balance/2]).
+-export([balance/1]).
+-export([create_account/2]).
 
--export([prepare/2]).
--export([commit/2]).
--export([cancel/2]).
+-export([prepare_trx/2]).
+-export([commit_trx/2]).
+-export([cancel_trx/2]).
 
 %%
 
--spec balance(account(), clock()) -> {ok, balance()}.
-balance(Account, Clock) ->
+-spec balance(account()) -> {ok, balance()}.
+balance(Account) ->
     AccountID = ff_account:accounter_account_id(Account),
     Currency = ff_account:currency(Account),
-    {ok, Balance} = get_balance_by_id(AccountID, Clock),
-    {ok, build_account_balance(Balance, Currency)}.
+    {ok, ThriftAccount} = get_account_by_id(AccountID),
+    {ok, build_account_balance(ThriftAccount, Currency)}.
 
--spec prepare(id(), [posting()]) -> {ok, clock()}.
-prepare(ID, Postings) ->
+-spec create_account(currency_code(), binary() | undefined) ->
+    {ok, account_id()}
+    | {error, {exception, any()}}.
+create_account(CurrencyCode, Description) ->
+    case call('CreateAccount', {construct_prototype(CurrencyCode, Description)}) of
+        {ok, Result} ->
+            {ok, Result};
+        {exception, Exception} ->
+            {error, {exception, Exception}}
+    end.
+
+-spec prepare_trx(id(), [posting()]) -> {ok, posting_plan_log()}.
+prepare_trx(ID, Postings) ->
     hold(encode_plan_change(ID, Postings)).
 
--spec commit(id(), [posting()]) -> {ok, clock()}.
-commit(ID, Postings) ->
+-spec commit_trx(id(), [posting()]) -> {ok, posting_plan_log()}.
+commit_trx(ID, Postings) ->
     commit_plan(encode_plan(ID, Postings)).
 
--spec cancel(id(), [posting()]) -> {ok, clock()}.
-cancel(ID, Postings) ->
+-spec cancel_trx(id(), [posting()]) -> {ok, posting_plan_log()}.
+cancel_trx(ID, Postings) ->
     rollback_plan(encode_plan(ID, Postings)).
 
 %% Woody stuff
 
-get_balance_by_id(ID, Clock) ->
-    case call('GetBalanceByID', {ID, ff_clock:marshal(shumpune, Clock)}) of
-        {ok, Balance} ->
-            {ok, Balance};
+get_account_by_id(ID) ->
+    case call('GetAccountByID', {ID}) of
+        {ok, Account} ->
+            {ok, Account};
         {exception, Unexpected} ->
             error(Unexpected)
     end.
 
 hold(PlanChange) ->
     case call('Hold', {PlanChange}) of
-        {ok, Clock} ->
-            {ok, ff_clock:unmarshal(shumpune, Clock)};
+        {ok, PostingPlanLog} ->
+            {ok, PostingPlanLog};
         {exception, Unexpected} ->
             error(Unexpected)
     end.
 
 commit_plan(Plan) ->
     case call('CommitPlan', {Plan}) of
-        {ok, Clock} ->
-            {ok, ff_clock:unmarshal(shumpune, Clock)};
+        {ok, PostingPlanLog} ->
+            {ok, PostingPlanLog};
         {exception, Unexpected} ->
             error(Unexpected)
     end.
 
 rollback_plan(Plan) ->
     case call('RollbackPlan', {Plan}) of
-        {ok, Clock} ->
-            {ok, ff_clock:unmarshal(shumpune, Clock)};
+        {ok, PostingPlanLog} ->
+            {ok, PostingPlanLog};
         {exception, Unexpected} ->
             error(Unexpected)
     end.
 
 call(Function, Args) ->
-    Service = {shumpune_shumpune_thrift, 'Accounter'},
+    Service = {dmsl_accounter_thrift, 'Accounter'},
     ff_woody_client:call(accounter, {Service, Function, Args}).
 
 encode_plan_change(ID, Postings) ->
-    #shumpune_PostingPlanChange{
+    #accounter_PostingPlanChange{
         id = ID,
         batch = encode_batch(Postings)
     }.
 
 encode_plan(ID, Postings) ->
-    #shumpune_PostingPlan{
+    #accounter_PostingPlan{
         id = ID,
         batch_list = [encode_batch(Postings)]
     }.
 
 encode_batch(Postings) ->
-    #shumpune_PostingBatch{
+    #accounter_PostingBatch{
         % TODO
         id = 1,
         postings = [
@@ -115,7 +122,7 @@ encode_batch(Postings) ->
     }.
 
 encode_posting(Source, Destination, {Amount, Currency}) ->
-    #shumpune_Posting{
+    #accounter_Posting{
         from_id = Source,
         to_id = Destination,
         amount = Amount,
@@ -124,7 +131,7 @@ encode_posting(Source, Destination, {Amount, Currency}) ->
     }.
 
 build_account_balance(
-    #shumpune_Balance{
+    #accounter_Account{
         own_amount = Own,
         max_available_amount = MaxAvail,
         min_available_amount = MinAvail
@@ -132,3 +139,9 @@ build_account_balance(
     Currency
 ) ->
     {ff_indef:new(MinAvail, Own, MaxAvail), Currency}.
+
+construct_prototype(CurrencyCode, Description) ->
+    #accounter_AccountPrototype{
+        currency_sym_code = CurrencyCode,
+        description = Description
+    }.

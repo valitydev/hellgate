@@ -40,7 +40,7 @@
 -type identdoc_token() ::
     binary().
 
--type cash() :: ff_transaction:body().
+-type cash() :: ff_accounting:body().
 
 -type withdrawal() :: #{
     id => binary(),

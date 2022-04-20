@@ -108,7 +108,7 @@
 -import(ff_pipeline, [do/1, unwrap/1, unwrap/2]).
 
 %% Internal types
--type cash() :: ff_transaction:body().
+-type cash() :: ff_accounting:body().
 -type account() :: ff_account:account().
 
 -type finalize_error() :: {postings, posting_finalize_error()}.

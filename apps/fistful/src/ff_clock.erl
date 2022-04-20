@@ -1,7 +1,6 @@
 -module(ff_clock).
 
 -include_lib("fistful_proto/include/ff_proto_transfer_thrift.hrl").
--include_lib("shumpune_proto/include/shumpune_shumpune_thrift.hrl").
 
 -define(VERSION, 1).
 -define(TYPE_LATEST, latest).
@@ -9,7 +8,7 @@
 
 -type type() :: ?TYPE_LATEST | ?TYPE_VECTOR.
 -type version() :: non_neg_integer().
--type kind() :: transfer | shumpune.
+-type kind() :: transfer.
 
 -opaque clock() :: #{
     version := version(),
@@ -31,31 +30,17 @@ latest_clock() ->
     new(?TYPE_LATEST).
 
 -spec marshal(kind(), clock()) ->
-    ff_proto_transfer_thrift:'Clock'()
-    | shumpune_shumpune_thrift:'Clock'().
+    ff_proto_transfer_thrift:'Clock'().
 marshal(transfer, #{type := ?TYPE_LATEST = Type}) ->
     {Type, #transfer_LatestClock{}};
 marshal(transfer, #{type := ?TYPE_VECTOR = Type, state := State}) ->
-    {Type, #transfer_VectorClock{state = State}};
-marshal(shumpune, #{type := ?TYPE_LATEST = Type}) ->
-    {Type, #shumpune_LatestClock{}};
-marshal(shumpune, #{type := ?TYPE_VECTOR = Type, state := State}) ->
-    {Type, #shumpune_VectorClock{state = State}}.
+    {Type, #transfer_VectorClock{state = State}}.
 
 -spec unmarshal(kind(), Clock) -> clock() when
-    Clock ::
-        ff_proto_transfer_thrift:'Clock'()
-        | shumpune_shumpune_thrift:'Clock'().
+    Clock :: ff_proto_transfer_thrift:'Clock'().
 unmarshal(transfer, {?TYPE_LATEST = Type, #transfer_LatestClock{}}) ->
     new(Type);
 unmarshal(transfer, {?TYPE_VECTOR = Type, #transfer_VectorClock{state = State}}) ->
-    Clock = new(Type),
-    Clock#{
-        state => State
-    };
-unmarshal(shumpune, {?TYPE_LATEST = Type, #shumpune_LatestClock{}}) ->
-    new(Type);
-unmarshal(shumpune, {?TYPE_VECTOR = Type, #shumpune_VectorClock{state = State}}) ->
     Clock = new(Type),
     Clock#{
         state => State

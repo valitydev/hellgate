@@ -196,7 +196,7 @@ check_accessible(Wallet) ->
 -spec get_account_balance(wallet_state()) -> {ok, ff_account:account_balance()}.
 get_account_balance(Wallet) ->
     Account = ff_wallet:account(Wallet),
-    {ok, {Amounts, Currency}} = ff_transaction:balance(Account, ff_clock:latest_clock()),
+    {ok, {Amounts, Currency}} = ff_accounting:balance(Account),
     AccountBalance = #{
         id => ff_account:id(Account),
         currency => Currency,

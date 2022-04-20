@@ -40,7 +40,7 @@
 
 -type params() :: #{
     id := id(),
-    body := ff_transaction:body(),
+    body := ff_accounting:body(),
     source_id := ff_source:id(),
     wallet_id := ff_wallet:id(),
     external_id => external_id()
@@ -191,7 +191,7 @@
 -type wallet() :: ff_wallet:wallet_state().
 -type revert() :: ff_deposit_revert:revert().
 -type revert_id() :: ff_deposit_revert:id().
--type body() :: ff_transaction:body().
+-type body() :: ff_accounting:body().
 -type cash() :: ff_cash:cash().
 -type cash_range() :: ff_range:range(cash()).
 -type action() :: machinery:action() | undefined.
@@ -209,7 +209,6 @@
 -type domain_revision() :: ff_domain_config:revision().
 -type identity() :: ff_identity:identity_state().
 -type terms() :: ff_party:terms().
--type clock() :: ff_transaction:clock().
 -type metadata() :: ff_entity_context:md().
 
 -type transfer_params() :: #{
@@ -563,9 +562,8 @@ process_limit_check(Deposit) ->
         domain_revision => DomainRevision,
         varset => Varset
     }),
-    Clock = ff_postings_transfer:clock(p_transfer(Deposit)),
     Events =
-        case validate_wallet_limits(Terms, Wallet, Clock) of
+        case validate_wallet_limits(Terms, Wallet) of
             {ok, valid} ->
                 [{limit_check, {wallet_receiver, ok}}];
             {error, {terms_violation, {wallet_limit, {cash_range, {Cash, Range}}}}} ->
@@ -746,11 +744,11 @@ is_limit_check_ok({wallet_receiver, ok}) ->
 is_limit_check_ok({wallet_receiver, {failed, _Details}}) ->
     false.
 
--spec validate_wallet_limits(terms(), wallet(), clock()) ->
+-spec validate_wallet_limits(terms(), wallet()) ->
     {ok, valid}
     | {error, {terms_violation, {wallet_limit, {cash_range, {cash(), cash_range()}}}}}.
-validate_wallet_limits(Terms, Wallet, Clock) ->
-    case ff_party:validate_wallet_limits(Terms, Wallet, Clock) of
+validate_wallet_limits(Terms, Wallet) ->
+    case ff_party:validate_wallet_limits(Terms, Wallet) of
         {ok, valid} = Result ->
             Result;
         {error, {terms_violation, {cash_range, {Cash, CashRange}}}} ->
