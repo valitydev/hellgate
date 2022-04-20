@@ -892,9 +892,7 @@ unmarshal_event({ID, Dt, Payload}) ->
 unmarshal_event_payload(#{format_version := 1, data := {bin, Bin}}) ->
     Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolEventData'}},
     #payproc_RecurrentPaymentToolEventData{changes = Changes} = hg_proto_utils:deserialize(Type, Bin),
-    Changes;
-unmarshal_event_payload(#{format_version := FormatVersion}) ->
-    error({unrecognized_event_format, FormatVersion}).
+    Changes.
 
 %%
 %% Event sink

@@ -1460,9 +1460,7 @@ unmarshal_event({ID, Dt, Payload}) ->
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
     Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
     {invoice_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
-    Buf;
-unmarshal_event_payload(#{format_version := FormatVersion}) ->
-    error({unrecognized_event_format, FormatVersion}).
+    Buf.
 
 -spec unmarshal_invoice(binary()) -> invoice().
 unmarshal_invoice(Bin) ->
