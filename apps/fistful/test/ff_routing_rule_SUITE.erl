@@ -1,7 +1,6 @@
 -module(ff_routing_rule_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("ff_cth/include/ct_domain.hrl").
 
 %% Common test API
@@ -21,7 +20,6 @@
 -export([withdrawal_no_routes_found_test/1]).
 -export([withdrawal_rejected_by_prohibitions_table_test/1]).
 -export([withdrawal_ruleset_misconfig_test/1]).
--export([withdrawal_rules_not_found_test/1]).
 
 %% Internal types
 
@@ -47,8 +45,7 @@ groups() ->
             withdrawal_routes_found_test,
             withdrawal_no_routes_found_test,
             withdrawal_rejected_by_prohibitions_table_test,
-            withdrawal_ruleset_misconfig_test,
-            withdrawal_rules_not_found_test
+            withdrawal_ruleset_misconfig_test
         ]}
     ].
 
@@ -129,7 +126,7 @@ withdrawal_rejected_by_prohibitions_table_test(_C) ->
             ],
             #{
                 rejected_routes := [
-                    {_, ?trm(4), {'RoutingRule', <<"Candidate description">>}}
+                    {_, ?trm(4), {'RoutingRule', undefined}}
                 ]
             }
         },
@@ -140,18 +137,6 @@ withdrawal_rejected_by_prohibitions_table_test(_C) ->
 withdrawal_ruleset_misconfig_test(_C) ->
     VS = #{party_id => <<"12345">>},
     PaymentInstitutionID = 1,
-    ?assertMatch(
-        {
-            [],
-            #{rejected_routes := []}
-        },
-        gather_routes(withdrawal_routing_rules, PaymentInstitutionID, VS)
-    ).
-
--spec withdrawal_rules_not_found_test(config()) -> test_return().
-withdrawal_rules_not_found_test(_C) ->
-    VS = make_varset(?cash(1000, <<"RUB">>), <<"12345">>),
-    PaymentInstitutionID = 2,
     ?assertMatch(
         {
             [],

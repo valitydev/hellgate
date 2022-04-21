@@ -11,7 +11,6 @@
     id := id(),
     system_accounts := dmsl_domain_thrift:'SystemAccountSetSelector'(),
     identity := binary(),
-    withdrawal_providers := dmsl_domain_thrift:'ProviderSelector'(),
     withdrawal_routing_rules := dmsl_domain_thrift:'RoutingRules'(),
     payment_system => dmsl_domain_thrift:'PaymentSystemSelector'()
 }.
@@ -35,7 +34,6 @@
 
 -export([ref/1]).
 -export([get/3]).
--export([withdrawal_providers/1]).
 -export([system_accounts/2]).
 -export([payment_system/1]).
 
@@ -86,17 +84,6 @@ payment_system(#{payment_system := PaymentSystem}) ->
 payment_system(_PaymentInstitution) ->
     {ok, undefined}.
 
--spec withdrawal_providers(payment_institution()) ->
-    {ok, [ff_payouts_provider:id()]}
-    | {error, term()}.
-withdrawal_providers(#{withdrawal_providers := ProvidersSelector}) ->
-    case get_selector_value(withdrawal_providers, ProvidersSelector) of
-        {ok, Providers} ->
-            {ok, [ProviderID || #domain_ProviderRef{id = ProviderID} <- Providers]};
-        {error, Error} ->
-            {error, Error}
-    end.
-
 -spec system_accounts(payment_institution(), domain_revision()) ->
     {ok, system_accounts()}
     | {error, term()}.
@@ -116,7 +103,6 @@ system_accounts(PaymentInstitution, DomainRevision) ->
 decode(ID, #domain_PaymentInstitution{
     wallet_system_account_set = SystemAccounts,
     identity = Identity,
-    withdrawal_providers = WithdrawalProviders,
     withdrawal_routing_rules = WithdrawalRoutingRules,
     payment_system = PaymentSystem
 }) ->
@@ -124,7 +110,6 @@ decode(ID, #domain_PaymentInstitution{
         id => ID,
         system_accounts => SystemAccounts,
         identity => Identity,
-        withdrawal_providers => WithdrawalProviders,
         withdrawal_routing_rules => WithdrawalRoutingRules,
         payment_system => PaymentSystem
     }).

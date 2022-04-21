@@ -179,7 +179,7 @@ session_fail_test(C) ->
             cash_to => {2120, <<"USD">>},
             created_at => <<"2016-03-22T06:12:27Z">>,
             expires_on => <<"2016-03-22T06:12:27Z">>,
-            route => ff_withdrawal_routing:make_route(3, 1),
+            route => ff_withdrawal_routing:make_route(3, 301),
             quote_data => #{<<"test">> => <<"error">>},
             operation_timestamp => ff_time:now()
         }
@@ -704,7 +704,7 @@ session_repair_test(C) ->
             cash_to => {700700, <<"RUB">>},
             created_at => <<"2016-03-22T06:12:27Z">>,
             expires_on => <<"2016-03-22T06:12:27Z">>,
-            route => ff_withdrawal_routing:make_route(11, 1),
+            route => ff_withdrawal_routing:make_route(11, 1101),
             quote_data => #{<<"test">> => <<"fatal">>},
             operation_timestamp => ff_time:now()
         }
@@ -748,8 +748,8 @@ provider_terminal_terms_merging_test(C) ->
     end,
     {Route1, VolumeEntries1} = ProduceWithdrawal({300, <<"RUB">>}),
     {Route2, VolumeEntries2} = ProduceWithdrawal({301, <<"RUB">>}),
-    ?assertMatch(#{provider_id := 17, terminal_id := 1}, Route1),
-    ?assertMatch(#{provider_id := 17, terminal_id := 8}, Route2),
+    ?assertMatch(#{provider_id := 17, terminal_id := 1701}, Route1),
+    ?assertMatch(#{provider_id := 17, terminal_id := 1708}, Route2),
     ?assertEqual([300, 30, 30, 10], VolumeEntries1),
     ?assertEqual([301, 30, 30, 16], VolumeEntries2).
 

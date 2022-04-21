@@ -65,26 +65,16 @@ gather_routes(PaymentInstitution, RoutingRuleTag, VS, Revision) ->
     | {error, misconfiguration}.
 do_gather_routes(PaymentInstitution, RoutingRuleTag, VS, Revision) ->
     do(fun() ->
-        case maps:get(RoutingRuleTag, PaymentInstitution, undefined) of
-            undefined ->
-                logger:log(
-                    warning,
-                    "RoutingRules ~p is undefined, PaymentInstitution: ~p",
-                    [RoutingRuleTag, PaymentInstitution]
-                ),
-                {[], []};
-            RoutingRules ->
-                Policies = RoutingRules#domain_RoutingRules.policies,
-                Prohibitions = RoutingRules#domain_RoutingRules.prohibitions,
-                PermitCandidates = unwrap(compute_routing_ruleset(Policies, VS, Revision)),
-                DenyCandidates = unwrap(compute_routing_ruleset(Prohibitions, VS, Revision)),
-                {AcceptedRoutes, RejectedRoutes} = prohibited_candidates_filter(
-                    PermitCandidates,
-                    DenyCandidates,
-                    Revision
-                ),
-                {AcceptedRoutes, RejectedRoutes}
-        end
+        RoutingRules = maps:get(RoutingRuleTag, PaymentInstitution),
+        Policies = RoutingRules#domain_RoutingRules.policies,
+        Prohibitions = RoutingRules#domain_RoutingRules.prohibitions,
+        PermitCandidates = unwrap(compute_routing_ruleset(Policies, VS, Revision)),
+        DenyCandidates = unwrap(compute_routing_ruleset(Prohibitions, VS, Revision)),
+        filter_prohibited_candidates(
+            PermitCandidates,
+            DenyCandidates,
+            Revision
+        )
     end).
 
 -spec compute_routing_ruleset(routing_ruleset_ref(), varset(), revision()) ->
@@ -115,8 +105,8 @@ check_ruleset_computing({candidates, Candidates}) ->
             {error, misconfiguration}
     end.
 
--spec prohibited_candidates_filter([candidate()], [candidate()], revision()) -> {[route()], [rejected_route()]}.
-prohibited_candidates_filter(Candidates, ProhibitedCandidates, Revision) ->
+-spec filter_prohibited_candidates([candidate()], [candidate()], revision()) -> {[route()], [rejected_route()]}.
+filter_prohibited_candidates(Candidates, ProhibitedCandidates, Revision) ->
     ProhibitionTable = lists:foldl(
         fun(C, Acc) ->
             Acc#{get_terminal_ref(C) => get_description(C)}

@@ -23,8 +23,9 @@
 -export([term_set_hierarchy/3]).
 -export([timed_term_set/1]).
 -export([globals/2]).
--export([withdrawal_provider/3]).
--export([withdrawal_terminal/1]).
+-export([withdrawal_provider/4]).
+-export([withdrawal_terminal/2]).
+-export([withdrawal_terminal/3]).
 
 %%
 
@@ -36,214 +37,45 @@
 -type object() ::
     dmsl_domain_thrift:'DomainObject'().
 
--spec withdrawal_provider(?DTP('ProviderRef'), ?DTP('ProxyRef'), binary()) -> object().
-withdrawal_provider(?prv(16) = Ref, ProxyRef, IdentityID) ->
+-spec withdrawal_provider(
+    ?DTP('ProviderRef'),
+    ?DTP('ProxyRef'),
+    binary(),
+    ?DTP('ProvisionTermSet') | undefined
+) -> object().
+withdrawal_provider(?prv(ID) = Ref, ProxyRef, IdentityID, TermSet) ->
     {ok, AccountID} = ct_helper:create_account(<<"RUB">>),
     {provider, #domain_ProviderObject{
         ref = Ref,
         data = #domain_Provider{
-            name = <<"WithdrawalProvider">>,
-            description = <<"Withdrawal provider">>,
+            name = genlib:format("Withdrawal provider #~B", [ID]),
+            description = <<>>,
             proxy = #domain_Proxy{ref = ProxyRef, additional = #{}},
             identity = IdentityID,
-            terms = undefined,
+            terms = TermSet,
             accounts = #{
                 ?cur(<<"RUB">>) => #domain_ProviderAccount{settlement = AccountID}
-            },
-            terminal =
-                {decisions, [
-                    #domain_TerminalDecision{
-                        if_ = {constant, true},
-                        then_ = {value, [?prv_trm(6)]}
-                    }
-                ]}
-        }
-    }};
-withdrawal_provider(Ref, ProxyRef, IdentityID) ->
-    {ok, AccountID} = ct_helper:create_account(<<"RUB">>),
-    {provider, #domain_ProviderObject{
-        ref = Ref,
-        data = #domain_Provider{
-            name = <<"WithdrawalProvider">>,
-            description = <<"Withdrawal provider">>,
-            proxy = #domain_Proxy{ref = ProxyRef, additional = #{}},
-            identity = IdentityID,
-            terms = #domain_ProvisionTermSet{
-                wallet = #domain_WalletProvisionTerms{
-                    withdrawals = #domain_WithdrawalProvisionTerms{
-                        currencies = {value, ?ordset([?cur(<<"RUB">>)])},
-                        payout_methods = {value, ?ordset([])},
-                        cash_limit =
-                            {value,
-                                ?cashrng(
-                                    {inclusive, ?cash(0, <<"RUB">>)},
-                                    {exclusive, ?cash(10000000, <<"RUB">>)}
-                                )},
-                        cash_flow =
-                            {decisions, [
-                                #domain_CashFlowDecision{
-                                    if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
-                                    then_ =
-                                        {value, [
-                                            ?cfpost(
-                                                {system, settlement},
-                                                {provider, settlement},
-                                                {product,
-                                                    {min_of,
-                                                        ?ordset([
-                                                            ?fixed(10, <<"RUB">>),
-                                                            ?share(5, 100, operation_amount, round_half_towards_zero)
-                                                        ])}}
-                                            )
-                                        ]}
-                                }
-                            ]}
-                    }
-                }
-            },
-            accounts = #{
-                ?cur(<<"RUB">>) => #domain_ProviderAccount{settlement = AccountID}
-            },
-            terminal =
-                case Ref of
-                    ?prv(9) ->
-                        {decisions, [
-                            #domain_TerminalDecision{
-                                if_ = {constant, true},
-                                then_ = {value, [?prv_trm(1, 500)]}
-                            }
-                        ]};
-                    ?prv(10) ->
-                        {decisions, [
-                            #domain_TerminalDecision{
-                                if_ = {constant, true},
-                                then_ = {value, [?prv_trm(1)]}
-                            }
-                        ]};
-                    ?prv(11) ->
-                        {decisions, [
-                            #domain_TerminalDecision{
-                                if_ = {constant, true},
-                                then_ = {value, [?prv_trm(1)]}
-                            }
-                        ]};
-                    ?prv(17) ->
-                        {decisions, [
-                            #domain_TerminalDecision{
-                                if_ =
-                                    {condition,
-                                        {cost_in,
-                                            ?cashrng(
-                                                {inclusive, ?cash(300, <<"RUB">>)},
-                                                {inclusive, ?cash(300, <<"RUB">>)}
-                                            )}},
-                                then_ = {value, [?prv_trm(1)]}
-                            },
-                            #domain_TerminalDecision{
-                                if_ =
-                                    {condition,
-                                        {cost_in,
-                                            ?cashrng(
-                                                {inclusive, ?cash(301, <<"RUB">>)},
-                                                {inclusive, ?cash(301, <<"RUB">>)}
-                                            )}},
-                                then_ = {value, [?prv_trm(8)]}
-                            }
-                        ]};
-                    _ ->
-                        {decisions, [
-                            #domain_TerminalDecision{
-                                if_ =
-                                    {condition,
-                                        {cost_in,
-                                            ?cashrng(
-                                                {inclusive, ?cash(0, <<"RUB">>)},
-                                                {exclusive, ?cash(1000000, <<"RUB">>)}
-                                            )}},
-                                then_ = {value, [?prv_trm(1)]}
-                            },
-                            #domain_TerminalDecision{
-                                if_ =
-                                    {condition,
-                                        {cost_in,
-                                            ?cashrng(
-                                                {inclusive, ?cash(3000000, <<"RUB">>)},
-                                                {exclusive, ?cash(10000000, <<"RUB">>)}
-                                            )}},
-                                then_ = {value, [?prv_trm(7)]}
-                            }
-                        ]}
-                end
+            }
         }
     }}.
 
--spec withdrawal_terminal(?DTP('TerminalRef')) -> object().
-withdrawal_terminal(?trm(N) = Ref) when N > 0, N < 6 ->
+-spec withdrawal_terminal(?DTP('TerminalRef'), ?DTP('ProviderRef')) -> object().
+withdrawal_terminal(Ref, ProviderRef) ->
+    withdrawal_terminal(Ref, ProviderRef, undefined).
+
+-spec withdrawal_terminal(
+    ?DTP('TerminalRef'),
+    ?DTP('ProviderRef'),
+    ?DTP('ProvisionTermSet') | undefined
+) -> object().
+withdrawal_terminal(?trm(ID) = Ref, ?prv(ProviderID) = ProviderRef, TermSet) ->
     {terminal, #domain_TerminalObject{
         ref = Ref,
         data = #domain_Terminal{
-            name = <<"WithdrawalTerminal">>,
-            description = <<"Withdrawal terminal">>,
-            provider_ref = ?prv(1)
-        }
-    }};
-withdrawal_terminal(?trm(6) = Ref) ->
-    {terminal, #domain_TerminalObject{
-        ref = Ref,
-        data = #domain_Terminal{
-            name = <<"WithdrawalTerminal">>,
-            description = <<"Withdrawal terminal">>
-        }
-    }};
-withdrawal_terminal(?trm(7) = Ref) ->
-    {terminal, #domain_TerminalObject{
-        ref = Ref,
-        data = #domain_Terminal{
-            name = <<"Terminal7">>,
-            description = <<"Withdrawal terminal">>,
-            terms = #domain_ProvisionTermSet{
-                wallet = #domain_WalletProvisionTerms{
-                    withdrawals = #domain_WithdrawalProvisionTerms{
-                        currencies = {value, ?ordset([?cur(<<"BTC">>)])},
-                        payout_methods = {value, ?ordset([])},
-                        cash_limit =
-                            {value,
-                                ?cashrng(
-                                    {inclusive, ?cash(1000000, <<"BTC">>)},
-                                    {exclusive, ?cash(10000000, <<"BTC">>)}
-                                )},
-                        cash_flow = {value, ?ordset([])}
-                    }
-                }
-            }
-        }
-    }};
-withdrawal_terminal(?trm(8) = Ref) ->
-    {terminal, #domain_TerminalObject{
-        ref = Ref,
-        data = #domain_Terminal{
-            name = <<"Terminal8">>,
-            description = <<"Override provider cashflow">>,
-            terms = #domain_ProvisionTermSet{
-                wallet = #domain_WalletProvisionTerms{
-                    withdrawals = #domain_WithdrawalProvisionTerms{
-                        cash_flow =
-                            {decisions, [
-                                #domain_CashFlowDecision{
-                                    if_ = {constant, true},
-                                    then_ =
-                                        {value, [
-                                            ?cfpost(
-                                                {system, settlement},
-                                                {provider, settlement},
-                                                ?fixed(16, <<"RUB">>)
-                                            )
-                                        ]}
-                                }
-                            ]}
-                    }
-                }
-            }
+            name = genlib:format("Withdrawal Terminal #~B", [ID]),
+            description = genlib:format("Withdrawal Terminal @ Provider #~B", [ProviderID]),
+            provider_ref = ProviderRef,
+            terms = TermSet
         }
     }}.
 

@@ -8,7 +8,7 @@
 -behaviour(machinery_backend).
 
 -type namespace() :: machinery:namespace().
--type backend() :: machinery:backend(machinery:backend(_)).
+-type backend() :: machinery:backend(_).
 
 -type options() :: #{
     handler := machinery:modopts(_),

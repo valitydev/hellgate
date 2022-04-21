@@ -7,7 +7,9 @@
 -export([end_per_testcase/2]).
 
 -export([get_missing_fails/1]).
--export([create_missing_fails/1]).
+-export([create_missing_party_fails/1]).
+-export([create_inaccessible_party_fails/1]).
+-export([create_missing_provider_fails/1]).
 -export([create_ok/1]).
 
 %%
@@ -23,12 +25,16 @@
 all() ->
     [
         get_missing_fails,
-        create_missing_fails,
+        create_missing_party_fails,
+        create_inaccessible_party_fails,
+        create_missing_provider_fails,
         create_ok
     ].
 
 -spec get_missing_fails(config()) -> test_return().
--spec create_missing_fails(config()) -> test_return().
+-spec create_missing_party_fails(config()) -> test_return().
+-spec create_inaccessible_party_fails(config()) -> test_return().
+-spec create_missing_provider_fails(config()) -> test_return().
 -spec create_ok(config()) -> test_return().
 
 -spec init_per_suite(config()) -> config().
@@ -65,7 +71,36 @@ get_missing_fails(_C) ->
     ID = genlib:unique(),
     {error, notfound} = ff_identity_machine:get(ID).
 
-create_missing_fails(C) ->
+create_missing_party_fails(_C) ->
+    ID = genlib:unique(),
+    NonexistentParty = genlib:bsuuid(),
+    Name = <<"Identity Name">>,
+    {error, {party, notfound}} = ff_identity_machine:create(
+        #{
+            id => ID,
+            name => Name,
+            party => NonexistentParty,
+            provider => <<"good-one">>
+        },
+        #{<<"dev.vality.wapi">> => #{<<"name">> => Name}}
+    ).
+
+create_inaccessible_party_fails(C) ->
+    ID = genlib:unique(),
+    PartyID = create_party(C),
+    ok = block_party(PartyID, genlib:to_binary(?FUNCTION_NAME)),
+    Name = <<"Identity Name">>,
+    {error, {party, {inaccessible, blocked}}} = ff_identity_machine:create(
+        #{
+            id => ID,
+            name => Name,
+            party => PartyID,
+            provider => <<"good-one">>
+        },
+        #{<<"dev.vality.wapi">> => #{<<"name">> => Name}}
+    ).
+
+create_missing_provider_fails(C) ->
     ID = genlib:unique(),
     Party = create_party(C),
     Name = <<"Identity Name">>,
@@ -76,7 +111,7 @@ create_missing_fails(C) ->
             party => Party,
             provider => <<"who">>
         },
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name}}
+        #{<<"dev.vality.wapi">> => #{<<"name">> => Name}}
     ).
 
 create_ok(C) ->
@@ -90,7 +125,7 @@ create_ok(C) ->
             party => Party,
             provider => <<"good-one">>
         },
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name}}
+        #{<<"dev.vality.wapi">> => #{<<"name">> => Name}}
     ),
     I1 = ff_identity_machine:identity(unwrap(ff_identity_machine:get(ID))),
     {ok, accessible} = ff_identity:is_accessible(I1),
@@ -100,3 +135,9 @@ create_party(_C) ->
     ID = genlib:bsuuid(),
     _ = ff_party:create(ID),
     ID.
+
+block_party(ID, Reason) ->
+    Context = ff_context:load(),
+    Client = ff_context:get_party_client(Context),
+    ClientContext = ff_context:get_party_client_context(Context),
+    party_client_thrift:block(ID, Reason, Client, ClientContext).

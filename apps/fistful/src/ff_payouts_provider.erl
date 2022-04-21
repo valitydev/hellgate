@@ -8,8 +8,7 @@
     terms => dmsl_domain_thrift:'ProvisionTermSet'(),
     accounts := accounts(),
     adapter := ff_adapter:adapter(),
-    adapter_opts := map(),
-    terminal => dmsl_domain_thrift:'TerminalSelector'()
+    adapter_opts := map()
 }.
 
 -type id() :: dmsl_domain_thrift:'ObjectID'().
@@ -98,8 +97,7 @@ decode(ID, #domain_Provider{
     proxy = Proxy,
     identity = Identity,
     terms = Terms,
-    accounts = Accounts,
-    terminal = TerminalSelector
+    accounts = Accounts
 }) ->
     genlib_map:compact(
         maps:merge(
@@ -107,8 +105,7 @@ decode(ID, #domain_Provider{
                 id => ID,
                 identity => Identity,
                 terms => Terms,
-                accounts => decode_accounts(Identity, Accounts),
-                terminal => TerminalSelector
+                accounts => decode_accounts(Identity, Accounts)
             },
             decode_adapter(Proxy)
         )

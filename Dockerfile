@@ -6,7 +6,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install thrift compiler
 ARG THRIFT_VERSION
-
 ARG TARGETARCH
 RUN wget -q -O- "https://github.com/valitydev/thrift/releases/download/${THRIFT_VERSION}/thrift-${THRIFT_VERSION}-linux-${TARGETARCH}.tar.gz" \
     | tar -xvz -C /usr/local/bin/

@@ -1043,18 +1043,7 @@ compute_fees(Route, VS, DomainRevision) ->
 compute_provider_terminal_terms(#{provider_id := ProviderID, terminal_id := TerminalID}, VS, DomainRevision) ->
     ProviderRef = ff_payouts_provider:ref(ProviderID),
     TerminalRef = ff_payouts_terminal:ref(TerminalID),
-    ff_party:compute_provider_terminal_terms(ProviderRef, TerminalRef, VS, DomainRevision);
-% Backward compatibility legacy case for old withrawals without terminals
-compute_provider_terminal_terms(#{provider_id := ProviderID}, VS, DomainRevision) ->
-    ProviderRef = ff_payouts_provider:ref(ProviderID),
-    case ff_party:compute_provider(ProviderRef, VS, DomainRevision) of
-        {ok, #domain_Provider{
-            terms = Terms
-        }} ->
-            {ok, Terms};
-        {error, Error} ->
-            {error, Error}
-    end.
+    ff_party:compute_provider_terminal_terms(ProviderRef, TerminalRef, VS, DomainRevision).
 
 cash_flow_postings(CashFlowSelector) ->
     case CashFlowSelector of

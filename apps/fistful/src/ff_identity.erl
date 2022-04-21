@@ -73,8 +73,7 @@
 
 -type create_error() ::
     {provider, notfound}
-    | {party, notfound}
-    | ff_party:inaccessibility()
+    | {party, notfound | ff_party:inaccessibility()}
     | invalid.
 
 -type get_terms_params() :: #{

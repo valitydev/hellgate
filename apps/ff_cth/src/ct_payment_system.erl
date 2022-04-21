@@ -239,6 +239,14 @@ services(Options) ->
 
 -include_lib("ff_cth/include/ct_domain.hrl").
 
+% NOTE
+% Allocate those domain object identifiers at least 100 apart from each other.
+% This space might be used to define additional object in place (see below).
+-define(EMPTY_ROUTING_RULESET, 0).
+-define(PAYINST1_ROUTING_POLICIES, 100).
+-define(PAYINST1_ROUTING_PROHIBITIONS, 200).
+-define(PAYINST2_ROUTING_POLICIES, 300).
+
 payment_inst_identity_id(Options) ->
     maps:get(payment_inst_identity_id, Options).
 
@@ -252,40 +260,268 @@ dummy_provider_identity_id(Options) ->
     maps:get(dummy_provider_identity_id, Options).
 
 domain_config(Options) ->
-    WithdrawalDecision1 =
-        {delegates, [
-            delegate(condition(party, <<"12345">>), ?ruleset(2)),
-            delegate(condition(party, <<"67890">>), ?ruleset(4))
-        ]},
-    WithdrawalDecision2 =
-        {delegates, [
-            delegate(condition(cost_in, {0, 1000, <<"RUB">>}), ?ruleset(3))
-        ]},
-    WithdrawalDecision3 =
-        {candidates, [
-            candidate({constant, true}, ?trm(1)),
-            candidate({constant, true}, ?trm(2))
-        ]},
-    WithdrawalDecision4 =
-        {candidates, [
-            candidate({constant, true}, ?trm(3)),
-            candidate({constant, true}, ?trm(4)),
-            candidate({constant, true}, ?trm(5))
-        ]},
-    WithdrawalDecision5 =
-        {candidates, [
-            candidate({constant, true}, ?trm(4))
-        ]},
-
+    ProviderTermSet = #domain_ProvisionTermSet{
+        wallet = #domain_WalletProvisionTerms{
+            withdrawals = #domain_WithdrawalProvisionTerms{
+                currencies = {value, ?ordset([?cur(<<"RUB">>)])},
+                payout_methods = {value, ?ordset([])},
+                cash_limit =
+                    {value,
+                        ?cashrng(
+                            {inclusive, ?cash(0, <<"RUB">>)},
+                            {exclusive, ?cash(10000000, <<"RUB">>)}
+                        )},
+                cash_flow =
+                    {decisions, [
+                        #domain_CashFlowDecision{
+                            if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                            then_ =
+                                {value, [
+                                    ?cfpost(
+                                        {system, settlement},
+                                        {provider, settlement},
+                                        {product,
+                                            {min_of,
+                                                ?ordset([
+                                                    ?fixed(10, <<"RUB">>),
+                                                    ?share(5, 100, operation_amount, round_half_towards_zero)
+                                                ])}}
+                                    )
+                                ]}
+                        }
+                    ]}
+            }
+        }
+    },
     Default = [
         ct_domain:globals(?eas(1), [?payinst(1)]),
         ct_domain:external_account_set(?eas(1), <<"Default">>, ?cur(<<"RUB">>)),
 
-        routing_ruleset(?ruleset(1), <<"WithdrawalRuleset#1">>, WithdrawalDecision1),
-        routing_ruleset(?ruleset(2), <<"WithdrawalRuleset#2">>, WithdrawalDecision2),
-        routing_ruleset(?ruleset(3), <<"WithdrawalRuleset#3">>, WithdrawalDecision3),
-        routing_ruleset(?ruleset(4), <<"WithdrawalRuleset#4">>, WithdrawalDecision4),
-        routing_ruleset(?ruleset(5), <<"WithdrawalRuleset#5">>, WithdrawalDecision5),
+        routing_ruleset(
+            ?ruleset(?EMPTY_ROUTING_RULESET),
+            <<"Empty Ruleset">>,
+            {candidates, []}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES),
+            <<"PayInst1 Withdrawal Ruleset">>,
+            {delegates, [
+                delegate(condition(party, <<"12345">>), ?ruleset(?PAYINST1_ROUTING_POLICIES + 1)),
+                delegate(condition(party, <<"67890">>), ?ruleset(?PAYINST1_ROUTING_POLICIES + 3)),
+                delegate({constant, true}, ?ruleset(?PAYINST1_ROUTING_POLICIES + 4))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 1),
+            {delegates, [
+                delegate(condition(cost_in, {0, 1000, <<"RUB">>}), ?ruleset(?PAYINST1_ROUTING_POLICIES + 2))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 2),
+            {candidates, [
+                candidate({constant, true}, ?trm(1)),
+                candidate({constant, true}, ?trm(2))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 3),
+            {candidates, [
+                candidate({constant, true}, ?trm(3)),
+                candidate({constant, true}, ?trm(4)),
+                candidate({constant, true}, ?trm(5))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 4),
+            {delegates, [
+                delegate(
+                    condition(cost_in, {300, 302, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 5)
+                ),
+                delegate(
+                    condition(cost_in, {123123, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 6)
+                ),
+                delegate(
+                    condition(cost_in, {100500, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 10)
+                ),
+                delegate(
+                    condition(cost_in, {500100, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 11)
+                ),
+                delegate(
+                    condition(cost_in, {500500, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 12)
+                ),
+                delegate(
+                    condition(cost_in, {700700, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 13)
+                ),
+                delegate(
+                    {condition,
+                        {payment_tool,
+                            {bank_card, #domain_BankCardCondition{
+                                definition = {issuer_country_is, 'rus'}
+                            }}}},
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 14)
+                ),
+                delegate(
+                    {condition, {payment_tool, {crypto_currency, #domain_CryptoCurrencyCondition{}}}},
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 15)
+                ),
+                delegate(
+                    {condition,
+                        {payment_tool,
+                            {generic,
+                                {payment_service_is, #domain_PaymentServiceRef{
+                                    id = <<"IND">>
+                                }}}}},
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 15)
+                )
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 5),
+            {candidates, [
+                candidate(condition(cost_in, {300, <<"RUB">>}), ?trm(1701)),
+                candidate(condition(cost_in, {301, <<"RUB">>}), ?trm(1708))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 6),
+            {candidates, [
+                candidate({constant, true}, ?trm(6))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 10),
+            {candidates, [
+                % provider 4 will be discarded by proxy 6
+                candidate({constant, true}, ?trm(401)),
+                candidate({constant, true}, ?trm(501))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 11),
+            {candidates, [
+                candidate({constant, true}, ?trm(401)),
+                candidate({constant, true}, ?trm(601)),
+                candidate({constant, true}, ?trm(701)),
+                candidate({constant, true}, ?trm(801))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 12),
+            {candidates, [
+                candidate({constant, true}, ?trm(901), 500),
+                candidate({constant, true}, ?trm(1001), 1000)
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 13),
+            {candidates, [
+                candidate({constant, true}, ?trm(1101))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 14),
+            {candidates, [
+                candidate(
+                    condition(cost_in, {0, 1000000, <<"RUB">>}),
+                    ?trm(1)
+                ),
+                candidate(
+                    condition(cost_in, {3000000, 10000000, <<"RUB">>}),
+                    ?trm(307)
+                )
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 15),
+            {candidates, [
+                candidate(
+                    condition(cost_in, {0, 1000000, <<"RUB">>}),
+                    ?trm(201)
+                ),
+                candidate(
+                    condition(cost_in, {3000000, 10000000, <<"RUB">>}),
+                    ?trm(307)
+                )
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_PROHIBITIONS),
+            <<"PayInst1 Withdrawal Prohibitions">>,
+            {candidates, [
+                candidate({constant, true}, ?trm(4))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST2_ROUTING_POLICIES),
+            <<"PayInst2 Withdrawal Ruleset">>,
+            {delegates, [
+                delegate(
+                    condition(cost_in, {123, <<"RUB">>}),
+                    ?ruleset(?PAYINST2_ROUTING_POLICIES + 1)
+                ),
+                delegate(
+                    {condition,
+                        {payment_tool,
+                            {crypto_currency, #domain_CryptoCurrencyCondition{
+                                definition = {crypto_currency_is_deprecated, litecoin}
+                            }}}},
+                    ?ruleset(?PAYINST2_ROUTING_POLICIES + 1)
+                ),
+                delegate(
+                    {condition,
+                        {payment_tool,
+                            {digital_wallet, #domain_DigitalWalletCondition{
+                                definition = {payment_service_is, ?pmtsrv(<<"webmoney">>)}
+                            }}}},
+                    ?ruleset(?PAYINST2_ROUTING_POLICIES + 1)
+                ),
+                delegate(
+                    {condition,
+                        {payment_tool,
+                            {bank_card, #domain_BankCardCondition{
+                                definition = {issuer_country_is, 'rus'}
+                            }}}},
+                    ?ruleset(?PAYINST2_ROUTING_POLICIES + 1)
+                )
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST2_ROUTING_POLICIES + 1),
+            <<"PayInst2 Withdrawal Ruleset #1">>,
+            {candidates, [
+                candidate(
+                    condition(cost_in, {0, 1000000, <<"RUB">>}),
+                    ?trm(301)
+                ),
+                candidate(
+                    condition(cost_in, {3000000, 10000000, <<"RUB">>}),
+                    ?trm(307)
+                )
+            ]}
+        ),
 
         {payment_institution, #domain_PaymentInstitutionObject{
             ref = ?payinst(1),
@@ -295,134 +531,14 @@ domain_config(Options) ->
                 default_contract_template = {value, ?tmpl(1)},
                 providers = {value, ?ordset([])},
                 withdrawal_routing_rules = #domain_RoutingRules{
-                    policies = ?ruleset(1),
-                    prohibitions = ?ruleset(5)
+                    policies = ?ruleset(?PAYINST1_ROUTING_POLICIES),
+                    prohibitions = ?ruleset(?PAYINST1_ROUTING_PROHIBITIONS)
                 },
                 inspector = {value, ?insp(1)},
                 residences = ['rus'],
                 realm = live,
                 wallet_system_account_set = {value, ?sas(1)},
                 identity = payment_inst_identity_id(Options),
-                withdrawal_providers =
-                    {decisions, [
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {cost_in,
-                                        ?cashrng(
-                                            {inclusive, ?cash(300, <<"RUB">>)},
-                                            {inclusive, ?cash(301, <<"RUB">>)}
-                                        )}},
-                            then_ = {value, [?prv(17)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {cost_in,
-                                        ?cashrng(
-                                            {inclusive, ?cash(123123, <<"RUB">>)},
-                                            {inclusive, ?cash(123123, <<"RUB">>)}
-                                        )}},
-                            then_ = {value, [?prv(16)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {cost_in, #domain_CashRange{
-                                        upper =
-                                            {inclusive, #domain_Cash{
-                                                amount = 100500,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }},
-                                        lower =
-                                            {inclusive, #domain_Cash{
-                                                amount = 100500,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }}
-                                    }}},
-                            % provider 4 will be discarded by proxy 6
-                            then_ = {value, [?prv(4), ?prv(5)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {cost_in, #domain_CashRange{
-                                        upper =
-                                            {inclusive, #domain_Cash{
-                                                amount = 500100,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }},
-                                        lower =
-                                            {inclusive, #domain_Cash{
-                                                amount = 500100,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }}
-                                    }}},
-                            then_ = {value, [?prv(4), ?prv(6), ?prv(7), ?prv(8)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {cost_in, #domain_CashRange{
-                                        upper =
-                                            {inclusive, #domain_Cash{
-                                                amount = 500500,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }},
-                                        lower =
-                                            {inclusive, #domain_Cash{
-                                                amount = 500500,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }}
-                                    }}},
-                            then_ = {value, [?prv(9), ?prv(10)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {cost_in, #domain_CashRange{
-                                        upper =
-                                            {inclusive, #domain_Cash{
-                                                amount = 700700,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }},
-                                        lower =
-                                            {inclusive, #domain_Cash{
-                                                amount = 700700,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }}
-                                    }}},
-                            then_ = {value, [?prv(11)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ = {
-                                condition,
-                                {payment_tool,
-                                    {bank_card, #domain_BankCardCondition{
-                                        definition = {issuer_country_is, 'rus'}
-                                    }}}
-                            },
-                            then_ = {value, [?prv(1)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ = {condition, {payment_tool, {crypto_currency, #domain_CryptoCurrencyCondition{}}}},
-                            then_ = {value, [?prv(2)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {payment_tool,
-                                        {generic,
-                                            {payment_service_is, #domain_PaymentServiceRef{
-                                                id = <<"IND">>
-                                            }}}}},
-                            then_ = {value, [?prv(2)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ = {constant, true},
-                            then_ = {value, []}
-                        }
-                    ]},
                 payment_system =
                     {decisions, [
                         #domain_PaymentSystemDecision{
@@ -470,54 +586,10 @@ domain_config(Options) ->
                 realm = live,
                 wallet_system_account_set = {value, ?sas(1)},
                 identity = dummy_payment_inst_identity_id(Options),
-                withdrawal_providers =
-                    {decisions, [
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {cost_in, #domain_CashRange{
-                                        upper =
-                                            {inclusive, #domain_Cash{
-                                                amount = 123,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }},
-                                        lower =
-                                            {inclusive, #domain_Cash{
-                                                amount = 123,
-                                                currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                                            }}
-                                    }}},
-                            then_ = {value, [?prv(3)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {payment_tool,
-                                        {crypto_currency, #domain_CryptoCurrencyCondition{
-                                            definition = {crypto_currency_is_deprecated, litecoin}
-                                        }}}},
-                            then_ = {value, [?prv(3)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ =
-                                {condition,
-                                    {payment_tool,
-                                        {digital_wallet, #domain_DigitalWalletCondition{
-                                            definition = {payment_service_is, ?pmtsrv(<<"webmoney">>)}
-                                        }}}},
-                            then_ = {value, [?prv(3)]}
-                        },
-                        #domain_ProviderDecision{
-                            if_ = {
-                                condition,
-                                {payment_tool,
-                                    {bank_card, #domain_BankCardCondition{
-                                        definition = {issuer_country_is, 'rus'}
-                                    }}}
-                            },
-                            then_ = {value, [?prv(3)]}
-                        }
-                    ]},
+                withdrawal_routing_rules = #domain_RoutingRules{
+                    policies = ?ruleset(?PAYINST2_ROUTING_POLICIES),
+                    prohibitions = ?ruleset(?EMPTY_ROUTING_RULESET)
+                },
                 payment_system =
                     {decisions, [
                         #domain_PaymentSystemDecision{
@@ -563,34 +635,90 @@ domain_config(Options) ->
         ct_domain:proxy(?prx(7), <<"Another down proxy">>, <<"http://localhost:8222/downbank2">>),
         ct_domain:proxy(?prx(8), <<"Sleep proxy">>, <<"http://localhost:8222/sleepybank">>),
 
-        ct_domain:withdrawal_provider(?prv(1), ?prx(2), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(2), ?prx(2), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(3), ?prx(3), dummy_provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(4), ?prx(6), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(5), ?prx(2), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(6), ?prx(6), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(7), ?prx(6), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(8), ?prx(2), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(9), ?prx(7), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(10), ?prx(6), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(11), ?prx(8), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(16), ?prx(2), provider_identity_id(Options)),
-        ct_domain:withdrawal_provider(?prv(17), ?prx(2), provider_identity_id(Options)),
+        ct_domain:withdrawal_provider(?prv(1), ?prx(2), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(2), ?prx(2), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(3), ?prx(3), dummy_provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(4), ?prx(6), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(5), ?prx(2), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(6), ?prx(6), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(7), ?prx(6), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(8), ?prx(2), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(9), ?prx(7), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(10), ?prx(6), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(11), ?prx(8), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(16), ?prx(2), provider_identity_id(Options), undefined),
+        ct_domain:withdrawal_provider(?prv(17), ?prx(2), provider_identity_id(Options), ProviderTermSet),
 
         ct_domain:contract_template(?tmpl(1), ?trms(1)),
         ct_domain:term_set_hierarchy(?trms(1), [ct_domain:timed_term_set(default_termset(Options))]),
         ct_domain:contract_template(?tmpl(2), ?trms(2)),
         ct_domain:term_set_hierarchy(?trms(2), [ct_domain:timed_term_set(company_termset(Options))]),
 
-        ct_domain:withdrawal_terminal(?trm(1)),
-        ct_domain:withdrawal_terminal(?trm(2)),
-        ct_domain:withdrawal_terminal(?trm(3)),
-        ct_domain:withdrawal_terminal(?trm(4)),
-        ct_domain:withdrawal_terminal(?trm(5)),
-        ct_domain:withdrawal_terminal(?trm(6)),
-        ct_domain:withdrawal_terminal(?trm(7)),
-        % Provider 17 satellite
-        ct_domain:withdrawal_terminal(?trm(8)),
+        ct_domain:withdrawal_terminal(?trm(1), ?prv(1)),
+        ct_domain:withdrawal_terminal(?trm(2), ?prv(1)),
+        ct_domain:withdrawal_terminal(?trm(3), ?prv(1)),
+        ct_domain:withdrawal_terminal(?trm(4), ?prv(1)),
+        ct_domain:withdrawal_terminal(?trm(5), ?prv(1)),
+
+        ct_domain:withdrawal_terminal(?trm(6), ?prv(16)),
+
+        ct_domain:withdrawal_terminal(?trm(201), ?prv(2)),
+
+        ct_domain:withdrawal_terminal(?trm(301), ?prv(3)),
+        ct_domain:withdrawal_terminal(
+            ?trm(307),
+            ?prv(3),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        currencies = {value, ?ordset([?cur(<<"BTC">>)])},
+                        payout_methods = {value, ?ordset([])},
+                        cash_limit =
+                            {value,
+                                ?cashrng(
+                                    {inclusive, ?cash(1000000, <<"BTC">>)},
+                                    {exclusive, ?cash(10000000, <<"BTC">>)}
+                                )},
+                        cash_flow = {value, ?ordset([])}
+                    }
+                }
+            }
+        ),
+
+        ct_domain:withdrawal_terminal(?trm(401), ?prv(4)),
+        ct_domain:withdrawal_terminal(?trm(501), ?prv(5)),
+        ct_domain:withdrawal_terminal(?trm(601), ?prv(6)),
+        ct_domain:withdrawal_terminal(?trm(701), ?prv(7)),
+        ct_domain:withdrawal_terminal(?trm(801), ?prv(8)),
+        ct_domain:withdrawal_terminal(?trm(901), ?prv(9)),
+        ct_domain:withdrawal_terminal(?trm(1001), ?prv(10)),
+        ct_domain:withdrawal_terminal(?trm(1101), ?prv(11)),
+
+        ct_domain:withdrawal_terminal(?trm(1701), ?prv(17)),
+        ct_domain:withdrawal_terminal(
+            ?trm(1708),
+            ?prv(17),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        cash_flow =
+                            {decisions, [
+                                #domain_CashFlowDecision{
+                                    if_ = {constant, true},
+                                    then_ =
+                                        {value, [
+                                            ?cfpost(
+                                                {system, settlement},
+                                                {provider, settlement},
+                                                ?fixed(16, <<"RUB">>)
+                                            )
+                                        ]}
+                                }
+                            ]}
+                    }
+                }
+            }
+        ),
 
         ct_domain:currency(?cur(<<"RUB">>)),
         ct_domain:currency(?cur(<<"USD">>)),
@@ -1036,6 +1164,9 @@ company_termset(Options) ->
     },
     maps:get(company_termset, Options, Default).
 
+routing_ruleset(?ruleset(ID) = Ref, Decisions) ->
+    routing_ruleset(Ref, genlib:format("Withdrawal Ruleset #~B", [ID]), Decisions).
+
 routing_ruleset(Ref, Name, Decisions) ->
     {routing_rules, #domain_RoutingRulesObject{
         ref = Ref,
@@ -1045,26 +1176,38 @@ routing_ruleset(Ref, Name, Decisions) ->
         }
     }}.
 
-condition(cost_in, {Min, Max, Cur}) ->
+condition(cost_in, {CostExact, Currency}) ->
     {condition,
         {cost_in,
             ?cashrng(
-                {inclusive, ?cash(Min, Cur)},
-                {exclusive, ?cash(Max, Cur)}
+                {inclusive, ?cash(CostExact, Currency)},
+                {inclusive, ?cash(CostExact, Currency)}
+            )}};
+condition(cost_in, {Min, Max, Currency}) ->
+    {condition,
+        {cost_in,
+            ?cashrng(
+                {inclusive, ?cash(Min, Currency)},
+                {exclusive, ?cash(Max, Currency)}
             )}};
 condition(party, ID) ->
     {condition, {party, #domain_PartyCondition{id = ID}}}.
 
 delegate(Allowed, RuleSetRef) ->
     #domain_RoutingDelegate{
-        description = <<"Delagate description">>,
         allowed = Allowed,
         ruleset = RuleSetRef
     }.
 
 candidate(Allowed, Terminal) ->
     #domain_RoutingCandidate{
-        description = <<"Candidate description">>,
         allowed = Allowed,
         terminal = Terminal
+    }.
+
+candidate(Allowed, Terminal, Prio) ->
+    #domain_RoutingCandidate{
+        allowed = Allowed,
+        terminal = Terminal,
+        priority = Prio
     }.

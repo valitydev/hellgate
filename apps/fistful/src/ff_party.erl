@@ -87,7 +87,6 @@
 -export([get_contract_terms/6]).
 -export([compute_payment_institution/3]).
 -export([compute_routing_ruleset/3]).
--export([compute_provider/3]).
 -export([compute_provider_terminal_terms/4]).
 -export([get_withdrawal_cash_flow_plan/1]).
 -export([get_w2w_cash_flow_plan/1]).
@@ -114,7 +113,6 @@
 -type provider_ref() :: dmsl_domain_thrift:'ProviderRef'().
 -type terminal_ref() :: dmsl_domain_thrift:'TerminalRef'().
 -type method_ref() :: dmsl_domain_thrift:'PaymentMethodRef'().
--type provider() :: dmsl_domain_thrift:'Provider'().
 -type provision_term_set() :: dmsl_domain_thrift:'ProvisionTermSet'().
 -type bound_type() :: 'exclusive' | 'inclusive'.
 -type cash_range() :: {{bound_type(), cash()}, {bound_type(), cash()}}.
@@ -165,7 +163,8 @@ create(ID, Params) ->
 
 -spec is_accessible(id()) ->
     {ok, accessible}
-    | {error, inaccessibility()}.
+    | {error, inaccessibility()}
+    | {error, notfound}.
 is_accessible(ID) ->
     case do_get_party(ID) of
         #domain_Party{blocking = {blocked, _}} ->
@@ -185,9 +184,7 @@ get_revision(ID) ->
         {ok, Revision} ->
             {ok, Revision};
         {error, #payproc_PartyNotFound{}} ->
-            {error, {party_not_found, ID}};
-        {error, Unexpected} ->
-            error(Unexpected)
+            {error, {party_not_found, ID}}
     end.
 
 %%
@@ -271,9 +268,7 @@ get_contract_terms(PartyID, ContractID, Varset, Timestamp, PartyRevision, Domain
         {error, #payproc_ContractNotFound{}} ->
             {error, {contract_not_found, ContractID}};
         {error, #payproc_PartyNotExistsYet{}} ->
-            {error, {party_not_exists_yet, PartyID}};
-        {error, Unexpected} ->
-            erlang:error({unexpected, Unexpected})
+            {error, {party_not_exists_yet, PartyID}}
     end.
 
 -spec compute_payment_institution(PaymentInstitutionRef, Varset, DomainRevision) -> Result when
@@ -318,28 +313,6 @@ compute_routing_ruleset(RoutingRulesetRef, Varset, DomainRevision) ->
             {ok, RoutingRuleset};
         {error, #payproc_RuleSetNotFound{}} ->
             {error, ruleset_not_found}
-    end.
-
--spec compute_provider(ProviderRef, Varset, DomainRevision) -> Result when
-    ProviderRef :: provider_ref(),
-    Varset :: ff_varset:varset(),
-    DomainRevision :: domain_revision(),
-    Result :: {ok, provider()} | {error, provider_not_found}.
-compute_provider(ProviderRef, Varset, DomainRevision) ->
-    DomainVarset = ff_varset:encode(Varset),
-    {Client, Context} = get_party_client(),
-    Result = party_client_thrift:compute_provider(
-        ProviderRef,
-        DomainRevision,
-        DomainVarset,
-        Client,
-        Context
-    ),
-    case Result of
-        {ok, Provider} ->
-            {ok, Provider};
-        {error, #payproc_ProviderNotFound{}} ->
-            {error, provider_not_found}
     end.
 
 -spec compute_provider_terminal_terms(ProviderRef, TerminalRef, Varset, DomainRevision) -> Result when
@@ -484,9 +457,7 @@ do_create_party(ID, Params) ->
         ok ->
             ok;
         {error, #payproc_PartyExists{}} ->
-            {error, exists};
-        {error, Unexpected} ->
-            error(Unexpected)
+            {error, exists}
     end.
 
 do_get_party(ID) ->
@@ -499,9 +470,7 @@ do_get_party(ID) ->
         {ok, Party} ->
             Party;
         {error, #payproc_PartyNotFound{} = Reason} ->
-            Reason;
-        {error, Unexpected} ->
-            error(Unexpected)
+            Reason
     end.
 
 do_get_contract(ID, ContractID) ->
@@ -512,9 +481,7 @@ do_get_contract(ID, ContractID) ->
         {error, #payproc_PartyNotFound{}} ->
             {error, {party_not_found, ID}};
         {error, #payproc_ContractNotFound{}} ->
-            {error, {contract_not_found, ContractID}};
-        {error, Unexpected} ->
-            error(Unexpected)
+            {error, {contract_not_found, ContractID}}
     end.
 
 do_create_claim(ID, Changeset) ->
@@ -527,9 +494,7 @@ do_create_claim(ID, Changeset) ->
         }} ->
             {error, invalid};
         {error, #payproc_InvalidPartyStatus{status = Status}} ->
-            {error, construct_inaccessibilty(Status)};
-        {error, Unexpected} ->
-            error(Unexpected)
+            {error, construct_inaccessibilty(Status)}
     end.
 
 do_accept_claim(ID, Claim) ->
@@ -543,30 +508,14 @@ do_accept_claim(ID, Claim) ->
         ok ->
             accepted;
         {error, #payproc_InvalidClaimStatus{status = {accepted, _}}} ->
-            accepted;
-        {error, Unexpected} ->
-            error(Unexpected)
+            accepted
     end.
 
 get_party_client() ->
-    % TODO
-    %  - Move auth logic from hellgate to capi the same way as it works
-    %    in wapi & fistful. Then the following dirty user_identity hack
-    %    will not be necessary anymore.
-    Context0 = ff_context:load(),
-    WoodyContextWithoutMeta = maps:without([meta], ff_context:get_woody_context(Context0)),
-    Context1 = ff_context:set_woody_context(WoodyContextWithoutMeta, Context0),
-    Context2 = ff_context:set_user_identity(construct_user_identity(), Context1),
-    Client = ff_context:get_party_client(Context2),
-    ClientContext = ff_context:get_party_client_context(Context2),
+    Context = ff_context:load(),
+    Client = ff_context:get_party_client(Context),
+    ClientContext = ff_context:get_party_client_context(Context),
     {Client, ClientContext}.
-
--spec construct_user_identity() -> woody_user_identity:user_identity().
-construct_user_identity() ->
-    #{
-        id => <<"fistful">>,
-        realm => <<"service">>
-    }.
 
 construct_inaccessibilty({blocking, _}) ->
     {inaccessible, blocked};
@@ -581,10 +530,6 @@ construct_inaccessibilty({suspension, _}) ->
 
 -define(CONTRACT_MOD(ID, Mod),
     {contract_modification, #payproc_ContractModificationUnit{id = ID, modification = Mod}}
-).
-
--define(WALLET_MOD(ID, Mod),
-    {wallet_modification, #payproc_WalletModificationUnit{id = ID, modification = Mod}}
 ).
 
 construct_party_params(#{email := Email}) ->
