@@ -48,7 +48,7 @@
  {<<"parse_trans">>,{pkg,<<"parse_trans">>,<<"3.3.1">>},2},
  {<<"party_client">>,
   {git,"https://github.com/valitydev/party-client-erlang.git",
-       {ref,"31850a63f6c00da7e10897b23298ad38f9bf448d"}},
+       {ref,"4097004f78a526b7fe748719045dd428c905c2f0"}},
   0},
  {<<"payproc_errors">>,
   {git,"https://github.com/valitydev/payproc-errors-erlang.git",
