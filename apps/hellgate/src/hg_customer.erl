@@ -756,17 +756,13 @@ unmarshal_event({ID, Dt, Payload}) ->
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
     Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
     {customer_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
-    Buf;
-unmarshal_event_payload(#{format_version := undefined, data := Changes}) ->
-    unmarshal({list, change}, Changes).
+    Buf.
 
 -spec unmarshal_customer_params(binary()) -> customer_params().
 unmarshal_customer_params(Bin) ->
     Type = {struct, struct, {dmsl_payment_processing_thrift, 'CustomerParams'}},
     hg_proto_utils:deserialize(Type, Bin).
 
-unmarshal({list, T}, Vs) when is_list(Vs) ->
-    [unmarshal(T, V) || V <- Vs];
 %% Aux State
 
 unmarshal(auxst, AuxState) ->
@@ -781,179 +777,6 @@ unmarshal(binding_id, BindingID) ->
     unmarshal(str, BindingID);
 unmarshal(event_id, EventID) ->
     unmarshal(int, EventID);
-%% Changes
-
-unmarshal(change, [Version, V]) ->
-    unmarshal({change, Version}, V);
-unmarshal({change, 2}, #{
-    <<"change">> := <<"created">>,
-    <<"customer_id">> := CustomerID,
-    <<"owner_id">> := OwnerID,
-    <<"shop_id">> := ShopID,
-    <<"created_at">> := CreatedAt,
-    <<"contact_info">> := ContactInfo,
-    <<"metadata">> := Metadata
-}) ->
-    ?customer_created(
-        unmarshal(str, CustomerID),
-        unmarshal(str, OwnerID),
-        unmarshal(str, ShopID),
-        unmarshal(metadata, Metadata),
-        unmarshal(contact_info, ContactInfo),
-        unmarshal(str, CreatedAt)
-    );
-unmarshal({change, 1}, #{
-    <<"change">> := <<"created">>,
-    <<"customer">> := Customer
-}) ->
-    #payproc_Customer{
-        id = CustomerID,
-        owner_id = OwnerID,
-        shop_id = ShopID,
-        created_at = CreatedAt,
-        contact_info = ContactInfo,
-        metadata = Metadata
-    } = unmarshal(customer, Customer),
-    ?customer_created(CustomerID, OwnerID, ShopID, Metadata, ContactInfo, CreatedAt);
-unmarshal({change, 1}, #{
-    <<"change">> := <<"deleted">>
-}) ->
-    ?customer_deleted();
-unmarshal({change, 1}, #{
-    <<"change">> := <<"status">>,
-    <<"status">> := CustomerStatus
-}) ->
-    ?customer_status_changed(unmarshal(customer_status, CustomerStatus));
-unmarshal({change, 1}, #{
-    <<"change">> := <<"binding">>,
-    <<"binding_id">> := CustomerBindingID,
-    <<"payload">> := Payload
-}) ->
-    ?customer_binding_changed(
-        unmarshal(str, CustomerBindingID),
-        unmarshal(binding_change_payload, Payload)
-    );
-unmarshal(
-    customer,
-    #{
-        <<"id">> := ID,
-        <<"owner_id">> := OwnerID,
-        <<"shop_id">> := ShopID,
-        <<"created_at">> := CreatedAt,
-        <<"contact">> := ContactInfo,
-        <<"metadata">> := Metadata
-    }
-) ->
-    #payproc_Customer{
-        id = unmarshal(str, ID),
-        owner_id = unmarshal(str, OwnerID),
-        shop_id = unmarshal(str, ShopID),
-        status = ?customer_unready(),
-        created_at = unmarshal(str, CreatedAt),
-        bindings = [],
-        contact_info = unmarshal(contact_info, ContactInfo),
-        metadata = unmarshal(metadata, Metadata)
-    };
-unmarshal(customer_status, <<"unready">>) ->
-    ?customer_unready();
-unmarshal(customer_status, <<"ready">>) ->
-    ?customer_ready();
-unmarshal(
-    binding,
-    #{
-        <<"id">> := ID,
-        <<"recpaytool_id">> := RecPaymentToolID,
-        <<"payresource">> := PaymentResource
-    } = Binding
-) ->
-    Status = maps:get(<<"status">>, Binding, ?BINARY_BINDING_STATUS_PENDING),
-    PartyRevision = maps:get(<<"party_revision">>, Binding, undefined),
-    DomainRevision = maps:get(<<"domain_revision">>, Binding, undefined),
-    #payproc_CustomerBinding{
-        id = unmarshal(str, ID),
-        rec_payment_tool_id = unmarshal(str, RecPaymentToolID),
-        payment_resource = unmarshal(payment_resource, PaymentResource),
-        status = unmarshal(binding_status, Status),
-        party_revision = unmarshal(int, PartyRevision),
-        domain_revision = unmarshal(int, DomainRevision)
-    };
-unmarshal(
-    payment_resource,
-    #{
-        <<"paytool">> := PaymentTool,
-        <<"session">> := PaymentSessionID,
-        <<"client_info">> := ClientInfo
-    }
-) ->
-    #domain_DisposablePaymentResource{
-        payment_tool = hg_payment_tool:unmarshal(PaymentTool),
-        payment_session_id = unmarshal(str, PaymentSessionID),
-        client_info = unmarshal(client_info, ClientInfo)
-    };
-unmarshal(client_info, ClientInfo) ->
-    #domain_ClientInfo{
-        ip_address = unmarshal(str, genlib_map:get(<<"ip">>, ClientInfo)),
-        fingerprint = unmarshal(str, genlib_map:get(<<"fingerprint">>, ClientInfo))
-    };
-unmarshal(binding_status, ?BINARY_BINDING_STATUS_PENDING) ->
-    ?customer_binding_pending();
-unmarshal(binding_status, ?BINARY_BINDING_STATUS_SUCCEEDED) ->
-    ?customer_binding_succeeded();
-unmarshal(binding_status, ?BINARY_BINDING_STATUS_FAILED(Failure)) ->
-    ?customer_binding_failed(unmarshal(failure, Failure));
-unmarshal(binding_change_payload, [<<"started">>, Binding]) ->
-    ?customer_binding_started(unmarshal(binding, Binding), undefined);
-unmarshal(binding_change_payload, [<<"started">>, Binding, Timestamp]) ->
-    ?customer_binding_started(unmarshal(binding, Binding), Timestamp);
-unmarshal(binding_change_payload, [<<"status">>, BindingStatus]) ->
-    ?customer_binding_status_changed(unmarshal(binding_status, BindingStatus));
-unmarshal(binding_change_payload, [<<"interaction">>, UserInteraction]) ->
-    ?customer_binding_interaction_requested(unmarshal(interaction, UserInteraction));
-unmarshal(interaction, [<<"redirect">>, Redirect]) ->
-    {
-        redirect,
-        unmarshal(redirect, Redirect)
-    };
-unmarshal(redirect, [<<"get">>, URI]) ->
-    {
-        get_request,
-        #'BrowserGetRequest'{uri = unmarshal(str, URI)}
-    };
-unmarshal(redirect, [<<"post">>, #{<<"uri">> := URI, <<"form">> := Form}]) ->
-    {
-        post_request,
-        #'BrowserPostRequest'{uri = unmarshal(str, URI), form = unmarshal(map_str, Form)}
-    };
-unmarshal(sub_failure, undefined) ->
-    undefined;
-unmarshal(sub_failure, #{<<"code">> := Code} = SubFailure) ->
-    #domain_SubFailure{
-        code = unmarshal(str, Code),
-        sub = unmarshal(sub_failure, maps:get(<<"sub">>, SubFailure, undefined))
-    };
-unmarshal(failure, [1, <<"operation_timeout">>]) ->
-    {operation_timeout, #domain_OperationTimeout{}};
-unmarshal(failure, [1, [<<"failure">>, #{<<"code">> := Code} = Failure]]) ->
-    {failure, #domain_Failure{
-        code = unmarshal(str, Code),
-        reason = unmarshal(str, maps:get(<<"reason">>, Failure, undefined)),
-        sub = unmarshal(sub_failure, maps:get(<<"sub">>, Failure, undefined))
-    }};
-unmarshal(failure, <<"operation_timeout">>) ->
-    {operation_timeout, #domain_OperationTimeout{}};
-unmarshal(failure, [<<"external_failure">>, #{<<"code">> := Code} = ExternalFailure]) ->
-    Description = maps:get(<<"description">>, ExternalFailure, undefined),
-    {failure, #domain_Failure{
-        code = unmarshal(str, Code),
-        reason = unmarshal(str, Description)
-    }};
-unmarshal(contact_info, ContactInfo) ->
-    #domain_ContactInfo{
-        phone_number = unmarshal(str, genlib_map:get(<<"phone">>, ContactInfo)),
-        email = unmarshal(str, genlib_map:get(<<"email">>, ContactInfo))
-    };
-unmarshal(metadata, Metadata) ->
-    hg_msgpack_marshalling:unmarshal(json, Metadata);
 unmarshal(_, Other) ->
     Other.
 

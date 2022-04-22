@@ -146,17 +146,9 @@ handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoicing,
         fun() ->
-            handle_function_(Func, remove_user_info_arg(Args), Opts)
+            handle_function_(Func, Args, Opts)
         end
     ).
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_arg(Args0) ->
-    erlang:delete_element(1, Args0).
-
-add_user_info_arg(Args0) ->
-    erlang:insert_element(1, Args0, undefined).
 
 -spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {InvoiceParams}, _Opts) ->
@@ -433,7 +425,7 @@ ensure_started(ID, TemplateID, PartyRevision, Params, Allocation) ->
     end.
 
 call(ID, Function, Args) ->
-    case hg_machine:thrift_call(?NS, ID, invoicing, {'Invoicing', Function}, add_user_info_arg(Args)) of
+    case hg_machine:thrift_call(?NS, ID, invoicing, {'Invoicing', Function}, Args) of
         ok -> ok;
         {ok, Reply} -> Reply;
         {exception, Exception} -> erlang:throw(Exception);
@@ -583,18 +575,11 @@ handle_expiration(St) ->
 process_call(Call, #{history := History}) ->
     St = collapse_history(unmarshal_history(History)),
     try
-        handle_result(handle_call(remove_user_info_from_call(Call), St))
+        handle_result(handle_call(Call, St))
     catch
         throw:Exception ->
             {{exception, Exception}, #{}}
     end.
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_from_call({{'Invoicing', _} = Func, Args0}) ->
-    {Func, erlang:delete_element(1, Args0)};
-remove_user_info_from_call(Call) ->
-    Call.
 
 -spec handle_call(call(), st()) -> call_result().
 handle_call({{'Invoicing', 'StartPayment'}, {_InvoiceID, PaymentParams}}, St0) ->
@@ -1450,8 +1435,6 @@ get_message(invoice_created) ->
 get_message(invoice_status_changed) ->
     "Invoice status is changed".
 
--include("legacy_structures.hrl").
-
 %% Marshalling
 
 -spec marshal_event_payload([invoice_change()]) -> hg_machine:event_payload().
@@ -1477,169 +1460,12 @@ unmarshal_event({ID, Dt, Payload}) ->
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
     Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
     {invoice_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
-    Buf;
-unmarshal_event_payload(#{format_version := undefined, data := Changes}) ->
-    unmarshal({list, changes}, Changes).
+    Buf.
 
 -spec unmarshal_invoice(binary()) -> invoice().
 unmarshal_invoice(Bin) ->
     Type = {struct, struct, {dmsl_domain_thrift, 'Invoice'}},
     hg_proto_utils:deserialize(Type, Bin).
-
-%% Legacy formats unmarshal
-
-%% Version > 1
-
-unmarshal({list, changes}, Changes) when is_list(Changes) ->
-    lists:flatten([unmarshal(change, Change) || Change <- Changes]);
-%% Version 1
-
-unmarshal({list, changes}, {bin, Bin}) when is_binary(Bin) ->
-    Changes = binary_to_term(Bin),
-    lists:flatten([unmarshal(change, [1, Change]) || Change <- Changes]);
-%% Changes
-
-unmarshal(change, [
-    2,
-    #{
-        <<"change">> := <<"created">>,
-        <<"invoice">> := Invoice
-    }
-]) ->
-    ?invoice_created(unmarshal(invoice, Invoice));
-unmarshal(change, [
-    2,
-    #{
-        <<"change">> := <<"status_changed">>,
-        <<"status">> := Status
-    }
-]) ->
-    ?invoice_status_changed(unmarshal(status, Status));
-unmarshal(change, [
-    2,
-    #{
-        <<"change">> := <<"payment_change">>,
-        <<"id">> := PaymentID,
-        <<"payload">> := Payload
-    }
-]) ->
-    PaymentEvents = hg_invoice_payment:unmarshal(Payload),
-    [?payment_ev(unmarshal(str, PaymentID), Event) || Event <- PaymentEvents];
-unmarshal(change, [1, ?legacy_invoice_created(Invoice)]) ->
-    ?invoice_created(unmarshal(invoice, Invoice));
-unmarshal(change, [1, ?legacy_invoice_status_changed(Status)]) ->
-    ?invoice_status_changed(unmarshal(status, Status));
-unmarshal(change, [1, ?legacy_payment_ev(PaymentID, Payload)]) ->
-    PaymentEvents = hg_invoice_payment:unmarshal([1, Payload]),
-    [?payment_ev(unmarshal(str, PaymentID), Event) || Event <- PaymentEvents];
-%% Change components
-
-unmarshal(
-    invoice,
-    #{
-        <<"id">> := ID,
-        <<"shop_id">> := ShopID,
-        <<"owner_id">> := PartyID,
-        <<"created_at">> := CreatedAt,
-        <<"cost">> := Cash,
-        <<"due">> := Due,
-        <<"details">> := Details
-    } = Invoice
-) ->
-    Context = maps:get(<<"context">>, Invoice, undefined),
-    TemplateID = maps:get(<<"template_id">>, Invoice, undefined),
-    ExternalID = maps:get(<<"external_id">>, Invoice, undefined),
-    #domain_Invoice{
-        id = unmarshal(str, ID),
-        shop_id = unmarshal(str, ShopID),
-        owner_id = unmarshal(str, PartyID),
-        party_revision = maps:get(<<"party_revision">>, Invoice, undefined),
-        created_at = unmarshal(str, CreatedAt),
-        cost = hg_cash:unmarshal(Cash),
-        due = unmarshal(str, Due),
-        details = unmarshal(details, Details),
-        status = ?invoice_unpaid(),
-        context = hg_content:unmarshal(Context),
-        template_id = unmarshal(str, TemplateID),
-        external_id = unmarshal(str, ExternalID)
-    };
-unmarshal(
-    invoice,
-    ?legacy_invoice(ID, PartyID, ShopID, CreatedAt, Status, Details, Due, Cash, Context, TemplateID)
-) ->
-    #domain_Invoice{
-        id = unmarshal(str, ID),
-        shop_id = unmarshal(str, ShopID),
-        owner_id = unmarshal(str, PartyID),
-        created_at = unmarshal(str, CreatedAt),
-        cost = hg_cash:unmarshal([1, Cash]),
-        due = unmarshal(str, Due),
-        details = unmarshal(details, Details),
-        status = unmarshal(status, Status),
-        context = hg_content:unmarshal(Context),
-        template_id = unmarshal(str, TemplateID)
-    };
-unmarshal(
-    invoice,
-    ?legacy_invoice(ID, PartyID, ShopID, CreatedAt, Status, Details, Due, Cash, Context)
-) ->
-    unmarshal(
-        invoice,
-        ?legacy_invoice(ID, PartyID, ShopID, CreatedAt, Status, Details, Due, Cash, Context, undefined)
-    );
-unmarshal(status, <<"paid">>) ->
-    ?invoice_paid();
-unmarshal(status, <<"unpaid">>) ->
-    ?invoice_unpaid();
-unmarshal(status, [<<"cancelled">>, Reason]) ->
-    ?invoice_cancelled(unmarshal(str, Reason));
-unmarshal(status, [<<"fulfilled">>, Reason]) ->
-    ?invoice_fulfilled(unmarshal(str, Reason));
-unmarshal(status, ?legacy_invoice_paid()) ->
-    ?invoice_paid();
-unmarshal(status, ?legacy_invoice_unpaid()) ->
-    ?invoice_unpaid();
-unmarshal(status, ?legacy_invoice_cancelled(Reason)) ->
-    ?invoice_cancelled(unmarshal(str, Reason));
-unmarshal(status, ?legacy_invoice_fulfilled(Reason)) ->
-    ?invoice_fulfilled(unmarshal(str, Reason));
-unmarshal(details, #{<<"product">> := Product} = Details) ->
-    Description = maps:get(<<"description">>, Details, undefined),
-    Cart = maps:get(<<"cart">>, Details, undefined),
-    #domain_InvoiceDetails{
-        product = unmarshal(str, Product),
-        description = unmarshal(str, Description),
-        cart = unmarshal(cart, Cart)
-    };
-unmarshal(details, ?legacy_invoice_details(Product, Description)) ->
-    #domain_InvoiceDetails{
-        product = unmarshal(str, Product),
-        description = unmarshal(str, Description)
-    };
-unmarshal(cart, Lines) when is_list(Lines) ->
-    #domain_InvoiceCart{lines = [unmarshal(line, Line) || Line <- Lines]};
-unmarshal(line, #{
-    <<"product">> := Product,
-    <<"quantity">> := Quantity,
-    <<"price">> := Price,
-    <<"metadata">> := Metadata
-}) ->
-    #domain_InvoiceLine{
-        product = unmarshal(str, Product),
-        quantity = unmarshal(int, Quantity),
-        price = hg_cash:unmarshal(Price),
-        metadata = unmarshal(metadata, Metadata)
-    };
-unmarshal(metadata, Metadata) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            maps:put(unmarshal(str, K), hg_msgpack_marshalling:marshal(V), Acc)
-        end,
-        #{},
-        Metadata
-    );
-unmarshal(_, Other) ->
-    Other.
 
 %% Wrap in thrift binary
 
