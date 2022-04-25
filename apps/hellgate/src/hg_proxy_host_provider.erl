@@ -30,17 +30,22 @@ handle_function('ProcessPaymentCallback', {Tag, Callback}, _) ->
 handle_function('ProcessRecurrentTokenCallback', {Tag, Callback}, _) ->
     handle_callback_result(hg_recurrent_paytool:process_callback(Tag, {provider, Callback}));
 handle_function('GetPayment', {Tag}, _) ->
-    case hg_invoice:get({tag, Tag}) of
-        {ok, InvoiceSt} ->
-            case hg_invoice:get_payment({tag, Tag}, InvoiceSt) of
-                {ok, PaymentSt} ->
-                    Opts = hg_invoice:get_payment_opts(InvoiceSt),
-                    hg_invoice_payment:construct_payment_info(PaymentSt, Opts);
+    case hg_machine_tag:get_machine_id(hg_invoice:namespace(), Tag) of
+        {ok, MachineRef} ->
+            case hg_invoice:get(MachineRef) of
+                {ok, InvoiceSt} ->
+                    case hg_invoice:get_payment({tag, Tag}, InvoiceSt) of
+                        {ok, PaymentSt} ->
+                            Opts = hg_invoice:get_payment_opts(InvoiceSt),
+                            hg_invoice_payment:construct_payment_info(PaymentSt, Opts);
+                        {error, notfound} ->
+                            hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
+                    end;
                 {error, notfound} ->
                     hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
             end;
-        {error, notfound} ->
-            hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
+        {error, not_found} ->
+            {error, notfound}
     end.
 
 -spec handle_callback_result

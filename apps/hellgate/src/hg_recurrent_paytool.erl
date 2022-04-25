@@ -46,6 +46,7 @@
 -export_type([st/0]).
 
 -type rec_payment_tool() :: dmsl_payment_processing_thrift:'RecurrentPaymentTool'().
+-type rec_payment_tool_id() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolID'().
 -type rec_payment_tool_change() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolChange'().
 -type rec_payment_tool_params() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolParams'().
 
@@ -60,6 +61,7 @@
 -type timeout_behaviour() :: dmsl_timeout_behaviour_thrift:'TimeoutBehaviour'().
 
 -type session() :: #{
+    owner_id => rec_payment_tool_id(),
     status := active | suspended | finished,
     result => session_result(),
     trx => undefined | trx_info(),
@@ -540,7 +542,7 @@ handle_proxy_result(
 ) ->
     Changes1 = hg_proxy_provider:bind_transaction(Trx, Session),
     Changes2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
-    {Changes3, Action} = hg_proxy_provider:handle_proxy_intent(Intent, Action0),
+    {Changes3, Action} = hg_proxy_provider:handle_proxy_intent(Intent, Session, Action0),
     Changes = Changes1 ++ Changes2 ++ Changes3,
     case Intent of
         #prxprv_RecurrentTokenFinishIntent{status = {'success', #prxprv_RecurrentTokenSuccess{token = Token}}} ->
@@ -637,7 +639,8 @@ apply_change(?recurrent_payment_tool_has_failed(Failure), St) ->
         }
     };
 apply_change(?session_ev(?session_started()), St) ->
-    St#st{session = create_session()};
+    RecPaymentTool = get_rec_payment_tool(St),
+    St#st{session = create_session(RecPaymentTool#payproc_RecurrentPaymentTool.id)};
 apply_change(?session_ev(Event), St) ->
     Session = merge_session_change(Event, get_session(St)),
     St#st{session = Session}.
@@ -659,8 +662,9 @@ merge_session_change(?interaction_requested(_), Session) ->
 
 %%
 
-create_session() ->
+create_session(RecPaymentToolID) ->
     #{
+        owner_id => RecPaymentToolID,
         status => active,
         trx => undefined,
         timeout_behaviour => {operation_failure, ?operation_timeout()}
@@ -715,13 +719,18 @@ dispatch_callback({provider, Payload}, St) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    case hg_machine:call(?NS, {tag, Tag}, {callback, Callback}) of
-        {ok, _CallbackResponse} = Result ->
-            Result;
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
-        {error, _} = Error ->
-            Error
+    case hg_machine_tag:get_machine_id(namespace(), Tag) of
+        {ok, MachineRef} ->
+            case hg_machine:call(?NS, MachineRef, {callback, Callback}) of
+                {ok, _CallbackResponse} = Result ->
+                    Result;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, not_found} ->
+            {error, notfound}
     end.
 
 -spec handle_result(call_result()) -> {hg_machine:response(), hg_machine:result()} | hg_machine:result().

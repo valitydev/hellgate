@@ -129,6 +129,7 @@
     | finalizing_accounter.
 
 -record(st, {
+    invoice_id :: invoice_id(),
     activity :: activity(),
     payment :: undefined | payment(),
     risk_score :: undefined | risk_score(),
@@ -212,6 +213,7 @@
 -type session_status() :: active | suspended | finished.
 
 -type session() :: #{
+    owner_id := invoice_id(),
     target := target(),
     status := session_status(),
     trx := trx_info(),
@@ -444,7 +446,8 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         processing_deadline = Deadline
     },
     Events = [?payment_started(Payment2)],
-    {collapse_changes(Events, undefined), {Events, hg_machine_action:instant()}}.
+    CollapseOpts = #{invoice_id => get_invoice_id(Invoice)},
+    {collapse_changes(Events, undefined, CollapseOpts), {Events, hg_machine_action:instant()}}.
 
 get_merchant_payments_terms(Opts, Revision, Timestamp, VS) ->
     Party = get_party(Opts),
@@ -2829,9 +2832,10 @@ handle_proxy_intent(
         timeout_behaviour = TimeoutBehaviour
     },
     Action0,
-    Session
+    #{owner_id := OwnerID} = Session
 ) ->
-    Action = set_timer(Timer, hg_machine_action:set_tag(Tag, Action0)),
+    ok = hg_machine_tag:bind_machine_id(hg_invoice:namespace(), Tag, OwnerID),
+    Action = set_timer(Timer, Action0),
     Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
     {wrap_session_events(Events, Session), Action}.
 
@@ -3258,6 +3262,7 @@ throw_invalid_recurrent_parent(Details) ->
 %%
 
 -type change_opts() :: #{
+    invoice_id => invoice_id(),
     timestamp => hg_datetime:timestamp(),
     validation => strict
 }.
@@ -3268,6 +3273,7 @@ merge_change(Change, undefined, Opts) ->
 merge_change(Change = ?payment_started(Payment), #st{} = St, Opts) ->
     _ = validate_transition({payment, new}, Change, St, Opts),
     St#st{
+        invoice_id = maps:get(invoice_id, Opts),
         target = ?processed(),
         payment = Payment,
         activity = {payment, risk_scoring},
@@ -3530,7 +3536,8 @@ merge_change(
         Opts
     ),
     % FIXME why the hell dedicated handling
-    Session = mark_session_timing_event(started, Opts, create_session(Target, get_trx(St))),
+    Session0 = create_session(St#st.invoice_id, Target, get_trx(St)),
+    Session = mark_session_timing_event(started, Opts, Session0),
     St1 = add_session(Target, Session, St#st{target = Target}),
     St2 = save_retry_attempt(Target, St1),
     case Activity of
@@ -3587,7 +3594,7 @@ merge_refund_change(?refund_status_changed(Status), RefundSt) ->
 merge_refund_change(?refund_rollback_started(Failure), RefundSt) ->
     RefundSt#refund_st{failure = Failure};
 merge_refund_change(?session_ev(?refunded(), ?session_started()), St) ->
-    add_refund_session(create_session(?refunded(), undefined), St);
+    add_refund_session(create_session(St#st.invoice_id, ?refunded(), undefined), St);
 merge_refund_change(?session_ev(?refunded(), Change), St) ->
     update_refund_session(merge_session_change(Change, get_refund_session(St), #{}), St).
 
@@ -3814,8 +3821,9 @@ mark_session_timing_event(Event, Opts, Session) ->
     Timings = get_session_timings(Session),
     set_session_timings(hg_timings:mark(Event, define_event_timestamp(Opts), Timings), Session).
 
-create_session(Target, Trx) ->
+create_session(OwnerID, Target, Trx) ->
     #{
+        owner_id => OwnerID,
         target => Target,
         status => active,
         trx => Trx,

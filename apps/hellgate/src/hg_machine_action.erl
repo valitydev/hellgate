@@ -10,15 +10,12 @@
 -export([set_timer/2]).
 -export([unset_timer/0]).
 -export([unset_timer/1]).
--export([set_tag/1]).
--export([set_tag/2]).
 -export([mark_removal/1]).
 
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 %%
 
--type tag() :: binary().
 -type seconds() :: non_neg_integer().
 -type datetime_rfc3339() :: binary().
 -type datetime() :: calendar:datetime() | datetime_rfc3339().
@@ -70,14 +67,6 @@ unset_timer() ->
 -spec unset_timer(t()) -> t().
 unset_timer(Action = #mg_stateproc_ComplexAction{}) ->
     Action#mg_stateproc_ComplexAction{timer = {unset_timer, #mg_stateproc_UnsetTimerAction{}}}.
-
--spec set_tag(tag()) -> t().
-set_tag(Tag) ->
-    set_tag(Tag, new()).
-
--spec set_tag(tag(), t()) -> t().
-set_tag(Tag, Action = #mg_stateproc_ComplexAction{}) when is_binary(Tag) andalso byte_size(Tag) > 0 ->
-    Action#mg_stateproc_ComplexAction{tag = #mg_stateproc_TagAction{tag = Tag}}.
 
 -spec mark_removal(t()) -> t().
 mark_removal(Action = #mg_stateproc_ComplexAction{}) ->

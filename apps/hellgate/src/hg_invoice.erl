@@ -367,13 +367,18 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    case hg_machine:call(?NS, {tag, Tag}, {callback, Tag, Callback}) of
-        {ok, _Reply} = Response ->
-            Response;
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
-        {error, _} = Error ->
-            Error
+    case hg_machine_tag:get_machine_id(namespace(), Tag) of
+        {ok, MachineRef} ->
+            case hg_machine:call(?NS, MachineRef, {callback, Tag, Callback}) of
+                {ok, _Reply} = Response ->
+                    Response;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, not_found} ->
+            {error, notfound}
     end.
 
 %%
@@ -1100,9 +1105,10 @@ merge_change(?invoice_adjustment_ev(ID, Event), St, _Opts) ->
         _ ->
             St2
     end;
-merge_change(?payment_ev(PaymentID, Change), St, Opts) ->
+merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = Invoice}, Opts) ->
     PaymentSession = try_get_payment_session(PaymentID, St),
-    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts),
+    Opts1 = Opts#{invoice_id => Invoice#domain_Invoice.id},
+    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts1),
     St1 = set_payment_session(PaymentID, PaymentSession1, St),
     case hg_invoice_payment:get_activity(PaymentSession1) of
         A when A =/= idle ->
