@@ -15,22 +15,14 @@
 -export([end_per_testcase/2]).
 
 -export([invoice_adjustment_capture/1]).
--export([invoice_adjustment_capture_new/1]).
 -export([invoice_adjustment_cancel/1]).
--export([invoice_adjustment_cancel_new/1]).
 -export([invoice_adjustment_existing_invoice_status/1]).
--export([invoice_adjustment_existing_invoice_status_new/1]).
 -export([invoice_adjustment_invalid_invoice_status/1]).
--export([invoice_adjustment_invalid_invoice_status_new/1]).
 -export([invoice_adjustment_invalid_adjustment_status/1]).
--export([invoice_adjustment_invalid_adjustment_status_new/1]).
 -export([invoice_adjustment_payment_pending/1]).
--export([invoice_adjustment_payment_pending_new/1]).
 -export([invoice_adjustment_pending_blocks_payment/1]).
--export([invoice_adjustment_pending_blocks_payment_new/1]).
 -export([invoice_adjustment_pending_no_invoice_expiration/1]).
 -export([invoice_adjustment_invoice_expiration_after_capture/1]).
--export([invoice_adjustment_invoice_expiration_after_capture_new/1]).
 
 -behaviour(supervisor).
 
@@ -61,21 +53,13 @@ groups() ->
     [
         {all_tests, [parallel], [
             invoice_adjustment_capture,
-            invoice_adjustment_capture_new,
             invoice_adjustment_cancel,
-            invoice_adjustment_cancel_new,
             invoice_adjustment_existing_invoice_status,
-            invoice_adjustment_existing_invoice_status_new,
             invoice_adjustment_invalid_invoice_status,
-            invoice_adjustment_invalid_invoice_status_new,
             invoice_adjustment_invalid_adjustment_status,
-            invoice_adjustment_invalid_adjustment_status_new,
             invoice_adjustment_payment_pending,
-            invoice_adjustment_payment_pending_new,
             invoice_adjustment_pending_blocks_payment,
-            invoice_adjustment_pending_blocks_payment_new,
             invoice_adjustment_pending_no_invoice_expiration,
-            invoice_adjustment_invoice_expiration_after_capture_new,
             invoice_adjustment_invoice_expiration_after_capture
         ]}
     ].
@@ -150,20 +134,13 @@ end_per_testcase(_Name, _C) ->
 
 -spec invoice_adjustment_capture(config()) -> test_return().
 invoice_adjustment_capture(C) ->
-    invoice_adjustment_capture(C, visa).
-
--spec invoice_adjustment_capture_new(config()) -> test_return().
-invoice_adjustment_capture_new(C) ->
-    invoice_adjustment_capture(C, ?pmt_sys(<<"visa-ref">>)).
-
-invoice_adjustment_capture(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_Invoice)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(PmtSys), Client),
+    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     Unpaid = {unpaid, #domain_InvoiceUnpaid{}},
     AdjustmentParams = #payproc_InvoiceAdjustmentParams{
@@ -186,20 +163,13 @@ invoice_adjustment_capture(C, PmtSys) ->
 
 -spec invoice_adjustment_cancel(config()) -> test_return().
 invoice_adjustment_cancel(C) ->
-    invoice_adjustment_cancel(C, visa).
-
--spec invoice_adjustment_cancel_new(config()) -> test_return().
-invoice_adjustment_cancel_new(C) ->
-    invoice_adjustment_cancel(C, ?pmt_sys(<<"visa-ref">>)).
-
-invoice_adjustment_cancel(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(PmtSys), Client),
+    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     #payproc_Invoice{invoice = #domain_Invoice{status = InvoiceStatus}} = hg_client_invoicing:get(InvoiceID, Client),
     TargetInvoiceStatus = {unpaid, #domain_InvoiceUnpaid{}},
@@ -223,20 +193,13 @@ invoice_adjustment_cancel(C, PmtSys) ->
 
 -spec invoice_adjustment_invalid_invoice_status(config()) -> test_return().
 invoice_adjustment_invalid_invoice_status(C) ->
-    invoice_adjustment_invalid_invoice_status(C, visa).
-
--spec invoice_adjustment_invalid_invoice_status_new(config()) -> test_return().
-invoice_adjustment_invalid_invoice_status_new(C) ->
-    invoice_adjustment_invalid_invoice_status(C, ?pmt_sys(<<"visa-ref">>)).
-
-invoice_adjustment_invalid_invoice_status(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(PmtSys), Client),
+    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     AdjustmentParams = #payproc_InvoiceAdjustmentParams{
         reason = <<"kek">>,
@@ -251,20 +214,13 @@ invoice_adjustment_invalid_invoice_status(C, PmtSys) ->
 
 -spec invoice_adjustment_existing_invoice_status(config()) -> test_return().
 invoice_adjustment_existing_invoice_status(C) ->
-    invoice_adjustment_existing_invoice_status(C, visa).
-
--spec invoice_adjustment_existing_invoice_status_new(config()) -> test_return().
-invoice_adjustment_existing_invoice_status_new(C) ->
-    invoice_adjustment_existing_invoice_status(C, ?pmt_sys(<<"visa-ref">>)).
-
-invoice_adjustment_existing_invoice_status(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(PmtSys), Client),
+    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     Paid = {paid, #domain_InvoicePaid{}},
     AdjustmentParams = #payproc_InvoiceAdjustmentParams{
@@ -279,20 +235,13 @@ invoice_adjustment_existing_invoice_status(C, PmtSys) ->
 
 -spec invoice_adjustment_invalid_adjustment_status(config()) -> test_return().
 invoice_adjustment_invalid_adjustment_status(C) ->
-    invoice_adjustment_invalid_adjustment_status(C, visa).
-
--spec invoice_adjustment_invalid_adjustment_status_new(config()) -> test_return().
-invoice_adjustment_invalid_adjustment_status_new(C) ->
-    invoice_adjustment_invalid_adjustment_status(C, ?pmt_sys(<<"visa-ref">>)).
-
-invoice_adjustment_invalid_adjustment_status(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(PmtSys), Client),
+    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     #payproc_Invoice{invoice = #domain_Invoice{status = InvoiceStatus}} = hg_client_invoicing:get(InvoiceID, Client),
     AdjustmentParams = #payproc_InvoiceAdjustmentParams{
@@ -317,20 +266,13 @@ invoice_adjustment_invalid_adjustment_status(C, PmtSys) ->
 
 -spec invoice_adjustment_payment_pending(config()) -> test_return().
 invoice_adjustment_payment_pending(C) ->
-    invoice_adjustment_payment_pending(C, visa).
-
--spec invoice_adjustment_payment_pending_new(config()) -> test_return().
-invoice_adjustment_payment_pending_new(C) ->
-    invoice_adjustment_payment_pending(C, ?pmt_sys(<<"visa-ref">>)).
-
-invoice_adjustment_payment_pending(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = start_payment(InvoiceID, make_tds_payment_params(instant, PmtSys), Client),
+    PaymentID = start_payment(InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client),
     Paid = {paid, #domain_InvoicePaid{}},
     AdjustmentParams = #payproc_InvoiceAdjustmentParams{
         reason = <<"kek">>,
@@ -349,20 +291,13 @@ invoice_adjustment_payment_pending(C, PmtSys) ->
 
 -spec invoice_adjustment_pending_blocks_payment(config()) -> test_return().
 invoice_adjustment_pending_blocks_payment(C) ->
-    invoice_adjustment_pending_blocks_payment(C, visa).
-
--spec invoice_adjustment_pending_blocks_payment_new(config()) -> test_return().
-invoice_adjustment_pending_blocks_payment_new(C) ->
-    invoice_adjustment_pending_blocks_payment(C, visa).
-
-invoice_adjustment_pending_blocks_payment(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_Invoice)] = next_event(InvoiceID, Client),
-    PaymentParams = make_payment_params({hold, capture}, PmtSys),
+    PaymentParams = make_payment_params({hold, capture}, ?pmt_sys(<<"visa-ref">>)),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     Cash = ?cash(10, <<"RUB">>),
     Reason = <<"ok">>,
@@ -407,13 +342,6 @@ invoice_adjustment_pending_no_invoice_expiration(C) ->
 
 -spec invoice_adjustment_invoice_expiration_after_capture(config()) -> test_return().
 invoice_adjustment_invoice_expiration_after_capture(C) ->
-    invoice_adjustment_invoice_expiration_after_capture(C, visa).
-
--spec invoice_adjustment_invoice_expiration_after_capture_new(config()) -> test_return().
-invoice_adjustment_invoice_expiration_after_capture_new(C) ->
-    invoice_adjustment_invoice_expiration_after_capture(C, ?pmt_sys(<<"visa-ref">>)).
-
-invoice_adjustment_invoice_expiration_after_capture(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
@@ -424,7 +352,7 @@ invoice_adjustment_invoice_expiration_after_capture(C, PmtSys) ->
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
     },
-    PaymentParams = set_payment_context(Context, make_payment_params(PmtSys)),
+    PaymentParams = set_payment_context(Context, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     Unpaid = {unpaid, #domain_InvoiceUnpaid{}},
@@ -469,8 +397,7 @@ construct_domain_fixture() ->
                         then_ =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])}
                     }
                 ]},
@@ -520,8 +447,7 @@ construct_domain_fixture() ->
                 payment_methods =
                     {value,
                         ?ordset([
-                            ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                            ?pmt(bank_card_deprecated, visa)
+                            ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                         ])},
                 lifetime =
                     {decisions, [
@@ -535,8 +461,7 @@ construct_domain_fixture() ->
                 payment_methods =
                     {value,
                         ?ordset([
-                            ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                            ?pmt(bank_card_deprecated, visa)
+                            ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                         ])},
                 fees =
                     {value, [
@@ -567,8 +492,7 @@ construct_domain_fixture() ->
             payment_methods =
                 {value,
                     ordsets:from_list([
-                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                        ?pmt(bank_card_deprecated, visa)
+                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                     ])}
         }
     },
@@ -584,7 +508,6 @@ construct_domain_fixture() ->
 
         hg_ct_fixture:construct_category(?cat(1), <<"Test category">>, test),
 
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, visa)),
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"visa-ref">>))),
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
@@ -701,8 +624,7 @@ construct_domain_fixture() ->
                         payment_methods =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])},
                         cash_limit =
                             {value,
@@ -818,8 +740,7 @@ construct_domain_fixture() ->
                         payment_methods =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])},
                         cash_value = {value, ?cash(1000, <<"RUB">>)}
                     }

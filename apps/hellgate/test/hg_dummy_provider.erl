@@ -303,9 +303,6 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         digital_wallet ->
             %% simple workflow
             sleep(1, <<"sleeping">>);
-        crypto_currency_deprecated ->
-            %% simple workflow
-            sleep(1, <<"sleeping">>);
         crypto_currency ->
             %% simple workflow
             sleep(1, <<"sleeping">>);
@@ -627,22 +624,14 @@ get_payment_tool_scenario(
     {'payment_terminal', #domain_PaymentTerminal{payment_service = #domain_PaymentServiceRef{id = <<"euroset-ref">>}}}
 ) ->
     terminal;
-get_payment_tool_scenario({'payment_terminal', #domain_PaymentTerminal{terminal_type_deprecated = euroset}}) ->
-    terminal;
-get_payment_tool_scenario({'digital_wallet', #domain_DigitalWallet{provider_deprecated = qiwi}}) ->
-    digital_wallet;
 get_payment_tool_scenario(
     {'digital_wallet', #domain_DigitalWallet{payment_service = #domain_PaymentServiceRef{id = <<"qiwi-ref">>}}}
 ) ->
     digital_wallet;
-get_payment_tool_scenario({'crypto_currency_deprecated', bitcoin}) ->
-    crypto_currency_deprecated;
 get_payment_tool_scenario({'crypto_currency', #domain_CryptoCurrencyRef{id = <<"bitcoin-ref">>}}) ->
     crypto_currency;
-get_payment_tool_scenario({'mobile_commerce', #domain_MobileCommerce{operator_deprecated = mts}}) ->
-    mobile_commerce;
 get_payment_tool_scenario(
-    {'mobile_commerce', #domain_MobileCommerce{operator = {domain_MobileOperatorRef, <<"mts-ref">>}}}
+    {'mobile_commerce', #domain_MobileCommerce{operator = #domain_MobileOperatorRef{id = <<"mts-ref">>}}}
 ) ->
     mobile_commerce.
 
@@ -712,31 +701,16 @@ make_payment_tool({scenario, Scenario}, PSys) ->
     ?SESSION42(make_bank_card_payment_tool(<<"scenario_", BinScenario/binary>>, PSys));
 make_payment_tool(terminal, PSrv = #domain_PaymentServiceRef{}) ->
     ?DEFAULT_SESSION({payment_terminal, #domain_PaymentTerminal{payment_service = PSrv}});
-make_payment_tool(terminal, Type) ->
-    ?DEFAULT_SESSION({payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = Type}});
 make_payment_tool(digital_wallet, PSrv = #domain_PaymentServiceRef{}) ->
     ?DEFAULT_SESSION(make_digital_wallet_payment_tool({#domain_DigitalWallet.payment_service, PSrv}));
-make_payment_tool(digital_wallet, Provider) ->
-    ?DEFAULT_SESSION(make_digital_wallet_payment_tool({#domain_DigitalWallet.provider_deprecated, Provider}));
 make_payment_tool(tokenized_bank_card, {PSys, Provider, Method}) ->
-    Field =
-        case Provider of
-            #domain_BankCardTokenServiceRef{} -> #domain_BankCard.payment_token;
-            _ -> #domain_BankCard.token_provider_deprecated
-        end,
     {_, BCard0} = make_bank_card_payment_tool(<<"no_preauth">>, PSys),
-    BCard = setelement(Field, BCard0, Provider),
+    BCard = setelement(#domain_BankCard.payment_token, BCard0, Provider),
     ?SESSION42({bank_card, BCard#domain_BankCard{tokenization_method = Method}});
 make_payment_tool(crypto_currency, Type = #domain_CryptoCurrencyRef{}) ->
     ?DEFAULT_SESSION({crypto_currency, Type});
-make_payment_tool(crypto_currency, Type) ->
-    ?DEFAULT_SESSION({crypto_currency_deprecated, Type});
 make_payment_tool({mobile_commerce, Exp}, Operator = #domain_MobileOperatorRef{}) ->
-    ?DEFAULT_SESSION(make_mobile_commerce_payment_tool({#domain_MobileCommerce.operator, Operator}, phone(Exp)));
-make_payment_tool({mobile_commerce, Exp}, Operator) ->
-    ?DEFAULT_SESSION(
-        make_mobile_commerce_payment_tool({#domain_MobileCommerce.operator_deprecated, Operator}, phone(Exp))
-    ).
+    ?DEFAULT_SESSION(make_mobile_commerce_payment_tool({#domain_MobileCommerce.operator, Operator}, phone(Exp))).
 
 make_digital_wallet_payment_tool({Field, Value}) ->
     Wallet = #domain_DigitalWallet{
@@ -761,17 +735,12 @@ phone(failure) ->
     }.
 
 make_bank_card_payment_tool(Token, PSys) ->
-    Field =
-        case PSys of
-            #domain_PaymentSystemRef{} -> #domain_BankCard.payment_system;
-            _ -> #domain_BankCard.payment_system_deprecated
-        end,
     BCard = #domain_BankCard{
         token = Token,
         bin = <<"424242">>,
         last_digits = <<"4242">>
     },
-    {bank_card, setelement(Field, BCard, PSys)}.
+    {bank_card, setelement(#domain_BankCard.payment_system, BCard, PSys)}.
 
 get_payment_tool(#domain_DisposablePaymentResource{payment_tool = PaymentTool}) ->
     PaymentTool.
