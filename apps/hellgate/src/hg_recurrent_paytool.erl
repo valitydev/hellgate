@@ -728,9 +728,9 @@ process_callback(Tag, Callback) ->
                     {error, invalid_callback};
                 {error, _} = Error ->
                     Error
-            end;
-        {error, not_found} ->
-            {error, notfound}
+            end
+        % {error, not_found} ->
+        %     {error, notfound}
     end.
 
 -spec handle_result(call_result()) -> {hg_machine:response(), hg_machine:result()} | hg_machine:result().

@@ -3269,11 +3269,17 @@ throw_invalid_recurrent_parent(Details) ->
 
 -spec merge_change(change(), st() | undefined, change_opts()) -> st().
 merge_change(Change, undefined, Opts) ->
-    merge_change(Change, #st{activity = {payment, new}}, Opts);
+    merge_change(
+        Change,
+        #st{
+            invoice_id = maps:get(invoice_id, Opts),
+            activity = {payment, new}
+        },
+        Opts
+    );
 merge_change(Change = ?payment_started(Payment), #st{} = St, Opts) ->
     _ = validate_transition({payment, new}, Change, St, Opts),
     St#st{
-        invoice_id = maps:get(invoice_id, Opts),
         target = ?processed(),
         payment = Payment,
         activity = {payment, risk_scoring},
@@ -3462,7 +3468,7 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
                 St#st{activity = {refund_accounter, ID}};
             ?refund_status_changed(?refund_succeeded()) ->
                 _ = validate_transition([{refund_accounter, ID}], Change, St, Opts),
-                RefundSt0 = merge_refund_change(Event, try_get_refund_state(ID, St)),
+                RefundSt0 = merge_refund_change(Event, St#st.invoice_id, try_get_refund_state(ID, St)),
                 Allocation = get_allocation(St),
                 FinalAllocation = hg_maybe:apply(
                     fun(A) ->
@@ -3485,7 +3491,7 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
                 _ = validate_transition([{refund_session, ID}], Change, St, Opts),
                 St
         end,
-    RefundSt1 = merge_refund_change(Event, try_get_refund_state(ID, St1)),
+    RefundSt1 = merge_refund_change(Event, St#st.invoice_id, try_get_refund_state(ID, St1)),
     St2 = set_refund_state(ID, RefundSt1, St1),
     case get_refund_status(get_refund(RefundSt1)) of
         {S, _} when S == succeeded; S == failed ->
@@ -3587,16 +3593,16 @@ save_retry_attempt(Target, #st{retry_attempts = Attempts} = St) ->
 merge_chargeback_change(Change, ChargebackState) ->
     hg_invoice_payment_chargeback:merge_change(Change, ChargebackState).
 
-merge_refund_change(?refund_created(Refund, Cashflow, TransactionInfo), undefined) ->
+merge_refund_change(?refund_created(Refund, Cashflow, TransactionInfo), _InvoiceID, undefined) ->
     #refund_st{refund = Refund, cash_flow = Cashflow, transaction_info = TransactionInfo};
-merge_refund_change(?refund_status_changed(Status), RefundSt) ->
+merge_refund_change(?refund_status_changed(Status), _InvoiceID, RefundSt) ->
     set_refund(set_refund_status(Status, get_refund(RefundSt)), RefundSt);
-merge_refund_change(?refund_rollback_started(Failure), RefundSt) ->
+merge_refund_change(?refund_rollback_started(Failure), _InvoiceID, RefundSt) ->
     RefundSt#refund_st{failure = Failure};
-merge_refund_change(?session_ev(?refunded(), ?session_started()), St) ->
-    add_refund_session(create_session(St#st.invoice_id, ?refunded(), undefined), St);
-merge_refund_change(?session_ev(?refunded(), Change), St) ->
-    update_refund_session(merge_session_change(Change, get_refund_session(St), #{}), St).
+merge_refund_change(?session_ev(?refunded(), ?session_started()), InvoiceID, RefundSt) ->
+    add_refund_session(create_session(InvoiceID, ?refunded(), undefined), RefundSt);
+merge_refund_change(?session_ev(?refunded(), Change), _InvoiceID, RefundSt) ->
+    update_refund_session(merge_session_change(Change, get_refund_session(RefundSt), #{}), RefundSt).
 
 merge_adjustment_change(?adjustment_created(Adjustment), undefined) ->
     Adjustment;

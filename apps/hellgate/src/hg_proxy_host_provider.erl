@@ -43,9 +43,9 @@ handle_function('GetPayment', {Tag}, _) ->
                     end;
                 {error, notfound} ->
                     hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
-            end;
-        {error, not_found} ->
-            {error, notfound}
+            end
+        % {error, not_found} ->
+        %     {error, notfound}
     end.
 
 -spec handle_callback_result

@@ -376,9 +376,9 @@ process_callback(Tag, Callback) ->
                     {error, invalid_callback};
                 {error, _} = Error ->
                     Error
-            end;
-        {error, not_found} ->
-            {error, notfound}
+            end
+        % {error, not_found} ->
+        %     {error, notfound}
     end.
 
 %%
