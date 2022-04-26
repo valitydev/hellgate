@@ -211,6 +211,7 @@ init([]) ->
 -define(PARTYID_EXTERNAL, <<"DUBTV">>).
 -define(LIMIT_ID, <<"ID">>).
 -define(LIMIT_ID2, <<"ID2">>).
+-define(LIMIT_ID3, <<"ID3">>).
 -define(LIMIT_UPPER_BOUNDARY, 100000).
 
 cfg(Key, C) ->
@@ -463,6 +464,10 @@ init_per_suite(C) ->
     ),
     {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
         limiter_create_params(?LIMIT_ID2),
+        hg_dummy_limiter:new()
+    ),
+    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
+        limiter_create_params(?LIMIT_ID3),
         hg_dummy_limiter:new()
     ),
 
@@ -7899,7 +7904,7 @@ construct_domain_fixture() ->
                     turnover_limits =
                         {value, [
                             #domain_TurnoverLimit{
-                                id = ?LIMIT_ID,
+                                id = ?LIMIT_ID2,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY
                             }
                         ]}
@@ -7943,7 +7948,7 @@ construct_domain_fixture() ->
                     turnover_limits =
                         {value, [
                             #domain_TurnoverLimit{
-                                id = ?LIMIT_ID2,
+                                id = ?LIMIT_ID3,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY
                             }
                         ]}
