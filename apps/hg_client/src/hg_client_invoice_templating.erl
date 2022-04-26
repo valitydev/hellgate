@@ -98,7 +98,7 @@ init(ApiClient) ->
 
 -spec handle_call(term(), callref(), state()) -> {reply, term(), state()} | {noreply, state()}.
 handle_call({call, Function, Args}, _From, St = #state{client = Client}) ->
-    {Result, ClientNext} = hg_client_api:call(invoice_templating, Function, with_user_info(Args), Client),
+    {Result, ClientNext} = hg_client_api:call(invoice_templating, Function, Args, Client),
     {reply, Result, St#state{client = ClientNext}};
 handle_call({pull_event, InvoiceID, Timeout}, _From, St = #state{client = Client}) ->
     Poller = get_poller(InvoiceID, St),
@@ -144,9 +144,6 @@ set_poller(ID, Poller, St = #state{pollers = Pollers}) ->
 
 construct_poller(ID) ->
     hg_client_event_poller:new(
-        {invoice_templating, 'GetEvents', with_user_info([ID])},
+        {invoice_templating, 'GetEvents', [ID]},
         fun(Event) -> Event#payproc_Event.id end
     ).
-
-with_user_info(Args) ->
-    [undefined | Args].

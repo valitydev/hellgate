@@ -50,17 +50,9 @@ handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoice_templating,
         fun() ->
-            handle_function_(Func, remove_user_info_arg(Args), Opts)
+            handle_function_(Func, Args, Opts)
         end
     ).
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_arg(Args0) ->
-    erlang:delete_element(1, Args0).
-
-add_user_info_arg(Args0) ->
-    erlang:insert_element(1, Args0, undefined).
 
 -spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {Params}, _Opts) ->
@@ -156,9 +148,7 @@ start(ID, Params) ->
     map_start_error(hg_machine:start(?NS, ID, EncodedParams)).
 
 call(ID, Function, Args) ->
-    case
-        hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, add_user_info_arg(Args))
-    of
+    case hg_machine:thrift_call(?NS, ID, invoice_templating, {'InvoiceTemplating', Function}, Args) of
         ok ->
             ok;
         {ok, Reply} ->
@@ -251,7 +241,7 @@ process_signal({repair, _}, _Machine) ->
 -spec process_call(call(), hg_machine:machine()) -> {hg_machine:response(), hg_machine:result()}.
 process_call(Call, #{history := History}) ->
     St = collapse_history(unmarshal_history(History)),
-    try handle_call(remove_user_info_from_call(Call), St) of
+    try handle_call(Call, St) of
         {ok, Changes} ->
             {ok, #{events => [marshal_event_payload(Changes)]}};
         {Reply, Changes} ->
@@ -260,11 +250,6 @@ process_call(Call, #{history := History}) ->
         throw:Exception ->
             {{exception, Exception}, #{}}
     end.
-
-%% @TODO Delete after protocol migration
-%% This is a migration measure to make sure we can accept both old and new (with no userinfo) protocol here
-remove_user_info_from_call({{'InvoiceTemplating', _} = Func, Args0}) ->
-    {Func, erlang:delete_element(1, Args0)}.
 
 handle_call({{'InvoiceTemplating', 'Update'}, {_TplID, Params}}, Tpl) ->
     Changes = [?tpl_updated(Params)],
@@ -321,8 +306,6 @@ update_field({context, V}, Tpl) ->
 
 %% Marshaling
 
--include("legacy_structures.hrl").
-
 -spec marchal_invoice_template_params(create_params()) -> binary().
 marchal_invoice_template_params(Params) ->
     Type = {struct, struct, {dmsl_payment_processing_thrift, 'InvoiceTemplateCreateParams'}},
@@ -359,222 +342,4 @@ unmarshal_event({ID, Dt, Payload}) ->
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
     Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
     {invoice_template_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
-    Buf;
-unmarshal_event_payload(#{format_version := undefined, data := Changes}) ->
-    unmarshal({list, change}, Changes).
-
-%% Version > 1
-
-unmarshal({list, change}, Changes) when is_list(Changes) ->
-    [unmarshal(change, Change) || Change <- Changes];
-%% Version 1
-
-unmarshal({list, change}, {bin, Bin}) when is_binary(Bin) ->
-    ?ev(Changes) = binary_to_term(Bin),
-    [unmarshal(change, [1, Change]) || Change <- Changes];
-unmarshal(change, [
-    Version,
-    #{
-        <<"change">> := <<"created">>,
-        <<"tpl">> := InvoiceTpl
-    }
-]) when Version > 1 ->
-    ?tpl_created(unmarshal(invoice_template, [Version, InvoiceTpl]));
-unmarshal(change, [
-    Version,
-    #{
-        <<"change">> := <<"updated">>,
-        <<"diff">> := Diff
-    }
-]) when Version > 1 ->
-    ?tpl_updated(unmarshal(invoice_template_diff, [Version, Diff]));
-unmarshal(change, [
-    Version,
-    #{
-        <<"change">> := <<"deleted">>
-    }
-]) when Version > 1 ->
-    ?tpl_deleted();
-%% Legacy change unmarshalling
-unmarshal(change, [1, ?legacy_invoice_tpl_created(InvoiceTpl)]) ->
-    ?tpl_created(unmarshal(invoice_template, [1, InvoiceTpl]));
-unmarshal(change, [1, ?legacy_invoice_tpl_updated(Diff)]) ->
-    ?tpl_updated(unmarshal(invoice_template_diff, [1, Diff]));
-unmarshal(change, [1, ?legacy_invoice_tpl_deleted()]) ->
-    ?tpl_deleted();
-%%
-
-unmarshal(invoice_template, [
-    3,
-    #{
-        <<"id">> := ID,
-        <<"shop_id">> := ShopID,
-        <<"owner_id">> := OwnerID,
-        <<"product">> := Product,
-        <<"lifetime">> := Lifetime,
-        <<"details">> := Details
-    } = V
-]) ->
-    #domain_InvoiceTemplate{
-        id = unmarshal(str, ID),
-        shop_id = unmarshal(str, ShopID),
-        owner_id = unmarshal(str, OwnerID),
-        invoice_lifetime = unmarshal(lifetime, Lifetime),
-        product = unmarshal(str, Product),
-        description = unmarshal(str, genlib_map:get(<<"description">>, V)),
-        details = unmarshal(details, Details),
-        context = hg_content:unmarshal(genlib_map:get(<<"context">>, V))
-    };
-unmarshal(invoice_template, [
-    2,
-    #{
-        <<"id">> := ID,
-        <<"shop_id">> := ShopID,
-        <<"owner_id">> := OwnerID,
-        <<"details">> := Details,
-        <<"lifetime">> := Lifetime,
-        <<"cost">> := MarshalledCost
-    } = V
-]) ->
-    Cost = unmarshal(cost, MarshalledCost),
-    Product = unmarshal(str, genlib_map:get(<<"product">>, Details)),
-    Description = unmarshal(str, genlib_map:get(<<"description">>, Details)),
-    #domain_InvoiceTemplate{
-        id = unmarshal(str, ID),
-        shop_id = unmarshal(str, ShopID),
-        owner_id = unmarshal(str, OwnerID),
-        invoice_lifetime = unmarshal(lifetime, Lifetime),
-        product = Product,
-        description = Description,
-        details = construct_invoice_template_details(Product, Cost),
-        context = hg_content:unmarshal(genlib_map:get(<<"context">>, V))
-    };
-unmarshal(invoice_template, [
-    1,
-    {domain_InvoiceTemplate, ID, OwnerID, ShopID, Details, Lifetime, MarshalledCost, Context}
-]) ->
-    {Product, Description} = unmarshal(details_legacy, Details),
-    Cost = unmarshal(cost_legacy, MarshalledCost),
-    #domain_InvoiceTemplate{
-        id = unmarshal(str, ID),
-        shop_id = unmarshal(str, ShopID),
-        owner_id = unmarshal(str, OwnerID),
-        invoice_lifetime = unmarshal(lifetime_legacy, Lifetime),
-        product = Product,
-        description = Description,
-        details = construct_invoice_template_details(Product, Cost),
-        context = hg_content:unmarshal(Context)
-    };
-unmarshal(invoice_template_diff, [3, #{} = V]) ->
-    #payproc_InvoiceTemplateUpdateParams{
-        invoice_lifetime = unmarshal(lifetime, genlib_map:get(<<"lifetime">>, V)),
-        product = unmarshal(str, genlib_map:get(<<"product">>, V)),
-        description = unmarshal(str, genlib_map:get(<<"description">>, V)),
-        details = unmarshal(details, genlib_map:get(<<"details">>, V)),
-        context = hg_content:unmarshal(genlib_map:get(<<"context">>, V))
-    };
-unmarshal(invoice_template_diff, [2, #{} = V]) ->
-    MarshalledDetails = genlib_map:get(<<"details">>, V),
-    {Product, Description} =
-        case MarshalledDetails of
-            undefined ->
-                {undefined, undefined};
-            #{<<"product">> := P} ->
-                {P, genlib_map:get(<<"description">>, MarshalledDetails)}
-        end,
-    Cost = unmarshal(cost, genlib_map:get(<<"cost">>, V)),
-    #payproc_InvoiceTemplateUpdateParams{
-        invoice_lifetime = unmarshal(lifetime, genlib_map:get(<<"lifetime">>, V)),
-        product = Product,
-        description = Description,
-        details = construct_invoice_template_details(Product, Cost),
-        context = hg_content:unmarshal(genlib_map:get(<<"context">>, V))
-    };
-unmarshal(invoice_template_diff, [
-    1,
-    {payproc_InvoiceTemplateUpdateParams, MarshalledDetails, Lifetime, MarshalledCost, Context}
-]) ->
-    Cost = unmarshal(cost_legacy, MarshalledCost),
-    {Product, Description} =
-        case MarshalledDetails of
-            undefined ->
-                {undefined, undefined};
-            {domain_InvoiceDetails, P, D, _} ->
-                {P, D}
-        end,
-    #payproc_InvoiceTemplateUpdateParams{
-        invoice_lifetime = unmarshal(lifetime_legacy, Lifetime),
-        product = Product,
-        description = Description,
-        details = construct_invoice_template_details(Product, Cost),
-        context = hg_content:unmarshal(Context)
-    };
-unmarshal(details_legacy, {domain_InvoiceDetails, MarshalledProduct, MarshalledDescription}) ->
-    {unmarshal(str, MarshalledProduct), unmarshal(str, MarshalledDescription)};
-unmarshal(details_legacy, {domain_InvoiceDetails, MarshalledProduct, MarshalledDescription, _}) ->
-    {unmarshal(str, MarshalledProduct), unmarshal(str, MarshalledDescription)};
-unmarshal(details, [<<"cart">>, Cart]) ->
-    {cart, unmarshal(cart, Cart)};
-unmarshal(details, [<<"template_product">>, Product]) ->
-    {product, #domain_InvoiceTemplateProduct{
-        product = unmarshal(str, genlib_map:get(<<"product">>, Product)),
-        price = unmarshal(cost, genlib_map:get(<<"price">>, Product)),
-        metadata = unmarshal(metadata, genlib_map:get(<<"metadata">>, Product))
-    }};
-unmarshal(cart, #{<<"lines">> := Lines}) when is_list(Lines) ->
-    #domain_InvoiceCart{lines = [unmarshal(line, Line) || Line <- Lines]};
-unmarshal(line, #{
-    <<"product">> := Product,
-    <<"quantity">> := Quantity,
-    <<"price">> := Price,
-    <<"metadata">> := Metadata
-}) ->
-    #domain_InvoiceLine{
-        product = unmarshal(str, Product),
-        quantity = unmarshal(int, Quantity),
-        price = hg_cash:unmarshal(Price),
-        metadata = unmarshal(metadata, Metadata)
-    };
-unmarshal(lifetime, #{} = V) ->
-    #domain_LifetimeInterval{
-        years = unmarshal(int, genlib_map:get(<<"years">>, V)),
-        months = unmarshal(int, genlib_map:get(<<"months">>, V)),
-        days = unmarshal(int, genlib_map:get(<<"days">>, V))
-    };
-unmarshal(lifetime_legacy, {domain_LifetimeInterval, Years, Months, Days}) ->
-    #domain_LifetimeInterval{
-        years = unmarshal(int, Years),
-        months = unmarshal(int, Months),
-        days = unmarshal(int, Days)
-    };
-unmarshal(cost, [<<"fixed">>, Cash]) ->
-    {fixed, hg_cash:unmarshal(Cash)};
-unmarshal(cost, [<<"range">>, CashRange]) ->
-    {range, hg_cash_range:unmarshal(CashRange)};
-unmarshal(cost, <<"unlim">>) ->
-    {unlim, #domain_InvoiceTemplateCostUnlimited{}};
-unmarshal(cost_legacy, {fixed, Cash}) ->
-    {fixed, hg_cash:unmarshal([1, Cash])};
-unmarshal(cost_legacy, {range, CashRange}) ->
-    {range, hg_cash_range:unmarshal([1, CashRange])};
-unmarshal(cost_legacy, {unlim, _}) ->
-    {unlim, #domain_InvoiceTemplateCostUnlimited{}};
-unmarshal(metadata, Metadata) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            maps:put(unmarshal(str, K), hg_msgpack_marshalling:marshal(V), Acc)
-        end,
-        #{},
-        Metadata
-    );
-unmarshal(_, Other) ->
-    Other.
-
-construct_invoice_template_details(Product, Cost) when Product =/= undefined, Cost =/= undefined ->
-    {product, #domain_InvoiceTemplateProduct{
-        product = Product,
-        price = Cost,
-        metadata = #{}
-    }};
-construct_invoice_template_details(Product, Cost) ->
-    error({unmarshal_event_error, {'Cant construct invoice template details', Product, Cost}}).
+    Buf.

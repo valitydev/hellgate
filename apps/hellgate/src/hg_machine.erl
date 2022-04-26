@@ -2,7 +2,7 @@
 
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
--type msgp() :: hg_msgpack_marshalling:msgpack_value().
+-type msgp() :: mg_msgpack_marshalling:msgpack_value().
 
 -type id() :: mg_proto_base_thrift:'ID'().
 -type tag() :: {tag, mg_proto_base_thrift:'Tag'()}.
