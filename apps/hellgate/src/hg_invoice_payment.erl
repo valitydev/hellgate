@@ -213,7 +213,7 @@
 -type session_status() :: active | suspended | finished.
 
 -type session() :: #{
-    owner_id := invoice_id(),
+    invoice_id := invoice_id(),
     target := target(),
     status := session_status(),
     trx := trx_info(),
@@ -2832,9 +2832,9 @@ handle_proxy_intent(
         timeout_behaviour = TimeoutBehaviour
     },
     Action0,
-    #{owner_id := OwnerID} = Session
+    #{invoice_id := InvoiceID} = Session
 ) ->
-    ok = hg_machine_tag:bind_machine_id(hg_invoice:namespace(), Tag, OwnerID),
+    ok = hg_machine_tag:bind_machine_id(hg_invoice:namespace(), Tag, InvoiceID),
     Action = set_timer(Timer, Action0),
     Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
     {wrap_session_events(Events, Session), Action}.
@@ -3827,9 +3827,9 @@ mark_session_timing_event(Event, Opts, Session) ->
     Timings = get_session_timings(Session),
     set_session_timings(hg_timings:mark(Event, define_event_timestamp(Opts), Timings), Session).
 
-create_session(OwnerID, Target, Trx) ->
+create_session(InvoiceID, Target, Trx) ->
     #{
-        owner_id => OwnerID,
+        invoice_id => InvoiceID,
         target => Target,
         status => active,
         trx => Trx,

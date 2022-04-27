@@ -829,20 +829,26 @@ get_callback_url() ->
 handle_user_interaction_response(<<"POST">>, Req) ->
     {ok, Body, Req2} = cowboy_req:read_body(Req),
     Form = maps:from_list(cow_qs:parse_qs(Body)),
-    RespCode =
+    {RespCode, Response} =
         case maps:get(<<"tag">>, Form, undefined) of
             %% sleep intent
             undefined ->
                 InvoiceID = maps:get(<<"invoice_id">>, Form),
                 PaymentID = maps:get(<<"payment_id">>, Form),
                 set_transaction_state({InvoiceID, PaymentID}, processed),
-                200;
+                {200, undefined};
             %% suspend intent
             Tag ->
                 Payload = maps:get(<<"payload">>, Form, Tag),
                 callback_to_hell(Tag, Payload)
         end,
-    cowboy_req:reply(RespCode, #{<<"content-type">> => <<"text/plain; charset=utf-8">>}, <<>>, Req2);
+    Body = case RespCode of
+        200 ->
+            <<>>;
+        _ ->
+            list_to_binary(io_lib:format("~p~n", [Response]))
+    end,
+    cowboy_req:reply(RespCode, #{<<"content-type">> => <<"text/plain; charset=utf-8">>}, Body, Req2);
 handle_user_interaction_response(_, Req) ->
     %% Method not allowed.
     cowboy_req:reply(405, Req).
@@ -868,11 +874,11 @@ callback_to_hell(Tag, Payload) ->
         )
     of
         {{ok, _Response}, _} ->
-            200;
-        {{error, _}, _} ->
-            500;
-        {{exception, #'InvalidRequest'{}}, _} ->
-            400
+            {200, undefined};
+        {{error, Error}, _} ->
+            {500, Error};
+        {{exception, #'InvalidRequest'{} = Exception}, _} ->
+            {400, Exception}
     end.
 
 generate_tag(Prefix) ->

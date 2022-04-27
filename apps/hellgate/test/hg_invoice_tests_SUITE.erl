@@ -7361,16 +7361,16 @@ await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts) when Res
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1).
 
 assert_success_post_request(Req) ->
-    {ok, 200, _RespHeaders, _ClientRef} = post_request(Req).
+    {ok, 200, _RespHeaders, _RespBody} = post_request(Req).
 
 assert_invalid_post_request(Req) ->
-    {ok, 400, _RespHeaders, _ClientRef} = post_request(Req).
+    {ok, 400, _RespHeaders, _RespBody} = post_request(Req).
 
 post_request({URL, Form}) ->
     Method = post,
     Headers = [],
     Body = {form, maps:to_list(Form)},
-    hackney:request(Method, URL, Headers, Body).
+    hackney:request(Method, URL, Headers, Body, [{with_body, true}]).
 
 get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
     {URL, Form};
