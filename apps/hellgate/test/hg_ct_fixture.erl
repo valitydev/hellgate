@@ -111,8 +111,6 @@ construct_payment_method(?pmt(bank_card, ?token_bank_card(Name, _)) = Ref) ->
     construct_payment_method(Name, Ref);
 construct_payment_method(?pmt(bank_card, ?bank_card(Name)) = Ref) ->
     construct_payment_method(Name, Ref);
-construct_payment_method(?pmt(_Type, ?tkz_bank_card(Name, _)) = Ref) when is_atom(Name) ->
-    construct_payment_method(Name, Ref);
 construct_payment_method(?pmt(_Type, Name) = Ref) when is_atom(Name) ->
     construct_payment_method(Name, Ref);
 construct_payment_method(?pmt(_Type, #domain_BankCardPaymentMethod{} = PM) = Ref) ->
