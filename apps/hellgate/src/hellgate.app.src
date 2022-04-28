@@ -11,14 +11,12 @@
         genlib,
         fault_detector_proto,
         hg_proto,
-        shumpune_proto,
         cowboy,
         woody,
         scoper,  % should be before any scoper event handler usage
         gproc,
         dmt_client,
         party_client,
-        woody_user_identity,
         payproc_errors,
         erl_health,
         limiter_proto

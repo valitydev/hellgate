@@ -10,9 +10,6 @@
 -export([choose_route/1]).
 -export([get_payment_terms/3]).
 
--export([marshal/1]).
--export([unmarshal/1]).
-
 -export([get_logger_metadata/2]).
 
 -export([from_payment_route/1]).
@@ -701,63 +698,6 @@ getv(Name, VS) ->
 
 getv(Name, VS, Default) ->
     maps:get(Name, VS, Default).
-
-%% Marshalling
-
--include("legacy_structures.hrl").
--include("domain.hrl").
-
--spec marshal(route()) -> hg_msgpack_marshalling:value().
-marshal(Route) ->
-    marshal(route, Route).
-
-marshal(route, #domain_PaymentRoute{} = Route) ->
-    [
-        2,
-        #{
-            <<"provider">> => marshal(provider_ref, Route#domain_PaymentRoute.provider),
-            <<"terminal">> => marshal(terminal_ref, Route#domain_PaymentRoute.terminal)
-        }
-    ];
-marshal(provider_ref, #domain_ProviderRef{id = ObjectID}) ->
-    marshal(int, ObjectID);
-marshal(terminal_ref, #domain_TerminalRef{id = ObjectID}) ->
-    marshal(int, ObjectID);
-marshal(_, Other) ->
-    Other.
-
-%% Unmarshalling
-
--spec unmarshal(hg_msgpack_marshalling:value()) -> payment_route().
-unmarshal(Route) ->
-    unmarshal(route, Route).
-
-unmarshal(route, [
-    2,
-    #{
-        <<"provider">> := Provider,
-        <<"terminal">> := Terminal
-    }
-]) ->
-    #domain_PaymentRoute{
-        provider = unmarshal(provider_ref, Provider),
-        terminal = unmarshal(terminal_ref, Terminal)
-    };
-unmarshal(route, [1, ?legacy_route(Provider, Terminal)]) ->
-    #domain_PaymentRoute{
-        provider = unmarshal(provider_ref_legacy, Provider),
-        terminal = unmarshal(terminal_ref_legacy, Terminal)
-    };
-unmarshal(provider_ref, ObjectID) ->
-    #domain_ProviderRef{id = unmarshal(int, ObjectID)};
-unmarshal(provider_ref_legacy, ?legacy_provider(ObjectID)) ->
-    #domain_ProviderRef{id = unmarshal(int, ObjectID)};
-unmarshal(terminal_ref, ObjectID) ->
-    #domain_TerminalRef{id = unmarshal(int, ObjectID)};
-unmarshal(terminal_ref_legacy, ?legacy_terminal(ObjectID)) ->
-    #domain_TerminalRef{id = unmarshal(int, ObjectID)};
-unmarshal(_, Other) ->
-    Other.
 
 %%
 

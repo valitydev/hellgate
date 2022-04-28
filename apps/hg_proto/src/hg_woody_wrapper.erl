@@ -12,8 +12,7 @@
 -type handler_opts() :: #{
     handler := module(),
     party_client => party_client:client(),
-    default_handling_timeout => timeout(),
-    user_identity => undefined | woody_user_identity:user_identity()
+    default_handling_timeout => timeout()
 }.
 
 -type client_opts() :: #{
@@ -115,22 +114,9 @@ create_context(WoodyContext, Opts) ->
     configure_party_client(Context, Opts).
 
 configure_party_client(Context0, #{party_client := PartyClient}) ->
-    DefaultUserInfo = #{id => <<"hellgate">>, realm => <<"service">>},
-    Context1 = set_default_party_user_identity(DefaultUserInfo, Context0),
-    hg_context:set_party_client(PartyClient, Context1);
+    hg_context:set_party_client(PartyClient, Context0);
 configure_party_client(Context, _Opts) ->
     Context.
-
-set_default_party_user_identity(UserInfo, Context) ->
-    PartyClientContext0 = hg_context:get_party_client_context(Context),
-    PartyClientContext1 =
-        case party_client_context:get_user_info(PartyClientContext0) of
-            undefined ->
-                party_client_context:set_user_info(UserInfo, PartyClientContext0);
-            _UserInfo ->
-                PartyClientContext0
-        end,
-    hg_context:set_party_client_context(PartyClientContext1, Context).
 
 -spec ensure_woody_deadline_set(woody_context:ctx(), handler_opts()) -> woody_context:ctx().
 ensure_woody_deadline_set(WoodyContext, Opts) ->

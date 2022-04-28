@@ -3,7 +3,6 @@
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 
 -export([start/1]).
--export([start/2]).
 -export([start_link/1]).
 -export([stop/1]).
 
@@ -27,7 +26,6 @@
 
 %%
 
--type user_info() :: dmsl_payment_processing_thrift:'UserInfo'().
 -type id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
 -type create_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateCreateParams'().
 -type update_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateUpdateParams'().
@@ -38,18 +36,14 @@
 
 -spec start(hg_client_api:t()) -> pid().
 start(ApiClient) ->
-    start(start, undefined, ApiClient).
-
--spec start(user_info(), hg_client_api:t()) -> pid().
-start(UserInfo, ApiClient) ->
-    start(start, UserInfo, ApiClient).
+    start(start, ApiClient).
 
 -spec start_link(hg_client_api:t()) -> pid().
 start_link(ApiClient) ->
-    start(start_link, undefined, ApiClient).
+    start(start_link, ApiClient).
 
-start(Mode, UserInfo, ApiClient) ->
-    {ok, Pid} = gen_server:Mode(?MODULE, {UserInfo, ApiClient}, []),
+start(Mode, ApiClient) ->
+    {ok, Pid} = gen_server:Mode(?MODULE, ApiClient, []),
     Pid.
 
 -spec stop(pid()) -> ok.
@@ -91,7 +85,6 @@ map_result_error({error, Error}) ->
 -type event() :: dmsl_payment_processing_thrift:'Event'().
 
 -record(state, {
-    user_info :: user_info(),
     pollers :: #{id() => hg_client_event_poller:st(event())},
     client :: hg_client_api:t()
 }).
@@ -99,13 +92,13 @@ map_result_error({error, Error}) ->
 -type state() :: #state{}.
 -type callref() :: {pid(), Tag :: reference()}.
 
--spec init({user_info(), hg_client_api:t()}) -> {ok, state()}.
-init({UserInfo, ApiClient}) ->
-    {ok, #state{user_info = UserInfo, pollers = #{}, client = ApiClient}}.
+-spec init(hg_client_api:t()) -> {ok, state()}.
+init(ApiClient) ->
+    {ok, #state{pollers = #{}, client = ApiClient}}.
 
 -spec handle_call(term(), callref(), state()) -> {reply, term(), state()} | {noreply, state()}.
-handle_call({call, Function, Args}, _From, St = #state{user_info = UserInfo, client = Client}) ->
-    {Result, ClientNext} = hg_client_api:call(invoice_templating, Function, [UserInfo | Args], Client),
+handle_call({call, Function, Args}, _From, St = #state{client = Client}) ->
+    {Result, ClientNext} = hg_client_api:call(invoice_templating, Function, Args, Client),
     {reply, Result, St#state{client = ClientNext}};
 handle_call({pull_event, InvoiceID, Timeout}, _From, St = #state{client = Client}) ->
     Poller = get_poller(InvoiceID, St),
@@ -143,14 +136,14 @@ code_change(_OldVsn, _State, _Extra) ->
 
 %%
 
-get_poller(ID, #state{user_info = UserInfo, pollers = Pollers}) ->
-    maps:get(ID, Pollers, construct_poller(UserInfo, ID)).
+get_poller(ID, #state{pollers = Pollers}) ->
+    maps:get(ID, Pollers, construct_poller(ID)).
 
 set_poller(ID, Poller, St = #state{pollers = Pollers}) ->
     St#state{pollers = maps:put(ID, Poller, Pollers)}.
 
-construct_poller(UserInfo, ID) ->
+construct_poller(ID) ->
     hg_client_event_poller:new(
-        {invoice_templating, 'GetEvents', [UserInfo, ID]},
+        {invoice_templating, 'GetEvents', [ID]},
         fun(Event) -> Event#payproc_Event.id end
     ).
