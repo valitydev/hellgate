@@ -827,8 +827,8 @@ get_callback_url() ->
     genlib:to_binary("http://127.0.0.1:" ++ integer_to_list(?COWBOY_PORT)).
 
 handle_user_interaction_response(<<"POST">>, Req) ->
-    {ok, Body, Req2} = cowboy_req:read_body(Req),
-    Form = maps:from_list(cow_qs:parse_qs(Body)),
+    {ok, ReqBody, Req2} = cowboy_req:read_body(Req),
+    Form = maps:from_list(cow_qs:parse_qs(ReqBody)),
     {RespCode, Response} =
         case maps:get(<<"tag">>, Form, undefined) of
             %% sleep intent

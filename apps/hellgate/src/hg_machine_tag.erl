@@ -14,7 +14,8 @@
 -spec get_machine_id(ns(), tag()) -> {ok, machine_ref()}.
 get_machine_id(NS, Tag) ->
     WoodyContext = hg_context:get_woody_context(hg_context:load()),
-    case bender_client:get_internal_id(tag_to_external_id(NS, Tag), WoodyContext) of
+    ExternalID = tag_to_external_id(NS, Tag),
+    case bender_client:get_internal_id(ExternalID, WoodyContext) of
         {ok, InternalID} ->
             {ok, InternalID};
         {ok, InternalID, _} ->
@@ -28,7 +29,8 @@ get_machine_id(NS, Tag) ->
 -spec bind_machine_id(ns(), machine_id(), tag()) -> ok | no_return().
 bind_machine_id(NS, MachineID, Tag) ->
     WoodyContext = hg_context:get_woody_context(hg_context:load()),
-    case bender_client:gen_constant(tag_to_external_id(NS, Tag), MachineID, WoodyContext) of
+    ExternalID = tag_to_external_id(NS, Tag),
+    case bender_client:gen_constant(ExternalID, MachineID, WoodyContext) of
         {ok, _InternalID} ->
             ok;
         {ok, _InternalID, _} ->

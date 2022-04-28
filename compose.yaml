@@ -51,7 +51,7 @@ services:
       retries: 20
 
   bender:
-    image: docker.io/rbkmoney/bender:7e0b6c5d183b4849fdff3e28c593b33a1ef4b7fe
+    image: ghcr.io/valitydev/bender:sha-d05ea29
     command: /opt/bender/bin/bender foreground
     depends_on:
       machinegun:

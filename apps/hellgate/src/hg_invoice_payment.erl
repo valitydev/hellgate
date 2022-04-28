@@ -2834,7 +2834,7 @@ handle_proxy_intent(
     Action0,
     #{invoice_id := InvoiceID} = Session
 ) ->
-    ok = hg_machine_tag:bind_machine_id(hg_invoice:namespace(), Tag, InvoiceID),
+    ok = hg_machine_tag:bind_machine_id(hg_invoice:namespace(), InvoiceID, Tag),
     Action = set_timer(Timer, Action0),
     Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
     {wrap_session_events(Events, Session), Action}.

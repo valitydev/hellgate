@@ -571,7 +571,7 @@ handle_proxy_intent(#'prxprv_SuspendIntent'{} = Intent, #{rec_payment_tool_id :=
         user_interaction = UserInteraction,
         timeout_behaviour = TimeoutBehaviour
     } = Intent,
-    ok = hg_machine_tag:bind_machine_id(hg_recurrent_paytool:namespace(), Tag, ToolID),
+    ok = hg_machine_tag:bind_machine_id(hg_recurrent_paytool:namespace(), ToolID, Tag),
     Action = hg_machine_action:set_timer(Timer, Action0),
     Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
     {Events, Action}.
