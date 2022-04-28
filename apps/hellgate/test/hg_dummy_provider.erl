@@ -842,12 +842,13 @@ handle_user_interaction_response(<<"POST">>, Req) ->
                 Payload = maps:get(<<"payload">>, Form, Tag),
                 callback_to_hell(Tag, Payload)
         end,
-    Body = case RespCode of
-        200 ->
-            <<>>;
-        _ ->
-            list_to_binary(io_lib:format("~p~n", [Response]))
-    end,
+    Body =
+        case RespCode of
+            200 ->
+                <<>>;
+            _ ->
+                list_to_binary(io_lib:format("~p~n", [Response]))
+        end,
     cowboy_req:reply(RespCode, #{<<"content-type">> => <<"text/plain; charset=utf-8">>}, Body, Req2);
 handle_user_interaction_response(_, Req) ->
     %% Method not allowed.
