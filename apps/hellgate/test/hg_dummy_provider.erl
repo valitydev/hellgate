@@ -702,26 +702,29 @@ make_payment_tool({scenario, Scenario}, PSys) ->
 make_payment_tool(terminal, PSrv = #domain_PaymentServiceRef{}) ->
     ?DEFAULT_SESSION({payment_terminal, #domain_PaymentTerminal{payment_service = PSrv}});
 make_payment_tool(digital_wallet, PSrv = #domain_PaymentServiceRef{}) ->
-    ?DEFAULT_SESSION(make_digital_wallet_payment_tool({#domain_DigitalWallet.payment_service, PSrv}));
+    ?DEFAULT_SESSION(make_digital_wallet_payment_tool(PSrv));
 make_payment_tool(tokenized_bank_card, {PSys, Provider, Method}) ->
-    {_, BCard0} = make_bank_card_payment_tool(<<"no_preauth">>, PSys),
-    BCard = setelement(#domain_BankCard.payment_token, BCard0, Provider),
-    ?SESSION42({bank_card, BCard#domain_BankCard{tokenization_method = Method}});
+    {_, BCard} = make_bank_card_payment_tool(<<"no_preauth">>, PSys),
+    ?SESSION42({bank_card, BCard#domain_BankCard{payment_token = Provider, tokenization_method = Method}});
 make_payment_tool(crypto_currency, Type = #domain_CryptoCurrencyRef{}) ->
     ?DEFAULT_SESSION({crypto_currency, Type});
 make_payment_tool({mobile_commerce, Exp}, Operator = #domain_MobileOperatorRef{}) ->
-    ?DEFAULT_SESSION(make_mobile_commerce_payment_tool({#domain_MobileCommerce.operator, Operator}, phone(Exp))).
+    ?DEFAULT_SESSION(make_mobile_commerce_payment_tool(Operator, phone(Exp))).
 
-make_digital_wallet_payment_tool({Field, Value}) ->
+make_digital_wallet_payment_tool(PSrv) ->
     Wallet = #domain_DigitalWallet{
         id = <<"+79876543210">>,
-        token = <<"some_token">>
+        token = <<"some_token">>,
+        payment_service = PSrv
     },
-    {digital_wallet, setelement(Field, Wallet, Value)}.
+    {digital_wallet, Wallet}.
 
-make_mobile_commerce_payment_tool({Field, Operator}, Phone) ->
-    Mob = #domain_MobileCommerce{phone = Phone},
-    {mobile_commerce, setelement(Field, Mob, Operator)}.
+make_mobile_commerce_payment_tool(Operator, Phone) ->
+    Mob = #domain_MobileCommerce{
+        operator = Operator,
+        phone = Phone
+    },
+    {mobile_commerce, Mob}.
 
 phone(success) ->
     #domain_MobilePhone{
@@ -738,9 +741,10 @@ make_bank_card_payment_tool(Token, PSys) ->
     BCard = #domain_BankCard{
         token = Token,
         bin = <<"424242">>,
-        last_digits = <<"4242">>
+        last_digits = <<"4242">>,
+        payment_system = PSys
     },
-    {bank_card, setelement(#domain_BankCard.payment_system, BCard, PSys)}.
+    {bank_card, BCard}.
 
 get_payment_tool(#domain_DisposablePaymentResource{payment_tool = PaymentTool}) ->
     PaymentTool.

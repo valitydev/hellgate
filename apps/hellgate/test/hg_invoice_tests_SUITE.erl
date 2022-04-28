@@ -1130,7 +1130,7 @@ switch_provider_after_limit_overflow(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id_w_several_limits := PartyID} = cfg(limits, C),
-    PaymentAmount = 49999,
+    PaymentAmount = 69999,
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
@@ -1152,7 +1152,7 @@ switch_provider_after_limit_overflow(C) ->
     ),
     Route = start_payment_ev(InvoiceID, Client),
 
-    ?assertMatch(#domain_PaymentRoute{provider = #domain_ProviderRef{id = 5}}, Route),
+    ?assertMatch(#domain_PaymentRoute{provider = #domain_ProviderRef{id = 6}}, Route),
     [?payment_ev(PaymentID2, ?cash_flow_changed(_))] = next_event(InvoiceID, Client),
     PaymentID2 = await_payment_session_started(InvoiceID, PaymentID2, Client, ?processed()),
     PaymentID2 = await_payment_process_finish(InvoiceID, PaymentID2, Client, 0).

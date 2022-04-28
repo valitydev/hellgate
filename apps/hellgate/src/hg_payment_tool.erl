@@ -30,10 +30,10 @@ try_get_payment_service_w_ref(Ref, Revision) ->
 
 -spec has_any_payment_method(t(), ordsets:ordset(method())) -> boolean().
 has_any_payment_method(PaymentTool, SupportedMethods) ->
-    ordsets:is_element(get_possible_method(PaymentTool), SupportedMethods).
+    ordsets:is_element(get_method(PaymentTool), SupportedMethods).
 
--spec get_possible_method(t()) -> method().
-get_possible_method({bank_card, #domain_BankCard{payment_system = PS} = BC}) ->
+-spec get_method(t()) -> method().
+get_method({bank_card, #domain_BankCard{payment_system = PS} = BC}) ->
     #domain_PaymentMethodRef{
         id =
             {bank_card, #domain_BankCardPaymentMethod{
@@ -44,22 +44,22 @@ get_possible_method({bank_card, #domain_BankCard{payment_system = PS} = BC}) ->
             }}
     };
 %% ===== payment_terminal
-get_possible_method({payment_terminal, PaymentTerminal}) ->
+get_method({payment_terminal, PaymentTerminal}) ->
     #domain_PaymentMethodRef{
         id = {payment_terminal, PaymentTerminal#domain_PaymentTerminal.payment_service}
     };
 %% ===== digital_wallet
-get_possible_method({digital_wallet, DigitalWallet}) ->
+get_method({digital_wallet, DigitalWallet}) ->
     #domain_PaymentMethodRef{
         id = {digital_wallet, DigitalWallet#domain_DigitalWallet.payment_service}
     };
 %% ===== crypto_currency
-get_possible_method({crypto_currency, CC}) ->
+get_method({crypto_currency, CC}) ->
     #domain_PaymentMethodRef{
         id = {crypto_currency, CC}
     };
 %% ===== mobile_commerce
-get_possible_method({mobile_commerce, MobileCommerce}) ->
+get_method({mobile_commerce, MobileCommerce}) ->
     #domain_PaymentMethodRef{
         id = {mobile, MobileCommerce#domain_MobileCommerce.operator}
     }.
