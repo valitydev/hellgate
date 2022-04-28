@@ -81,14 +81,6 @@
     phone_number = Phone
 }).
 
--define(tkz_bank_card(PaymentSystem, TokenProvider), ?tkz_bank_card(PaymentSystem, TokenProvider, undefined)).
-
--define(tkz_bank_card(PaymentSystem, TokenProvider, TokenizationMethod), #domain_TokenizedBankCard{
-    payment_system_deprecated = PaymentSystem,
-    token_provider_deprecated = TokenProvider,
-    tokenization_method = TokenizationMethod
-}).
-
 -define(timeout_reason(), <<"Timeout">>).
 
 -define(cart(Price, Details), #domain_InvoiceCart{
@@ -168,8 +160,8 @@
     payment_methods =
         {value,
             ?ordset([
-                ?pmt(payment_terminal_deprecated, euroset),
-                ?pmt(digital_wallet_deprecated, qiwi)
+                ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>)),
+                ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))
             ])},
     cash_limit =
         {value,

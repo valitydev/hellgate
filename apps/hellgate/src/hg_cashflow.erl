@@ -238,3 +238,34 @@ modify_remainder(#domain_FinalCashFlowAccount{account_type = AccountType}, ?cash
         ?cash(Amount, Currency),
         Acc
     ).
+
+%%
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+-spec test() -> _.
+
+-spec compute_volume_test() -> _.
+
+compute_volume_test() ->
+    Cash = ?cash(100, <<"RUB">>),
+    ?assertEqual(Cash, compute_volume(?fixed(Cash), #{})),
+    ?assertEqual(
+        ?cash(1, <<"RUB">>),
+        compute_volume(?share(1, 100, operation_amount, undefined), #{operation_amount => Cash})
+    ),
+    ?assertEqual(
+        Cash,
+        compute_volume(?product(min_of, [?fixed(Cash), ?fixed(?cash(200, <<"RUB">>))]), #{})
+    ),
+    ?assertEqual(
+        Cash,
+        compute_volume(?product(max_of, [?fixed(Cash), ?fixed(?cash(50, <<"RUB">>))]), #{})
+    ),
+    ?assertEqual(
+        ?cash(200, <<"RUB">>),
+        compute_volume(?product(sum_of, [?fixed(Cash), ?fixed(Cash)]), #{})
+    ).
+
+-endif.
