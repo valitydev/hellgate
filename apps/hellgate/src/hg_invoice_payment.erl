@@ -129,7 +129,6 @@
     | finalizing_accounter.
 
 -record(st, {
-    invoice_id :: invoice_id(),
     activity :: activity(),
     payment :: undefined | payment(),
     risk_score :: undefined | risk_score(),
@@ -213,7 +212,6 @@
 -type session_status() :: active | suspended | finished.
 
 -type session() :: #{
-    invoice_id := invoice_id(),
     target := target(),
     status := session_status(),
     trx := trx_info(),
@@ -229,6 +227,11 @@
     invoice => invoice(),
     timestamp => hg_datetime:timestamp()
 }.
+
+% -type process_context() :: #{
+%     payment_id := payment_id(),
+%     invoice_id := invoice_id()
+% }.
 
 %%
 
@@ -446,8 +449,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         processing_deadline = Deadline
     },
     Events = [?payment_started(Payment2)],
-    CollapseOpts = #{invoice_id => get_invoice_id(Invoice)},
-    {collapse_changes(Events, undefined, CollapseOpts), {Events, hg_machine_action:instant()}}.
+    {collapse_changes(Events, undefined), {Events, hg_machine_action:instant()}}.
 
 get_merchant_payments_terms(Opts, Revision, Timestamp, VS) ->
     Party = get_party(Opts),
@@ -2372,7 +2374,7 @@ process_session(Session, Action, St = #st{repair_scenario = undefined}) ->
 process_session(Session, Action, St = #st{repair_scenario = Scenario}) ->
     case hg_invoice_repair:check_for_action(repair_session, Scenario) of
         {result, ProxyResult} ->
-            Result = handle_proxy_result(ProxyResult, Action, [], Session),
+            Result = handle_proxy_result(ProxyResult, Action, [], Session, create_session_context(St)),
             finish_session_processing(Result, St);
         call ->
             process_session(Session, Action, [], St)
@@ -2388,10 +2390,18 @@ process_session(active, Session, Action, Events, St) ->
 process_session(suspended, Session, Action, Events, St) ->
     process_callback_timeout(Action, Session, Events, St).
 
+create_session_context(St) ->
+    PaymentID = get_payment_id(get_payment(St)),
+    InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
+    #{
+        invoice_id => InvoiceID,
+        payment_id => PaymentID
+    }.
+
 -spec process_active_session(action(), session(), events(), st()) -> machine_result().
 process_active_session(Action, Session, Events, St) ->
     {ok, ProxyResult} = process_payment_session(St),
-    Result = handle_proxy_result(ProxyResult, Action, Events, Session),
+    Result = handle_proxy_result(ProxyResult, Action, Events, Session, create_session_context(St)),
     finish_session_processing(Result, St).
 
 -spec finalize_payment(action(), st()) -> machine_result().
@@ -2425,7 +2435,9 @@ process_callback_timeout(Action, Session, Events, St) ->
     case get_session_timeout_behaviour(Session) of
         {callback, Payload} ->
             {ok, CallbackResult} = process_payment_session_callback(Payload, St),
-            {_Response, Result} = handle_callback_result(CallbackResult, Action, get_activity_session(St)),
+            {_Response, Result} = handle_callback_result(
+                CallbackResult, Action, get_activity_session(St), create_session_context(St)
+            ),
             finish_session_processing(Result, St);
         {operation_failure, OperationFailure} ->
             SessionEvents = [?session_finished(?session_failed(OperationFailure))],
@@ -2436,7 +2448,9 @@ process_callback_timeout(Action, Session, Events, St) ->
 -spec handle_callback(callback(), action(), st()) -> {callback_response(), machine_result()}.
 handle_callback(Payload, Action, St) ->
     {ok, CallbackResult} = process_payment_session_callback(Payload, St),
-    {Response, Result} = handle_callback_result(CallbackResult, Action, get_activity_session(St)),
+    {Response, Result} = handle_callback_result(
+        CallbackResult, Action, get_activity_session(St), create_session_context(St)
+    ),
     {Response, finish_session_processing(Result, St)}.
 
 -spec finish_session_processing(result(), st()) -> machine_result().
@@ -2755,34 +2769,38 @@ handle_proxy_result(
     #prxprv_PaymentProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
     Action0,
     Events0,
-    Session
+    Session,
+    Context
 ) ->
     Events1 = wrap_session_events(hg_proxy_provider:bind_transaction(Trx, Session), Session),
     Events2 = update_proxy_state(ProxyState, Session),
-    {Events3, Action} = handle_proxy_intent(Intent, Action0, Session),
+    {Events3, Action} = handle_proxy_intent(Intent, Action0, Session, Context),
     {lists:flatten([Events0, Events1, Events2, Events3]), Action}.
 
 handle_callback_result(
     #prxprv_PaymentCallbackResult{result = ProxyResult, response = Response},
     Action0,
-    Session
+    Session,
+    Context
 ) ->
-    {Response, handle_proxy_callback_result(ProxyResult, Action0, Session)}.
+    {Response, handle_proxy_callback_result(ProxyResult, Action0, Session, Context)}.
 
 handle_proxy_callback_result(
     #prxprv_PaymentCallbackProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
     Action0,
-    Session
+    Session,
+    Context
 ) ->
     Events0 = [wrap_session_event(?session_activated(), Session)],
     Events1 = wrap_session_events(hg_proxy_provider:bind_transaction(Trx, Session), Session),
     Events2 = update_proxy_state(ProxyState, Session),
-    {Events3, Action} = handle_proxy_intent(Intent, hg_machine_action:unset_timer(Action0), Session),
+    {Events3, Action} = handle_proxy_intent(Intent, hg_machine_action:unset_timer(Action0), Session, Context),
     {lists:flatten([Events0, Events1, Events2, Events3]), Action};
 handle_proxy_callback_result(
     #prxprv_PaymentCallbackProxyResult{intent = undefined, trx = Trx, next_state = ProxyState},
     Action0,
-    Session
+    Session,
+    _Context
 ) ->
     Events1 = hg_proxy_provider:bind_transaction(Trx, Session),
     Events2 = update_proxy_state(ProxyState, Session),
@@ -2805,7 +2823,7 @@ update_proxy_state(ProxyState, Session) ->
             [wrap_session_event(?proxy_st_changed(ProxyState), Session)]
     end.
 
-handle_proxy_intent(#prxprv_FinishIntent{status = {success, Success}}, Action, Session) ->
+handle_proxy_intent(#prxprv_FinishIntent{status = {success, Success}}, Action, Session, _Context) ->
     Events0 = [wrap_session_event(?session_finished(?session_succeeded()), Session)],
     Events1 =
         case Success of
@@ -2815,12 +2833,22 @@ handle_proxy_intent(#prxprv_FinishIntent{status = {success, Success}}, Action, S
                 [?rec_token_acquired(Token) | Events0]
         end,
     {Events1, Action};
-handle_proxy_intent(#prxprv_FinishIntent{status = {failure, Failure}}, Action, Session = #{target := {captured, _}}) ->
+handle_proxy_intent(
+    #prxprv_FinishIntent{status = {failure, Failure}}, Action, Session = #{target := {captured, _}}, _Context
+) ->
     handle_proxy_capture_failure(Action, Failure, Session);
-handle_proxy_intent(#prxprv_FinishIntent{status = {failure, Failure}}, Action, Session) ->
+handle_proxy_intent(#prxprv_FinishIntent{status = {failure, Failure}}, Action, Session, _Context) ->
     Events = [wrap_session_event(?session_finished(?session_failed({failure, Failure})), Session)],
     {Events, Action};
-handle_proxy_intent(#prxprv_SleepIntent{timer = Timer, user_interaction = UserInteraction}, Action0, Session) ->
+handle_proxy_intent(
+    #prxprv_SleepIntent{
+        timer = Timer,
+        user_interaction = UserInteraction
+    },
+    Action0,
+    Session,
+    _Context
+) ->
     Action = hg_machine_action:set_timer(Timer, Action0),
     Events = wrap_session_events(try_request_interaction(UserInteraction), Session),
     {Events, Action};
@@ -2832,9 +2860,10 @@ handle_proxy_intent(
         timeout_behaviour = TimeoutBehaviour
     },
     Action0,
-    #{invoice_id := InvoiceID} = Session
+    Session,
+    #{payment_id := PaymentID, invoice_id := InvoiceID}
 ) ->
-    ok = hg_machine_tag:bind_machine_id(hg_invoice:namespace(), InvoiceID, Tag),
+    ok = hg_machine_tag:create_binding(hg_invoice:namespace(), Tag, PaymentID, InvoiceID),
     Action = set_timer(Timer, Action0),
     Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
     {wrap_session_events(Events, Session), Action}.
@@ -3262,21 +3291,13 @@ throw_invalid_recurrent_parent(Details) ->
 %%
 
 -type change_opts() :: #{
-    invoice_id => invoice_id(),
     timestamp => hg_datetime:timestamp(),
     validation => strict
 }.
 
 -spec merge_change(change(), st() | undefined, change_opts()) -> st().
 merge_change(Change, undefined, Opts) ->
-    merge_change(
-        Change,
-        #st{
-            invoice_id = maps:get(invoice_id, Opts),
-            activity = {payment, new}
-        },
-        Opts
-    );
+    merge_change(Change, #st{activity = {payment, new}}, Opts);
 merge_change(Change = ?payment_started(Payment), #st{} = St, Opts) ->
     _ = validate_transition({payment, new}, Change, St, Opts),
     St#st{
@@ -3468,7 +3489,7 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
                 St#st{activity = {refund_accounter, ID}};
             ?refund_status_changed(?refund_succeeded()) ->
                 _ = validate_transition([{refund_accounter, ID}], Change, St, Opts),
-                RefundSt0 = merge_refund_change(Event, St#st.invoice_id, try_get_refund_state(ID, St)),
+                RefundSt0 = merge_refund_change(Event, try_get_refund_state(ID, St)),
                 Allocation = get_allocation(St),
                 FinalAllocation = hg_maybe:apply(
                     fun(A) ->
@@ -3491,7 +3512,7 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
                 _ = validate_transition([{refund_session, ID}], Change, St, Opts),
                 St
         end,
-    RefundSt1 = merge_refund_change(Event, St#st.invoice_id, try_get_refund_state(ID, St1)),
+    RefundSt1 = merge_refund_change(Event, try_get_refund_state(ID, St1)),
     St2 = set_refund_state(ID, RefundSt1, St1),
     case get_refund_status(get_refund(RefundSt1)) of
         {S, _} when S == succeeded; S == failed ->
@@ -3542,7 +3563,7 @@ merge_change(
         Opts
     ),
     % FIXME why the hell dedicated handling
-    Session0 = create_session(St#st.invoice_id, Target, get_trx(St)),
+    Session0 = create_session(Target, get_trx(St)),
     Session = mark_session_timing_event(started, Opts, Session0),
     St1 = add_session(Target, Session, St#st{target = Target}),
     St2 = save_retry_attempt(Target, St1),
@@ -3593,15 +3614,15 @@ save_retry_attempt(Target, #st{retry_attempts = Attempts} = St) ->
 merge_chargeback_change(Change, ChargebackState) ->
     hg_invoice_payment_chargeback:merge_change(Change, ChargebackState).
 
-merge_refund_change(?refund_created(Refund, Cashflow, TransactionInfo), _InvoiceID, undefined) ->
+merge_refund_change(?refund_created(Refund, Cashflow, TransactionInfo), undefined) ->
     #refund_st{refund = Refund, cash_flow = Cashflow, transaction_info = TransactionInfo};
-merge_refund_change(?refund_status_changed(Status), _InvoiceID, RefundSt) ->
+merge_refund_change(?refund_status_changed(Status), RefundSt) ->
     set_refund(set_refund_status(Status, get_refund(RefundSt)), RefundSt);
-merge_refund_change(?refund_rollback_started(Failure), _InvoiceID, RefundSt) ->
+merge_refund_change(?refund_rollback_started(Failure), RefundSt) ->
     RefundSt#refund_st{failure = Failure};
-merge_refund_change(?session_ev(?refunded(), ?session_started()), InvoiceID, RefundSt) ->
-    add_refund_session(create_session(InvoiceID, ?refunded(), undefined), RefundSt);
-merge_refund_change(?session_ev(?refunded(), Change), _InvoiceID, RefundSt) ->
+merge_refund_change(?session_ev(?refunded(), ?session_started()), RefundSt) ->
+    add_refund_session(create_session(?refunded(), undefined), RefundSt);
+merge_refund_change(?session_ev(?refunded(), Change), RefundSt) ->
     update_refund_session(merge_session_change(Change, get_refund_session(RefundSt), #{}), RefundSt).
 
 merge_adjustment_change(?adjustment_created(Adjustment), undefined) ->
@@ -3827,9 +3848,8 @@ mark_session_timing_event(Event, Opts, Session) ->
     Timings = get_session_timings(Session),
     set_session_timings(hg_timings:mark(Event, define_event_timestamp(Opts), Timings), Session).
 
-create_session(InvoiceID, Target, Trx) ->
+create_session(Target, Trx) ->
     #{
-        invoice_id => InvoiceID,
         target => Target,
         status => active,
         trx => Trx,

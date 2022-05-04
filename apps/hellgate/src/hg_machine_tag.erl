@@ -2,42 +2,45 @@
 
 -define(BENDER_NS, <<"machinegun-tag">>).
 
--export([get_machine_id/2]).
--export([bind_machine_id/3]).
+-export([get_binding/2]).
+-export([create_binding/3]).
+-export([create_binding/4]).
 
 -type tag() :: mg_proto_base_thrift:'Tag'().
 -type ns() :: hg_machine:ns().
+-type entity_id() :: dmsl_base_thrift:'ID'().
 -type machine_id() :: hg_machine:id().
--type machine_ref() :: hg_machine:ref().
 
-%% | {error, not_found}.
--spec get_machine_id(ns(), tag()) -> {ok, machine_ref()}.
-get_machine_id(NS, Tag) ->
+-spec get_binding(ns(), tag()) -> {ok, entity_id(), machine_id()} | {error, not_found}.
+get_binding(NS, Tag) ->
     WoodyContext = hg_context:get_woody_context(hg_context:load()),
-    ExternalID = tag_to_external_id(NS, Tag),
-    case bender_client:get_internal_id(ExternalID, WoodyContext) of
-        {ok, InternalID} ->
-            {ok, InternalID};
-        {ok, InternalID, _} ->
-            {ok, InternalID};
+    case bender_client:get_internal_id(tag_to_external_id(NS, Tag), WoodyContext) of
+        {ok, EntityID} ->
+            {ok, EntityID, EntityID};
+        {ok, EntityID, #{<<"machine-id">> := MachineID}} ->
+            {ok, EntityID, MachineID};
         {error, internal_id_not_found} ->
-            %% Fall back to machinegun-based tags
-            %% TODO: Remove after grace period for migration
-            {ok, {tag, Tag}}
+            {error, not_found}
     end.
 
--spec bind_machine_id(ns(), machine_id(), tag()) -> ok | no_return().
-bind_machine_id(NS, MachineID, Tag) ->
-    WoodyContext = hg_context:get_woody_context(hg_context:load()),
-    ExternalID = tag_to_external_id(NS, Tag),
-    case bender_client:gen_constant(ExternalID, MachineID, WoodyContext) of
-        {ok, _InternalID} ->
-            ok;
-        {ok, _InternalID, _} ->
-            ok
-    end.
+-spec create_binding(ns(), tag(), entity_id()) -> ok | no_return().
+create_binding(NS, Tag, EntityID) ->
+    create_binding_(NS, Tag, EntityID, undefined).
+
+-spec create_binding(ns(), tag(), entity_id(), machine_id()) -> ok | no_return().
+create_binding(NS, Tag, EntityID, MachineID) ->
+    create_binding_(NS, Tag, EntityID, #{<<"machine-id">> => MachineID}).
 
 %%
+
+create_binding_(NS, Tag, EntityID, Context) ->
+    WoodyContext = hg_context:get_woody_context(hg_context:load()),
+    case bender_client:gen_constant(tag_to_external_id(NS, Tag), EntityID, WoodyContext, Context) of
+        {ok, EntityID} ->
+            ok;
+        {ok, EntityID, Context} ->
+            ok
+    end.
 
 tag_to_external_id(NS, Tag) ->
     <<?BENDER_NS/binary, "-", NS/binary, "-", Tag/binary>>.

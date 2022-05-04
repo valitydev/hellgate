@@ -571,7 +571,7 @@ handle_proxy_intent(#'prxprv_SuspendIntent'{} = Intent, #{rec_payment_tool_id :=
         user_interaction = UserInteraction,
         timeout_behaviour = TimeoutBehaviour
     } = Intent,
-    ok = hg_machine_tag:bind_machine_id(hg_recurrent_paytool:namespace(), ToolID, Tag),
+    ok = hg_machine_tag:create_binding(namespace(), Tag, ToolID),
     Action = hg_machine_action:set_timer(Timer, Action0),
     Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
     {Events, Action}.
@@ -751,18 +751,22 @@ dispatch_callback({provider, Payload}, St) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    case hg_machine_tag:get_machine_id(namespace(), Tag) of
-        {ok, MachineRef} ->
-            case hg_machine:call(?NS, MachineRef, {callback, Callback}) of
-                {ok, _CallbackResponse} = Result ->
-                    Result;
-                {exception, invalid_callback} ->
-                    {error, invalid_callback};
-                {error, _} = Error ->
-                    Error
-            end
-        % {error, not_found} ->
-        %     {error, notfound}
+    MachineRef =
+        case hg_machine_tag:get_binding(namespace(), Tag) of
+            {ok, _EntityID, MachineID} ->
+                MachineID;
+            {error, not_found} ->
+                %% Fallback to machinegun tagging
+                %% TODO: Remove after migration grace period
+                {tag, Tag}
+        end,
+    case hg_machine:call(?NS, MachineRef, {callback, Callback}) of
+        {ok, _CallbackResponse} = Result ->
+            Result;
+        {exception, invalid_callback} ->
+            {error, invalid_callback};
+        {error, _} = Error ->
+            Error
     end.
 
 -spec handle_result(call_result()) -> {hg_machine:response(), hg_machine:result()} | hg_machine:result().
