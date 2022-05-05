@@ -20,35 +20,21 @@
 -export([end_per_testcase/2]).
 
 -export([invalid_party/1]).
--export([invalid_party_new/1]).
 -export([invalid_shop/1]).
--export([invalid_shop_new/1]).
 -export([invalid_party_status/1]).
--export([invalid_party_status_new/1]).
 -export([invalid_shop_status/1]).
--export([invalid_shop_status_new/1]).
 -export([invalid_payment_method/1]).
--export([invalid_payment_method_new/1]).
 
 -export([get_recurrent_paytool/1]).
--export([get_recurrent_paytool_new/1]).
 -export([recurrent_paytool_not_found/1]).
--export([recurrent_paytool_not_found_new/1]).
 -export([recurrent_paytool_abandoned/1]).
--export([recurrent_paytool_abandoned_new/1]).
 -export([recurrent_paytool_acquirement_failed/1]).
--export([recurrent_paytool_acquirement_failed_new/1]).
 -export([recurrent_paytool_acquired/1]).
--export([recurrent_paytool_acquired_new/1]).
 -export([recurrent_paytool_event_sink/1]).
--export([recurrent_paytool_event_sink_new/1]).
 -export([recurrent_paytool_cost/1]).
--export([recurrent_paytool_cost_new/1]).
 -export([recurrent_paytool_w_tds_acquired/1]).
--export([recurrent_paytool_w_tds_acquired_new/1]).
 
 -export([recurrent_paytool_creation_not_permitted/1]).
--export([recurrent_paytool_creation_not_permitted_new/1]).
 
 %%
 
@@ -111,22 +97,13 @@ all() ->
     [
         {group, invalid_recurrent_paytool_params},
         recurrent_paytool_not_found,
-        recurrent_paytool_not_found_new,
         get_recurrent_paytool,
-        get_recurrent_paytool_new,
         recurrent_paytool_acquirement_failed,
-        recurrent_paytool_acquirement_failed_new,
         recurrent_paytool_acquired,
-        recurrent_paytool_acquired_new,
         recurrent_paytool_event_sink,
-        recurrent_paytool_event_sink_new,
         recurrent_paytool_cost,
-        recurrent_paytool_cost_new,
         recurrent_paytool_w_tds_acquired,
-        recurrent_paytool_w_tds_acquired_new,
         recurrent_paytool_abandoned,
-        recurrent_paytool_abandoned_new,
-        recurrent_paytool_creation_not_permitted_new,
         recurrent_paytool_creation_not_permitted
     ].
 
@@ -135,14 +112,9 @@ groups() ->
     [
         {invalid_recurrent_paytool_params, [sequence], [
             invalid_party,
-            invalid_party_new,
             invalid_shop,
-            invalid_shop_new,
             invalid_party_status,
-            invalid_party_status_new,
             invalid_shop_status,
-            invalid_shop_status_new,
-            invalid_payment_method_new,
             invalid_payment_method
         ]}
     ].
@@ -172,58 +144,35 @@ end_per_testcase(_Name, _C) ->
 %% invalid_recurrent_paytool_params group
 
 -spec invalid_party(config()) -> test_case_result().
--spec invalid_party_new(config()) -> test_case_result().
 -spec invalid_shop(config()) -> test_case_result().
--spec invalid_shop_new(config()) -> test_case_result().
 -spec invalid_party_status(config()) -> test_case_result().
--spec invalid_party_status_new(config()) -> test_case_result().
 -spec invalid_shop_status(config()) -> test_case_result().
--spec invalid_shop_status_new(config()) -> test_case_result().
 -spec invalid_payment_method(config()) -> test_case_result().
--spec invalid_payment_method_new(config()) -> test_case_result().
 
 invalid_party(C) ->
-    invalid_party(C, visa).
-
-invalid_party_new(C) ->
-    invalid_party(C, ?pmt_sys(<<"visa-ref">>)).
-
-invalid_party(C, PmtSys) ->
     RootUrl = cfg(root_url, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = hg_utils:unique_id(),
     ShopID = hg_utils:unique_id(),
     Client = hg_client_recurrent_paytool:start(hg_ct_helper:create_client(RootUrl, cfg(trace_id, C))),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     {exception, #payproc_PartyNotFound{}} = hg_client_recurrent_paytool:create(Params, Client).
 
 invalid_shop(C) ->
-    invalid_shop(C, visa).
-
-invalid_shop_new(C) ->
-    invalid_shop(C, ?pmt_sys(<<"visa-ref">>)).
-
-invalid_shop(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = hg_utils:unique_id(),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     {exception, #payproc_ShopNotFound{}} = hg_client_recurrent_paytool:create(Params, Client).
 
 invalid_party_status(C) ->
-    invalid_party_status(C, visa).
-
-invalid_party_status_new(C) ->
-    invalid_party_status(C, ?pmt_sys(<<"visa-ref">>)).
-
-invalid_party_status(C, PmtSys) ->
     Client = cfg(client, C),
     {PartyClient, Context} = cfg(party_client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     ok = party_client_thrift:block(PartyID, <<>>, PartyClient, Context),
     {exception, ?invalid_party_status({blocking, _})} = hg_client_recurrent_paytool:create(Params, Client),
     ok = party_client_thrift:unblock(PartyID, <<>>, PartyClient, Context),
@@ -232,18 +181,12 @@ invalid_party_status(C, PmtSys) ->
     ok = party_client_thrift:activate(PartyID, PartyClient, Context).
 
 invalid_shop_status(C) ->
-    invalid_shop_status(C, visa).
-
-invalid_shop_status_new(C) ->
-    invalid_shop_status(C, ?pmt_sys(<<"visa-ref">>)).
-
-invalid_shop_status(C, PmtSys) ->
     Client = cfg(client, C),
     {PartyClient, Context} = cfg(party_client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     ok = party_client_thrift:block_shop(PartyID, ShopID, <<>>, PartyClient, Context),
     {exception, ?invalid_shop_status({blocking, _})} = hg_client_recurrent_paytool:create(Params, Client),
     ok = party_client_thrift:unblock_shop(PartyID, ShopID, <<>>, PartyClient, Context),
@@ -252,10 +195,6 @@ invalid_shop_status(C, PmtSys) ->
     ok = party_client_thrift:activate_shop(PartyID, ShopID, PartyClient, Context).
 
 invalid_payment_method(C) ->
-    Fun = fun(BCard) -> BCard#domain_BankCard{payment_system_deprecated = mastercard} end,
-    invalid_payment_method(C, Fun).
-
-invalid_payment_method_new(C) ->
     Fun = fun(BCard) -> BCard#domain_BankCard{payment_system = ?pmt_sys(<<"mastercard-ref">>)} end,
     invalid_payment_method(C, Fun).
 
@@ -281,66 +220,40 @@ invalid_payment_method(C, BCardFun) ->
 %% recurrent_paytool_flow group
 
 -spec recurrent_paytool_not_found(config()) -> test_case_result().
--spec recurrent_paytool_not_found_new(config()) -> test_case_result().
 -spec get_recurrent_paytool(config()) -> test_case_result().
--spec get_recurrent_paytool_new(config()) -> test_case_result().
 -spec recurrent_paytool_acquirement_failed(config()) -> test_case_result().
--spec recurrent_paytool_acquirement_failed_new(config()) -> test_case_result().
 -spec recurrent_paytool_acquired(config()) -> test_case_result().
--spec recurrent_paytool_acquired_new(config()) -> test_case_result().
 -spec recurrent_paytool_event_sink(config()) -> test_case_result().
--spec recurrent_paytool_event_sink_new(config()) -> test_case_result().
 -spec recurrent_paytool_cost(config()) -> test_case_result().
--spec recurrent_paytool_cost_new(config()) -> test_case_result().
 -spec recurrent_paytool_w_tds_acquired(config()) -> test_case_result().
--spec recurrent_paytool_w_tds_acquired_new(config()) -> test_case_result().
 -spec recurrent_paytool_abandoned(config()) -> test_case_result().
--spec recurrent_paytool_abandoned_new(config()) -> test_case_result().
 
 recurrent_paytool_not_found(C) ->
-    recurrent_paytool_not_found(C, visa).
-
-recurrent_paytool_not_found_new(C) ->
-    recurrent_paytool_not_found(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_not_found(C, PmtSys) ->
     PaytoolID = hg_utils:unique_id(),
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     _RecurrentPaytool = hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     {exception, #payproc_RecurrentPaymentToolNotFound{}} =
         hg_client_recurrent_paytool:get(hg_utils:unique_id(), Client).
 
 get_recurrent_paytool(C) ->
-    get_recurrent_paytool(C, visa).
-
-get_recurrent_paytool_new(C) ->
-    get_recurrent_paytool(C, ?pmt_sys(<<"visa-ref">>)).
-
-get_recurrent_paytool(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     RecurrentPaytool = hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} = RecurrentPaytool,
     RecurrentPaytool = hg_client_recurrent_paytool:get(RecurrentPaytoolID, Client).
 
 recurrent_paytool_acquirement_failed(C) ->
-    recurrent_paytool_acquirement_failed(C, visa).
-
-recurrent_paytool_acquirement_failed_new(C) ->
-    recurrent_paytool_acquirement_failed(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_acquirement_failed(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_bad_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_bad_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     RecurrentPaytool = hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} = RecurrentPaytool,
     [
@@ -352,33 +265,21 @@ recurrent_paytool_acquirement_failed(C, PmtSys) ->
     ok = await_failure(RecurrentPaytoolID, Client).
 
 recurrent_paytool_acquired(C) ->
-    recurrent_paytool_acquired(C, visa).
-
-recurrent_paytool_acquired_new(C) ->
-    recurrent_paytool_acquired(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_acquired(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     RecurrentPaytool = hg_client_recurrent_paytool:create(Params, Client),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} = RecurrentPaytool,
     ok = await_acquirement(RecurrentPaytoolID, Client).
 
 recurrent_paytool_event_sink(C) ->
-    recurrent_paytool_event_sink(C, visa).
-
-recurrent_paytool_event_sink_new(C) ->
-    recurrent_paytool_event_sink(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_event_sink(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     CreateResult = hg_client_recurrent_paytool:create(Params, Client),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} = CreateResult,
     ok = await_acquirement(RecurrentPaytoolID, Client),
@@ -401,17 +302,11 @@ recurrent_paytool_event_sink(C, PmtSys) ->
     ?assertEqual(EventPayloads, ESEventPayloads).
 
 recurrent_paytool_cost(C) ->
-    recurrent_paytool_cost(C, visa).
-
-recurrent_paytool_cost_new(C) ->
-    recurrent_paytool_cost(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_cost(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     RecurrentPaytool = hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     #payproc_RecurrentPaymentTool{
         id = RecurrentPaytoolID,
@@ -430,17 +325,11 @@ recurrent_paytool_cost(C, PmtSys) ->
     ok = await_acquirement_finish(RecurrentPaytoolID, Client).
 
 recurrent_paytool_w_tds_acquired(C) ->
-    recurrent_paytool_w_tds_acquired(C, visa).
-
-recurrent_paytool_w_tds_acquired_new(C) ->
-    recurrent_paytool_w_tds_acquired(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_w_tds_acquired(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_tds_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_tds_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     RecurrentPaytool = hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} = RecurrentPaytool,
     [
@@ -458,17 +347,11 @@ recurrent_paytool_w_tds_acquired(C, PmtSys) ->
     ok = await_acquirement_finish(RecurrentPaytoolID, Client).
 
 recurrent_paytool_abandoned(C) ->
-    recurrent_paytool_abandoned(C, visa).
-
-recurrent_paytool_abandoned_new(C) ->
-    recurrent_paytool_abandoned(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_abandoned(C, PmtSys) ->
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     #payproc_RecurrentPaymentTool{id = RecurrentPaytoolID} =
         hg_client_recurrent_paytool:create(Params, cfg(client, C)),
     {exception, #payproc_InvalidRecurrentPaymentToolStatus{status = {created, _}}} =
@@ -483,21 +366,14 @@ recurrent_paytool_abandoned(C, PmtSys) ->
 %%
 
 -spec recurrent_paytool_creation_not_permitted(config()) -> test_case_result().
--spec recurrent_paytool_creation_not_permitted_new(config()) -> test_case_result().
 
 recurrent_paytool_creation_not_permitted(C) ->
-    recurrent_paytool_creation_not_permitted(C, visa).
-
-recurrent_paytool_creation_not_permitted_new(C) ->
-    recurrent_paytool_creation_not_permitted(C, ?pmt_sys(<<"visa-ref">>)).
-
-recurrent_paytool_creation_not_permitted(C, PmtSys) ->
     _ = hg_domain:upsert(construct_domain_fixture(construct_simple_term_set())),
     Client = cfg(client, C),
     PaytoolID = hg_utils:unique_id(),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, PmtSys),
+    Params = make_recurrent_paytool_params(PaytoolID, PartyID, ShopID, ?pmt_sys(<<"visa-ref">>)),
     {exception, #payproc_OperationNotPermitted{}} = hg_client_recurrent_paytool:create(Params, Client).
 
 %%
@@ -663,8 +539,7 @@ construct_term_set_w_recurrent_paytools() ->
             payment_methods =
                 {value,
                     ordsets:from_list([
-                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                        ?pmt(bank_card_deprecated, visa)
+                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                     ])}
         }
     }.
@@ -687,9 +562,7 @@ construct_simple_term_set() ->
                 {value,
                     ordsets:from_list([
                         ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                        ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>)),
-                        ?pmt(bank_card_deprecated, visa),
-                        ?pmt(bank_card_deprecated, mastercard)
+                        ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))
                     ])},
             cash_limit =
                 {decisions, [
@@ -720,8 +593,6 @@ construct_domain_fixture(TermSet) ->
 
         hg_ct_fixture:construct_category(?cat(1), <<"Test category">>, test),
 
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, visa)),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, mastercard)),
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"visa-ref">>))),
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))),
 
@@ -808,9 +679,7 @@ construct_domain_fixture(TermSet) ->
                             {value,
                                 ?ordset([
                                     ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa),
-                                    ?pmt(bank_card_deprecated, mastercard)
+                                    ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))
                                 ])},
                         cash_limit =
                             {value,
@@ -837,8 +706,7 @@ construct_domain_fixture(TermSet) ->
                         payment_methods =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])},
                         cash_value =
                             {decisions, [
