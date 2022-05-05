@@ -228,11 +228,6 @@
     timestamp => hg_datetime:timestamp()
 }.
 
-% -type process_context() :: #{
-%     payment_id := payment_id(),
-%     invoice_id := invoice_id()
-% }.
-
 %%
 
 -include("domain.hrl").
