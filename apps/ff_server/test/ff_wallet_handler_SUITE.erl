@@ -198,22 +198,16 @@ create_identity(Party, Name, ProviderID, _C) ->
     ),
     ID.
 
-construct_userinfo() ->
-    #payproc_UserInfo{id = <<"fistful">>, type = construct_usertype()}.
-
-construct_usertype() ->
-    {service_user, #payproc_ServiceUser{}}.
-
 suspend_party(Party, C) ->
     Service = {dmsl_payment_processing_thrift, 'PartyManagement'},
-    Args = {construct_userinfo(), Party},
+    Args = {Party},
     Request = {Service, 'Suspend', Args},
     _ = ff_woody_client:call(partymgmt, Request, ct_helper:get_woody_ctx(C)),
     ok.
 
 block_party(Party, C) ->
     Service = {dmsl_payment_processing_thrift, 'PartyManagement'},
-    Args = {construct_userinfo(), Party, <<"BECAUSE">>},
+    Args = {Party, <<"BECAUSE">>},
     Request = {Service, 'Block', Args},
     _ = ff_woody_client:call(partymgmt, Request, ct_helper:get_woody_ctx(C)),
     ok.

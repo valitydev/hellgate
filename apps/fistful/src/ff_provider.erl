@@ -35,6 +35,8 @@
 -type payinst() :: dmsl_domain_thrift:'PaymentInstitution'().
 -type payinst_ref() :: dmsl_domain_thrift:'PaymentInstitutionRef'().
 
+-type residence_id() :: dmsl_domain_thrift:'Residence'().
+
 -export_type([id/0]).
 -export_type([provider/0]).
 
@@ -56,7 +58,7 @@
 
 -spec id(provider()) -> id().
 -spec name(provider()) -> binary().
--spec residences(provider()) -> [ff_residence:id()].
+-spec residences(provider()) -> [residence_id()].
 -spec payinst(provider()) -> payinst_ref().
 -spec contract_template(provider()) -> contract_template_ref().
 -spec contractor_level(provider()) -> contractor_level().
