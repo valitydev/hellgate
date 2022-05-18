@@ -1,6 +1,6 @@
 {"1.2.0",
 [{<<"bender_client">>,
-  {git,"https://github.com/valitydev/bender_client_erlang.git",
+  {git,"https://github.com/valitydev/bender-client-erlang.git",
        {ref,"29501d6f6425bc310ef6b37b62790126bdff356b"}},
   0},
  {<<"bender_proto">>,
