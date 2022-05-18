@@ -46,6 +46,7 @@
 -export_type([st/0]).
 
 -type rec_payment_tool() :: dmsl_payment_processing_thrift:'RecurrentPaymentTool'().
+-type rec_payment_tool_id() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolID'().
 -type rec_payment_tool_change() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolChange'().
 -type rec_payment_tool_params() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolParams'().
 
@@ -60,6 +61,7 @@
 -type timeout_behaviour() :: dmsl_timeout_behaviour_thrift:'TimeoutBehaviour'().
 
 -type session() :: #{
+    rec_payment_tool_id := rec_payment_tool_id(),
     status := active | suspended | finished,
     result => session_result(),
     trx => undefined | trx_info(),
@@ -540,7 +542,7 @@ handle_proxy_result(
 ) ->
     Changes1 = hg_proxy_provider:bind_transaction(Trx, Session),
     Changes2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
-    {Changes3, Action} = hg_proxy_provider:handle_proxy_intent(Intent, Action0),
+    {Changes3, Action} = handle_proxy_intent(Intent, Session, Action0),
     Changes = Changes1 ++ Changes2 ++ Changes3,
     case Intent of
         #prxprv_RecurrentTokenFinishIntent{status = {'success', #prxprv_RecurrentTokenSuccess{token = Token}}} ->
@@ -548,6 +550,38 @@ handle_proxy_result(
         _ ->
             make_proxy_result(Changes, Action)
     end.
+
+%%
+
+-spec handle_proxy_intent(_Intent, _Session, _Action) -> {list(), _Action}.
+handle_proxy_intent(#'prxprv_RecurrentTokenFinishIntent'{status = {success, _}}, _Session, Action) ->
+    Events = [?session_finished(?session_succeeded())],
+    {Events, Action};
+handle_proxy_intent(#'prxprv_RecurrentTokenFinishIntent'{status = {failure, Failure}}, _Session, Action) ->
+    Events = [?session_finished(?session_failed({failure, Failure}))],
+    {Events, Action};
+handle_proxy_intent(#'prxprv_SleepIntent'{timer = Timer, user_interaction = UserInteraction}, _Session, Action0) ->
+    Action = hg_machine_action:set_timer(Timer, Action0),
+    Events = [?session_activated() | try_request_interaction(UserInteraction)],
+    {Events, Action};
+handle_proxy_intent(#'prxprv_SuspendIntent'{} = Intent, #{rec_payment_tool_id := ToolID}, Action0) ->
+    #'prxprv_SuspendIntent'{
+        tag = Tag,
+        timeout = Timer,
+        user_interaction = UserInteraction,
+        timeout_behaviour = TimeoutBehaviour
+    } = Intent,
+    ok = hg_machine_tag:create_binding(namespace(), Tag, ToolID),
+    Action = hg_machine_action:set_timer(Timer, Action0),
+    Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
+    {Events, Action}.
+
+try_request_interaction(undefined) ->
+    [];
+try_request_interaction(UserInteraction) ->
+    [?interaction_requested(UserInteraction)].
+
+%%
 
 -spec handle_callback_result(proxy_callback_result(), action(), session()) ->
     {callback_response(), {[rec_payment_tool_change()], action(), token()}}.
@@ -637,7 +671,8 @@ apply_change(?recurrent_payment_tool_has_failed(Failure), St) ->
         }
     };
 apply_change(?session_ev(?session_started()), St) ->
-    St#st{session = create_session()};
+    RecPaymentTool = get_rec_payment_tool(St),
+    St#st{session = create_session(RecPaymentTool#payproc_RecurrentPaymentTool.id)};
 apply_change(?session_ev(Event), St) ->
     Session = merge_session_change(Event, get_session(St)),
     St#st{session = Session}.
@@ -659,8 +694,9 @@ merge_session_change(?interaction_requested(_), Session) ->
 
 %%
 
-create_session() ->
+create_session(RecPaymentToolID) ->
     #{
+        rec_payment_tool_id => RecPaymentToolID,
         status => active,
         trx => undefined,
         timeout_behaviour => {operation_failure, ?operation_timeout()}
@@ -715,7 +751,16 @@ dispatch_callback({provider, Payload}, St) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    case hg_machine:call(?NS, {tag, Tag}, {callback, Callback}) of
+    MachineRef =
+        case hg_machine_tag:get_binding(namespace(), Tag) of
+            {ok, _EntityID, MachineID} ->
+                MachineID;
+            {error, not_found} ->
+                %% Fallback to machinegun tagging
+                %% TODO: Remove after migration grace period
+                {tag, Tag}
+        end,
+    case hg_machine:call(?NS, MachineRef, {callback, Callback}) of
         {ok, _CallbackResponse} = Result ->
             Result;
         {exception, invalid_callback} ->

@@ -12,7 +12,6 @@
 
 -export([bind_transaction/2]).
 -export([update_proxy_state/2]).
--export([handle_proxy_intent/2]).
 -export([wrap_session_events/2]).
 
 -include("payment_events.hrl").
@@ -155,41 +154,6 @@ update_proxy_state(ProxyState, Session) ->
 
 get_session_proxy_state(Session) ->
     maps:get(proxy_state, Session, undefined).
-
-%%
-
--spec handle_proxy_intent(_Intent, _Action) -> {list(), _Action}.
-handle_proxy_intent(#'prxprv_FinishIntent'{status = {success, _}}, Action) ->
-    Events = [?session_finished(?session_succeeded())],
-    {Events, Action};
-handle_proxy_intent(#'prxprv_FinishIntent'{status = {failure, Failure}}, Action) ->
-    Events = [?session_finished(?session_failed({failure, Failure}))],
-    {Events, Action};
-handle_proxy_intent(#'prxprv_RecurrentTokenFinishIntent'{status = {success, _}}, Action) ->
-    Events = [?session_finished(?session_succeeded())],
-    {Events, Action};
-handle_proxy_intent(#'prxprv_RecurrentTokenFinishIntent'{status = {failure, Failure}}, Action) ->
-    Events = [?session_finished(?session_failed({failure, Failure}))],
-    {Events, Action};
-handle_proxy_intent(#'prxprv_SleepIntent'{timer = Timer, user_interaction = UserInteraction}, Action0) ->
-    Action = hg_machine_action:set_timer(Timer, Action0),
-    Events = [?session_activated() | try_request_interaction(UserInteraction)],
-    {Events, Action};
-handle_proxy_intent(#'prxprv_SuspendIntent'{} = Intent, Action0) ->
-    #'prxprv_SuspendIntent'{
-        tag = Tag,
-        timeout = Timer,
-        user_interaction = UserInteraction,
-        timeout_behaviour = TimeoutBehaviour
-    } = Intent,
-    Action = hg_machine_action:set_timer(Timer, hg_machine_action:set_tag(Tag, Action0)),
-    Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
-    {Events, Action}.
-
-try_request_interaction(undefined) ->
-    [];
-try_request_interaction(UserInteraction) ->
-    [?interaction_requested(UserInteraction)].
 
 %%
 

@@ -30,9 +30,18 @@ handle_function('ProcessPaymentCallback', {Tag, Callback}, _) ->
 handle_function('ProcessRecurrentTokenCallback', {Tag, Callback}, _) ->
     handle_callback_result(hg_recurrent_paytool:process_callback(Tag, {provider, Callback}));
 handle_function('GetPayment', {Tag}, _) ->
-    case hg_invoice:get({tag, Tag}) of
+    {InvoiceRef, PaymentRef} =
+        case hg_machine_tag:get_binding(hg_invoice:namespace(), Tag) of
+            {ok, EntityID, MachineID} ->
+                {MachineID, EntityID};
+            {error, not_found} ->
+                %% Fallback to machinegun tagging
+                %% TODO: Remove after migration grace period
+                {{tag, Tag}, {tag, Tag}}
+        end,
+    case hg_invoice:get(InvoiceRef) of
         {ok, InvoiceSt} ->
-            case hg_invoice:get_payment({tag, Tag}, InvoiceSt) of
+            case hg_invoice:get_payment(PaymentRef, InvoiceSt) of
                 {ok, PaymentSt} ->
                     Opts = hg_invoice:get_payment_opts(InvoiceSt),
                     hg_invoice_payment:construct_payment_info(PaymentSt, Opts);
