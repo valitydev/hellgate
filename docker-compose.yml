@@ -20,6 +20,8 @@ services:
         condition: service_healthy
       shumway:
         condition: service_healthy
+      bender:
+        condition: service_healthy
     working_dir: $PWD
     command: /sbin/init
 
@@ -80,6 +82,18 @@ services:
         condition: service_healthy
     healthcheck:
       test: "/opt/party-management/bin/party-management ping"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  bender:
+    image: ghcr.io/valitydev/bender:sha-d05ea29
+    command: /opt/bender/bin/bender foreground
+    depends_on:
+      machinegun:
+        condition: service_healthy
+    healthcheck:
+      test: "/opt/bender/bin/bender ping"
       interval: 10s
       timeout: 5s
       retries: 10

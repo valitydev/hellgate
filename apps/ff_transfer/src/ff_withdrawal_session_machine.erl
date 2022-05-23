@@ -130,7 +130,16 @@ repair(ID, Scenario) ->
     {ok, process_callback_response()}
     | {error, process_callback_error()}.
 process_callback(#{tag := Tag} = Params) ->
-    call({tag, Tag}, {process_callback, Params}).
+    MachineRef =
+        case ff_machine_tag:get_binding(?NS, Tag) of
+            {ok, EntityID} ->
+                EntityID;
+            {error, not_found} ->
+                %% Fallback to machinegun tagging
+                %% TODO: Remove after migration grace period
+                {tag, Tag}
+        end,
+    call(MachineRef, {process_callback, Params}).
 
 %% machinery callbacks
 
@@ -188,8 +197,9 @@ set_action(continue, _St) ->
     continue;
 set_action(undefined, _St) ->
     undefined;
-set_action({setup_callback, Tag, Timer}, _St) ->
-    [tag_action(Tag), timer_action(Timer)];
+set_action({setup_callback, Tag, Timer}, St) ->
+    ok = ff_machine_tag:create_binding(?NS, Tag, ff_withdrawal_session:id(session(St))),
+    timer_action(Timer);
 set_action({setup_timer, Timer}, _St) ->
     timer_action(Timer);
 set_action(retry, St) ->
@@ -251,10 +261,6 @@ check_deadline_(Now, Deadline) when Now >= Deadline ->
 -spec timer_action(machinery:timer()) -> machinery:action().
 timer_action(Timer) ->
     {set_timer, Timer}.
-
--spec tag_action(machinery:tag()) -> machinery:action().
-tag_action(Tag) ->
-    {tag, Tag}.
 
 backend() ->
     fistful:backend(?NS).

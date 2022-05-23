@@ -75,7 +75,8 @@ start_processing_apps(Options) ->
             {services, services(Options)},
             {providers, identity_provider_config(Options)}
         ]},
-        ff_server
+        ff_server,
+        bender_client
     ]),
     SuiteSup = ct_sup:start(),
     {ok, _} = supervisor:start_child(

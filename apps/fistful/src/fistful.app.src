@@ -15,7 +15,8 @@
         damsel,
         dmt_client,
         party_client,
-        binbase_proto
+        binbase_proto,
+        bender_client
     ]},
     {env, []},
     {maintainers, [

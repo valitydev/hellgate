@@ -136,6 +136,22 @@ start_app(ff_server = AppName) ->
         ]),
         #{}
     };
+start_app(bender_client = AppName) ->
+    {
+        start_app_with(AppName, [
+            {services, #{
+                'Bender' => <<"http://bender:8022/v1/bender">>,
+                'Generator' => <<"http://bender:8022/v1/generator">>
+            }},
+            {deadline, 10000},
+            {retries, #{
+                'GenerateID' => finish,
+                'GetInternalID' => finish,
+                '_' => finish
+            }}
+        ]),
+        #{}
+    };
 start_app({AppName, AppEnv}) ->
     {start_app_with(AppName, AppEnv), #{}};
 start_app(AppName) ->
