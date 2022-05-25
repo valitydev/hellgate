@@ -367,7 +367,16 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    case hg_machine:call(?NS, {tag, Tag}, {callback, Tag, Callback}) of
+    MachineRef =
+        case hg_machine_tag:get_binding(namespace(), Tag) of
+            {ok, _EntityID, MachineID} ->
+                MachineID;
+            {error, not_found} ->
+                %% Fallback to machinegun tagging
+                %% TODO: Remove after migration grace period
+                {tag, Tag}
+        end,
+    case hg_machine:call(?NS, MachineRef, {callback, Tag, Callback}) of
         {ok, _Reply} = Response ->
             Response;
         {exception, invalid_callback} ->

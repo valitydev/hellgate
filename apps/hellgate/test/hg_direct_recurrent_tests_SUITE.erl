@@ -22,23 +22,14 @@
 -export([end_per_testcase/2]).
 
 -export([first_recurrent_payment_success_test/1]).
--export([first_recurrent_payment_success_test_new/1]).
 -export([second_recurrent_payment_success_test/1]).
--export([second_recurrent_payment_success_test_new/1]).
 -export([another_shop_test/1]).
--export([another_shop_test_new/1]).
 -export([not_recurring_first_test/1]).
--export([not_recurring_first_test_new/1]).
 -export([customer_paytools_as_first_test/1]).
--export([customer_paytools_as_first_test_new/1]).
 -export([cancelled_first_payment_test/1]).
--export([cancelled_first_payment_test_new/1]).
 -export([not_permitted_recurrent_test/1]).
--export([not_permitted_recurrent_test_new/1]).
 -export([not_exists_invoice_test/1]).
--export([not_exists_invoice_test_new/1]).
 -export([not_exists_payment_test/1]).
--export([not_exists_payment_test_new/1]).
 
 %% Internal types
 
@@ -92,24 +83,15 @@ groups() ->
     [
         {basic_operations, [parallel], [
             first_recurrent_payment_success_test,
-            first_recurrent_payment_success_test_new,
             second_recurrent_payment_success_test,
-            second_recurrent_payment_success_test_new,
             another_shop_test,
-            another_shop_test_new,
             not_recurring_first_test,
-            not_recurring_first_test_new,
             customer_paytools_as_first_test,
-            customer_paytools_as_first_test_new,
             cancelled_first_payment_test,
-            cancelled_first_payment_test_new,
             not_exists_invoice_test,
-            not_exists_invoice_test_new,
-            not_exists_payment_test_new,
             not_exists_payment_test
         ]},
         {domain_affecting_operations, [], [
-            not_permitted_recurrent_test_new,
             not_permitted_recurrent_test
         ]}
     ].
@@ -121,7 +103,7 @@ init_per_suite(C) ->
     % _ = dbg:tpl({woody_client, '_', '_'}, x),
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
     {Apps, Ret} = hg_ct_helper:start_apps(
-        [woody, scoper, dmt_client, party_client, hellgate, {cowboy, CowboySpec}]
+        [woody, scoper, dmt_client, bender_client, party_client, hellgate, {cowboy, CowboySpec}]
     ),
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
@@ -179,16 +161,9 @@ end_per_testcase(_Name, _C) ->
 
 -spec first_recurrent_payment_success_test(config()) -> test_result().
 first_recurrent_payment_success_test(C) ->
-    first_recurrent_payment_success_test(C, visa).
-
--spec first_recurrent_payment_success_test_new(config()) -> test_result().
-first_recurrent_payment_success_test_new(C) ->
-    first_recurrent_payment_success_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-first_recurrent_payment_success_test(C, PmtSys) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_payment_params(PmtSys),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     {ok, PaymentID} = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
@@ -198,23 +173,16 @@ first_recurrent_payment_success_test(C, PmtSys) ->
 
 -spec second_recurrent_payment_success_test(config()) -> test_result().
 second_recurrent_payment_success_test(C) ->
-    second_recurrent_payment_success_test(C, visa).
-
--spec second_recurrent_payment_success_test_new(config()) -> test_result().
-second_recurrent_payment_success_test_new(C) ->
-    second_recurrent_payment_success_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-second_recurrent_payment_success_test(C, PmtSys) ->
     Client = cfg(client, C),
     Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     %% first payment in recurrent session
-    Payment1Params = make_payment_params(PmtSys),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
     Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
     %% second recurrent payment
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
-    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, visa),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
     {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
     Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
     ?invoice_state(
@@ -224,84 +192,56 @@ second_recurrent_payment_success_test(C, PmtSys) ->
 
 -spec another_shop_test(config()) -> test_result().
 another_shop_test(C) ->
-    another_shop_test(C, visa).
-
--spec another_shop_test_new(config()) -> test_result().
-another_shop_test_new(C) ->
-    another_shop_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-another_shop_test(C, PmtSys) ->
     Client = cfg(client, C),
     Invoice1ID = start_invoice(cfg(another_shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
     %% first payment in recurrent session
-    Payment1Params = make_payment_params(PmtSys),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
     Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
     %% second recurrent payment
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
-    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, PmtSys),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
     ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment refer to another shop">>},
     {error, ExpectedError} = start_payment(Invoice2ID, Payment2Params, Client).
 
 -spec not_recurring_first_test(config()) -> test_result().
 not_recurring_first_test(C) ->
-    not_recurring_first_test(C, visa).
-
--spec not_recurring_first_test_new(config()) -> test_result().
-not_recurring_first_test_new(C) ->
-    not_recurring_first_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-not_recurring_first_test(C, PmtSys) ->
     Client = cfg(client, C),
     Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     %% first payment in recurrent session
-    Payment1Params = make_payment_params(false, undefined, PmtSys),
+    Payment1Params = make_payment_params(false, undefined, ?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
     Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
     %% second recurrent payment
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
-    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, PmtSys),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
     ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment has no recurrent token">>},
     {error, ExpectedError} = start_payment(Invoice2ID, Payment2Params, Client).
 
 -spec customer_paytools_as_first_test(config()) -> test_result().
 customer_paytools_as_first_test(C) ->
-    customer_paytools_as_first_test(C, visa).
-
--spec customer_paytools_as_first_test_new(config()) -> test_result().
-customer_paytools_as_first_test_new(C) ->
-    customer_paytools_as_first_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-customer_paytools_as_first_test(C, PmtSys) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    CustomerID = make_customer_w_rec_tool(cfg(party_id, C), ShopID, cfg(customer_client, C), PmtSys),
+    CustomerID = make_customer_w_rec_tool(cfg(party_id, C), ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_customer_payment_params(CustomerID),
     ExpectedError = #'InvalidRequest'{errors = [<<"Invalid payer">>]},
     {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
 -spec cancelled_first_payment_test(config()) -> test_result().
 cancelled_first_payment_test(C) ->
-    cancelled_first_payment_test(C, visa).
-
--spec cancelled_first_payment_test_new(config()) -> test_result().
-cancelled_first_payment_test_new(C) ->
-    cancelled_first_payment_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-cancelled_first_payment_test(C, PmtSys) ->
     Client = cfg(client, C),
     Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     %% first payment in recurrent session
-    Payment1Params = make_payment_params({hold, cancel}, true, undefined, PmtSys),
+    Payment1Params = make_payment_params({hold, cancel}, true, undefined, ?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
     Payment1ID = await_payment_cancel(Invoice1ID, Payment1ID, undefined, Client),
     %% second recurrent payment
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
-    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, PmtSys),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
     {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
     Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
     ?invoice_state(
@@ -311,49 +251,28 @@ cancelled_first_payment_test(C, PmtSys) ->
 
 -spec not_permitted_recurrent_test(config()) -> test_result().
 not_permitted_recurrent_test(C) ->
-    not_permitted_recurrent_test(C, visa).
-
--spec not_permitted_recurrent_test_new(config()) -> test_result().
-not_permitted_recurrent_test_new(C) ->
-    not_permitted_recurrent_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-not_permitted_recurrent_test(C, PmtSys) ->
     _ = hg_domain:upsert(construct_domain_fixture(construct_simple_term_set())),
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_payment_params(PmtSys),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ExpectedError = #payproc_OperationNotPermitted{},
     {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
 -spec not_exists_invoice_test(config()) -> test_result().
 not_exists_invoice_test(C) ->
-    not_exists_invoice_test(C, visa).
-
--spec not_exists_invoice_test_new(config()) -> test_result().
-not_exists_invoice_test_new(C) ->
-    not_exists_invoice_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-not_exists_invoice_test(C, PmtSys) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(<<"not_exists">>, <<"not_exists">>),
-    PaymentParams = make_payment_params(true, RecurrentParent, PmtSys),
+    PaymentParams = make_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
     ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent invoice not found">>},
     {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
 -spec not_exists_payment_test(config()) -> test_result().
 not_exists_payment_test(C) ->
-    not_exists_payment_test(C, visa).
-
--spec not_exists_payment_test_new(config()) -> test_result().
-not_exists_payment_test_new(C) ->
-    not_exists_payment_test(C, ?pmt_sys(<<"visa-ref">>)).
-
-not_exists_payment_test(C, PmtSys) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(InvoiceID, <<"not_exists">>),
-    PaymentParams = make_payment_params(true, RecurrentParent, PmtSys),
+    PaymentParams = make_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
     ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment not found">>},
     {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
@@ -598,8 +517,7 @@ construct_term_set_w_recurrent_paytools() ->
             payment_methods =
                 {value,
                     ordsets:from_list([
-                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                        ?pmt(bank_card_deprecated, visa)
+                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                     ])}
         }
     }.
@@ -621,9 +539,7 @@ construct_simple_term_set() ->
             payment_methods =
                 {value,
                     ordsets:from_list([
-                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                        ?pmt(bank_card_deprecated, visa),
-                        ?pmt(bank_card_deprecated, mastercard)
+                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                     ])},
             cash_limit =
                 {decisions, [
@@ -648,9 +564,7 @@ construct_simple_term_set() ->
                 payment_methods =
                     {value,
                         ?ordset([
-                            ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                            ?pmt(bank_card_deprecated, visa),
-                            ?pmt(bank_card_deprecated, mastercard)
+                            ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                         ])},
                 lifetime =
                     {decisions, [
@@ -672,9 +586,6 @@ construct_domain_fixture(TermSet) ->
 
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"visa-ref">>))),
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))),
-
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, visa)),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, mastercard)),
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
@@ -758,9 +669,7 @@ construct_domain_fixture(TermSet) ->
                         payment_methods =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa),
-                                    ?pmt(bank_card_deprecated, mastercard)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])},
                         cash_limit =
                             {value,
@@ -813,8 +722,7 @@ construct_domain_fixture(TermSet) ->
                         payment_methods =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])},
                         cash_value = {value, ?cash(1000, <<"RUB">>)}
                     }

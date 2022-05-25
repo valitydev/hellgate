@@ -25,28 +25,18 @@
 -export([create_customer/1]).
 -export([delete_customer/1]).
 -export([start_binding_w_failure/1]).
--export([start_binding_w_failure_new/1]).
 -export([start_binding_w_suspend/1]).
--export([start_binding_w_suspend_new/1]).
 -export([start_binding_w_suspend_timeout/1]).
--export([start_binding_w_suspend_timeout_new/1]).
 -export([start_binding_w_suspend_failure/1]).
--export([start_binding_w_suspend_failure_new/1]).
 -export([start_binding_w_suspend_timeout_default/1]).
--export([start_binding_w_suspend_timeout_default_new/1]).
 -export([start_binding/1]).
--export([start_binding_new/1]).
 -export([start_binding_w_tds/1]).
--export([start_binding_w_tds_new/1]).
 -export([start_two_bindings/1]).
--export([start_two_bindings_new/1]).
 -export([start_two_bindings_w_tds/1]).
--export([start_two_bindings_w_tds_new/1]).
 -export([terms_retrieval/1]).
 
 -export([create_customer_not_permitted/1]).
 -export([start_binding_not_permitted/1]).
--export([start_binding_not_permitted_new/1]).
 
 %%
 
@@ -75,7 +65,7 @@ init_per_suite(C) ->
     % _ = dbg:tpl({'hg_dummy_provider', 'handle_function', '_'}, x),
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
     {Apps, Ret} = hg_ct_helper:start_apps(
-        [woody, scoper, dmt_client, party_client, hellgate, snowflake, {cowboy, CowboySpec}]
+        [woody, scoper, dmt_client, bender_client, party_client, hellgate, snowflake, {cowboy, CowboySpec}]
     ),
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
@@ -122,28 +112,18 @@ groups() ->
             create_customer,
             delete_customer,
             start_binding_w_failure,
-            start_binding_w_failure_new,
             start_binding_w_suspend,
-            start_binding_w_suspend_new,
             start_binding_w_suspend_timeout,
-            start_binding_w_suspend_timeout_new,
             start_binding_w_suspend_failure,
-            start_binding_w_suspend_failure_new,
             start_binding_w_suspend_timeout_default,
-            start_binding_w_suspend_timeout_default_new,
             start_binding,
-            start_binding_new,
             start_binding_w_tds,
-            start_binding_w_tds_new,
             start_two_bindings,
-            start_two_bindings_new,
-            start_two_bindings_w_tds_new,
             start_two_bindings_w_tds,
             terms_retrieval
         ]},
         {not_permitted_methods, [sequence], [
             create_customer_not_permitted,
-            start_binding_not_permitted_new,
             start_binding_not_permitted
         ]}
     ].
@@ -219,23 +199,14 @@ invalid_shop_status(C) ->
 -spec create_customer(config()) -> test_case_result().
 -spec delete_customer(config()) -> test_case_result().
 -spec start_binding_w_failure(config()) -> test_case_result().
--spec start_binding_w_failure_new(config()) -> test_case_result().
 -spec start_binding_w_suspend(config()) -> test_case_result().
--spec start_binding_w_suspend_new(config()) -> test_case_result().
 -spec start_binding_w_suspend_timeout(config()) -> test_case_result().
--spec start_binding_w_suspend_timeout_new(config()) -> test_case_result().
 -spec start_binding_w_suspend_failure(config()) -> test_case_result().
--spec start_binding_w_suspend_failure_new(config()) -> test_case_result().
 -spec start_binding_w_suspend_timeout_default(config()) -> test_case_result().
--spec start_binding_w_suspend_timeout_default_new(config()) -> test_case_result().
 -spec start_binding(config()) -> test_case_result().
--spec start_binding_new(config()) -> test_case_result().
 -spec start_binding_w_tds(config()) -> test_case_result().
--spec start_binding_w_tds_new(config()) -> test_case_result().
 -spec start_two_bindings(config()) -> test_case_result().
--spec start_two_bindings_new(config()) -> test_case_result().
 -spec start_two_bindings_w_tds(config()) -> test_case_result().
--spec start_two_bindings_w_tds_new(config()) -> test_case_result().
 -spec terms_retrieval(config()) -> test_case_result().
 
 create_customer(C) ->
@@ -258,12 +229,6 @@ delete_customer(C) ->
     {exception, #'payproc_CustomerNotFound'{}} = hg_client_customer:get(CustomerID, Client).
 
 start_binding_w_failure(C) ->
-    start_binding_w_failure(C, visa).
-
-start_binding_w_failure_new(C) ->
-    start_binding_w_failure(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding_w_failure(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -276,7 +241,7 @@ start_binding_w_failure(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool(forbidden, PmtSys)
+            hg_dummy_provider:make_payment_tool(forbidden, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding = hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client),
     Customer1 = hg_client_customer:get(CustomerID, Client),
@@ -299,12 +264,6 @@ start_binding_w_failure(C, PmtSys) ->
     ] = next_event(CustomerID, Client).
 
 start_binding_w_suspend(C) ->
-    start_binding_w_suspend(C, visa).
-
-start_binding_w_suspend_new(C) ->
-    start_binding_w_suspend(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding_w_suspend(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -317,7 +276,7 @@ start_binding_w_suspend(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool({preauth_3ds_sleep, 180}, PmtSys)
+            hg_dummy_provider:make_payment_tool({preauth_3ds_sleep, 180}, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding = hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client),
     Customer1 = hg_client_customer:get(CustomerID, Client),
@@ -344,12 +303,6 @@ start_binding_w_suspend(C, PmtSys) ->
     _ = await_for_changes(SuccessChanges, CustomerID, Client).
 
 start_binding_w_suspend_timeout(C) ->
-    start_binding_w_suspend_timeout(C, visa).
-
-start_binding_w_suspend_timeout_new(C) ->
-    start_binding_w_suspend_timeout(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding_w_suspend_timeout(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -362,7 +315,7 @@ start_binding_w_suspend_timeout(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool(no_preauth_timeout, PmtSys)
+            hg_dummy_provider:make_payment_tool(no_preauth_timeout, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding = hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client),
     Customer1 = hg_client_customer:get(CustomerID, Client),
@@ -384,12 +337,6 @@ start_binding_w_suspend_timeout(C, PmtSys) ->
     _ = await_for_changes(SuccessChanges, CustomerID, Client).
 
 start_binding_w_suspend_timeout_default(C) ->
-    start_binding_w_suspend_timeout_default(C, visa).
-
-start_binding_w_suspend_timeout_default_new(C) ->
-    start_binding_w_suspend_timeout_default(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding_w_suspend_timeout_default(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -402,7 +349,7 @@ start_binding_w_suspend_timeout_default(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool(no_preauth_suspend_default, PmtSys)
+            hg_dummy_provider:make_payment_tool(no_preauth_suspend_default, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding = hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client),
     Customer1 = hg_client_customer:get(CustomerID, Client),
@@ -424,12 +371,6 @@ start_binding_w_suspend_timeout_default(C, PmtSys) ->
     _ = await_for_changes(DefaultFailure, CustomerID, Client).
 
 start_binding_w_suspend_failure(C) ->
-    start_binding_w_suspend_failure(C, visa).
-
-start_binding_w_suspend_failure_new(C) ->
-    start_binding_w_suspend_failure(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding_w_suspend_failure(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -442,7 +383,7 @@ start_binding_w_suspend_failure(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool(no_preauth_timeout_failure, PmtSys)
+            hg_dummy_provider:make_payment_tool(no_preauth_timeout_failure, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding = hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client),
     Customer1 = hg_client_customer:get(CustomerID, Client),
@@ -467,12 +408,6 @@ start_binding_w_suspend_failure(C, PmtSys) ->
     _ = await_for_changes(SuccessChanges, CustomerID, Client).
 
 start_binding(C) ->
-    start_binding(C, visa).
-
-start_binding_new(C) ->
-    start_binding(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -485,7 +420,7 @@ start_binding(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool(no_preauth, PmtSys)
+            hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding = hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client),
     Customer1 = hg_client_customer:get(CustomerID, Client),
@@ -503,12 +438,6 @@ start_binding(C, PmtSys) ->
     ] = next_event(CustomerID, Client).
 
 start_binding_w_tds(C) ->
-    start_binding_w_tds(C, visa).
-
-start_binding_w_tds_new(C) ->
-    start_binding_w_tds(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding_w_tds(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -521,7 +450,7 @@ start_binding_w_tds(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool({preauth_3ds, 30}, PmtSys)
+            hg_dummy_provider:make_payment_tool({preauth_3ds, 30}, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding = hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client),
     Customer1 = hg_client_customer:get(CustomerID, Client),
@@ -544,12 +473,6 @@ start_binding_w_tds(C, PmtSys) ->
     ] = next_event(CustomerID, Client).
 
 start_two_bindings(C) ->
-    start_two_bindings(C, visa).
-
-start_two_bindings_new(C) ->
-    start_two_bindings(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_two_bindings(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -562,13 +485,13 @@ start_two_bindings(C, PmtSys) ->
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID1,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool(no_preauth, PmtSys)
+            hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBindingParams2 =
         hg_ct_helper:make_customer_binding_params(
             CustomerBindingID2,
             RecPaymentToolID,
-            hg_dummy_provider:make_payment_tool(no_preauth, PmtSys)
+            hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>))
         ),
     CustomerBinding1 =
         #payproc_CustomerBinding{id = CustomerBindingID1} =
@@ -589,12 +512,6 @@ start_two_bindings(C, PmtSys) ->
     _ = await_for_changes(StartChanges, CustomerID, Client, 30000).
 
 start_two_bindings_w_tds(C) ->
-    start_two_bindings_w_tds(C, visa).
-
-start_two_bindings_w_tds_new(C) ->
-    start_two_bindings_w_tds(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_two_bindings_w_tds(C, PmtSys) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
@@ -604,7 +521,7 @@ start_two_bindings_w_tds(C, PmtSys) ->
     CustomerBindingID2 = hg_utils:unique_id(),
     RecPaymentToolID1 = hg_utils:unique_id(),
     RecPaymentToolID2 = hg_utils:unique_id(),
-    PaymentTool = hg_dummy_provider:make_payment_tool({preauth_3ds, 30}, PmtSys),
+    PaymentTool = hg_dummy_provider:make_payment_tool({preauth_3ds, 30}, ?pmt_sys(<<"visa-ref">>)),
     CustomerBindingParams1 = hg_ct_helper:make_customer_binding_params(
         CustomerBindingID1,
         RecPaymentToolID1,
@@ -671,7 +588,6 @@ terms_retrieval(C) ->
 
 -spec create_customer_not_permitted(config()) -> test_case_result().
 -spec start_binding_not_permitted(config()) -> test_case_result().
--spec start_binding_not_permitted_new(config()) -> test_case_result().
 
 create_customer_not_permitted(C) ->
     _ = hg_domain:upsert(construct_domain_fixture(construct_simple_term_set())),
@@ -682,12 +598,6 @@ create_customer_not_permitted(C) ->
     {exception, #payproc_OperationNotPermitted{}} = hg_client_customer:create(CustomerParams, Client).
 
 start_binding_not_permitted(C) ->
-    start_binding_not_permitted(C, visa).
-
-start_binding_not_permitted_new(C) ->
-    start_binding_not_permitted(C, ?pmt_sys(<<"visa-ref">>)).
-
-start_binding_not_permitted(C, PmtSys) ->
     _ = hg_domain:upsert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
@@ -696,7 +606,9 @@ start_binding_not_permitted(C, PmtSys) ->
     #payproc_Customer{id = CustomerID} = hg_client_customer:create(CustomerParams, Client),
     _ = hg_domain:upsert(construct_domain_fixture(construct_simple_term_set())),
     CustomerBindingParams =
-        hg_ct_helper:make_customer_binding_params(hg_dummy_provider:make_payment_tool(no_preauth, PmtSys)),
+        hg_ct_helper:make_customer_binding_params(
+            hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>))
+        ),
     {exception, #payproc_OperationNotPermitted{}} =
         hg_client_customer:start_binding(CustomerID, CustomerBindingParams, Client).
 
@@ -829,9 +741,7 @@ construct_term_set_w_recurrent_paytools() ->
             payment_methods =
                 {value,
                     ordsets:from_list([
-                        ?pmt(bank_card_deprecated, visa),
-                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                        ?pmt(bank_card_deprecated, mastercard)
+                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                     ])}
         }
     }.
@@ -853,9 +763,7 @@ construct_simple_term_set() ->
             payment_methods =
                 {value,
                     ordsets:from_list([
-                        ?pmt(bank_card_deprecated, visa),
-                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                        ?pmt(bank_card_deprecated, mastercard)
+                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                     ])},
             cash_limit =
                 {decisions, [
@@ -910,8 +818,6 @@ construct_domain_fixture(TermSet) ->
         hg_ct_fixture:construct_category(?cat(1), <<"Test category">>, test),
 
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"visa-ref">>))),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, visa)),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, mastercard)),
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
@@ -997,9 +903,7 @@ construct_domain_fixture(TermSet) ->
                         payment_methods =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa),
-                                    ?pmt(bank_card_deprecated, mastercard)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])},
                         cash_limit =
                             {value,
@@ -1026,9 +930,7 @@ construct_domain_fixture(TermSet) ->
                         payment_methods =
                             {value,
                                 ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card_deprecated, visa),
-                                    ?pmt(bank_card_deprecated, mastercard)
+                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                                 ])},
                         cash_value = {value, ?cash(1000, <<"RUB">>)}
                     }

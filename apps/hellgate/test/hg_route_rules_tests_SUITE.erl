@@ -85,6 +85,7 @@ init_per_suite(C) ->
         woody,
         scoper,
         dmt_client,
+        bender_client,
         party_client,
         hellgate,
         {cowboy, CowboySpec}
@@ -158,7 +159,7 @@ no_route_found_for_payment(_C) ->
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
         cost => ?cash(999, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => <<"12345">>,
         flow => instant
     },
@@ -197,7 +198,7 @@ gather_route_success(_C) ->
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => <<"12345">>,
         flow => instant,
         risk_score => low
@@ -224,7 +225,7 @@ gather_route_success(_C) ->
 rejected_by_table_prohibitions(_C) ->
     BankCard = #domain_BankCard{
         token = <<"bank card token">>,
-        payment_system_deprecated = visa,
+        payment_system = ?pmt_sys(<<"visa-ref">>),
         bin = <<"411111">>,
         last_digits = <<"11">>
     },
@@ -256,7 +257,7 @@ rejected_by_table_prohibitions(_C) ->
 empty_candidate_ok(_C) ->
     BankCard = #domain_BankCard{
         token = <<"bank card token">>,
-        payment_system_deprecated = visa,
+        payment_system = ?pmt_sys(<<"visa-ref">>),
         bin = <<"411111">>,
         last_digits = <<"11">>
     },
@@ -303,7 +304,7 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => <<"12345">>,
         flow => instant,
         risk_score => RiskScore
@@ -319,7 +320,7 @@ gathers_fail_rated_routes(_C) ->
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => <<"12345">>,
         flow => instant
     },
@@ -344,7 +345,7 @@ choice_context_formats_ok(_C) ->
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => <<"12345">>
     },
 
@@ -402,7 +403,7 @@ terminal_priority_for_shop(PartyID, ShopID, _C) ->
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => PartyID,
         shop_id => ShopID,
         flow => instant
@@ -493,7 +494,7 @@ base_routing_rules_fixture(Revision) ->
                     payment_methods =
                         {value,
                             ?ordset([
-                                ?pmt(bank_card_deprecated, visa)
+                                ?pmt(bank_card, ?bank_card(<<"visa-ref">>))
                             ])},
                     currencies =
                         {value,
@@ -669,13 +670,12 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_category(?cat(1), <<"Test category">>, test),
         hg_ct_fixture:construct_category(?cat(2), <<"Generic Store">>, live),
 
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, visa)),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, mastercard)),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, jcb)),
-        hg_ct_fixture:construct_payment_method(?pmt(payment_terminal_deprecated, euroset)),
-        hg_ct_fixture:construct_payment_method(?pmt(digital_wallet_deprecated, qiwi)),
-        hg_ct_fixture:construct_payment_method(?pmt(empty_cvv_bank_card_deprecated, visa)),
-        hg_ct_fixture:construct_payment_method(?pmt(tokenized_bank_card_deprecated, ?tkz_bank_card(visa, applepay))),
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"visa-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"jcb-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card_no_cvv(<<"visa-ref">>))),
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),

@@ -81,7 +81,7 @@ init_per_suite(C) ->
     % _ = dbg:p(all, c),
     % _ = dbg:tpl({'woody_client', '_', '_'}, x),
     {Apps, Ret} = hg_ct_helper:start_apps(
-        [woody, scoper, dmt_client, party_client, hellgate, snowflake]
+        [woody, scoper, dmt_client, bender_client, party_client, hellgate, snowflake]
     ),
     _ = hg_domain:insert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
@@ -448,9 +448,9 @@ terms_retrieval(C) ->
         payments = #domain_PaymentsServiceTerms{
             payment_methods =
                 {value, [
-                    ?pmt(bank_card_deprecated, mastercard),
-                    ?pmt(bank_card_deprecated, visa),
-                    ?pmt(payment_terminal_deprecated, euroset)
+                    ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>)),
+                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
+                    ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))
                 ]}
         }
     } = TermSet2,
@@ -521,10 +521,10 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_system_account_set(?sas(1)),
         hg_ct_fixture:construct_external_account_set(?eas(1)),
 
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, visa)),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card_deprecated, mastercard)),
-        hg_ct_fixture:construct_payment_method(?pmt(payment_terminal_deprecated, euroset)),
-        hg_ct_fixture:construct_payment_method(?pmt(digital_wallet_deprecated, qiwi)),
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"visa-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))),
+        hg_ct_fixture:construct_payment_method(?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))),
 
         {payment_institution, #domain_PaymentInstitutionObject{
             ref = ?pinst(1),
@@ -582,9 +582,9 @@ construct_term_set_for_cost(LowerBound, UpperBound) ->
                             {value,
                                 ordsets:from_list(
                                     [
-                                        ?pmt(bank_card_deprecated, mastercard),
-                                        ?pmt(bank_card_deprecated, visa),
-                                        ?pmt(payment_terminal_deprecated, euroset)
+                                        ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>)),
+                                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
+                                        ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))
                                     ]
                                 )}
                     },
