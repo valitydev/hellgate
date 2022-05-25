@@ -25,13 +25,6 @@
 -export([choice_context_formats_ok/1]).
 -export([routes_selected_for_high_risk_score/1]).
 -export([routes_selected_for_low_risk_score/1]).
-
--export([prefer_alive/1]).
--export([prefer_normal_conversion/1]).
--export([prefer_higher_availability/1]).
--export([prefer_higher_conversion/1]).
--export([prefer_weight_over_availability/1]).
--export([prefer_weight_over_conversion/1]).
 -export([gathers_fail_rated_routes/1]).
 -export([terminal_priority_for_shop/1]).
 
@@ -77,12 +70,6 @@ groups() ->
             routes_selected_for_high_risk_score
         ]},
         {routing_with_fail_rate, [parallel], [
-            prefer_alive,
-            prefer_normal_conversion,
-            prefer_higher_availability,
-            prefer_higher_conversion,
-            prefer_weight_over_availability,
-            prefer_weight_over_conversion,
             gathers_fail_rated_routes,
             choice_context_formats_ok
         ]},
@@ -179,23 +166,30 @@ no_route_found_for_payment(_C) ->
     Revision = hg_domain:head(),
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
 
-    {ok, {[], RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
-    [
-        {?prv(1), ?trm(1), {'PaymentsProvisionTerms', cost}},
-        {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
-        {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}}
-    ] = RejectedRoutes,
+    {ok, {[], RejectedRoutes1}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
+
+    ?assert_set_equal(
+        [
+            {?prv(1), ?trm(1), {'PaymentsProvisionTerms', cost}},
+            {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
+            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}}
+        ],
+        RejectedRoutes1
+    ),
 
     VS1 = VS#{
         currency => ?cur(<<"EUR">>),
         cost => ?cash(1000, <<"EUR">>)
     },
-    {ok, {[], RejectedRoutes1}} = hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision),
-    [
-        {?prv(1), ?trm(1), {'PaymentsProvisionTerms', currency}},
-        {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
-        {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}}
-    ] = RejectedRoutes1.
+    {ok, {[], RejectedRoutes2}} = hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision),
+    ?assert_set_equal(
+        [
+            {?prv(1), ?trm(1), {'PaymentsProvisionTerms', currency}},
+            {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
+            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}}
+        ],
+        RejectedRoutes2
+    ).
 
 -spec gather_route_success(config()) -> test_return().
 gather_route_success(_C) ->
@@ -248,11 +242,14 @@ rejected_by_table_prohibitions(_C) ->
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
 
     {ok, {[], RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
-    [
-        {?prv(3), ?trm(3), {'RoutingRule', undefined}},
-        {?prv(1), ?trm(1), {'PaymentsProvisionTerms', payment_tool}},
-        {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}}
-    ] = RejectedRoutes,
+    ?assert_set_equal(
+        [
+            {?prv(3), ?trm(3), {'RoutingRule', undefined}},
+            {?prv(1), ?trm(1), {'PaymentsProvisionTerms', payment_tool}},
+            {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}}
+        ],
+        RejectedRoutes
+    ),
     ok.
 
 -spec empty_candidate_ok(config()) -> test_return().
@@ -316,199 +313,6 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
     ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
 
--spec prefer_alive(config()) -> test_return().
-prefer_alive(_C) ->
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
-        party_id => <<"12345">>,
-        flow => instant
-    },
-
-    Revision = hg_domain:head(),
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-
-    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision
-    ),
-    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
-
-    Alive = {alive, 0.0},
-    Dead = {dead, 1.0},
-    Normal = {normal, 0.0},
-
-    ProviderStatuses0 = [{Alive, Normal}, {Dead, Normal}, {Dead, Normal}],
-    ProviderStatuses1 = [{Dead, Normal}, {Alive, Normal}, {Dead, Normal}],
-    ProviderStatuses2 = [{Dead, Normal}, {Dead, Normal}, {Alive, Normal}],
-
-    [{Route1, _}, _, _] = FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    [_, {Route2, _}, _] = FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
-    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
-
-    {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
-    {Route2, Meta1} = hg_routing:choose_rated_route(FailRatedRoutes1),
-    {Route3, Meta2} = hg_routing:choose_rated_route(FailRatedRoutes2),
-
-    #{reject_reason := availability_condition, preferable_route := Route3} = Meta0,
-    #{reject_reason := availability_condition, preferable_route := Route3} = Meta1,
-    false = maps:is_key(reject_reason, Meta2).
-
--spec prefer_normal_conversion(config()) -> test_return().
-prefer_normal_conversion(_C) ->
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
-        party_id => <<"12345">>,
-        flow => instant
-    },
-
-    Revision = hg_domain:head(),
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-
-    {ok, {Routes, _RC}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision
-    ),
-    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
-
-    Alive = {alive, 0.0},
-    Normal = {normal, 0.0},
-    Lacking = {lacking, 1.0},
-
-    ProviderStatuses0 = [{Alive, Normal}, {Alive, Lacking}, {Alive, Lacking}],
-    ProviderStatuses1 = [{Alive, Lacking}, {Alive, Normal}, {Alive, Lacking}],
-    ProviderStatuses2 = [{Alive, Lacking}, {Alive, Lacking}, {Alive, Normal}],
-
-    [{Route1, _}, _, _] = FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    [_, {Route2, _}, _] = FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
-    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
-
-    {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
-    {Route2, Meta1} = hg_routing:choose_rated_route(FailRatedRoutes1),
-    {Route3, Meta2} = hg_routing:choose_rated_route(FailRatedRoutes2),
-
-    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta0,
-    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta1,
-    false = maps:is_key(reject_reason, Meta2).
-
--spec prefer_higher_availability(config()) -> test_return().
-prefer_higher_availability(_C) ->
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
-        party_id => <<"12345">>,
-        flow => instant
-    },
-
-    Revision = hg_domain:head(),
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-
-    {ok, {Routes, _RC}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision
-    ),
-    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
-
-    ProviderStatuses = [{{alive, 0.5}, {normal, 0.5}}, {{dead, 0.8}, {lacking, 1.0}}, {{alive, 0.6}, {normal, 0.5}}],
-    [{Route1, _}, _, {Route3, _}] = FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    Result = hg_routing:choose_rated_route(FailRatedRoutes),
-    ?assertMatch({Route1, #{reject_reason := availability, preferable_route := Route3}}, Result).
-
--spec prefer_higher_conversion(config()) -> test_return().
-prefer_higher_conversion(_C) ->
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
-        party_id => <<"12345">>,
-        flow => instant
-    },
-
-    Revision = hg_domain:head(),
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-    {ok, {Routes, _RC}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision
-    ),
-    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
-
-    ProviderStatuses = [{{dead, 0.8}, {lacking, 1.0}}, {{alive, 0.5}, {normal, 0.3}}, {{alive, 0.5}, {normal, 0.5}}],
-    [_, {Route2, _}, {Route3, _}] = FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    Result = hg_routing:choose_rated_route(FailRatedRoutes),
-    ?assertMatch({Route2, #{reject_reason := conversion, preferable_route := Route3}}, Result).
-
--spec prefer_weight_over_availability(config()) -> test_return().
-prefer_weight_over_availability(_C) ->
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
-        party_id => <<"54321">>,
-        flow => instant
-    },
-
-    Revision = hg_domain:head(),
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-
-    {ok, {Routes, _RC}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision
-    ),
-    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
-
-    ProviderStatuses = [{{alive, 0.3}, {normal, 0.3}}, {{alive, 0.5}, {normal, 0.3}}, {{alive, 0.3}, {normal, 0.3}}],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    Route = hg_routing:new(?prv(22), ?trm(22), 0, 1005),
-    ?assertMatch({Route, _}, hg_routing:choose_rated_route(FailRatedRoutes)).
-
--spec prefer_weight_over_conversion(config()) -> test_return().
-prefer_weight_over_conversion(_C) ->
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = euroset}},
-        party_id => <<"54321">>,
-        flow => instant
-    },
-    Revision = hg_domain:head(),
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-    {ok, {Routes, _RC}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision
-    ),
-    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
-
-    ProviderStatuses = [{{alive, 0.3}, {normal, 0.5}}, {{alive, 0.3}, {normal, 0.3}}, {{alive, 0.3}, {normal, 0.3}}],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-    Result = hg_routing:choose_rated_route(FailRatedRoutes),
-    {Route, _Meta} = Result,
-    ?assertMatch({?prv(22), ?trm(22)}, {hg_routing:provider_ref(Route), hg_routing:terminal_ref(Route)}).
-
 -spec gathers_fail_rated_routes(config()) -> test_return().
 gathers_fail_rated_routes(_C) ->
     VS = #{
@@ -524,13 +328,13 @@ gathers_fail_rated_routes(_C) ->
 
     {ok, {Routes0, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
     Result = hg_routing:gather_fail_rates(Routes0),
-    ?assertEqual(
+    ?assert_set_equal(
         [
             {hg_routing:new(?prv(21), ?trm(21)), {{dead, 0.9}, {lacking, 0.9}}},
             {hg_routing:new(?prv(22), ?trm(22)), {{alive, 0.1}, {normal, 0.1}}},
             {hg_routing:new(?prv(23), ?trm(23)), {{alive, 0.0}, {normal, 0.0}}}
         ],
-        lists:sort(Result)
+        Result
     ).
 
 -spec choice_context_formats_ok(config()) -> test_return().
@@ -945,3 +749,128 @@ maybe_set_risk_coverage(false, _) ->
     undefined;
 maybe_set_risk_coverage(true, V) ->
     {value, V}.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+-spec test() -> _.
+
+-spec prefer_alive_test() -> _.
+prefer_alive_test() ->
+    Routes = [
+        hg_routing:new(?prv(1), ?trm(1)),
+        hg_routing:new(?prv(2), ?trm(2)),
+        hg_routing:new(?prv(3), ?trm(3))
+    ],
+
+    Alive = {alive, 0.0},
+    Dead = {dead, 1.0},
+    Normal = {normal, 0.0},
+
+    ProviderStatuses0 = [{Alive, Normal}, {Dead, Normal}, {Dead, Normal}],
+    ProviderStatuses1 = [{Dead, Normal}, {Alive, Normal}, {Dead, Normal}],
+    ProviderStatuses2 = [{Dead, Normal}, {Dead, Normal}, {Alive, Normal}],
+
+    [{Route1, _}, _, _] = FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
+    [_, {Route2, _}, _] = FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
+    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
+
+    {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
+    {Route2, Meta1} = hg_routing:choose_rated_route(FailRatedRoutes1),
+    {Route3, Meta2} = hg_routing:choose_rated_route(FailRatedRoutes2),
+
+    #{reject_reason := availability_condition, preferable_route := Route3} = Meta0,
+    #{reject_reason := availability_condition, preferable_route := Route3} = Meta1,
+    false = maps:is_key(reject_reason, Meta2).
+
+-spec prefer_normal_conversion_test() -> _.
+prefer_normal_conversion_test() ->
+    Routes = [
+        hg_routing:new(?prv(1), ?trm(1)),
+        hg_routing:new(?prv(2), ?trm(2)),
+        hg_routing:new(?prv(3), ?trm(3))
+    ],
+
+    Alive = {alive, 0.0},
+    Normal = {normal, 0.0},
+    Lacking = {lacking, 1.0},
+
+    ProviderStatuses0 = [{Alive, Normal}, {Alive, Lacking}, {Alive, Lacking}],
+    ProviderStatuses1 = [{Alive, Lacking}, {Alive, Normal}, {Alive, Lacking}],
+    ProviderStatuses2 = [{Alive, Lacking}, {Alive, Lacking}, {Alive, Normal}],
+
+    [{Route1, _}, _, _] = FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
+    [_, {Route2, _}, _] = FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
+    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
+
+    {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
+    {Route2, Meta1} = hg_routing:choose_rated_route(FailRatedRoutes1),
+    {Route3, Meta2} = hg_routing:choose_rated_route(FailRatedRoutes2),
+
+    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta0,
+    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta1,
+    false = maps:is_key(reject_reason, Meta2).
+
+-spec prefer_higher_availability_test() -> _.
+prefer_higher_availability_test() ->
+    Routes = [
+        hg_routing:new(?prv(1), ?trm(1)),
+        hg_routing:new(?prv(2), ?trm(2)),
+        hg_routing:new(?prv(3), ?trm(3))
+    ],
+    ProviderStatuses = [
+        {{alive, 0.5}, {normal, 0.5}},
+        {{dead, 0.8}, {lacking, 1.0}},
+        {{alive, 0.6}, {normal, 0.5}}
+    ],
+    [{Route1, _}, _, {Route3, _}] = FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+
+    Result = hg_routing:choose_rated_route(FailRatedRoutes),
+    ?assertMatch({Route1, #{reject_reason := availability, preferable_route := Route3}}, Result).
+
+-spec prefer_higher_conversion_test() -> _.
+prefer_higher_conversion_test() ->
+    Routes = [
+        hg_routing:new(?prv(1), ?trm(1)),
+        hg_routing:new(?prv(2), ?trm(2)),
+        hg_routing:new(?prv(3), ?trm(3))
+    ],
+    ProviderStatuses = [{{dead, 0.8}, {lacking, 1.0}}, {{alive, 0.5}, {normal, 0.3}}, {{alive, 0.5}, {normal, 0.5}}],
+    [_, {Route2, _}, {Route3, _}] = FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+
+    Result = hg_routing:choose_rated_route(FailRatedRoutes),
+    ?assertMatch({Route2, #{reject_reason := conversion, preferable_route := Route3}}, Result).
+
+-spec prefer_weight_over_availability_test() -> _.
+prefer_weight_over_availability_test() ->
+    Routes = [
+        hg_routing:new(?prv(1), ?trm(1), 0, 1000),
+        hg_routing:new(?prv(2), ?trm(2), 0, 1005),
+        hg_routing:new(?prv(3), ?trm(3), 0, 1000)
+    ],
+
+    ProviderStatuses = [{{alive, 0.3}, {normal, 0.3}}, {{alive, 0.5}, {normal, 0.3}}, {{alive, 0.3}, {normal, 0.3}}],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+
+    Route = hg_routing:new(?prv(2), ?trm(2), 0, 1005),
+    ?assertMatch({Route, _}, hg_routing:choose_rated_route(FailRatedRoutes)).
+
+-spec prefer_weight_over_conversion_test() -> _.
+prefer_weight_over_conversion_test() ->
+    Routes = [
+        hg_routing:new(?prv(1), ?trm(1), 0, 1000),
+        hg_routing:new(?prv(2), ?trm(2), 0, 1005),
+        hg_routing:new(?prv(3), ?trm(3), 0, 1000)
+    ],
+
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.5}},
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    Result = hg_routing:choose_rated_route(FailRatedRoutes),
+    {Route, _Meta} = Result,
+    ?assertMatch({?prv(2), ?trm(2)}, {hg_routing:provider_ref(Route), hg_routing:terminal_ref(Route)}).
+
+-endif.
