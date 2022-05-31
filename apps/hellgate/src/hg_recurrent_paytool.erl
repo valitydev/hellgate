@@ -754,7 +754,8 @@ dispatch_callback({provider, Payload}, St) ->
 process_callback(Tag, Callback) ->
     maybe
         {ok, _EntityID, MachineID} ?= hg_machine_tag:get_binding(namespace(), Tag),
-        hg_machine:call(?NS, MachineID, {callback, Callback})
+        {ok, Response} ?= hg_machine:call(?NS, MachineID, {callback, Callback}),
+        {ok, Response}
     else
         {exception, invalid_callback} ->
             {error, invalid_callback};

@@ -83,23 +83,16 @@
 
 %% API
 
--spec get(hg_machine:ref()) -> {ok, st()} | {error, notfound}.
-get(Ref) ->
-    case hg_machine:get_history(?NS, Ref) of
+-spec get(hg_machine:id()) -> {ok, st()} | {error, notfound}.
+get(Id) ->
+    case hg_machine:get_history(?NS, Id) of
         {ok, History} ->
             {ok, collapse_history(unmarshal_history(History))};
         Error ->
             Error
     end.
 
--spec get_payment(hg_machine:tag() | payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
-get_payment({tag, Tag}, #st{payments = Ps}) ->
-    case lists:dropwhile(fun({_, PS}) -> not lists:member(Tag, get_payment_tags(PS)) end, Ps) of
-        [{_ID, PaymentSession} | _] ->
-            {ok, PaymentSession};
-        [] ->
-            {error, notfound}
-    end;
+-spec get_payment(payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
 get_payment(PaymentID, St) ->
     case try_get_payment_session(PaymentID, St) of
         PaymentSession when PaymentSession /= undefined ->
@@ -107,9 +100,6 @@ get_payment(PaymentID, St) ->
         undefined ->
             {error, notfound}
     end.
-
-get_payment_tags(PaymentSession) ->
-    hg_invoice_payment:get_tags(PaymentSession).
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
@@ -370,7 +360,8 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 process_callback(Tag, Callback) ->
     maybe
         {ok, _EntityID, MachineID} ?= hg_machine_tag:get_binding(namespace(), Tag),
-        hg_machine:call(?NS, MachineID, {callback, Tag, Callback})
+        {ok, Response} ?= hg_machine:call(?NS, MachineID, {callback, Tag, Callback}),
+        {ok, Response}
     else
         {exception, invalid_callback} ->
             {error, invalid_callback};
@@ -380,9 +371,9 @@ process_callback(Tag, Callback) ->
 
 %%
 
--spec fail(hg_machine:ref()) -> ok.
-fail(Ref) ->
-    case hg_machine:call(?NS, Ref, fail) of
+-spec fail(hg_machine:id()) -> ok.
+fail(Id) ->
+    case hg_machine:call(?NS, Id, fail) of
         {error, failed} ->
             ok;
         {error, Error} ->

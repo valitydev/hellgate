@@ -79,7 +79,7 @@ lint:
 	$(REBAR) lint
 
 check-format:
-	$(REBAR) format -v
+	$(REBAR) fmt -c
 
 dialyze:
 	$(REBAR) as test dialyzer
@@ -100,7 +100,7 @@ cover:
 	$(REBAR) covertool generate
 
 format:
-	$(REBAR) format
+	$(REBAR) fmt -w
 
 clean:
 	$(REBAR) clean
