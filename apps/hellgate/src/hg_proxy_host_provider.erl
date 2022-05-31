@@ -4,6 +4,7 @@
 %%%  - designate an exception when specified tag is missing
 
 -module(hg_proxy_host_provider).
+-feature(maybe_expr, enable).
 
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 
@@ -30,24 +31,12 @@ handle_function('ProcessPaymentCallback', {Tag, Callback}, _) ->
 handle_function('ProcessRecurrentTokenCallback', {Tag, Callback}, _) ->
     handle_callback_result(hg_recurrent_paytool:process_callback(Tag, {provider, Callback}));
 handle_function('GetPayment', {Tag}, _) ->
-    {InvoiceRef, PaymentRef} =
-        case hg_machine_tag:get_binding(hg_invoice:namespace(), Tag) of
-            {ok, EntityID, MachineID} ->
-                {MachineID, EntityID};
-            {error, not_found} ->
-                %% Fallback to machinegun tagging
-                %% TODO: Remove after migration grace period
-                {{tag, Tag}, {tag, Tag}}
-        end,
-    case hg_invoice:get(InvoiceRef) of
-        {ok, InvoiceSt} ->
-            case hg_invoice:get_payment(PaymentRef, InvoiceSt) of
-                {ok, PaymentSt} ->
-                    Opts = hg_invoice:get_payment_opts(InvoiceSt),
-                    hg_invoice_payment:construct_payment_info(PaymentSt, Opts);
-                {error, notfound} ->
-                    hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
-            end;
+    maybe
+        {ok, PaymentID, InvoiceID} ?= hg_machine_tag:get_binding(hg_invoice:namespace(), Tag),
+        {ok, InvoiceSt} ?= hg_invoice:get(InvoiceID),
+        {ok, PaymentSt} ?= hg_invoice:get_payment(PaymentID, InvoiceSt),
+        hg_invoice_payment:construct_payment_info(PaymentSt, hg_invoice:get_payment_opts(InvoiceSt))
+    else
         {error, notfound} ->
             hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
     end.
