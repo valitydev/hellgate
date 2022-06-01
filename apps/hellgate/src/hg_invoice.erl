@@ -13,7 +13,6 @@
 %%%    belonging to this party
 
 -module(hg_invoice).
--feature(maybe_expr, enable).
 
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include("payment_events.hrl").
@@ -358,13 +357,16 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    maybe
-        {ok, _EntityID, MachineID} ?= hg_machine_tag:get_binding(namespace(), Tag),
-        {ok, Response} ?= hg_machine:call(?NS, MachineID, {callback, Tag, Callback}),
-        {ok, Response}
-    else
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
+    case hg_machine_tag:get_binding(namespace(), Tag) of
+        {ok, _EntityID, MachineID} ->
+            case hg_machine:call(?NS, MachineID, {callback, Tag, Callback}) of
+                {ok, _} = Ok ->
+                    Ok;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.
@@ -384,19 +386,19 @@ fail(Id) ->
 
 %%
 
-get_history(Ref) ->
-    History = hg_machine:get_history(?NS, Ref),
+get_history(ID) ->
+    History = hg_machine:get_history(?NS, ID),
     unmarshal_history(map_history_error(History)).
 
-get_history(Ref, AfterID, Limit) ->
-    History = hg_machine:get_history(?NS, Ref, AfterID, Limit),
+get_history(ID, AfterID, Limit) ->
+    History = hg_machine:get_history(?NS, ID, AfterID, Limit),
     unmarshal_history(map_history_error(History)).
 
-get_state(Ref) ->
-    collapse_history(get_history(Ref)).
+get_state(ID) ->
+    collapse_history(get_history(ID)).
 
-get_state(Ref, AfterID, Limit) ->
-    collapse_history(get_history(Ref, AfterID, Limit)).
+get_state(ID, AfterID, Limit) ->
+    collapse_history(get_history(ID, AfterID, Limit)).
 
 get_public_history(InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_invoice_event(InvoiceID, Ev) || Ev <- get_history(InvoiceID, AfterID, Limit)].

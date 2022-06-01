@@ -3,7 +3,6 @@
 %%%
 
 -module(hg_recurrent_paytool).
--feature(maybe_expr, enable).
 
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
@@ -752,13 +751,16 @@ dispatch_callback({provider, Payload}, St) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    maybe
-        {ok, _EntityID, MachineID} ?= hg_machine_tag:get_binding(namespace(), Tag),
-        {ok, Response} ?= hg_machine:call(?NS, MachineID, {callback, Callback}),
-        {ok, Response}
-    else
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
+    case hg_machine_tag:get_binding(namespace(), Tag) of
+        {ok, _EntityID, MachineID} ->
+            case hg_machine:call(?NS, MachineID, {callback, Callback}) of
+                {ok, _} = Ok ->
+                    Ok;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.
