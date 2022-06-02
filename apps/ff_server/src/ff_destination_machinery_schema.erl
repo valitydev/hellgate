@@ -121,7 +121,7 @@ created_v0_0_decoding_test() ->
         {crypto_wallet, #{
             crypto_wallet => #{
                 id => <<"kek">>,
-                currency => {bitcoin, #{}}
+                currency => #{id => <<"bitcoin">>}
             }
         }},
     Destination = #{
@@ -143,9 +143,10 @@ created_v0_0_decoding_test() ->
                 {obj, #{
                     {str, <<"currency">>} =>
                         {arr, [
-                            {str, <<"tup">>},
-                            {str, <<"bitcoin">>},
-                            {arr, [{str, <<"map">>}, {obj, #{}}]}
+                            {str, <<"map">>},
+                            {obj, #{
+                                {str, <<"id">>} => {bin, <<"bitcoin">>}
+                            }}
                         ]},
                     {str, <<"id">>} => {bin, <<"kek">>}
                 }}
@@ -345,38 +346,6 @@ status_v0_decoding_test() ->
         ]},
 
     DecodedLegacy = unmarshal({event, undefined}, LegacyEvent),
-    ModernizedBinary = marshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, DecodedLegacy),
-    Decoded = unmarshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, ModernizedBinary),
-    ?assertEqual(Event, Decoded).
-
--spec created_v1_3_decoding_test() -> _.
-created_v1_3_decoding_test() ->
-    Resource =
-        {crypto_wallet, #{
-            crypto_wallet => #{
-                id => <<"kek">>,
-                currency => {bitcoin, #{}}
-            }
-        }},
-    Destination = #{
-        version => 3,
-        resource => Resource,
-        name => <<"name">>,
-        created_at => 1590434350293,
-        external_id => <<"external_id">>
-    },
-    Change = {created, Destination},
-    Event = {ev, {{{2020, 5, 25}, {19, 19, 10}}, 293305}, Change},
-
-    LegacyEvent =
-        {bin,
-            base64:decode(<<
-                "CwABAAAAGzIwMjAtMDUtMjVUMTk6MTk6MTAuMjkzMzA1WgwAAgwAAQsAAQAAAARuYW1lDAA"
-                "CDAACDAABCwABAAAAA2tlawwAAwwAAQAACAACAAAAAAAAAAsAAwAAAAtleHRlcm5hbF9pZA"
-                "sABwAAABgyMDIwLTA1LTI1VDE5OjE5OjEwLjI5M1oAAAA="
-            >>)},
-
-    DecodedLegacy = unmarshal({event, 1}, LegacyEvent),
     ModernizedBinary = marshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, DecodedLegacy),
     Decoded = unmarshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, ModernizedBinary),
     ?assertEqual(Event, Decoded).

@@ -6,14 +6,12 @@
 -type token() :: binary().
 -type issuer_country() :: atom().
 -type payment_system() :: binary().
--type payment_system_deprecated() :: atom().
 
 -type response_data() :: binbase_binbase_thrift:'ResponseData'().
 -type bin_data() :: #{
     token := token(),
     id := bin_data_id(),
     payment_system := payment_system(),
-    payment_system_deprecated => payment_system_deprecated(),
     bank_name => binary(),
     issuer_country => issuer_country(),
     card_type => charge_card | credit | debit | credit_or_debit,
@@ -42,7 +40,6 @@
 -export_type([bin_data_error/0]).
 -export_type([issuer_country/0]).
 -export_type([payment_system/0]).
--export_type([payment_system_deprecated/0]).
 
 -export([get/2]).
 -export([id/1]).
@@ -110,7 +107,6 @@ decode_result(Token, #'binbase_ResponseData'{bin_data = Bindata, version = Versi
             token => Token,
             id => decode_msgpack(BinDataID),
             payment_system => unwrap(decode_payment_system(PaymentSystem)),
-            payment_system_deprecated => decode_payment_system_deprecated(PaymentSystem),
             bank_name => BankName,
             issuer_country => unwrap(decode_residence(IsoCountryCode)),
             card_type => decode_card_type(CardType),
@@ -139,25 +135,6 @@ decode_msgpack({obj, V}) when is_map(V) ->
 
 decode_payment_system(PaymentSystem) when is_binary(PaymentSystem) ->
     {ok, PaymentSystem}.
-
-decode_payment_system_deprecated(<<"VISA">>) -> visa;
-decode_payment_system_deprecated(<<"VISA/DANKORT">>) -> visa;
-decode_payment_system_deprecated(<<"MASTERCARD">>) -> mastercard;
-decode_payment_system_deprecated(<<"MAESTRO">>) -> maestro;
-decode_payment_system_deprecated(<<"DANKORT">>) -> dankort;
-decode_payment_system_deprecated(<<"AMERICAN EXPRESS">>) -> amex;
-decode_payment_system_deprecated(<<"DINERS CLUB INTERNATIONAL">>) -> dinersclub;
-decode_payment_system_deprecated(<<"DISCOVER">>) -> discover;
-decode_payment_system_deprecated(<<"UNIONPAY">>) -> unionpay;
-decode_payment_system_deprecated(<<"CHINA UNION PAY">>) -> unionpay;
-decode_payment_system_deprecated(<<"JCB">>) -> jcb;
-decode_payment_system_deprecated(<<"NSPK MIR">>) -> nspkmir;
-decode_payment_system_deprecated(<<"ELO">>) -> elo;
-decode_payment_system_deprecated(<<"RUPAY">>) -> rupay;
-decode_payment_system_deprecated(<<"EBT">>) -> ebt;
-decode_payment_system_deprecated(<<"DUMMY">>) -> dummy;
-decode_payment_system_deprecated(<<"UZCARD">>) -> uzcard;
-decode_payment_system_deprecated(_) -> undefined.
 
 decode_card_type(undefined) ->
     undefined;

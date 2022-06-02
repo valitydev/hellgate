@@ -177,12 +177,10 @@ marshal(
     CardHolderName = maps:get(cardholder_name, BankCard, undefined),
     ExpDate = maps:get(exp_date, BankCard, undefined),
     PaymentSystem = maps:get(payment_system, BankCard, undefined),
-    PaymentSystemDeprecated = maps:get(payment_system_deprecated, BankCard, undefined),
     IssuerCountry = maps:get(issuer_country, BankCard, undefined),
     {bank_card, #domain_BankCard{
         token = Token,
         payment_system = maybe_marshal(payment_system, PaymentSystem),
-        payment_system_deprecated = PaymentSystemDeprecated,
         issuer_country = IssuerCountry,
         bin = BIN,
         last_digits = LastDigits,
@@ -192,16 +190,16 @@ marshal(
 marshal(
     resource,
     {crypto_wallet, #{
-        crypto_wallet := #{
+        crypto_wallet := CryptoWallet = #{
             id := CryptoWalletID,
-            currency := {Currency, Data}
+            currency := Currency
         }
     }}
 ) ->
     {crypto_wallet, #domain_CryptoWallet{
         id = CryptoWalletID,
-        crypto_currency_deprecated = Currency,
-        destination_tag = maps:get(tag, Data, undefined)
+        crypto_currency = ff_dmsl_codec:marshal(crypto_currency, Currency),
+        destination_tag = maps:get(tag, CryptoWallet, undefined)
     }};
 marshal(
     resource,

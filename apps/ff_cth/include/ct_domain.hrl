@@ -72,7 +72,6 @@
         last_digits = <<>>,
         bank_name = BankName,
         payment_system = #domain_PaymentSystemRef{id = <<"VISA">>},
-        payment_system_deprecated = visa,
         issuer_country = rus
     }}
 ).

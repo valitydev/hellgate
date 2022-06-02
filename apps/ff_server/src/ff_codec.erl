@@ -70,7 +70,7 @@ marshal(withdrawal_method, #{id := {generic, #{payment_service := PaymentService
 marshal(withdrawal_method, #{id := {digital_wallet, PaymentService}}) ->
     {digital_wallet, marshal(payment_service, PaymentService)};
 marshal(withdrawal_method, #{id := {crypto_currency, CryptoCurrencyRef}}) ->
-    {crypto_currency, marshal(crypto_currency_ref, CryptoCurrencyRef)};
+    {crypto_currency, marshal(crypto_currency, CryptoCurrencyRef)};
 marshal(withdrawal_method, #{id := {bank_card, #{payment_system := PaymentSystem}}}) ->
     {bank_card, #'fistful_BankCardWithdrawalMethod'{
         payment_system = marshal(payment_system, PaymentSystem)
@@ -152,22 +152,20 @@ marshal(resource_descriptor, {bank_card, BinDataID}) ->
     }};
 marshal(bank_card, BankCard = #{token := Token}) ->
     Bin = maps:get(bin, BankCard, undefined),
-    PaymentSystem = maps:get(payment_system, BankCard, undefined),
-    PaymentSystemDeprecated = maps:get(payment_system_deprecated, BankCard, undefined),
-    MaskedPan = maps:get(masked_pan, BankCard, undefined),
-    BankName = maps:get(bank_name, BankCard, undefined),
-    IssuerCountry = maps:get(issuer_country, BankCard, undefined),
-    CardType = maps:get(card_type, BankCard, undefined),
-    ExpDate = maps:get(exp_date, BankCard, undefined),
-    CardholderName = maps:get(cardholder_name, BankCard, undefined),
-    BinDataID = maps:get(bin_data_id, BankCard, undefined),
+    PaymentSystem = ff_resource:payment_system(BankCard),
+    MaskedPan = ff_resource:masked_pan(BankCard),
+    BankName = ff_resource:bank_name(BankCard),
+    IssuerCountry = ff_resource:issuer_country(BankCard),
+    CardType = ff_resource:card_type(BankCard),
+    ExpDate = ff_resource:exp_date(BankCard),
+    CardholderName = ff_resource:cardholder_name(BankCard),
+    BinDataID = ff_resource:bin_data_id(BankCard),
     #'fistful_base_BankCard'{
         token = marshal(string, Token),
         bin = marshal(string, Bin),
         masked_pan = marshal(string, MaskedPan),
         bank_name = marshal(string, BankName),
         payment_system = maybe_marshal(payment_system, PaymentSystem),
-        payment_system_deprecated = maybe_marshal(payment_system_deprecated, PaymentSystemDeprecated),
         issuer_country = maybe_marshal(issuer_country, IssuerCountry),
         card_type = maybe_marshal(card_type, CardType),
         exp_date = maybe_marshal(exp_date, ExpDate),
@@ -178,11 +176,11 @@ marshal(bank_card_auth_data, {session, #{session_id := ID}}) ->
     {session_data, #'fistful_base_SessionAuthData'{
         id = marshal(string, ID)
     }};
-marshal(crypto_wallet, #{id := ID, currency := Currency}) ->
+marshal(crypto_wallet, CryptoWallet = #{id := ID, currency := Currency}) ->
     #'fistful_base_CryptoWallet'{
         id = marshal(string, ID),
         currency = marshal(crypto_currency, Currency),
-        data = marshal(crypto_data, Currency)
+        tag = maybe_marshal(string, maps:get(tag, CryptoWallet, undefined))
     };
 marshal(digital_wallet, Wallet = #{id := ID, payment_service := PaymentService}) ->
     #'fistful_base_DigitalWallet'{
@@ -200,24 +198,10 @@ marshal(exp_date, {Month, Year}) ->
         month = marshal(integer, Month),
         year = marshal(integer, Year)
     };
-marshal(crypto_currency, {Currency, _}) ->
-    Currency;
-marshal(crypto_data, {bitcoin, #{}}) ->
-    {bitcoin, #'fistful_base_CryptoDataBitcoin'{}};
-marshal(crypto_data, {litecoin, #{}}) ->
-    {litecoin, #'fistful_base_CryptoDataLitecoin'{}};
-marshal(crypto_data, {bitcoin_cash, #{}}) ->
-    {bitcoin_cash, #'fistful_base_CryptoDataBitcoinCash'{}};
-marshal(crypto_data, {ethereum, #{}}) ->
-    {ethereum, #'fistful_base_CryptoDataEthereum'{}};
-marshal(crypto_data, {zcash, #{}}) ->
-    {zcash, #'fistful_base_CryptoDataZcash'{}};
-marshal(crypto_data, {usdt, #{}}) ->
-    {usdt, #'fistful_base_CryptoDataUSDT'{}};
-marshal(crypto_data, {ripple, Data}) ->
-    {ripple, #'fistful_base_CryptoDataRipple'{
-        tag = maybe_marshal(string, maps:get(tag, Data, undefined))
-    }};
+marshal(crypto_currency, #{id := Ref}) when is_binary(Ref) ->
+    #'fistful_base_CryptoCurrencyRef'{
+        id = Ref
+    };
 marshal(payment_service, #{id := Ref}) when is_binary(Ref) ->
     #'fistful_base_PaymentServiceRef'{
         id = Ref
@@ -226,12 +210,6 @@ marshal(payment_system, #{id := Ref}) when is_binary(Ref) ->
     #'fistful_base_PaymentSystemRef'{
         id = Ref
     };
-marshal(crypto_currency_ref, #{id := Ref}) ->
-    #'fistful_base_CryptoCurrencyRef'{
-        id = Ref
-    };
-marshal(payment_system_deprecated, V) when is_atom(V) ->
-    V;
 marshal(issuer_country, V) when is_atom(V) ->
     V;
 marshal(card_type, V) when is_atom(V) ->
@@ -447,7 +425,6 @@ unmarshal(bank_card, #'fistful_base_BankCard'{
     masked_pan = MaskedPan,
     bank_name = BankName,
     payment_system = PaymentSystem,
-    payment_system_deprecated = PaymentSystemDeprecated,
     issuer_country = IssuerCountry,
     card_type = CardType,
     bin_data_id = BinDataID,
@@ -457,7 +434,6 @@ unmarshal(bank_card, #'fistful_base_BankCard'{
     genlib_map:compact(#{
         token => unmarshal(string, Token),
         payment_system => maybe_unmarshal(payment_system, PaymentSystem),
-        payment_system_deprecated => maybe_unmarshal(payment_system_deprecated, PaymentSystemDeprecated),
         bin => maybe_unmarshal(string, Bin),
         masked_pan => maybe_unmarshal(string, MaskedPan),
         bank_name => maybe_unmarshal(string, BankName),
@@ -476,27 +452,20 @@ unmarshal(payment_system, #'fistful_base_PaymentSystemRef'{id = Ref}) when is_bi
     #{
         id => Ref
     };
-unmarshal(payment_system_deprecated, V) when is_atom(V) ->
-    V;
 unmarshal(issuer_country, V) when is_atom(V) ->
     V;
 unmarshal(card_type, V) when is_atom(V) ->
     V;
 unmarshal(crypto_wallet, #'fistful_base_CryptoWallet'{
     id = CryptoWalletID,
-    currency = CryptoWalletCurrency,
-    data = Data
+    currency = Currency,
+    tag = Tag
 }) ->
     genlib_map:compact(#{
         id => unmarshal(string, CryptoWalletID),
-        currency => {CryptoWalletCurrency, unmarshal(crypto_data, Data)}
-    });
-unmarshal(crypto_data, {ripple, #'fistful_base_CryptoDataRipple'{tag = Tag}}) ->
-    genlib_map:compact(#{
+        currency => unmarshal(crypto_currency, Currency),
         tag => maybe_unmarshal(string, Tag)
     });
-unmarshal(crypto_data, _) ->
-    #{};
 unmarshal(digital_wallet, #'fistful_base_DigitalWallet'{id = ID, payment_service = PaymentService, token = Token}) ->
     genlib_map:compact(#{
         id => unmarshal(string, ID),
@@ -514,6 +483,10 @@ unmarshal(content, #'fistful_base_Content'{type = Type, data = Data}) ->
         data => Data
     });
 unmarshal(payment_service, #'fistful_base_PaymentServiceRef'{id = Ref}) when is_binary(Ref) ->
+    #{
+        id => Ref
+    };
+unmarshal(crypto_currency, #'fistful_base_CryptoCurrencyRef'{id = Ref}) when is_binary(Ref) ->
     #{
         id => Ref
     };
@@ -622,7 +595,6 @@ bank_card_codec_test() ->
     BankCard = #{
         token => <<"token">>,
         payment_system => #{id => <<"foo">>},
-        payment_system_deprecated => visa,
         bin => <<"12345">>,
         masked_pan => <<"7890">>,
         bank_name => <<"bank">>,
@@ -632,26 +604,37 @@ bank_card_codec_test() ->
         cardholder_name => <<"name">>,
         bin_data_id => #{<<"foo">> => 1}
     },
-    Type = {struct, struct, {ff_proto_base_thrift, 'BankCard'}},
-    Binary = ff_proto_utils:serialize(Type, marshal(bank_card, BankCard)),
+    ResourceBankCard =
+        {bank_card, #{
+            bank_card => BankCard,
+            auth_data => {session, #{session_id => <<"session_id">>}}
+        }},
+    {bank_card, MarshalledResourceBankCard} = marshal(resource, ResourceBankCard),
+    Type = {struct, struct, {ff_proto_base_thrift, 'ResourceBankCard'}},
+    Binary = ff_proto_utils:serialize(Type, MarshalledResourceBankCard),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
     ?assertEqual(
         Decoded,
-        #'fistful_base_BankCard'{
-            token = <<"token">>,
-            payment_system = #'fistful_base_PaymentSystemRef'{id = <<"foo">>},
-            payment_system_deprecated = visa,
-            bin = <<"12345">>,
-            masked_pan = <<"7890">>,
-            bank_name = <<"bank">>,
-            issuer_country = zmb,
-            card_type = credit_or_debit,
-            exp_date = #'fistful_base_BankCardExpDate'{month = 12, year = 3456},
-            cardholder_name = <<"name">>,
-            bin_data_id = {obj, #{{str, <<"foo">>} => {i, 1}}}
+        #fistful_base_ResourceBankCard{
+            bank_card = #'fistful_base_BankCard'{
+                token = <<"token">>,
+                payment_system = #'fistful_base_PaymentSystemRef'{id = <<"foo">>},
+                bin = <<"12345">>,
+                masked_pan = <<"7890">>,
+                bank_name = <<"bank">>,
+                issuer_country = zmb,
+                card_type = credit_or_debit,
+                exp_date = #'fistful_base_BankCardExpDate'{month = 12, year = 3456},
+                cardholder_name = <<"name">>,
+                bin_data_id = {obj, #{{str, <<"foo">>} => {i, 1}}}
+            },
+            auth_data =
+                {session_data, #'fistful_base_SessionAuthData'{
+                    id = <<"session_id">>
+                }}
         }
     ),
-    ?assertEqual(BankCard, unmarshal(bank_card, Decoded)).
+    ?assertEqual(ResourceBankCard, unmarshal(resource, {bank_card, Decoded})).
 
 -spec generic_resource_codec_test() -> _.
 generic_resource_codec_test() ->

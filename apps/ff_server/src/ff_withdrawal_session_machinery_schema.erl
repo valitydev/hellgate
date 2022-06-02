@@ -276,7 +276,7 @@ try_get_full_resource(ResourceParams, Context) ->
                     % it looks like we have met unsupported card
                     % let's construct some dummy resource
                     {bank_card, Card} = ResourceParams,
-                    {bank_card, maps:merge(#{payment_system_deprecated => visa, bin_data_id => nil}, Card)}
+                    {bank_card, maps:merge(#{payment_system => #{id => <<"visa">>}, bin_data_id => nil}, Card)}
             end
     end.
 
@@ -445,7 +445,7 @@ created_with_broken_withdrawal_id_test() ->
             bank_card => #{
                 token => <<"token">>,
                 bin_data_id => {binary, <<"bin">>},
-                payment_system_deprecated => visa
+                payment_system => #{id => <<"visa">>}
             }
         }},
     Quote = #{
@@ -496,7 +496,13 @@ created_with_broken_withdrawal_id_test() ->
                                         {bin, <<"bin">>}
                                     ]},
                                 {str, <<"token">>} => {bin, <<"token">>},
-                                {str, <<"payment_system_deprecated">>} => {str, <<"visa">>}
+                                {str, <<"payment_system">>} =>
+                                    {arr, [
+                                        {str, <<"map">>},
+                                        {obj, #{
+                                            {str, <<"id">>} => {bin, <<"visa">>}
+                                        }}
+                                    ]}
                             }}
                         ]}
                 }}
@@ -582,7 +588,7 @@ created_v0_3_decoding_test() ->
             bank_card => #{
                 token => <<"token">>,
                 bin_data_id => {binary, <<"bin">>},
-                payment_system_deprecated => visa
+                payment_system => #{id => <<"visa">>}
             }
         }},
     Quote = #{
@@ -632,7 +638,13 @@ created_v0_3_decoding_test() ->
                                         {bin, <<"bin">>}
                                     ]},
                                 {str, <<"token">>} => {bin, <<"token">>},
-                                {str, <<"payment_system_deprecated">>} => {str, <<"visa">>}
+                                {str, <<"payment_system">>} =>
+                                    {arr, [
+                                        {str, <<"map">>},
+                                        {obj, #{
+                                            {str, <<"id">>} => {bin, <<"visa">>}
+                                        }}
+                                    ]}
                             }}
                         ]}
                 }}
@@ -733,7 +745,7 @@ created_v0_unknown_with_binary_provider_decoding_test() ->
                     bank_card => #{
                         bin => <<"123456">>,
                         masked_pan => <<"1234">>,
-                        payment_system_deprecated => visa,
+                        payment_system => #{id => <<"visa">>},
                         token => <<"token">>
                     }
                 }}
@@ -784,7 +796,13 @@ created_v0_unknown_with_binary_provider_decoding_test() ->
                                 {arr, [
                                     {str, <<"map">>},
                                     {obj, #{
-                                        {bin, <<"payment_system_deprecated">>} => {bin, <<"Card">>},
+                                        {str, <<"payment_system">>} =>
+                                            {arr, [
+                                                {str, <<"map">>},
+                                                {obj, #{
+                                                    {str, <<"id">>} => {bin, <<"Card">>}
+                                                }}
+                                            ]},
                                         {bin, <<"timer_timeout">>} => {bin, <<"10">>}
                                     }}
                                 ]}
@@ -826,8 +844,13 @@ created_v0_unknown_with_binary_provider_decoding_test() ->
                                                             {obj, #{
                                                                 {str, <<"bin">>} => {bin, <<"123456">>},
                                                                 {str, <<"masked_pan">>} => {bin, <<"1234">>},
-                                                                {str, <<"payment_system_deprecated">>} =>
-                                                                    {str, <<"visa">>},
+                                                                {str, <<"payment_system">>} =>
+                                                                    {arr, [
+                                                                        {str, <<"map">>},
+                                                                        {obj, #{
+                                                                            {str, <<"id">>} => {bin, <<"visa">>}
+                                                                        }}
+                                                                    ]},
                                                                 {str, <<"token">>} => {bin, <<"token">>}
                                                             }}
                                                         ]}
@@ -895,7 +918,7 @@ created_v0_unknown_without_provider_decoding_test() ->
                     bank_card => #{
                         bin => <<"123456">>,
                         masked_pan => <<"1234">>,
-                        payment_system_deprecated => visa,
+                        payment_system => #{id => <<"visa">>},
                         token => <<"token">>
                     }
                 }}
@@ -969,8 +992,13 @@ created_v0_unknown_without_provider_decoding_test() ->
                                                             {obj, #{
                                                                 {str, <<"bin">>} => {bin, <<"123456">>},
                                                                 {str, <<"masked_pan">>} => {bin, <<"1234">>},
-                                                                {str, <<"payment_system_deprecated">>} =>
-                                                                    {str, <<"visa">>},
+                                                                {str, <<"payment_system">>} =>
+                                                                    {arr, [
+                                                                        {str, <<"map">>},
+                                                                        {obj, #{
+                                                                            {str, <<"id">>} => {bin, <<"visa">>}
+                                                                        }}
+                                                                    ]},
                                                                 {str, <<"token">>} => {bin, <<"token">>}
                                                             }}
                                                         ]}
@@ -1078,63 +1106,6 @@ finished_v0_decoding_test() ->
             LegacyChange
         ]},
     DecodedLegacy = unmarshal({event, undefined}, LegacyEvent),
-    ModernizedBinary = marshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, DecodedLegacy),
-    Decoded = unmarshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, ModernizedBinary),
-    ?assertEqual(Event, Decoded).
-
--spec created_v1_decoding_test() -> _.
-created_v1_decoding_test() ->
-    Resource =
-        {bank_card, #{
-            bank_card => #{
-                token => <<"token">>,
-                bin_data_id => {binary, <<"bin">>},
-                payment_system_deprecated => visa
-            }
-        }},
-    Quote = #{
-        cash_from => {123, <<"RUB">>},
-        cash_to => {123, <<"RUB">>},
-        created_at => <<"some timestamp">>,
-        expires_on => <<"some timestamp">>,
-        quote_data => [1, nil, #{}]
-    },
-    Identity = #{
-        id => <<"ID">>
-    },
-    Withdrawal = #{
-        id => <<"id">>,
-        session_id => <<"session_id">>,
-        resource => Resource,
-        cash => {123, <<"RUB">>},
-        sender => Identity,
-        receiver => Identity,
-        quote => Quote
-    },
-    Session = #{
-        version => 5,
-        id => <<"id">>,
-        status => active,
-        withdrawal => Withdrawal,
-        route => #{provider_id => 1},
-
-        % Deprecated. Remove after MSPF-560 finish
-        provider_legacy => <<"-299">>
-    },
-    Change = {created, Session},
-    Event = {ev, {{{2020, 5, 25}, {19, 19, 10}}, 293305}, Change},
-    LegacyEvent =
-        {bin,
-            base64:decode(<<
-                "CwABAAAAGzIwMjAtMDUtMjVUMTk6MTk6MTAuMjkzMzA1WgwAAgwAAQsAAQAAAAJpZAwAAwsAAQAAAAJp"
-                "ZAwAAgwAAQwAAQsAAQAAAAV0b2tlbggAAgAAAAAMABULAAYAAAADYmluAAAAAAwAAwoAAQAAAAAAAAB7"
-                "DAACCwABAAAAA1JVQgAADAAICwABAAAAAklEAAwACQsAAQAAAAJJRAALAAYAAAAKc2Vzc2lvbl9pZAwA"
-                "BwwAAQoAAQAAAAAAAAB7DAACCwABAAAAA1JVQgAADAACCgABAAAAAAAAAHsMAAILAAEAAAADUlVCAAAL"
-                "AAMAAAAOc29tZSB0aW1lc3RhbXALAAQAAAAOc29tZSB0aW1lc3RhbXAMAAYPAAgMAAAAAwoAAwAAAAAA"
-                "AAABAAwAAQAADQAHDAwAAAAAAAANAAULDAAAAAAAAAwABggAAQAAAAEADAACDAABAAALAAQAAAAELTI5"
-                "OQAAAA=="
-            >>)},
-    DecodedLegacy = unmarshal({event, 1}, LegacyEvent),
     ModernizedBinary = marshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, DecodedLegacy),
     Decoded = unmarshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, ModernizedBinary),
     ?assertEqual(Event, Decoded).

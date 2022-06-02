@@ -415,11 +415,11 @@ create(Params) ->
         Identity = get_wallet_identity(Wallet),
         Destination = unwrap(destination, get_destination(DestinationID)),
         ResourceParams = ff_destination:resource(Destination),
-        valid = ff_resource:check_resource(DomainRevision, ResourceParams),
         Resource = unwrap(
             destination_resource,
             create_resource(ResourceParams, ResourceDescriptor, Identity, DomainRevision)
         ),
+        valid = ff_resource:check_resource(DomainRevision, Resource),
         PartyID = ff_identity:party(Identity),
         VarsetParams = genlib_map:compact(#{
             body => Body,
@@ -1135,12 +1135,11 @@ construct_payment_tool({bank_card, #{bank_card := ResourceBankCard}}) ->
         bin = maps:get(bin, ResourceBankCard),
         last_digits = maps:get(masked_pan, ResourceBankCard),
         payment_system = ff_dmsl_codec:marshal(payment_system, PaymentSystem),
-        payment_system_deprecated = maps:get(payment_system_deprecated, ResourceBankCard, undefined),
         issuer_country = maps:get(issuer_country, ResourceBankCard, undefined),
         bank_name = maps:get(bank_name, ResourceBankCard, undefined)
     }};
-construct_payment_tool({crypto_wallet, #{crypto_wallet := #{currency := {Currency, _}}}}) ->
-    {crypto_currency_deprecated, Currency};
+construct_payment_tool({crypto_wallet, #{crypto_wallet := #{currency := Currency}}}) ->
+    {crypto_currency, ff_dmsl_codec:marshal(crypto_currency, Currency)};
 construct_payment_tool(Resource = {generic, _}) ->
     ff_dmsl_codec:marshal(payment_tool, Resource);
 construct_payment_tool(

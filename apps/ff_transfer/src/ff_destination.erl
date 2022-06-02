@@ -227,11 +227,10 @@ apply_event({account, Ev}, Destination) ->
 -spec maybe_migrate(event() | legacy_event(), ff_machine:migrate_params()) -> event().
 maybe_migrate(Event = {created, #{version := ?ACTUAL_FORMAT_VERSION}}, _MigrateParams) ->
     Event;
-maybe_migrate({created, Destination = #{version := 4, resource := Resource}}, MigrateParams) ->
+maybe_migrate({created, Destination = #{version := 4}}, MigrateParams) ->
     maybe_migrate(
         {created, Destination#{
-            version => 5,
-            resource => maybe_migrate_payment_system(Resource)
+            version => 5
         }},
         MigrateParams
     );
@@ -296,47 +295,8 @@ maybe_migrate_resource({bank_card, #{token := _Token} = BankCard}) ->
 maybe_migrate_resource(Resource) ->
     Resource.
 
-maybe_migrate_payment_system({bank_card, #{bank_card := BankCard}}) ->
-    PaymentSystem = get_payment_system(BankCard),
-    PaymentSystemDeprecated = get_payment_system_deprecated(BankCard),
-    {bank_card, #{
-        bank_card => genlib_map:compact(BankCard#{
-            payment_system_deprecated => PaymentSystemDeprecated,
-            payment_system => PaymentSystem
-        })
-    }};
-maybe_migrate_payment_system(Resource) ->
-    Resource.
-
 maybe_migrate_name(Name) ->
     re:replace(Name, "\\d{12,19}", <<"">>, [global, {return, binary}]).
-
-get_payment_system_deprecated(BankCard) ->
-    case maps:get(payment_system, BankCard, undefined) of
-        PS when is_map(PS) ->
-            %% It looks like BankCard is new structure where
-            %% payment_system set to reference (map), so return
-            %% payment_system_deprecated's value if any
-            maps:get(payment_system_deprecated, BankCard, undefined);
-        PS when is_atom(PS) ->
-            %% It looks like BankCard is old data structure
-            %% so just return value (i.e. migrate structure
-            %% to new one).
-            PS
-    end.
-
-get_payment_system(BankCard) ->
-    case maps:get(payment_system, BankCard, undefined) of
-        PS when is_map(PS) ->
-            %% It looks like BankCard is new data structure, no
-            %% need to modify payment_system
-            PS;
-        _ ->
-            %% It looks like BankCard is old data structure,
-            %% so remove payment_system's value (i.e. migrate
-            %% structure to new one)
-            undefined
-    end.
 
 %% Tests
 
@@ -385,42 +345,11 @@ v2_created_migration_test() ->
     ?assertEqual(5, Version),
     ?assertEqual(#{<<"some key">> => <<"some val">>}, Metadata).
 
--spec v4_created_migration_old_test() -> _.
-v4_created_migration_old_test() ->
-    CreatedAt = ff_time:now(),
-    BankCard = #{
-        token => <<"token">>,
-        payment_system => visa,
-        bin => <<"12345">>,
-        masked_pan => <<"7890">>,
-        bank_name => <<"bank">>,
-        issuer_country => zmb,
-        card_type => credit_or_debit,
-        exp_date => {12, 3456},
-        cardholder_name => <<"name">>,
-        bin_data_id => #{<<"foo">> => 1}
-    },
-    LegacyEvent =
-        {created, #{
-            version => 4,
-            resource => {bank_card, #{bank_card => BankCard}},
-            name => <<"some name">>,
-            external_id => genlib:unique(),
-            created_at => CreatedAt
-        }},
-    {created, #{version := Version, resource := {bank_card, #{bank_card := NewBankCard}}}} = maybe_migrate(
-        LegacyEvent, #{}
-    ),
-    ?assertEqual(5, Version),
-    ?assertEqual(visa, maps:get(payment_system_deprecated, NewBankCard)),
-    ?assertError({badkey, payment_system}, maps:get(payment_system, NewBankCard)).
-
 -spec v4_created_migration_new_test() -> _.
 v4_created_migration_new_test() ->
     CreatedAt = ff_time:now(),
     BankCard = #{
         token => <<"token">>,
-        payment_system_deprecated => visa,
         payment_system => #{id => <<"VISA">>},
         bin => <<"12345">>,
         masked_pan => <<"7890">>,
@@ -443,37 +372,6 @@ v4_created_migration_new_test() ->
         LegacyEvent, #{}
     ),
     ?assertEqual(5, Version),
-    ?assertEqual(visa, maps:get(payment_system_deprecated, NewBankCard)),
-    ?assertEqual(#{id => <<"VISA">>}, maps:get(payment_system, NewBankCard)).
-
--spec v4_created_migration_test() -> _.
-v4_created_migration_test() ->
-    CreatedAt = ff_time:now(),
-    BankCard = #{
-        token => <<"token">>,
-        payment_system => #{id => <<"VISA">>},
-        bin => <<"12345">>,
-        masked_pan => <<"7890">>,
-        bank_name => <<"bank">>,
-        issuer_country => zmb,
-        card_type => credit_or_debit,
-        exp_date => {12, 3456},
-        cardholder_name => <<"name">>,
-        bin_data_id => #{<<"foo">> => 1}
-    },
-    LegacyEvent =
-        {created, #{
-            version => 4,
-            resource => {bank_card, #{bank_card => BankCard}},
-            name => <<"some name">>,
-            external_id => genlib:unique(),
-            created_at => CreatedAt
-        }},
-    {created, #{version := Version, resource := {bank_card, #{bank_card := NewBankCard}}}} = maybe_migrate(
-        LegacyEvent, #{}
-    ),
-    ?assertEqual(5, Version),
-    ?assertError({badkey, payment_system_deprecated}, maps:get(payment_system_deprecated, NewBankCard)),
     ?assertEqual(#{id => <<"VISA">>}, maps:get(payment_system, NewBankCard)).
 
 -spec name_migration_test() -> _.

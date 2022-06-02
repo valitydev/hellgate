@@ -50,7 +50,8 @@
 
 -type crypto_wallet_params() :: #{
     id := binary(),
-    currency := crypto_currency()
+    currency := crypto_currency(),
+    tag => binary()
 }.
 
 -type resource_digital_wallet_params() :: #{
@@ -73,7 +74,6 @@
     token := token(),
     bin => bin(),
     payment_system => payment_system(),
-    payment_system_deprecated => payment_system_deprecated(),
     masked_pan => masked_pan(),
     bank_name => bank_name(),
     issuer_country => issuer_country(),
@@ -92,13 +92,16 @@
 -type payment_service() :: #{
     id := binary()
 }.
+-type crypto_currency() :: #{
+    id := binary()
+}.
 
 -type method() ::
-    {bank_card, {payment_system, payment_system()}}
-    | {digital_wallet, {payment_service, payment_service()}}
-    | {generic, {payment_service, payment_service()}}.
+    {bank_card, #{payment_system := payment_system()}}
+    | {digital_wallet, payment_service()}
+    | {crypto_currency, crypto_currency()}
+    | {generic, #{payment_service := payment_service()}}.
 
--type payment_system_deprecated() :: ff_bin_data:payment_system_deprecated().
 -type masked_pan() :: binary().
 -type bank_name() :: binary().
 -type issuer_country() :: ff_bin_data:issuer_country().
@@ -123,17 +126,9 @@
 
 -type crypto_wallet() :: #{
     id := binary(),
-    currency := crypto_currency()
+    currency := crypto_currency(),
+    tag => binary()
 }.
-
--type crypto_currency() ::
-    {bitcoin, #{}}
-    | {bitcoin_cash, #{}}
-    | {litecoin, #{}}
-    | {ethereum, #{}}
-    | {zcash, #{}}
-    | {usdt, #{}}
-    | {ripple, #{tag => binary()}}.
 
 -type digital_wallet() :: #{
     id := binary(),
@@ -163,7 +158,6 @@
 -export_type([token/0]).
 -export_type([bin/0]).
 -export_type([payment_system/0]).
--export_type([payment_system_deprecated/0]).
 -export_type([masked_pan/0]).
 -export_type([bank_name/0]).
 -export_type([issuer_country/0]).
@@ -181,11 +175,11 @@
 -export([token/1]).
 -export([masked_pan/1]).
 -export([payment_system/1]).
--export([payment_system_deprecated/1]).
 -export([issuer_country/1]).
 -export([category/1]).
 -export([bank_name/1]).
 -export([exp_date/1]).
+-export([card_type/1]).
 -export([cardholder_name/1]).
 -export([resource_descriptor/1]).
 -export([method/1]).
@@ -196,64 +190,65 @@
 token(#{token := Token}) ->
     Token.
 
--spec bin(bank_card()) -> bin().
+-spec bin(bank_card()) -> ff_maybe:maybe(bin()).
 bin(BankCard) ->
     maps:get(bin, BankCard, undefined).
 
--spec bin_data_id(bank_card()) -> bin_data_id().
-bin_data_id(#{bin_data_id := BinDataID}) ->
-    BinDataID.
+-spec bin_data_id(bank_card()) -> ff_maybe:maybe(bin_data_id()).
+bin_data_id(BankCard) ->
+    maps:get(bin_data_id, BankCard, undefined).
 
--spec masked_pan(bank_card()) -> masked_pan().
+-spec masked_pan(bank_card()) -> ff_maybe:maybe(masked_pan()).
 masked_pan(BankCard) ->
     maps:get(masked_pan, BankCard, undefined).
 
--spec payment_system(bank_card()) -> payment_system().
+-spec payment_system(bank_card()) -> ff_maybe:maybe(payment_system()).
 payment_system(BankCard) ->
     maps:get(payment_system, BankCard, undefined).
 
--spec payment_system_deprecated(bank_card()) -> payment_system_deprecated().
-payment_system_deprecated(BankCard) ->
-    maps:get(payment_system_deprecated, BankCard, undefined).
-
--spec issuer_country(bank_card()) -> issuer_country().
+-spec issuer_country(bank_card()) -> ff_maybe:maybe(issuer_country()).
 issuer_country(BankCard) ->
     maps:get(issuer_country, BankCard, undefined).
 
--spec category(bank_card()) -> category().
+-spec category(bank_card()) -> ff_maybe:maybe(category()).
 category(BankCard) ->
     maps:get(category, BankCard, undefined).
 
--spec bank_name(bank_card()) -> bank_name().
+-spec bank_name(bank_card()) -> ff_maybe:maybe(bank_name()).
 bank_name(BankCard) ->
     maps:get(bank_name, BankCard, undefined).
 
--spec exp_date(bank_card()) -> exp_date().
+-spec exp_date(bank_card()) -> ff_maybe:maybe(exp_date()).
 exp_date(BankCard) ->
     maps:get(exp_date, BankCard, undefined).
 
--spec cardholder_name(bank_card()) -> cardholder_name().
+-spec card_type(bank_card()) -> ff_maybe:maybe(card_type()).
+card_type(BankCard) ->
+    maps:get(card_type, BankCard, undefined).
+
+-spec cardholder_name(bank_card()) -> ff_maybe:maybe(cardholder_name()).
 cardholder_name(BankCard) ->
     maps:get(cardholder_name, BankCard, undefined).
 
--spec resource_descriptor(resource() | undefined) -> resource_descriptor() | undefined.
+-spec resource_descriptor(ff_maybe:maybe(resource())) -> ff_maybe:maybe(resource_descriptor()).
 resource_descriptor({bank_card, #{bank_card := #{bin_data_id := ID}}}) ->
     {bank_card, ID};
 resource_descriptor(_) ->
     undefined.
 
--spec method(resource()) ->
-    method() | undefined.
+-spec method(resource()) -> ff_maybe:maybe(method()).
 method({bank_card, #{bank_card := #{payment_system := PaymentSystem}}}) ->
     {bank_card, #{payment_system => PaymentSystem}};
 method({digital_wallet, #{digital_wallet := #{payment_service := PaymentService}}}) ->
     {digital_wallet, PaymentService};
+method({crypto_wallet, #{crypto_wallet := #{currency := CryptoCurrency}}}) ->
+    {crypto_currency, CryptoCurrency};
 method({generic, #{generic := #{provider := PaymentService}}}) ->
     {generic, #{payment_service => PaymentService}};
 method(_) ->
     undefined.
 
--spec get_bin_data(binary(), resource_descriptor() | undefined) ->
+-spec get_bin_data(binary(), ff_maybe:maybe(resource_descriptor())) ->
     {ok, bin_data()}
     | {error, bin_data_error()}.
 get_bin_data(Token, undefined) ->
@@ -272,10 +267,19 @@ check_resource(Revision, {digital_wallet, #{digital_wallet := #{payment_service 
     MarshalledPaymentService = ff_dmsl_codec:marshal(payment_service, PaymentService),
     {ok, _} = ff_domain_config:object(Revision, {payment_service, MarshalledPaymentService}),
     valid;
+check_resource(Revision, {crypto_wallet, #{crypto_wallet := #{currency := CryptoCurrency}}}) ->
+    MarshalledCryptoCurrency = ff_dmsl_codec:marshal(crypto_currency, CryptoCurrency),
+    {ok, _} = ff_domain_config:object(Revision, {crypto_currency, MarshalledCryptoCurrency}),
+    valid;
 check_resource(Revision, {generic, #{generic := #{provider := PaymentService}}}) ->
     MarshalledPaymentService = ff_dmsl_codec:marshal(payment_service, PaymentService),
     {ok, _} = ff_domain_config:object(Revision, {payment_service, MarshalledPaymentService}),
     valid;
+check_resource(Revision, {bank_card, #{bank_card := #{payment_system := PaymentSystem}}}) ->
+    MarshalledPaymentSystem = ff_dmsl_codec:marshal(payment_system, PaymentSystem),
+    {ok, _} = ff_domain_config:object(Revision, {payment_system, MarshalledPaymentSystem}),
+    valid;
+%% For bank cards struct with token only
 check_resource(_, _) ->
     valid.
 
@@ -310,7 +314,7 @@ create_bank_card(#{bank_card := #{token := Token}} = ResourceBankCardParams, Res
 
 -spec create_bank_card_basic(resource_bank_card_params(), bin_data(), payment_system() | undefined) -> {ok, resource()}.
 create_bank_card_basic(#{bank_card := BankCardParams0} = ResourceBankCardParams, BinData, PaymentSystem) ->
-    KeyList = [payment_system_deprecated, bank_name, issuer_country, card_type, category],
+    KeyList = [bank_name, issuer_country, card_type, category],
     ExtendData0 = maps:with(KeyList, BinData),
     ExtendData1 = ExtendData0#{bin_data_id => ff_bin_data:id(BinData)},
     BankCardParams1 = genlib_map:compact(BankCardParams0#{payment_system => PaymentSystem}),
@@ -323,17 +327,18 @@ create_bank_card_basic(#{bank_card := BankCardParams0} = ResourceBankCardParams,
 
 -spec create_crypto_wallet(resource_crypto_wallet_params()) -> {ok, resource()}.
 create_crypto_wallet(#{
-    crypto_wallet := #{
+    crypto_wallet := CryptoWallet = #{
         id := ID,
         currency := Currency
     }
 }) ->
     {ok,
         {crypto_wallet, #{
-            crypto_wallet => #{
+            crypto_wallet => genlib_map:compact(#{
                 id => ID,
-                currency => Currency
-            }
+                currency => Currency,
+                tag => maps:get(tag, CryptoWallet, undefined)
+            })
         }}}.
 
 -spec create_digital_wallet(resource_digital_wallet_params()) -> {ok, resource()}.

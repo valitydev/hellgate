@@ -179,7 +179,7 @@ crypto_wallet_resource_test() ->
         {crypto_wallet, #{
             crypto_wallet => #{
                 id => <<"9e6245a7a6e15f75769a4d87183b090a">>,
-                currency => {bitcoin, #{}}
+                currency => #{id => <<"bitcoin">>}
             }
         }},
     ?assertEqual(Resource, unmarshal(resource, marshal(resource, Resource))).

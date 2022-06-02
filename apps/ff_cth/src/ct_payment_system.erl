@@ -486,7 +486,7 @@ domain_config(Options) ->
                     {condition,
                         {payment_tool,
                             {crypto_currency, #domain_CryptoCurrencyCondition{
-                                definition = {crypto_currency_is_deprecated, litecoin}
+                                definition = {crypto_currency_is, ?crptcur(<<"Litecoin">>)}
                             }}}},
                     ?ruleset(?PAYINST2_ROUTING_POLICIES + 1)
                 ),
@@ -728,12 +728,12 @@ domain_config(Options) ->
 
         ct_domain:category(?cat(1), <<"Generic Store">>, live),
 
-        ct_domain:payment_method(?pmt(bank_card_deprecated, visa)),
-        ct_domain:payment_method(?pmt(bank_card_deprecated, mastercard)),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_BANK_CARD(<<"VISA">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_GENERIC(<<"IND">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_DIGITAL_WALLET(<<"webmoney">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"Litecoin">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"bitcoin_cash">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"ripple">>))),
 
         ct_domain:payment_system(?pmtsys(<<"VISA">>), <<"VISA">>),
         ct_domain:payment_system(?pmtsys(<<"NSPK MIR">>), <<"NSPK MIR">>),
@@ -741,7 +741,9 @@ domain_config(Options) ->
         ct_domain:payment_service(?pmtsrv(<<"webmoney">>), <<"Webmoney">>),
         ct_domain:payment_service(?pmtsrv(<<"qiwi">>), <<"Qiwi">>),
         ct_domain:payment_service(?pmtsrv(<<"IND">>), <<"INDbank">>),
-        ct_domain:crypto_currency(?crptcur(<<"Litecoin">>), <<"Litecoin">>)
+        ct_domain:crypto_currency(?crptcur(<<"Litecoin">>), <<"Litecoin">>),
+        ct_domain:crypto_currency(?crptcur(<<"bitcoin_cash">>), <<"bitcoin_cash">>),
+        ct_domain:crypto_currency(?crptcur(<<"ripple">>), <<"ripple">>)
     ],
     maps:get(domain_config, Options, Default).
 
@@ -809,7 +811,9 @@ default_termset(Options) ->
                             ?pmt(?PAYMENT_METHOD_BANK_CARD(<<"VISA">>)),
                             ?pmt(?PAYMENT_METHOD_GENERIC(<<"IND">>)),
                             ?pmt(?PAYMENT_METHOD_DIGITAL_WALLET(<<"webmoney">>)),
-                            ?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"Litecoin">>))
+                            ?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"Litecoin">>)),
+                            ?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"bitcoin_cash">>)),
+                            ?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"ripple">>))
                         ])},
                 cash_flow =
                     {decisions, [
@@ -832,7 +836,9 @@ default_termset(Options) ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is_deprecated = visa
+                                                            payment_system_is = #domain_PaymentSystemRef{
+                                                                id = <<"VISA">>
+                                                            }
                                                         }}
                                                 }}}}
                                     ])},
@@ -865,7 +871,9 @@ default_termset(Options) ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is_deprecated = visa
+                                                            payment_system_is = #domain_PaymentSystemRef{
+                                                                id = <<"VISA">>
+                                                            }
                                                         }}
                                                 }}}}
                                     ])},
@@ -898,7 +906,9 @@ default_termset(Options) ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is_deprecated = visa
+                                                            payment_system_is = #domain_PaymentSystemRef{
+                                                                id = <<"VISA">>
+                                                            }
                                                         }}
                                                 }}}}
                                     ])},

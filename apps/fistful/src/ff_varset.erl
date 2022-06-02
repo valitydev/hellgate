@@ -55,13 +55,13 @@ encode_contract_terms_varset(Varset) ->
     dmsl_domain_thrift:'PaymentMethodRef'() | undefined.
 encode_payment_method(undefined) ->
     undefined;
-encode_payment_method({bank_card, #domain_BankCard{payment_system_deprecated = PaymentSystem}}) ->
+encode_payment_method({bank_card, #domain_BankCard{payment_system = PaymentSystem}}) ->
     #domain_PaymentMethodRef{
-        id = {bank_card_deprecated, PaymentSystem}
+        id = {bank_card, #domain_BankCardPaymentMethod{payment_system = PaymentSystem}}
     };
-encode_payment_method({crypto_currency_deprecated, CryptoCurrency}) ->
+encode_payment_method({crypto_currency, CryptoCurrency}) ->
     #domain_PaymentMethodRef{
-        id = {crypto_currency_deprecated, CryptoCurrency}
+        id = {crypto_currency, CryptoCurrency}
     };
 encode_payment_method({digital_wallet, #domain_DigitalWallet{payment_service = PaymentService}}) ->
     #domain_PaymentMethodRef{

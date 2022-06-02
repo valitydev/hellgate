@@ -110,6 +110,8 @@ get_withdrawal_methods_ok(_C) ->
     {ok, [
         {bank_card, _},
         {crypto_currency, _},
+        {crypto_currency, _},
+        {crypto_currency, _},
         {digital_wallet, _},
         {generic, _}
     ]} = call_api('GetWithdrawalMethods', {ID}).
