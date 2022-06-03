@@ -6,7 +6,7 @@
 -export([create_binding/3]).
 -export([create_binding/4]).
 
--type tag() :: mg_proto_base_thrift:'Tag'().
+-type tag() :: dmsl_base_thrift:'Tag'().
 -type ns() :: hg_machine:ns().
 -type entity_id() :: dmsl_base_thrift:'ID'().
 -type machine_id() :: hg_machine:id().
