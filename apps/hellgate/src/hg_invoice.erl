@@ -82,23 +82,16 @@
 
 %% API
 
--spec get(hg_machine:ref()) -> {ok, st()} | {error, notfound}.
-get(Ref) ->
-    case hg_machine:get_history(?NS, Ref) of
+-spec get(hg_machine:id()) -> {ok, st()} | {error, notfound}.
+get(Id) ->
+    case hg_machine:get_history(?NS, Id) of
         {ok, History} ->
             {ok, collapse_history(unmarshal_history(History))};
         Error ->
             Error
     end.
 
--spec get_payment(hg_machine:tag() | payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
-get_payment({tag, Tag}, #st{payments = Ps}) ->
-    case lists:dropwhile(fun({_, PS}) -> not lists:member(Tag, get_payment_tags(PS)) end, Ps) of
-        [{_ID, PaymentSession} | _] ->
-            {ok, PaymentSession};
-        [] ->
-            {error, notfound}
-    end;
+-spec get_payment(payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
 get_payment(PaymentID, St) ->
     case try_get_payment_session(PaymentID, St) of
         PaymentSession when PaymentSession /= undefined ->
@@ -106,9 +99,6 @@ get_payment(PaymentID, St) ->
         undefined ->
             {error, notfound}
     end.
-
-get_payment_tags(PaymentSession) ->
-    hg_invoice_payment:get_tags(PaymentSession).
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
@@ -367,29 +357,25 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    MachineRef =
-        case hg_machine_tag:get_binding(namespace(), Tag) of
-            {ok, _EntityID, MachineID} ->
-                MachineID;
-            {error, not_found} ->
-                %% Fallback to machinegun tagging
-                %% TODO: Remove after migration grace period
-                {tag, Tag}
-        end,
-    case hg_machine:call(?NS, MachineRef, {callback, Tag, Callback}) of
-        {ok, _Reply} = Response ->
-            Response;
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
+    case hg_machine_tag:get_binding(namespace(), Tag) of
+        {ok, _EntityID, MachineID} ->
+            case hg_machine:call(?NS, MachineID, {callback, Tag, Callback}) of
+                {ok, _} = Ok ->
+                    Ok;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.
 
 %%
 
--spec fail(hg_machine:ref()) -> ok.
-fail(Ref) ->
-    case hg_machine:call(?NS, Ref, fail) of
+-spec fail(hg_machine:id()) -> ok.
+fail(Id) ->
+    case hg_machine:call(?NS, Id, fail) of
         {error, failed} ->
             ok;
         {error, Error} ->
@@ -400,19 +386,19 @@ fail(Ref) ->
 
 %%
 
-get_history(Ref) ->
-    History = hg_machine:get_history(?NS, Ref),
+get_history(ID) ->
+    History = hg_machine:get_history(?NS, ID),
     unmarshal_history(map_history_error(History)).
 
-get_history(Ref, AfterID, Limit) ->
-    History = hg_machine:get_history(?NS, Ref, AfterID, Limit),
+get_history(ID, AfterID, Limit) ->
+    History = hg_machine:get_history(?NS, ID, AfterID, Limit),
     unmarshal_history(map_history_error(History)).
 
-get_state(Ref) ->
-    collapse_history(get_history(Ref)).
+get_state(ID) ->
+    collapse_history(get_history(ID)).
 
-get_state(Ref, AfterID, Limit) ->
-    collapse_history(get_history(Ref, AfterID, Limit)).
+get_state(ID, AfterID, Limit) ->
+    collapse_history(get_history(ID, AfterID, Limit)).
 
 get_public_history(InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_invoice_event(InvoiceID, Ev) || Ev <- get_history(InvoiceID, AfterID, Limit)].

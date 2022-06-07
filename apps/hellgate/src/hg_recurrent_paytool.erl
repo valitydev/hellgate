@@ -751,20 +751,16 @@ dispatch_callback({provider, Payload}, St) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    MachineRef =
-        case hg_machine_tag:get_binding(namespace(), Tag) of
-            {ok, _EntityID, MachineID} ->
-                MachineID;
-            {error, not_found} ->
-                %% Fallback to machinegun tagging
-                %% TODO: Remove after migration grace period
-                {tag, Tag}
-        end,
-    case hg_machine:call(?NS, MachineRef, {callback, Callback}) of
-        {ok, _CallbackResponse} = Result ->
-            Result;
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
+    case hg_machine_tag:get_binding(namespace(), Tag) of
+        {ok, _EntityID, MachineID} ->
+            case hg_machine:call(?NS, MachineID, {callback, Callback}) of
+                {ok, _} = Ok ->
+                    Ok;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.

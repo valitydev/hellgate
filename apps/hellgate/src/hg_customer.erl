@@ -120,22 +120,22 @@ handle_function_(Fun, Args, _Opts) when
 set_meta(ID) ->
     scoper:add_meta(#{customer_id => ID}).
 
-get_history(Ref) ->
-    History = hg_machine:get_history(?NS, Ref),
+get_history(ID) ->
+    History = hg_machine:get_history(?NS, ID),
     unmarshal_history(map_history_error(History)).
 
-get_history(Ref, AfterID, Limit) ->
-    History = hg_machine:get_history(?NS, Ref, AfterID, Limit),
+get_history(ID, AfterID, Limit) ->
+    History = hg_machine:get_history(?NS, ID, AfterID, Limit),
     unmarshal_history(map_history_error(History)).
 
-get_state(Ref) ->
-    collapse_history(get_history(Ref)).
+get_state(ID) ->
+    collapse_history(get_history(ID)).
 
-get_state(Ref, AfterID, Limit) ->
-    collapse_history(get_history(Ref, AfterID, Limit)).
+get_state(ID, AfterID, Limit) ->
+    collapse_history(get_history(ID, AfterID, Limit)).
 
-get_initial_state(Ref) ->
-    collapse_history(get_history(Ref, undefined, 1)).
+get_initial_state(ID) ->
+    collapse_history(get_history(ID, undefined, 1)).
 
 get_public_history(CustomerID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_customer_event(CustomerID, Ev) || Ev <- get_history(CustomerID, AfterID, Limit)].

@@ -30,21 +30,19 @@ handle_function('ProcessPaymentCallback', {Tag, Callback}, _) ->
 handle_function('ProcessRecurrentTokenCallback', {Tag, Callback}, _) ->
     handle_callback_result(hg_recurrent_paytool:process_callback(Tag, {provider, Callback}));
 handle_function('GetPayment', {Tag}, _) ->
-    {InvoiceRef, PaymentRef} =
-        case hg_machine_tag:get_binding(hg_invoice:namespace(), Tag) of
-            {ok, EntityID, MachineID} ->
-                {MachineID, EntityID};
-            {error, not_found} ->
-                %% Fallback to machinegun tagging
-                %% TODO: Remove after migration grace period
-                {{tag, Tag}, {tag, Tag}}
-        end,
-    case hg_invoice:get(InvoiceRef) of
-        {ok, InvoiceSt} ->
-            case hg_invoice:get_payment(PaymentRef, InvoiceSt) of
-                {ok, PaymentSt} ->
-                    Opts = hg_invoice:get_payment_opts(InvoiceSt),
-                    hg_invoice_payment:construct_payment_info(PaymentSt, Opts);
+    case hg_machine_tag:get_binding(hg_invoice:namespace(), Tag) of
+        {ok, PaymentID, InvoiceID} ->
+            case hg_invoice:get(InvoiceID) of
+                {ok, InvoiceSt} ->
+                    case hg_invoice:get_payment(PaymentID, InvoiceSt) of
+                        {ok, PaymentSt} ->
+                            hg_invoice_payment:construct_payment_info(
+                                PaymentSt,
+                                hg_invoice:get_payment_opts(InvoiceSt)
+                            );
+                        {error, notfound} ->
+                            hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
+                    end;
                 {error, notfound} ->
                     hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
             end;

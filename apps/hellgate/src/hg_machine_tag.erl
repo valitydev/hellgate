@@ -6,12 +6,12 @@
 -export([create_binding/3]).
 -export([create_binding/4]).
 
--type tag() :: mg_proto_base_thrift:'Tag'().
+-type tag() :: dmsl_base_thrift:'Tag'().
 -type ns() :: hg_machine:ns().
 -type entity_id() :: dmsl_base_thrift:'ID'().
 -type machine_id() :: hg_machine:id().
 
--spec get_binding(ns(), tag()) -> {ok, entity_id(), machine_id()} | {error, not_found}.
+-spec get_binding(ns(), tag()) -> {ok, entity_id(), machine_id()} | {error, notfound}.
 get_binding(NS, Tag) ->
     WoodyContext = hg_context:get_woody_context(hg_context:load()),
     case bender_client:get_internal_id(tag_to_external_id(NS, Tag), WoodyContext) of
@@ -20,7 +20,7 @@ get_binding(NS, Tag) ->
         {ok, EntityID, #{<<"machine-id">> := MachineID}} ->
             {ok, EntityID, MachineID};
         {error, internal_id_not_found} ->
-            {error, not_found}
+            {error, notfound}
     end.
 
 -spec create_binding(ns(), tag(), entity_id()) -> ok | no_return().
