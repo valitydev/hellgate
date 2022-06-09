@@ -106,7 +106,7 @@ unmarshal(
     NS1 = unmarshal(namespace, NS0),
     CreatedAt1 = unmarshal(timestamp, CreatedAt0),
     Context = #{
-        machine_ref => SourceID1,
+        machine_id => SourceID1,
         machine_ns => NS1,
         created_at => CreatedAt1
     },

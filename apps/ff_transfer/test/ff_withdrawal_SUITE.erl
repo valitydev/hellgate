@@ -664,6 +664,7 @@ provider_callback_test(C) ->
         body => Cash,
         external_id => WithdrawalID
     },
+    BadCallbackTag = <<"bad">>,
     CallbackTag = <<"cb_", WithdrawalID/binary>>,
     CallbackPayload = <<"super_secret">>,
     Callback = #{
@@ -675,6 +676,12 @@ provider_callback_test(C) ->
     SessionID = get_session_id(WithdrawalID),
     ?assertEqual(<<"callback_processing">>, await_session_adapter_state(SessionID, <<"callback_processing">>)),
     ?assertMatch(#{id := <<"SleepyID">>, extra := #{}}, get_session_transaction_info(SessionID)),
+    %% invalid tag
+    ?assertEqual(
+        {error, {unknown_session, {tag, BadCallbackTag}}},
+        call_process_callback(Callback#{tag => BadCallbackTag})
+    ),
+    %% ok tag
     ?assertEqual({ok, #{payload => CallbackPayload}}, call_process_callback(Callback)),
     ?assertEqual(<<"callback_finished">>, await_session_adapter_state(SessionID, <<"callback_finished">>)),
     ?assertMatch(#{id := <<"SleepyID">>, extra := #{}}, get_session_transaction_info(SessionID)),

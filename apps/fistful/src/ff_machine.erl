@@ -10,7 +10,7 @@
 
 -type ctx() :: ff_entity_context:context().
 -type range() :: machinery:range().
--type ref() :: machinery:ref().
+-type id() :: machinery:id().
 -type namespace() :: machinery:namespace().
 -type timestamp() :: machinery:timestamp().
 
@@ -34,7 +34,7 @@
 -type migrate_params() :: #{
     ctx => ctx(),
     timestamp => timestamp(),
-    id => ref()
+    id => id()
 }.
 
 -export_type([st/1]).
@@ -122,27 +122,27 @@ times(St) ->
 
 %%
 
--spec get(module(), namespace(), ref()) ->
+-spec get(module(), namespace(), id()) ->
     {ok, st()}
     | {error, notfound}.
 get(Mod, NS, Ref) ->
     get(Mod, NS, Ref, {undefined, undefined, forward}).
 
--spec get(module(), namespace(), ref(), range()) ->
+-spec get(module(), namespace(), id(), range()) ->
     {ok, st()}
     | {error, notfound}.
-get(Mod, NS, Ref, Range) ->
+get(Mod, NS, ID, Range) ->
     do(fun() ->
-        Machine = unwrap(machinery:get(NS, Ref, Range, fistful:backend(NS))),
+        Machine = unwrap(machinery:get(NS, ID, Range, fistful:backend(NS))),
         collapse(Mod, Machine)
     end).
 
--spec history(module(), namespace(), ref(), range()) ->
+-spec history(module(), namespace(), id(), range()) ->
     {ok, history()}
     | {error, notfound}.
-history(Mod, NS, Ref, Range) ->
+history(Mod, NS, ID, Range) ->
     do(fun() ->
-        Machine = unwrap(machinery:get(NS, Ref, Range, fistful:backend(NS))),
+        Machine = unwrap(machinery:get(NS, ID, Range, fistful:backend(NS))),
         #{history := History} = migrate_machine(Mod, Machine),
         History
     end).

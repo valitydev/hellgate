@@ -107,7 +107,7 @@
 -type action() ::
     undefined
     | continue
-    | {setup_callback, machinery:tag(), machinery:timer()}
+    | {setup_callback, ff_withdrawal_callback:tag(), machinery:timer()}
     | {setup_timer, machinery:timer()}
     | retry
     | finish.
