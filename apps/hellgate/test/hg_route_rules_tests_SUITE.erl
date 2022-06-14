@@ -28,18 +28,10 @@
 -export([gathers_fail_rated_routes/1]).
 -export([terminal_priority_for_shop/1]).
 
--behaviour(supervisor).
-
--export([init/1]).
-
 -define(dummy_party_id, <<"dummy_party_id">>).
 -define(dummy_shop_id, <<"dummy_shop_id">>).
 -define(dummy_another_shop_id, <<"dummy_another_shop_id">>).
 -define(assert_set_equal(S1, S2), ?assertEqual(lists:sort(S1), lists:sort(S2))).
-
--spec init([]) -> {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
-init([]) ->
-    {ok, {#{strategy => one_for_all, intensity => 1, period => 1}, []}}.
 
 -type config() :: hg_ct_helper:config().
 -type test_case_name() :: hg_ct_helper:test_case_name().
@@ -80,6 +72,7 @@ groups() ->
 
 -spec init_per_suite(config()) -> config().
 init_per_suite(C) ->
+    %%    genlib_adhoc_supervisor:init()
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
     {Apps, _Ret} = hg_ct_helper:start_apps([
         woody,
@@ -93,7 +86,9 @@ init_per_suite(C) ->
     _ = hg_domain:insert(construct_domain_fixture()),
     PartyID = hg_utils:unique_id(),
     PartyClient = party_client:create_client(),
-    {ok, SupPid} = supervisor:start_link(?MODULE, []),
+    {ok, SupPid} = genlib_adhoc_supervisor:start_link(
+        #{strategy => one_for_all, intensity => 1, period => 1}, []
+    ),
     {ok, _} = supervisor:start_child(SupPid, hg_dummy_fault_detector:child_spec()),
     FDConfig = genlib_app:env(hellgate, fault_detector),
     application:set_env(hellgate, fault_detector, FDConfig#{enabled => true}),
@@ -129,20 +124,13 @@ init_per_group(_, C) ->
     C.
 
 -spec end_per_group(group_name(), config()) -> _.
-end_per_group(_GroupName, C) ->
-    case cfg(original_domain_revision, C) of
-        Revision when is_integer(Revision) ->
-            _ = hg_domain:reset(Revision);
-        undefined ->
-            ok
-    end.
+end_per_group(_GroupName, _C) ->
+    ok.
 
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(_, C) ->
-    Ctx0 = hg_context:set_party_client(cfg(party_client, C), hg_context:create()),
-    PartyClientContext = party_client_context:create(#{}),
-    Ctx2 = hg_context:set_party_client_context(PartyClientContext, Ctx0),
-    ok = hg_context:save(Ctx2),
+    Ctx = hg_context:set_party_client(cfg(party_client, C), hg_context:create()),
+    ok = hg_context:save(Ctx),
     C.
 
 -spec end_per_testcase(test_case_name(), config()) -> _.
@@ -411,8 +399,7 @@ terminal_priority_for_shop(PartyID, ShopID, _C) ->
     Revision = hg_domain:head(),
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
     {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
-    FailRatedRoutes = hg_routing:gather_fail_rates(Routes),
-    hg_routing:choose_rated_route(FailRatedRoutes).
+    hg_routing:choose_route(Routes).
 
 %%% Domain config fixtures
 
@@ -671,11 +658,7 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_category(?cat(2), <<"Generic Store">>, live),
 
         hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"visa-ref">>))),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card(<<"jcb-ref">>))),
-        hg_ct_fixture:construct_payment_method(?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))),
         hg_ct_fixture:construct_payment_method(?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?bank_card_no_cvv(<<"visa-ref">>))),
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
@@ -685,21 +668,12 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_system_account_set(?sas(1)),
         hg_ct_fixture:construct_system_account_set(?sas(2)),
         hg_ct_fixture:construct_external_account_set(?eas(1)),
-        hg_ct_fixture:construct_external_account_set(?eas(2), <<"Assist">>, ?cur(<<"RUB">>)),
 
         {globals, #domain_GlobalsObject{
             ref = #domain_GlobalsRef{},
             data = #domain_Globals{
                 external_account_set =
                     {decisions, [
-                        #domain_ExternalAccountSetDecision{
-                            if_ =
-                                {condition,
-                                    {party, #domain_PartyCondition{
-                                        id = <<"LGBT">>
-                                    }}},
-                            then_ = {value, ?eas(2)}
-                        },
                         #domain_ExternalAccountSetDecision{
                             if_ = {constant, true},
                             then_ = {value, ?eas(1)}
@@ -757,11 +731,10 @@ maybe_set_risk_coverage(true, V) ->
 
 -spec prefer_alive_test() -> _.
 prefer_alive_test() ->
-    Routes = [
-        hg_routing:new(?prv(1), ?trm(1)),
-        hg_routing:new(?prv(2), ?trm(2)),
-        hg_routing:new(?prv(3), ?trm(3))
-    ],
+    Route1 = hg_routing:new(?prv(1), ?trm(1)),
+    Route2 = hg_routing:new(?prv(2), ?trm(2)),
+    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Routes = [Route1, Route2, Route3],
 
     Alive = {alive, 0.0},
     Dead = {dead, 1.0},
@@ -771,8 +744,8 @@ prefer_alive_test() ->
     ProviderStatuses1 = [{Dead, Normal}, {Alive, Normal}, {Dead, Normal}],
     ProviderStatuses2 = [{Dead, Normal}, {Dead, Normal}, {Alive, Normal}],
 
-    [{Route1, _}, _, _] = FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    [_, {Route2, _}, _] = FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
+    FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
+    FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
     FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
 
     {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
@@ -785,11 +758,10 @@ prefer_alive_test() ->
 
 -spec prefer_normal_conversion_test() -> _.
 prefer_normal_conversion_test() ->
-    Routes = [
-        hg_routing:new(?prv(1), ?trm(1)),
-        hg_routing:new(?prv(2), ?trm(2)),
-        hg_routing:new(?prv(3), ?trm(3))
-    ],
+    Route1 = hg_routing:new(?prv(1), ?trm(1)),
+    Route2 = hg_routing:new(?prv(2), ?trm(2)),
+    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Routes = [Route1, Route2, Route3],
 
     Alive = {alive, 0.0},
     Normal = {normal, 0.0},
@@ -799,8 +771,8 @@ prefer_normal_conversion_test() ->
     ProviderStatuses1 = [{Alive, Lacking}, {Alive, Normal}, {Alive, Lacking}],
     ProviderStatuses2 = [{Alive, Lacking}, {Alive, Lacking}, {Alive, Normal}],
 
-    [{Route1, _}, _, _] = FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    [_, {Route2, _}, _] = FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
+    FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
+    FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
     FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
 
     {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
@@ -813,55 +785,60 @@ prefer_normal_conversion_test() ->
 
 -spec prefer_higher_availability_test() -> _.
 prefer_higher_availability_test() ->
-    Routes = [
-        hg_routing:new(?prv(1), ?trm(1)),
-        hg_routing:new(?prv(2), ?trm(2)),
-        hg_routing:new(?prv(3), ?trm(3))
-    ],
+    Route1 = hg_routing:new(?prv(1), ?trm(1)),
+    Route2 = hg_routing:new(?prv(2), ?trm(2)),
+    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Routes = [Route1, Route2, Route3],
+
     ProviderStatuses = [
         {{alive, 0.5}, {normal, 0.5}},
         {{dead, 0.8}, {lacking, 1.0}},
         {{alive, 0.6}, {normal, 0.5}}
     ],
-    [{Route1, _}, _, {Route3, _}] = FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
 
     Result = hg_routing:choose_rated_route(FailRatedRoutes),
     ?assertMatch({Route1, #{reject_reason := availability, preferable_route := Route3}}, Result).
 
 -spec prefer_higher_conversion_test() -> _.
 prefer_higher_conversion_test() ->
-    Routes = [
-        hg_routing:new(?prv(1), ?trm(1)),
-        hg_routing:new(?prv(2), ?trm(2)),
-        hg_routing:new(?prv(3), ?trm(3))
+    Route1 = hg_routing:new(?prv(1), ?trm(1)),
+    Route2 = hg_routing:new(?prv(2), ?trm(2)),
+    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{dead, 0.8}, {lacking, 1.0}},
+        {{alive, 0.5}, {normal, 0.3}},
+        {{alive, 0.5}, {normal, 0.5}}
     ],
-    ProviderStatuses = [{{dead, 0.8}, {lacking, 1.0}}, {{alive, 0.5}, {normal, 0.3}}, {{alive, 0.5}, {normal, 0.5}}],
-    [_, {Route2, _}, {Route3, _}] = FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
 
     Result = hg_routing:choose_rated_route(FailRatedRoutes),
     ?assertMatch({Route2, #{reject_reason := conversion, preferable_route := Route3}}, Result).
 
 -spec prefer_weight_over_availability_test() -> _.
 prefer_weight_over_availability_test() ->
-    Routes = [
-        hg_routing:new(?prv(1), ?trm(1), 0, 1000),
-        hg_routing:new(?prv(2), ?trm(2), 0, 1005),
-        hg_routing:new(?prv(3), ?trm(3), 0, 1000)
-    ],
+    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = hg_routing:new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = hg_routing:new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
 
-    ProviderStatuses = [{{alive, 0.3}, {normal, 0.3}}, {{alive, 0.5}, {normal, 0.3}}, {{alive, 0.3}, {normal, 0.3}}],
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.5}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
     FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
 
-    Route = hg_routing:new(?prv(2), ?trm(2), 0, 1005),
-    ?assertMatch({Route, _}, hg_routing:choose_rated_route(FailRatedRoutes)).
+    ?assertMatch({Route2, _}, hg_routing:choose_rated_route(FailRatedRoutes)).
 
 -spec prefer_weight_over_conversion_test() -> _.
 prefer_weight_over_conversion_test() ->
-    Routes = [
-        hg_routing:new(?prv(1), ?trm(1), 0, 1000),
-        hg_routing:new(?prv(2), ?trm(2), 0, 1005),
-        hg_routing:new(?prv(3), ?trm(3), 0, 1000)
-    ],
+    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = hg_routing:new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = hg_routing:new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
 
     ProviderStatuses = [
         {{alive, 0.3}, {normal, 0.5}},
@@ -869,8 +846,6 @@ prefer_weight_over_conversion_test() ->
         {{alive, 0.3}, {normal, 0.3}}
     ],
     FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-    Result = hg_routing:choose_rated_route(FailRatedRoutes),
-    {Route, _Meta} = Result,
-    ?assertMatch({?prv(2), ?trm(2)}, {hg_routing:provider_ref(Route), hg_routing:terminal_ref(Route)}).
+    {Route2, _Meta} = hg_routing:choose_rated_route(FailRatedRoutes).
 
 -endif.

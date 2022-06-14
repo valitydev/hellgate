@@ -160,8 +160,7 @@
     payment_methods =
         {value,
             ?ordset([
-                ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>)),
-                ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))
+                ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))
             ])},
     cash_limit =
         {value,
