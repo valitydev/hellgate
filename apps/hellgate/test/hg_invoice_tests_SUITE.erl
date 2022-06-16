@@ -10,8 +10,6 @@
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
 -include_lib("damsel/include/dmsl_proto_limiter_thrift.hrl").
--include_lib("limiter_proto/include/lim_configurator_thrift.hrl").
--include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
 -include_lib("hellgate/include/allocation.hrl").
 
 -include_lib("stdlib/include/assert.hrl").
@@ -458,18 +456,7 @@ init_per_suite(C) ->
     ),
 
     _ = hg_domain:insert(construct_domain_fixture()),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
-        limiter_create_params(?LIMIT_ID),
-        hg_dummy_limiter:new()
-    ),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
-        limiter_create_params(?LIMIT_ID2),
-        hg_dummy_limiter:new()
-    ),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
-        limiter_create_params(?LIMIT_ID3),
-        hg_dummy_limiter:new()
-    ),
+    _ = hg_dummy_limiter:init_per_suite(C),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -1116,8 +1103,7 @@ payment_limit_overflow(C) ->
     Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
     #domain_Invoice{id = ID} = Invoice,
     #domain_InvoicePayment{id = PaymentID} = Payment,
-    Limit = get_payment_limit(PartyID, ShopID, ID, PaymentID, 1000),
-    ?assertMatch(#limiter_Limit{amount = PaymentAmount}, Limit),
+    ok = hg_dummy_limiter:assert_payment_limit_amount(PartyID, ShopID, ID, PaymentID, 1000, PaymentAmount),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -1141,8 +1127,7 @@ switch_provider_after_limit_overflow(C) ->
 
     #domain_Invoice{id = ID} = Invoice,
     #domain_InvoicePayment{id = PaymentID} = Payment,
-    Limit = get_payment_limit(PartyID, ShopID, ID, PaymentID, PaymentAmount),
-    ?assertMatch(#limiter_Limit{amount = PaymentAmount}, Limit),
+    ok = hg_dummy_limiter:assert_payment_limit_amount(PartyID, ShopID, ID, PaymentID, PaymentAmount, PaymentAmount),
 
     InvoiceID = start_invoice(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), PaymentAmount, Client),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
@@ -1255,35 +1240,6 @@ create_payment_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
     await_payment_rollback(InvoiceID, PaymentID, Client).
-
-get_payment_limit(PartyID, ShopID, InvoiceID, PaymentID, Amount) ->
-    Context = #limiter_context_LimitContext{
-        payment_processing = #limiter_context_ContextPaymentProcessing{
-            op = {invoice_payment, #limiter_context_PaymentProcessingOperationInvoicePayment{}},
-            invoice = #limiter_context_Invoice{
-                id = InvoiceID,
-                owner_id = PartyID,
-                shop_id = ShopID,
-                cost = #limiter_base_Cash{
-                    amount = Amount,
-                    currency = #limiter_base_CurrencyRef{symbolic_code = <<"RUB">>}
-                },
-                created_at = hg_datetime:format_now(),
-                effective_payment = #limiter_context_InvoicePayment{
-                    id = PaymentID,
-                    owner_id = PartyID,
-                    shop_id = ShopID,
-                    cost = #limiter_base_Cash{
-                        amount = Amount,
-                        currency = #limiter_base_CurrencyRef{symbolic_code = <<"RUB">>}
-                    },
-                    created_at = hg_datetime:format_now()
-                }
-            }
-        }
-    },
-    {ok, Limit} = hg_dummy_limiter:get(?LIMIT_ID, Context, hg_dummy_limiter:new()),
-    Limit.
 
 %%----------------- operation_limits group end
 
@@ -8763,15 +8719,3 @@ construct_term_set_for_partial_capture_provider_permit(Revision) ->
 set_processing_deadline(Timeout, PaymentParams) ->
     Deadline = woody_deadline:to_binary(woody_deadline:from_timeout(Timeout)),
     PaymentParams#payproc_InvoicePaymentParams{processing_deadline = Deadline}.
-
-limiter_create_params(LimitID) ->
-    #limiter_cfg_LimitCreateParams{
-        id = LimitID,
-        name = <<"ShopMonthTurnover">>,
-        description = <<"description">>,
-        started_at = <<"2000-01-01T00:00:00Z">>,
-        body_type = {cash, #limiter_config_LimitBodyTypeCash{currency = <<"RUB">>}},
-        op_behaviour = #limiter_config_OperationLimitBehaviour{
-            invoice_payment_refund = {subtraction, #limiter_config_Subtraction{}}
-        }
-    }.

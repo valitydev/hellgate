@@ -63,7 +63,7 @@ services:
       retries: 10
 
   limiter:
-    image: docker.io/rbkmoney/limiter:c7e96068a56da444e78cc7739a902da8e268dc63
+    image: ghcr.io/valitydev/limiter:sha-d36b97f
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
