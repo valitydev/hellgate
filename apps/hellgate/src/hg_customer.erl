@@ -10,9 +10,9 @@
 
 -define(NS, <<"customer">>).
 
-%% Woody handler called by hg_woody_wrapper
+%% Woody handler called by hg_service_wrapper
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -51,7 +51,7 @@
 %% Woody handler
 %%
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         customer_management,

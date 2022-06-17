@@ -4,6 +4,7 @@
 -include("hg_ct_domain.hrl").
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -80,6 +81,7 @@ init_per_suite(C) ->
         dmt_client,
         bender_client,
         party_client,
+        hg_proto,
         hellgate,
         {cowboy, CowboySpec}
     ]),
@@ -328,54 +330,51 @@ gathers_fail_rated_routes(_C) ->
 
 -spec choice_context_formats_ok(config()) -> test_return().
 choice_context_formats_ok(_C) ->
-    % TODO TD-167
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-        party_id => <<"12345">>
-    },
-
-    Revision = hg_domain:head(),
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-    {ok, {Routes = [R1, R2, R3], _RC}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision
+    Sup = hg_mock_helper:start_mocked_service_sup(),
+    _ = hg_mock_helper:mock_services(
+        [
+            {repository_client, fun('checkoutObject', ok) -> {ok, 1} end}
+        ],
+        [{test_sup, Sup}]
     ),
-    ?assert_set_equal([?prv(21), ?prv(22), ?prv(23)], [hg_routing:provider_ref(R) || R <- Routes]),
 
-    FailRatedRoutes = [
-        {R1, {{alive, 0.1}, {normal, 0.1}}},
-        {R2, {{alive, 0.0}, {normal, 0.1}}},
-        {R3, {{dead, 1.0}, {lacking, 1.0}}}
+    Route1 = hg_routing:new(?prv(1), ?trm(1)),
+    Route2 = hg_routing:new(?prv(2), ?trm(2)),
+    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{alive, 0.1}, {normal, 0.1}},
+        {{alive, 0.0}, {normal, 0.1}},
+        {{dead, 1.0}, {lacking, 1.0}}
     ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
 
+    Revision = 42,
     Result = {_, Context} = hg_routing:choose_rated_route(FailRatedRoutes),
     ?assertMatch(
-        {R2, #{reject_reason := availability_condition, preferable_route := R3}},
+        {Route2, #{reject_reason := availability_condition, preferable_route := Route3}},
         Result
     ),
     ?assertMatch(
         #{
             reject_reason := availability_condition,
             chosen_route := #{
-                provider := #{id := 22, name := <<_/binary>>},
-                terminal := #{id := 22, name := <<_/binary>>},
+                provider := #{id := 2, name := <<_/binary>>},
+                terminal := #{id := 2, name := <<_/binary>>},
                 priority := ?DOMAIN_CANDIDATE_PRIORITY,
                 weight := ?DOMAIN_CANDIDATE_WEIGHT
             },
             preferable_route := #{
-                provider := #{id := 23, name := <<_/binary>>},
-                terminal := #{id := 23, name := <<_/binary>>},
+                provider := #{id := 3, name := <<_/binary>>},
+                terminal := #{id := 3, name := <<_/binary>>},
                 priority := ?DOMAIN_CANDIDATE_PRIORITY,
                 weight := ?DOMAIN_CANDIDATE_WEIGHT
             }
         },
         hg_routing:get_logger_metadata(Context, Revision)
-    ).
+    ),
+    hg_mock_helper:stop_mocked_service_sup(Sup).
 
 %%% Terminal priority tests
 

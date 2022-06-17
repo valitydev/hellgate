@@ -453,9 +453,17 @@ init_per_suite(C) ->
     % _ = dbg:tpl({'hg_invoice_payment', 'p', '_'}, x),
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
 
-    {Apps, Ret} = hg_ct_helper:start_apps(
-        [woody, scoper, dmt_client, bender_client, party_client, hellgate, snowflake, {cowboy, CowboySpec}]
-    ),
+    {Apps, Ret} = hg_ct_helper:start_apps([
+        woody,
+        scoper,
+        dmt_client,
+        bender_client,
+        party_client,
+        hg_proto,
+        hellgate,
+        snowflake,
+        {cowboy, CowboySpec}
+    ]),
 
     _ = hg_domain:insert(construct_domain_fixture()),
     {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(

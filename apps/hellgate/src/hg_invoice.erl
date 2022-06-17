@@ -29,9 +29,9 @@
 -export([get_payment/2]).
 -export([get_payment_opts/1]).
 
-%% Woody handler called by hg_woody_wrapper
+%% Woody handler called by hg_service_wrapper
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -141,7 +141,7 @@ get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
 
 %%
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoicing,
@@ -150,7 +150,7 @@ handle_function(Func, Args, Opts) ->
         end
     ).
 
--spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function_(woody:func(), woody:args(), hg_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {InvoiceParams}, _Opts) ->
     DomainRevision = hg_domain:head(),
     InvoiceID = InvoiceParams#payproc_InvoiceParams.id,

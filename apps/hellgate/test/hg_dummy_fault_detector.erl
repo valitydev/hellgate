@@ -20,7 +20,7 @@ child_spec() ->
         }
     ).
 
--spec handle_function(woody:func(), woody:args(), _, hg_woody_wrapper:handler_opts()) -> {ok, term()} | no_return().
+-spec handle_function(woody:func(), woody:args(), _, hg_service_wrapper:handler_opts()) -> {ok, term()} | no_return().
 handle_function(
     'GetStatistics',
     _Args,
