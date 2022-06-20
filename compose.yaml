@@ -18,7 +18,7 @@ services:
       party-management:
         condition: service_healthy
       limiter:
-        condition: service_started
+        condition: service_healthy
       shumway:
         condition: service_healthy
       bender:
@@ -63,7 +63,7 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-d36b97f
+    image: ghcr.io/valitydev/limiter:sha-2dff7b5
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
