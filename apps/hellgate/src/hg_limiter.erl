@@ -132,31 +132,33 @@ gen_limit_context(Invoice, Payment) ->
     gen_limit_context(Invoice, Payment, undefined).
 
 gen_limit_context(Invoice, Payment, CapturedCash) ->
-    InvoiceCtx = marshal(invoice, Invoice),
-    PaymentCtx0 = marshal(payment, Payment),
-
-    PaymentCtx1 = PaymentCtx0#limiter_context_InvoicePayment{
-        capture_cost = CapturedCash
+    PaymentCtx = #limiter_context_payproc_InvoicePayment{
+        payment = Payment#domain_InvoicePayment{
+            status = {captured, #domain_InvoicePaymentCaptured{cost = CapturedCash}}
+        }
     },
     #limiter_context_LimitContext{
-        limiter_payment_processing = #limiter_context_ContextPaymentProcessing{
-            op = {invoice_payment, #limiter_context_PaymentProcessingOperationInvoicePayment{}},
-            invoice = InvoiceCtx#limiter_context_Invoice{effective_payment = PaymentCtx1}
+        payment_processing = #limiter_context_payproc_Context{
+            op = {invoice_payment, #limiter_context_payproc_OperationInvoicePayment{}},
+            invoice = #limiter_context_payproc_Invoice{
+                invoice = Invoice,
+                payment = PaymentCtx
+            }
         }
     }.
 
 gen_limit_refund_context(Invoice, Payment, Refund) ->
-    InvoiceCtx = marshal(invoice, Invoice),
-    PaymentCtx0 = marshal(payment, Payment),
-    RefundCtx = marshal(refund, Refund),
-
-    PaymentCtx1 = PaymentCtx0#limiter_context_InvoicePayment{
-        effective_refund = RefundCtx
+    PaymentCtx = #limiter_context_payproc_InvoicePayment{
+        payment = Payment,
+        refund = Refund
     },
     #limiter_context_LimitContext{
-        limiter_payment_processing = #limiter_context_ContextPaymentProcessing{
-            op = {invoice_payment_refund, #limiter_context_PaymentProcessingOperationInvoicePaymentRefund{}},
-            invoice = InvoiceCtx#limiter_context_Invoice{effective_payment = PaymentCtx1}
+        payment_processing = #limiter_context_payproc_Context{
+            op = {invoice_payment_refund, #limiter_context_payproc_OperationInvoicePaymentRefund{}},
+            invoice = #limiter_context_payproc_Invoice{
+                invoice = Invoice,
+                payment = PaymentCtx
+            }
         }
     }.
 
@@ -247,44 +249,3 @@ set_refund_amount(Amount, Refund) ->
 
 set_cash_amount(Amount, Cash) ->
     Cash#domain_Cash{amount = Amount}.
-
-marshal(invoice, Invoice) ->
-    #limiter_context_Invoice{
-        id = Invoice#domain_Invoice.id,
-        owner_id = Invoice#domain_Invoice.owner_id,
-        shop_id = Invoice#domain_Invoice.shop_id,
-        cost = Invoice#domain_Invoice.cost,
-        created_at = Invoice#domain_Invoice.created_at
-    };
-marshal(payment, Payment) ->
-    #limiter_context_InvoicePayment{
-        id = Payment#domain_InvoicePayment.id,
-        owner_id = Payment#domain_InvoicePayment.owner_id,
-        shop_id = Payment#domain_InvoicePayment.shop_id,
-        cost = Payment#domain_InvoicePayment.cost,
-        created_at = Payment#domain_InvoicePayment.created_at,
-        flow = marshal(flow, Payment#domain_InvoicePayment.flow),
-        payer = marshal(payer, Payment#domain_InvoicePayment.payer)
-    };
-marshal(refund, Refund) ->
-    #limiter_context_InvoicePaymentRefund{
-        id = Refund#domain_InvoicePaymentRefund.id,
-        cost = Refund#domain_InvoicePaymentRefund.cash,
-        created_at = Refund#domain_InvoicePaymentRefund.created_at
-    };
-marshal(flow, Flow) ->
-    case Flow of
-        {instant, #domain_InvoicePaymentFlowInstant{}} ->
-            {instant, #limiter_context_InvoicePaymentFlowInstant{}};
-        {hold, #domain_InvoicePaymentFlowHold{}} ->
-            {hold, #limiter_context_InvoicePaymentFlowHold{}}
-    end;
-marshal(payer, Payer) ->
-    case Payer of
-        {payment_resource, #domain_PaymentResourcePayer{}} ->
-            {payment_resource, #limiter_context_PaymentResourcePayer{}};
-        {customer, #domain_CustomerPayer{}} ->
-            {customer, #limiter_context_CustomerPayer{}};
-        {recurrent, #domain_RecurrentPayer{}} ->
-            {recurrent, #limiter_context_RecurrentPayer{}}
-    end.

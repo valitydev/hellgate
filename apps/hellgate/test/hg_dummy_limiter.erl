@@ -12,7 +12,7 @@
 -export([create_config/2]).
 -export([get_config/2]).
 -export([init_per_suite/1]).
--export([assert_payment_limit_amount/6]).
+-export([assert_payment_limit_amount/3]).
 
 -type client() :: woody_context:ctx().
 
@@ -68,29 +68,15 @@ init_per_suite(_Config) ->
         hg_dummy_limiter:new()
     ).
 
--spec assert_payment_limit_amount(_, _, _, _, _, _) -> _.
-assert_payment_limit_amount(PartyID, ShopID, InvoiceID, PaymentID, Amount, AssertAmount) ->
+-spec assert_payment_limit_amount(_, _, _) -> _.
+assert_payment_limit_amount(AssertAmount, Payment, Invoice) ->
     Context = #limiter_context_LimitContext{
-        limiter_payment_processing = #limiter_context_ContextPaymentProcessing{
-            op = {invoice_payment, #limiter_context_PaymentProcessingOperationInvoicePayment{}},
-            invoice = #limiter_context_Invoice{
-                id = InvoiceID,
-                owner_id = PartyID,
-                shop_id = ShopID,
-                cost = #domain_Cash{
-                    amount = Amount,
-                    currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                },
-                created_at = hg_datetime:format_now(),
-                effective_payment = #limiter_context_InvoicePayment{
-                    id = PaymentID,
-                    owner_id = PartyID,
-                    shop_id = ShopID,
-                    cost = #domain_Cash{
-                        amount = Amount,
-                        currency = #domain_CurrencyRef{symbolic_code = <<"RUB">>}
-                    },
-                    created_at = hg_datetime:format_now()
+        payment_processing = #limiter_context_payproc_Context{
+            op = {invoice_payment, #limiter_context_payproc_OperationInvoicePayment{}},
+            invoice = #limiter_context_payproc_Invoice{
+                invoice = Invoice,
+                payment = #limiter_context_payproc_InvoicePayment{
+                    payment = Payment
                 }
             }
         }

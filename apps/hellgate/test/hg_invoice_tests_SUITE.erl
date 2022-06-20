@@ -1101,9 +1101,7 @@ payment_limit_overflow(C) ->
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
     Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
-    #domain_Invoice{id = ID} = Invoice,
-    #domain_InvoicePayment{id = PaymentID} = Payment,
-    ok = hg_dummy_limiter:assert_payment_limit_amount(PartyID, ShopID, ID, PaymentID, 1000, PaymentAmount),
+    ok = hg_dummy_limiter:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -1125,10 +1123,9 @@ switch_provider_after_limit_overflow(C) ->
         [?payment_state(Payment)]
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
-    #domain_Invoice{id = ID} = Invoice,
-    #domain_InvoicePayment{id = PaymentID} = Payment,
-    ok = hg_dummy_limiter:assert_payment_limit_amount(PartyID, ShopID, ID, PaymentID, PaymentAmount, PaymentAmount),
+    ok = hg_dummy_limiter:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
 
+    #domain_InvoicePayment{id = PaymentID} = Payment,
     InvoiceID = start_invoice(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), PaymentAmount, Client),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
         InvoiceID,
