@@ -18,7 +18,7 @@ services:
       party-management:
         condition: service_healthy
       limiter:
-        condition: service_healthy
+        condition: service_started
       shumway:
         condition: service_healthy
       bender:
@@ -71,7 +71,7 @@ services:
       shumway:
         condition: service_healthy
     healthcheck:
-      test: "curl http://localhost:8022/"
+      test: "/opt/limiter/bin/limiter ping"
       interval: 5s
       timeout: 1s
       retries: 20
