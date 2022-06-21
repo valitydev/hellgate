@@ -335,7 +335,7 @@ start_app(snowflake = AppName) ->
         #{}
     };
 start_app(AppName) ->
-    {genlib_app:start_application(AppName), #{}}.
+    {start_application(AppName), #{}}.
 
 -spec start_app(app_name(), term()) -> [app_name()].
 start_app(cowboy = AppName, Env) ->
@@ -348,7 +348,30 @@ start_app(cowboy = AppName, Env) ->
     _ = cowboy:start_clear(Ref, [{num_acceptors, Count} | TransOpt], ProtoOpt),
     [AppName];
 start_app(AppName, Env) ->
-    genlib_app:start_application_with(AppName, Env).
+    start_application_with(AppName, Env).
+
+start_application_with(App, Env) ->
+    _ = application:load(App),
+    _ = set_app_env(App, Env),
+    start_application(App).
+
+set_app_env(App, Env) ->
+    R = [application:set_env(App, K, V) || {K, V} <- Env],
+    _ = lists:all(fun(E) -> E =:= ok end, R) orelse exit(setenv_failed),
+    ok.
+
+-spec start_application(Application :: atom()) -> [Application] when Application :: atom().
+start_application(AppName) ->
+    case application:start(AppName, temporary) of
+        ok ->
+            [AppName];
+        {error, {already_started, AppName}} ->
+            [];
+        {error, {Status, DepName}} when Status =:= not_started; Status =:= not_running ->
+            start_application(DepName) ++ start_application(AppName);
+        {error, Reason} ->
+            exit(Reason)
+    end.
 
 -spec start_apps([app_name() | {app_name(), term()}]) -> {[app_name()], map()}.
 start_apps(Apps) ->

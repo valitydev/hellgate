@@ -52,8 +52,22 @@ mock_services(Services, SupOrConfig) ->
 
 start_dmt_client(Services) ->
 %%    _ = ct:pal("Services: ~p~n", [Services]),
+    ReformattedServices = maps:fold(
+        fun (Key, V, Acc) ->
+            case (Key) of
+                repository ->
+                    Acc#{'Repository' => V};
+                repository_client ->
+                    Acc#{'RepositoryClient' => V};
+                _ ->
+                    Acc
+            end
+        end,
+        #{},
+        Services
+    ),
     hg_ct_helper:start_app(dmt_client, [
-        {service_urls, Services}
+        {service_urls, ReformattedServices}
     ]).
 
 start_woody_client(Services) ->

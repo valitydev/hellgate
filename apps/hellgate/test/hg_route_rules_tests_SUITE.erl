@@ -333,7 +333,14 @@ choice_context_formats_ok(_C) ->
     Sup = hg_mock_helper:start_mocked_service_sup(),
     _ = hg_mock_helper:mock_services(
         [
-            {repository_client, fun('checkoutObject', ok) -> {ok, 1} end}
+            {repository_client, fun('checkoutObject', ok) -> {ok, 1} end},
+            {
+                repository,
+                fun
+                    ('Checkout', _) -> {ok, #'Snapshot'{version = 1, domain = #{}}};
+                    ('PullRange', _) -> {ok, #{}}
+                end
+            }
         ],
         [{test_sup, Sup}]
     ),
