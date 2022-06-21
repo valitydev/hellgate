@@ -47,6 +47,7 @@
 -export([refund_limit_success/1]).
 -export([payment_partial_capture_limit_success/1]).
 -export([switch_provider_after_limit_overflow/1]).
+-export([limit_not_found/1]).
 
 -export([processing_deadline_reached_test/1]).
 -export([payment_success_empty_cvv/1]).
@@ -363,6 +364,7 @@ groups() ->
             payment_limit_overflow,
             payment_partial_capture_limit_success,
             switch_provider_after_limit_overflow,
+            limit_not_found,
             refund_limit_success
         ]},
 
@@ -456,7 +458,7 @@ init_per_suite(C) ->
     ),
 
     _ = hg_domain:insert(construct_domain_fixture()),
-    _ = hg_dummy_limiter:init_per_suite(C),
+    _ = hg_limiter_helper:init_per_suite(C),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -1101,7 +1103,7 @@ payment_limit_overflow(C) ->
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
     Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
-    ok = hg_dummy_limiter:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
+    ok = hg_limiter_helper:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -1123,7 +1125,7 @@ switch_provider_after_limit_overflow(C) ->
         [?payment_state(Payment)]
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
-    ok = hg_dummy_limiter:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
+    ok = hg_limiter_helper:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
 
     #domain_InvoicePayment{id = PaymentID} = Payment,
     InvoiceID = start_invoice(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), PaymentAmount, Client),
@@ -1138,6 +1140,23 @@ switch_provider_after_limit_overflow(C) ->
     [?payment_ev(PaymentID2, ?cash_flow_changed(_))] = next_event(InvoiceID, Client),
     PaymentID2 = await_payment_session_started(InvoiceID, PaymentID2, Client, ?processed()),
     PaymentID2 = await_payment_process_finish(InvoiceID, PaymentID2, Client, 0).
+
+-spec limit_not_found(config()) -> test_return().
+limit_not_found(C) ->
+    PmtSys = ?pmt_sys(<<"visa-ref">>),
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    #{party_id_w_several_limits := PartyID} = cfg(limits, C),
+    PaymentAmount = 69999,
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()) = Invoice,
+        [?payment_state(Payment)]
+    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
+
+    {error, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, Payment, Invoice).
 
 -spec refund_limit_success(config()) -> test_return().
 refund_limit_success(C) ->

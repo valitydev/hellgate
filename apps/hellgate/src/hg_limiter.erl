@@ -1,6 +1,5 @@
 -module(hg_limiter).
 
-% -include("domain.hrl").
 -include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
 
 -type turnover_selector() :: dmsl_domain_thrift:'TurnoverLimitSelector'().
