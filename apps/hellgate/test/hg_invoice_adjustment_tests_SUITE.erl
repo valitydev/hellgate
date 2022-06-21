@@ -2,9 +2,6 @@
 
 -include("hg_ct_domain.hrl").
 
--include_lib("common_test/include/ct.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0]).
@@ -286,8 +283,7 @@ invoice_adjustment_payment_pending(C) ->
     {exception, E} = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
     ?assertMatch(#payproc_InvoicePaymentPending{id = PaymentID}, E),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
-    {URL, GoodForm} = get_post_request(UserInteraction),
-    _ = assert_success_post_request({URL, GoodForm}),
+    _ = assert_success_interaction(UserInteraction),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
@@ -350,7 +346,7 @@ invoice_adjustment_invoice_expiration_after_capture(C) ->
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_)] = next_event(InvoiceID, Client),
-    Context = #'Content'{
+    Context = #base_Content{
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
     },
@@ -473,7 +469,7 @@ construct_domain_fixture() ->
                             ?fixed(100, <<"RUB">>)
                         )
                     ]},
-                eligibility_time = {value, #'TimeSpan'{minutes = 1}},
+                eligibility_time = {value, #base_TimeSpan{minutes = 1}},
                 partial_refunds = #domain_PartialRefundsServiceTerms{
                     cash_limit =
                         {decisions, [
@@ -591,7 +587,7 @@ construct_domain_fixture() ->
             data = #domain_TermSetHierarchy{
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TestTermSet
                     }
                 ]
@@ -889,12 +885,6 @@ make_payment_params(PaymentTool, Session, FlowType) ->
         flow = Flow
     }.
 
-get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
-    {URL, Form};
-get_post_request({payment_terminal_reciept, #'PaymentTerminalReceipt'{short_payment_id = SPID}}) ->
-    URL = hg_dummy_provider:get_callback_url(),
-    {URL, #{<<"tag">> => SPID}}.
-
 start_payment(InvoiceID, PaymentParams, Client) ->
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -1019,10 +1009,17 @@ await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts) when Res
     ] = next_event(InvoiceID, Client),
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1).
 
-assert_success_post_request(Req) ->
-    {ok, 200, _RespHeaders, _ClientRef} = post_request(Req).
+assert_success_interaction(UserInteraction) ->
+    {URL, Form} = get_post_request(UserInteraction),
+    {ok, 200, _RespHeaders, _ClientRef} = post_request(URL, Form).
 
-post_request({URL, Form}) ->
+get_post_request(?redirect(URL, Form)) ->
+    {URL, Form};
+get_post_request(?payterm_receipt(SPID)) ->
+    URL = hg_dummy_provider:get_callback_url(),
+    {URL, #{<<"tag">> => SPID}}.
+
+post_request(URL, Form) ->
     Method = post,
     Headers = [],
     Body = {form, maps:to_list(Form)},

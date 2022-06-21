@@ -1,6 +1,7 @@
 -ifndef(__hellgate_domain__).
 -define(__hellgate_domain__, 42).
 
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 -define(currency(SymCode), #domain_CurrencyRef{symbolic_code = SymCode}).

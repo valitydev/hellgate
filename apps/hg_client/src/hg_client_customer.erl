@@ -1,6 +1,6 @@
 -module(hg_client_customer).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 %% API
 
@@ -32,15 +32,15 @@
 
 %% Types
 
--type id() :: dmsl_payment_processing_thrift:'CustomerID'().
+-type id() :: dmsl_payproc_thrift:'CustomerID'().
 
--type customer() :: dmsl_payment_processing_thrift:'Customer'().
--type customer_params() :: dmsl_payment_processing_thrift:'CustomerParams'().
+-type customer() :: dmsl_payproc_thrift:'Customer'().
+-type customer_params() :: dmsl_payproc_thrift:'CustomerParams'().
 
--type customer_binding() :: dmsl_payment_processing_thrift:'CustomerBinding'().
--type customer_binding_params() :: dmsl_payment_processing_thrift:'CustomerBindingParams'().
--type event_range() :: dmsl_payment_processing_thrift:'EventRange'().
--type party_revision_param() :: dmsl_payment_processing_thrift:'PartyRevisionParam'().
+-type customer_binding() :: dmsl_payproc_thrift:'CustomerBinding'().
+-type customer_binding_params() :: dmsl_payproc_thrift:'CustomerBindingParams'().
+-type event_range() :: dmsl_payproc_thrift:'EventRange'().
+-type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
 
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 
@@ -109,7 +109,7 @@ map_result_error({error, Error}) ->
 
 %%
 
--type event() :: dmsl_payment_processing_thrift:'Event'().
+-type event() :: dmsl_payproc_thrift:'Event'().
 
 -record(state, {
     pollers :: #{id() => hg_client_event_poller:st(event())},

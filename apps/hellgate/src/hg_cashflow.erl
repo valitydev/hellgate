@@ -8,6 +8,7 @@
 
 -module(hg_cashflow).
 
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 -type account() :: dmsl_domain_thrift:'CashFlowAccount'().
@@ -146,7 +147,7 @@ revert_details(Details) ->
     {product, {Fun, CVs}}
 ).
 
--define(rational(P, Q), #'Rational'{p = P, q = Q}).
+-define(rational(P, Q), #base_Rational{p = P, q = Q}).
 
 -spec compute_volume(cash_volume(), context()) -> cash() | no_return().
 compute_volume(?fixed(Cash), _Context) ->

@@ -18,10 +18,8 @@
 
 -include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
-
--include_lib("damsel/include/dmsl_proto_limiter_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
 
 -include_lib("hellgate/include/domain.hrl").
 -include_lib("hellgate/include/allocation.hrl").
@@ -150,7 +148,6 @@
     capture_data :: undefined | capture_data(),
     failure :: undefined | failure(),
     timings :: undefined | hg_timings:t(),
-    latest_change_at :: undefined | hg_datetime:timestamp(),
     allocation :: undefined | hg_allocation:allocation()
 }).
 
@@ -177,15 +174,15 @@
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_status() :: dmsl_domain_thrift:'InvoicePaymentStatus'().
 -type domain_refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
--type payment_refund() :: dmsl_payment_processing_thrift:'InvoicePaymentRefund'().
+-type payment_refund() :: dmsl_payproc_thrift:'InvoicePaymentRefund'().
 -type refund_id() :: dmsl_domain_thrift:'InvoicePaymentRefundID'().
--type refund_params() :: dmsl_payment_processing_thrift:'InvoicePaymentRefundParams'().
--type payment_chargeback() :: dmsl_payment_processing_thrift:'InvoicePaymentChargeback'().
+-type refund_params() :: dmsl_payproc_thrift:'InvoicePaymentRefundParams'().
+-type payment_chargeback() :: dmsl_payproc_thrift:'InvoicePaymentChargeback'().
 -type chargeback() :: dmsl_domain_thrift:'InvoicePaymentChargeback'().
 -type chargeback_id() :: dmsl_domain_thrift:'InvoicePaymentChargebackID'().
 -type adjustment() :: dmsl_domain_thrift:'InvoicePaymentAdjustment'().
 -type adjustment_id() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentID'().
--type adjustment_params() :: dmsl_payment_processing_thrift:'InvoicePaymentAdjustmentParams'().
+-type adjustment_params() :: dmsl_payproc_thrift:'InvoicePaymentAdjustmentParams'().
 -type adjustment_state() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentState'().
 -type adjustment_status_change() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentStatusChange'().
 -type target() :: dmsl_domain_thrift:'TargetInvoicePaymentStatus'().
@@ -194,7 +191,7 @@
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type final_cash_flow() :: dmsl_domain_thrift:'FinalCashFlow'().
 -type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
--type session_result() :: dmsl_payment_processing_thrift:'SessionResult'().
+-type session_result() :: dmsl_payproc_thrift:'SessionResult'().
 -type proxy_state() :: dmsl_proxy_provider_thrift:'ProxyState'().
 -type tag() :: dmsl_proxy_provider_thrift:'CallbackTag'().
 -type callback() :: dmsl_proxy_provider_thrift:'Callback'().
@@ -203,8 +200,8 @@
 -type make_recurrent() :: true | false.
 -type recurrent_token() :: dmsl_domain_thrift:'Token'().
 -type retry_strategy() :: hg_retry:strategy().
--type capture_data() :: dmsl_payment_processing_thrift:'InvoicePaymentCaptureData'().
--type payment_session() :: dmsl_payment_processing_thrift:'InvoicePaymentSession'().
+-type capture_data() :: dmsl_payproc_thrift:'InvoicePaymentCaptureData'().
+-type payment_session() :: dmsl_payproc_thrift:'InvoicePaymentSession'().
 -type failure() :: dmsl_domain_thrift:'OperationFailure'().
 -type shop() :: dmsl_domain_thrift:'Shop'().
 -type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
@@ -234,7 +231,7 @@
 -include("payment_events.hrl").
 
 -type change() ::
-    dmsl_payment_processing_thrift:'InvoicePaymentChangePayload'().
+    dmsl_payproc_thrift:'InvoicePaymentChangePayload'().
 
 %%
 
@@ -391,7 +388,7 @@ get_chargeback_opts(#st{opts = Opts} = St) ->
 
 %%
 
--type event() :: dmsl_payment_processing_thrift:'InvoicePaymentChangePayload'().
+-type event() :: dmsl_payproc_thrift:'InvoicePaymentChangePayload'().
 -type action() :: hg_machine_action:t().
 -type events() :: [event()].
 -type result() :: {events(), action()}.
@@ -1097,7 +1094,7 @@ validate_processing_deadline(#domain_InvoicePayment{processing_deadline = Deadli
             {failure,
                 payproc_errors:construct(
                     'PaymentFailure',
-                    {authorization_failed, {processing_deadline_reached, #payprocerr_GeneralFailure{}}}
+                    {authorization_failed, {processing_deadline_reached, #payproc_error_GeneralFailure{}}}
                 )}
     end;
 validate_processing_deadline(_, _TargetType) ->
@@ -1775,8 +1772,7 @@ assert_no_refunds(St) ->
         0 ->
             ok;
         _ ->
-            Details = <<"Cannot change status of payment with refunds.">>,
-            erlang:throw(#'InvalidRequest'{errors = [Details]})
+            throw_invalid_request(<<"Cannot change status of payment with refunds.">>)
     end.
 
 -spec assert_adjustment_payment_statuses(TargetStatus :: payment_status(), Status :: payment_status()) ->
@@ -2199,7 +2195,7 @@ handle_gathered_route_result({error, not_found}, Routes, _) ->
         {failure,
             payproc_errors:construct(
                 'PaymentFailure',
-                {no_route_found, {forbidden, #payprocerr_GeneralFailure{}}}
+                {no_route_found, {forbidden, #payproc_error_GeneralFailure{}}}
             )},
     [Route | _] = Routes,
     %% For protocol compatability we set choosen route in route_changed event.
@@ -2212,7 +2208,7 @@ handle_choose_route_error(Reason, Events, St, Action) ->
         {failure,
             payproc_errors:construct(
                 'PaymentFailure',
-                {no_route_found, {Reason, #payprocerr_GeneralFailure{}}}
+                {no_route_found, {Reason, #payproc_error_GeneralFailure{}}}
             )},
     process_failure(get_activity(St), Events, Action, Failure, St).
 
@@ -2302,7 +2298,7 @@ process_refund_cashflow(ID, Action, St) ->
                 {failure,
                     payproc_errors:construct(
                         'RefundFailure',
-                        {terms_violated, {insufficient_merchant_funds, #payprocerr_GeneralFailure{}}}
+                        {terms_violated, {insufficient_merchant_funds, #payproc_error_GeneralFailure{}}}
                     )},
             process_failure(get_activity(St), [], Action, Failure, St, RefundSt)
     end.
@@ -2761,7 +2757,7 @@ get_action(_Target, Action, _St) ->
     Action.
 
 handle_proxy_result(
-    #prxprv_PaymentProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
+    #proxy_provider_PaymentProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
     Action0,
     Events0,
     Session,
@@ -2773,7 +2769,7 @@ handle_proxy_result(
     {lists:flatten([Events0, Events1, Events2, Events3]), Action}.
 
 handle_callback_result(
-    #prxprv_PaymentCallbackResult{result = ProxyResult, response = Response},
+    #proxy_provider_PaymentCallbackResult{result = ProxyResult, response = Response},
     Action0,
     Session,
     Context
@@ -2781,7 +2777,7 @@ handle_callback_result(
     {Response, handle_proxy_callback_result(ProxyResult, Action0, Session, Context)}.
 
 handle_proxy_callback_result(
-    #prxprv_PaymentCallbackProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
+    #proxy_provider_PaymentCallbackProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
     Action0,
     Session,
     Context
@@ -2792,7 +2788,7 @@ handle_proxy_callback_result(
     {Events3, Action} = handle_proxy_intent(Intent, hg_machine_action:unset_timer(Action0), Session, Context),
     {lists:flatten([Events0, Events1, Events2, Events3]), Action};
 handle_proxy_callback_result(
-    #prxprv_PaymentCallbackProxyResult{intent = undefined, trx = Trx, next_state = ProxyState},
+    #proxy_provider_PaymentCallbackProxyResult{intent = undefined, trx = Trx, next_state = ProxyState},
     Action0,
     Session,
     _Context
@@ -2818,25 +2814,25 @@ update_proxy_state(ProxyState, Session) ->
             [wrap_session_event(?proxy_st_changed(ProxyState), Session)]
     end.
 
-handle_proxy_intent(#prxprv_FinishIntent{status = {success, Success}}, Action, Session, _Context) ->
+handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, Session, _Context) ->
     Events0 = [wrap_session_event(?session_finished(?session_succeeded()), Session)],
     Events1 =
         case Success of
-            #prxprv_Success{token = undefined} ->
+            #proxy_provider_Success{token = undefined} ->
                 Events0;
-            #prxprv_Success{token = Token} ->
+            #proxy_provider_Success{token = Token} ->
                 [?rec_token_acquired(Token) | Events0]
         end,
     {Events1, Action};
 handle_proxy_intent(
-    #prxprv_FinishIntent{status = {failure, Failure}}, Action, Session = #{target := {captured, _}}, _Context
+    #proxy_provider_FinishIntent{status = {failure, Failure}}, Action, Session = #{target := {captured, _}}, _Context
 ) ->
     handle_proxy_capture_failure(Action, Failure, Session);
-handle_proxy_intent(#prxprv_FinishIntent{status = {failure, Failure}}, Action, Session, _Context) ->
+handle_proxy_intent(#proxy_provider_FinishIntent{status = {failure, Failure}}, Action, Session, _Context) ->
     Events = [wrap_session_event(?session_finished(?session_failed({failure, Failure})), Session)],
     {Events, Action};
 handle_proxy_intent(
-    #prxprv_SleepIntent{
+    #proxy_provider_SleepIntent{
         timer = Timer,
         user_interaction = UserInteraction
     },
@@ -2848,7 +2844,7 @@ handle_proxy_intent(
     Events = wrap_session_events(try_request_interaction(UserInteraction), Session),
     {Events, Action};
 handle_proxy_intent(
-    #prxprv_SuspendIntent{
+    #proxy_provider_SuspendIntent{
         tag = Tag,
         timeout = Timer,
         user_interaction = UserInteraction,
@@ -3028,7 +3024,7 @@ construct_payment_info(St, Opts) ->
         get_activity(St),
         get_target(St),
         St,
-        #prxprv_PaymentInfo{
+        #proxy_provider_PaymentInfo{
             shop = construct_proxy_shop(get_shop(Opts)),
             invoice = construct_proxy_invoice(get_invoice(Opts)),
             payment = construct_proxy_payment(get_payment(St), get_trx(St))
@@ -3036,14 +3032,14 @@ construct_payment_info(St, Opts) ->
     ).
 
 construct_proxy_context(St) ->
-    #prxprv_PaymentContext{
+    #proxy_provider_PaymentContext{
         session = construct_session(get_activity_session(St)),
         payment_info = construct_payment_info(St, get_opts(St)),
         options = collect_proxy_options(St)
     }.
 
 construct_session(Session = #{target := Target}) ->
-    #prxprv_Session{
+    #proxy_provider_Session{
         target = Target,
         state = get_session_proxy_state(Session)
     }.
@@ -3056,13 +3052,13 @@ construct_payment_info(
     _St,
     PaymentInfo
 ) ->
-    PaymentInfo#prxprv_PaymentInfo{
+    PaymentInfo#proxy_provider_PaymentInfo{
         capture = construct_proxy_capture(Target)
     };
 construct_payment_info({payment, _Step}, _Target, _St, PaymentInfo) ->
     PaymentInfo;
 construct_payment_info({refund_session, ID}, _Target, St, PaymentInfo) ->
-    PaymentInfo#prxprv_PaymentInfo{
+    PaymentInfo#proxy_provider_PaymentInfo{
         refund = construct_proxy_refund(try_get_refund_state(ID, St))
     }.
 
@@ -3081,7 +3077,7 @@ construct_proxy_payment(
 ) ->
     ContactInfo = get_contact_info(Payer),
     PaymentTool = get_payer_payment_tool(Payer),
-    #prxprv_InvoicePayment{
+    #proxy_provider_InvoicePayment{
         id = ID,
         created_at = CreatedAt,
         trx = Trx,
@@ -3099,7 +3095,7 @@ construct_payment_resource(?payment_resource_payer(Resource, _)) ->
 construct_payment_resource(?recurrent_payer(PaymentTool, ?recurrent_parent(InvoiceID, PaymentID), _)) ->
     PreviousPayment = get_payment_state(InvoiceID, PaymentID),
     RecToken = get_recurrent_token(PreviousPayment),
-    {recurrent_payment_resource, #prxprv_RecurrentPaymentResource{
+    {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
         payment_tool = PaymentTool,
         rec_token = RecToken
     }};
@@ -3111,7 +3107,7 @@ construct_payment_resource(?customer_payer(_, _, RecPaymentToolID, _, _) = Payer
             },
             rec_token = RecToken
         }} when RecToken =/= undefined ->
-            {recurrent_payment_resource, #prxprv_RecurrentPaymentResource{
+            {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
                 payment_tool = PaymentTool,
                 rec_token = RecToken
             }};
@@ -3136,7 +3132,7 @@ construct_proxy_invoice(
         cost = Cost
     }
 ) ->
-    #prxprv_Invoice{
+    #proxy_provider_Invoice{
         id = InvoiceID,
         created_at = CreatedAt,
         due = Due,
@@ -3153,7 +3149,7 @@ construct_proxy_shop(
     }
 ) ->
     ShopCategory = hg_domain:get({category, ShopCategoryRef}),
-    #prxprv_Shop{
+    #proxy_provider_Shop{
         id = ShopID,
         category = ShopCategory,
         details = ShopDetails,
@@ -3164,13 +3160,13 @@ construct_proxy_cash(#domain_Cash{
     amount = Amount,
     currency = CurrencyRef
 }) ->
-    #prxprv_Cash{
+    #proxy_provider_Cash{
         amount = Amount,
         currency = hg_domain:get({currency, CurrencyRef})
     }.
 
 construct_proxy_refund(#refund_st{refund = Refund} = St) ->
-    #prxprv_InvoicePaymentRefund{
+    #proxy_provider_InvoicePaymentRefund{
         id = get_refund_id(Refund),
         created_at = get_refund_created_at(Refund),
         trx = get_session_trx(get_refund_session(St)),
@@ -3178,7 +3174,7 @@ construct_proxy_refund(#refund_st{refund = Refund} = St) ->
     }.
 
 construct_proxy_capture(?captured(_, Cost)) ->
-    #prxprv_InvoicePaymentCapture{
+    #proxy_provider_InvoicePaymentCapture{
         cost = construct_proxy_cash(Cost)
     }.
 
@@ -3277,7 +3273,7 @@ get_varset(St, InitialValue) ->
 
 -spec throw_invalid_request(binary()) -> no_return().
 throw_invalid_request(Why) ->
-    throw(#'InvalidRequest'{errors = [Why]}).
+    throw(#base_InvalidRequest{errors = [Why]}).
 
 -spec throw_invalid_recurrent_parent(binary()) -> no_return().
 throw_invalid_recurrent_parent(Details) ->

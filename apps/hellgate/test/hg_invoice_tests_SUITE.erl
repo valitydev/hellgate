@@ -5,11 +5,7 @@
 -module(hg_invoice_tests_SUITE).
 
 -include("hg_ct_domain.hrl").
-
--include_lib("common_test/include/ct.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
--include_lib("damsel/include/dmsl_proto_limiter_thrift.hrl").
+-include_lib("damsel/include/dmsl_repair_thrift.hrl").
 -include_lib("limiter_proto/include/lim_configurator_thrift.hrl").
 -include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
 -include_lib("hellgate/include/allocation.hrl").
@@ -586,14 +582,6 @@ end_per_suite(C) ->
     {exception, #payproc_InvoicePaymentChargebackInvalidStatus{status = Status}}
 ).
 
--define(invalid_chargeback_stage(Stage),
-    {exception, #payproc_InvoicePaymentChargebackInvalidStage{stage = Stage}}
-).
-
--define(insufficient_account_balance(),
-    {exception, #payproc_InsufficientAccountBalance{}}
-).
-
 -define(invoice_payment_amount_exceeded(Maximum),
     {exception, #payproc_InvoicePaymentAmountExceeded{maximum = Maximum}}
 ).
@@ -722,7 +710,7 @@ invalid_invoice_amount(C) ->
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams0 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(-10000)),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Invalid amount">>]
     }} = hg_client_invoicing:create(InvoiceParams0, Client),
     InvoiceParams1 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(5)),
@@ -738,7 +726,7 @@ invalid_invoice_currency(C) ->
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(100, <<"KEK">>)),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Invalid currency">>]
     }} = hg_client_invoicing:create(InvoiceParams, Client).
 
@@ -806,33 +794,33 @@ invalid_invoice_template_cost(C) ->
     Cost1 = make_tpl_cost(unlim, sale, "30%"),
     TplID = create_invoice_tpl(C, Cost1, Context),
     Params1 = hg_ct_helper:make_invoice_params_tpl(TplID),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [?INVOICE_TPL_NO_COST]
     }} = hg_client_invoicing:create_with_tpl(Params1, Client),
 
     Cost2 = make_tpl_cost(fixed, 100, <<"RUB">>),
     _ = update_invoice_tpl(TplID, Cost2, C),
     Params2 = hg_ct_helper:make_invoice_params_tpl(TplID, make_cash(50, <<"RUB">>)),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [?INVOICE_TPL_BAD_COST]
     }} = hg_client_invoicing:create_with_tpl(Params2, Client),
     Params3 = hg_ct_helper:make_invoice_params_tpl(TplID, make_cash(100, <<"KEK">>)),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [?INVOICE_TPL_BAD_COST]
     }} = hg_client_invoicing:create_with_tpl(Params3, Client),
 
     Cost3 = make_tpl_cost(range, {inclusive, 100, <<"RUB">>}, {inclusive, 10000, <<"RUB">>}),
     _ = update_invoice_tpl(TplID, Cost3, C),
     Params4 = hg_ct_helper:make_invoice_params_tpl(TplID, make_cash(50, <<"RUB">>)),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [?INVOICE_TPL_BAD_AMOUNT]
     }} = hg_client_invoicing:create_with_tpl(Params4, Client),
     Params5 = hg_ct_helper:make_invoice_params_tpl(TplID, make_cash(50000, <<"RUB">>)),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [?INVOICE_TPL_BAD_AMOUNT]
     }} = hg_client_invoicing:create_with_tpl(Params5, Client),
     Params6 = hg_ct_helper:make_invoice_params_tpl(TplID, make_cash(500, <<"KEK">>)),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [?INVOICE_TPL_BAD_CURRENCY]
     }} = hg_client_invoicing:create_with_tpl(Params6, Client),
 
@@ -983,7 +971,7 @@ invalid_payment_amount(C) ->
     Client = cfg(client, C),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     InvoiceID2 = start_invoice(<<"rubberduck">>, make_due_date(10), 430000000, C),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Invalid amount, more", _/binary>>]
     }} = hg_client_invoicing:start_payment(InvoiceID2, PaymentParams, Client).
 
@@ -1019,7 +1007,7 @@ payment_start_idempotency(C) ->
 payment_success(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    Context = #'Content'{
+    Context = #base_Content{
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
     },
@@ -1751,7 +1739,7 @@ payment_w_another_shop_customer(C) ->
     InvoiceID = start_invoice(AnotherShopID, <<"rubberduck">>, make_due_date(60), 42000, C),
     CustomerID = make_customer_w_rec_tool(PartyID, ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_customer_payment_params(CustomerID),
-    {exception, #'InvalidRequest'{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
+    {exception, #base_InvalidRequest{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
 
 -spec payment_w_another_party_customer(config()) -> test_return().
 payment_w_another_party_customer(C) ->
@@ -1764,7 +1752,7 @@ payment_w_another_party_customer(C) ->
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(60), 42000, C),
     PaymentParams = make_customer_payment_params(CustomerID),
-    {exception, #'InvalidRequest'{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
+    {exception, #base_InvalidRequest{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
 
 -spec payment_w_deleted_customer(config()) -> test_return().
 payment_w_deleted_customer(C) ->
@@ -1776,7 +1764,7 @@ payment_w_deleted_customer(C) ->
     CustomerID = make_customer_w_rec_tool(PartyID, ShopID, CustomerClient, ?pmt_sys(<<"visa-ref">>)),
     ok = hg_client_customer:delete(CustomerID, CustomerClient),
     PaymentParams = make_customer_payment_params(CustomerID),
-    {exception, #'InvalidRequest'{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
+    {exception, #base_InvalidRequest{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
 
 -spec payment_success_on_second_try(config()) -> test_return().
 payment_success_on_second_try(C) ->
@@ -2397,7 +2385,7 @@ status_adjustment_of_partial_refunded_payment(C) ->
     _RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
     FailedTargetStatus = ?failed({failure, #domain_Failure{code = <<"404">>}}),
     FailedAdjustmentParams = make_status_adjustment_params(FailedTargetStatus),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Cannot change status of payment with refunds.">>]
     }} = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, FailedAdjustmentParams, Client).
 
@@ -2486,7 +2474,7 @@ invalid_payment_w_deprived_party(C) ->
     [?invoice_created(?invoice_w_status(?invoice_unpaid()))] = next_event(InvoiceID, InvoicingClient),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     Exception = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, InvoicingClient),
-    {exception, #'InvalidRequest'{}} = Exception.
+    {exception, #base_InvalidRequest{}} = Exception.
 
 -spec external_account_posting(config()) -> test_return().
 external_account_posting(C) ->
@@ -3918,7 +3906,7 @@ payment_refund_success(C) ->
         {failure,
             payproc_errors:construct(
                 'RefundFailure',
-                {terms_violated, {insufficient_merchant_funds, #payprocerr_GeneralFailure{}}}
+                {terms_violated, {insufficient_merchant_funds, ?err_gen_failure()}}
             )},
     ?refund_id(RefundID0) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
@@ -3965,7 +3953,7 @@ payment_refund_failure(C) ->
         {failure,
             payproc_errors:construct(
                 'RefundFailure',
-                {terms_violated, {insufficient_merchant_funds, #payprocerr_GeneralFailure{}}}
+                {terms_violated, {insufficient_merchant_funds, ?err_gen_failure()}}
             )},
     ?refund_id(RefundID0) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
@@ -4024,7 +4012,7 @@ deadline_doesnt_affect_payment_refund(C) ->
         {failure,
             payproc_errors:construct(
                 'RefundFailure',
-                {terms_violated, {insufficient_merchant_funds, #payprocerr_GeneralFailure{}}}
+                {terms_violated, {insufficient_merchant_funds, ?err_gen_failure()}}
             )},
     ?refund_id(RefundID0) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
@@ -4068,7 +4056,7 @@ payment_manual_refund(C) ->
         {failure,
             payproc_errors:construct(
                 'RefundFailure',
-                {terms_violated, {insufficient_merchant_funds, #payprocerr_GeneralFailure{}}}
+                {terms_violated, {insufficient_merchant_funds, ?err_gen_failure()}}
             )},
     Refund0 =
         ?refund_id(RefundID0) =
@@ -4225,12 +4213,12 @@ invalid_amount_payment_partial_refund(C) ->
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), InvoiceAmount, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     RefundParams1 = make_refund_params(50, <<"RUB">>),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Invalid amount, less than allowed minumum">>]
     }} =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
     RefundParams2 = make_refund_params(40001, <<"RUB">>),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Invalid amount, more than allowed maximum">>]
     }} =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams2, Client),
@@ -4239,7 +4227,7 @@ invalid_amount_payment_partial_refund(C) ->
     Cash = ?cash(InvoiceAmount - RefundAmount - 1, <<"RUB">>),
     Cart = ?cart(Cash, #{}),
     RefundParams3 = make_refund_params(RefundAmount, <<"RUB">>, Cart),
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Remaining payment amount not equal cart cost">>]
     }} =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams3, Client),
@@ -4248,7 +4236,7 @@ invalid_amount_payment_partial_refund(C) ->
         reason = <<"ZANOZED">>,
         cart = Cart
     },
-    {exception, #'InvalidRequest'{
+    {exception, #base_InvalidRequest{
         errors = [<<"Refund amount does not match with the cart total amount">>]
     }} =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams4, Client).
@@ -4405,7 +4393,7 @@ payment_refund_id_types(C) ->
     PaymentID = await_partial_manual_refund_succeeded(InvoiceID, PaymentID, RefundID2, TrxInfo, Client),
     % 3
     CustomIdParams = RefundParams#payproc_InvoicePaymentRefundParams{id = <<"m3">>},
-    {exception, #'InvalidRequest'{}} =
+    {exception, #base_InvalidRequest{}} =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, CustomIdParams, Client),
     RefundID3 = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
     % Check ids
@@ -4739,7 +4727,7 @@ adhoc_repair_working_failed(C) ->
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
-    {exception, #'InvalidRequest'{}} = repair_invoice(InvoiceID, [], Client),
+    {exception, #base_InvalidRequest{}} = repair_invoice(InvoiceID, [], Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
@@ -4837,7 +4825,7 @@ adhoc_repair_force_invalid_transition(C) ->
     _ = ?assertEqual(ok, hg_invoice:fail(InvoiceID)),
     Failure = payproc_errors:construct(
         'PaymentFailure',
-        {authorization_failed, {unknown, #payprocerr_GeneralFailure{}}}
+        {authorization_failed, {unknown, ?err_gen_failure()}}
     ),
     InvalidChanges = [
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))),
@@ -4985,7 +4973,7 @@ repair_fail_session_on_processed_succeeded(C) ->
 
     Failure = payproc_errors:construct(
         'PaymentFailure',
-        {authorization_failed, {security_policy_violated, #payprocerr_GeneralFailure{}}},
+        {authorization_failed, {security_policy_violated, ?err_gen_failure()}},
         genlib:unique()
     ),
     ok = repair_invoice_with_scenario(InvoiceID, {fail_session, Failure}, Client),
@@ -5279,7 +5267,7 @@ repair_fulfill_session_with_trx_succeeded(C) ->
 construct_authorization_failure() ->
     payproc_errors:construct(
         'PaymentFailure',
-        {authorization_failed, {unknown, #payprocerr_GeneralFailure{}}}
+        {authorization_failed, {unknown, ?err_gen_failure()}}
     ).
 
 %%
@@ -5980,7 +5968,7 @@ repair_invoice(InvoiceID, Changes, Action, Params, Client) ->
     hg_client_invoicing:repair(InvoiceID, Changes, Action, Params, Client).
 
 create_repair_scenario(fail_pre_processing) ->
-    Failure = payproc_errors:construct('PaymentFailure', {no_route_found, {unknown, #payprocerr_GeneralFailure{}}}),
+    Failure = payproc_errors:construct('PaymentFailure', {no_route_found, {unknown, ?err_gen_failure()}}),
     {'fail_pre_processing', #'payproc_InvoiceRepairFailPreProcessing'{failure = Failure}};
 create_repair_scenario(skip_inspector) ->
     {'skip_inspector', #'payproc_InvoiceRepairSkipInspector'{risk_score = low}};
@@ -6297,9 +6285,9 @@ post_request({URL, Form}) ->
     Body = {form, maps:to_list(Form)},
     hackney:request(Method, URL, Headers, Body, [{with_body, true}]).
 
-get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
+get_post_request(?redirect(URL, Form)) ->
     {URL, Form};
-get_post_request({payment_terminal_reciept, #'PaymentTerminalReceipt'{short_payment_id = SPID}}) ->
+get_post_request(?payterm_receipt(SPID)) ->
     URL = hg_dummy_provider:get_callback_url(),
     {URL, #{<<"tag">> => SPID}}.
 
@@ -6637,7 +6625,7 @@ construct_domain_fixture() ->
                             ?fixed(100, <<"RUB">>)
                         )
                     ]},
-                eligibility_time = {value, #'TimeSpan'{minutes = 1}},
+                eligibility_time = {value, #base_TimeSpan{minutes = 1}},
                 partial_refunds = #domain_PartialRefundsServiceTerms{
                     cash_limit =
                         {decisions, [
@@ -6807,7 +6795,7 @@ construct_domain_fixture() ->
                             ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>))
                         ])},
                 fees = {value, []},
-                eligibility_time = {value, #'TimeSpan'{minutes = 1}},
+                eligibility_time = {value, #base_TimeSpan{minutes = 1}},
                 partial_refunds = #domain_PartialRefundsServiceTerms{
                     cash_limit =
                         {value,
@@ -7129,7 +7117,7 @@ construct_domain_fixture() ->
             data = #domain_TermSetHierarchy{
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TestTermSet
                     }
                 ]
@@ -7140,7 +7128,7 @@ construct_domain_fixture() ->
             data = #domain_TermSetHierarchy{
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = DefaultTermSet
                     }
                 ]
@@ -7159,11 +7147,6 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Brovider">>,
                 description = <<"A provider but bro">>,
-                terminal =
-                    {value,
-                        ?ordset([
-                            ?prvtrm(1)
-                        ])},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7418,7 +7401,6 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Drovider">>,
                 description = <<"I'm out of ideas of what to write here">>,
-                terminal = {value, [?prvtrm(6), ?prvtrm(7)]},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7627,7 +7609,6 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Crovider">>,
                 description = <<"Payment terminal provider">>,
-                terminal = {value, [?prvtrm(10)]},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7691,18 +7672,6 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"UnionTelecom">>,
                 description = <<"Mobile commerce terminal provider">>,
-                terminal =
-                    {decisions, [
-                        #domain_TerminalDecision{
-                            if_ =
-                                {condition,
-                                    {payment_tool,
-                                        {mobile_commerce, #domain_MobileCommerceCondition{
-                                            definition = {operator_is, ?mob(<<"mts-ref">>)}
-                                        }}}},
-                            then_ = {value, [?prvtrm(11)]}
-                        }
-                    ]},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7768,7 +7737,6 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"UnionTelecom">>,
                 description = <<"Mobile commerce terminal provider">>,
-                terminal = {value, [?prvtrm(12)]},
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7995,7 +7963,7 @@ construct_term_set_for_cost(LowerBound, UpperBound) ->
             parent_terms = undefined,
             term_sets = [
                 #domain_TimedTermSet{
-                    action_time = #'TimestampInterval'{},
+                    action_time = #base_TimestampInterval{},
                     terms = TermSet
                 }
             ]
@@ -8006,7 +7974,7 @@ construct_term_set_for_refund_eligibility_time(Seconds) ->
     TermSet = #domain_TermSet{
         payments = #domain_PaymentsServiceTerms{
             refunds = #domain_PaymentRefundsServiceTerms{
-                eligibility_time = {value, #'TimeSpan'{seconds = Seconds}}
+                eligibility_time = {value, #base_TimeSpan{seconds = Seconds}}
             }
         }
     },
@@ -8018,7 +7986,7 @@ construct_term_set_for_refund_eligibility_time(Seconds) ->
                 parent_terms = ?trms(2),
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TermSet
                     }
                 ]
@@ -8034,7 +8002,7 @@ get_payment_adjustment_fixture(Revision) ->
             data = #domain_TermSetHierarchy{
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = #domain_TermSet{
                             payments = #domain_PaymentsServiceTerms{
                                 fees =
@@ -8088,7 +8056,6 @@ get_payment_adjustment_fixture(Revision) ->
                 name = <<"Adjustable">>,
                 description = <<>>,
                 abs_account = <<>>,
-                terminal = {value, [?prvtrm(100)]},
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
@@ -8346,7 +8313,6 @@ payments_w_bank_card_issuer_conditions_fixture(Revision) ->
                 name = <<"VTB21">>,
                 description = <<>>,
                 abs_account = <<>>,
-                terminal = {value, [?prvtrm(100)]},
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
@@ -8447,7 +8413,7 @@ payments_w_bank_card_issuer_conditions_fixture(Revision) ->
                 parent_terms = ?trms(1),
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = #domain_TermSet{
                             payments = #domain_PaymentsServiceTerms{
                                 cash_limit =
@@ -8493,7 +8459,7 @@ payments_w_bank_conditions_fixture(_Revision) ->
                 parent_terms = ?trms(1),
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = #domain_TermSet{
                             payments = #domain_PaymentsServiceTerms{
                                 cash_limit =
@@ -8581,7 +8547,7 @@ construct_term_set_for_partial_capture_service_permit(_Revision) ->
                 parent_terms = ?trms(1),
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TermSet
                     }
                 ]

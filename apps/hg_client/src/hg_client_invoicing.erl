@@ -1,6 +1,6 @@
 -module(hg_client_invoicing).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export([start/1]).
 -export([start_link/1]).
@@ -63,40 +63,40 @@
 %%
 
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
--type invoice_state() :: dmsl_payment_processing_thrift:'Invoice'().
+-type invoice_state() :: dmsl_payproc_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
--type invoice_params() :: dmsl_payment_processing_thrift:'InvoiceParams'().
--type invoice_params_tpl() :: dmsl_payment_processing_thrift:'InvoiceWithTemplateParams'().
+-type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
+-type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
 
 -type invoice_adjustment() :: dmsl_domain_thrift:'InvoiceAdjustment'().
 -type invoice_adjustment_id() :: dmsl_domain_thrift:'InvoiceAdjustmentID'().
--type invoice_adjustment_params() :: dmsl_payment_processing_thrift:'InvoiceAdjustmentParams'().
+-type invoice_adjustment_params() :: dmsl_payproc_thrift:'InvoiceAdjustmentParams'().
 
--type payment_params() :: dmsl_payment_processing_thrift:'InvoicePaymentParams'().
+-type payment_params() :: dmsl_payproc_thrift:'InvoicePaymentParams'().
 
 -type payment_adjustment() :: dmsl_domain_thrift:'InvoicePaymentAdjustment'().
 -type payment_adjustment_id() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentID'().
--type payment_adjustment_params() :: dmsl_payment_processing_thrift:'InvoicePaymentAdjustmentParams'().
+-type payment_adjustment_params() :: dmsl_payproc_thrift:'InvoicePaymentAdjustmentParams'().
 
 -type refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
 -type refund_id() :: dmsl_domain_thrift:'InvoicePaymentRefundID'().
--type refund_params() :: dmsl_payment_processing_thrift:'InvoicePaymentRefundParams'().
+-type refund_params() :: dmsl_payproc_thrift:'InvoicePaymentRefundParams'().
 
 -type chargeback() :: dmsl_domain_thrift:'InvoicePaymentChargeback'().
 -type chargeback_id() :: dmsl_domain_thrift:'InvoicePaymentChargebackID'().
--type chargeback_params() :: dmsl_payment_processing_thrift:'InvoicePaymentChargebackParams'().
--type chargeback_cancel_params() :: dmsl_payment_processing_thrift:'InvoicePaymentChargebackCancelParams'().
--type chargeback_accept_params() :: dmsl_payment_processing_thrift:'InvoicePaymentChargebackAcceptParams'().
--type chargeback_reject_params() :: dmsl_payment_processing_thrift:'InvoicePaymentChargebackRejectParams'().
--type chargeback_reopen_params() :: dmsl_payment_processing_thrift:'InvoicePaymentChargebackReopenParams'().
+-type chargeback_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackParams'().
+-type chargeback_cancel_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackCancelParams'().
+-type chargeback_accept_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackAcceptParams'().
+-type chargeback_reject_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackRejectParams'().
+-type chargeback_reopen_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackReopenParams'().
 
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type cash() :: undefined | dmsl_domain_thrift:'Cash'().
 -type cart() :: undefined | dmsl_domain_thrift:'InvoiceCart'().
 -type allocation_prototype() :: undefined | dmsl_domain_thrift:'AllocationPrototype'().
--type event_range() :: dmsl_payment_processing_thrift:'EventRange'().
--type party_revision_param() :: dmsl_payment_processing_thrift:'PartyRevisionParam'().
+-type event_range() :: dmsl_payproc_thrift:'EventRange'().
+-type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
 
 -spec start(hg_client_api:t()) -> pid().
 start(ApiClient) ->
@@ -308,7 +308,7 @@ map_result_error({error, Error}) ->
 
 %%
 
--type event() :: dmsl_payment_processing_thrift:'Event'().
+-type event() :: dmsl_payproc_thrift:'Event'().
 
 -record(state, {
     pollers :: #{invoice_id() => hg_client_event_poller:st(event())},
