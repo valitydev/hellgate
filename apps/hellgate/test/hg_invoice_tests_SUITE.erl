@@ -1156,7 +1156,7 @@ limit_not_found(C) ->
         [?payment_state(Payment)]
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
-    {error, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, Payment, Invoice).
+    {exception, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, Payment, Invoice).
 
 -spec refund_limit_success(config()) -> test_return().
 refund_limit_success(C) ->
