@@ -27,7 +27,7 @@ get(LimitID, Clock, Context) ->
             Limit;
         {exception, #limiter_LimitNotFound{}} ->
             error({not_found, LimitID});
-        {exception, #'limiter_base_InvalidRequest'{errors = Errors}} ->
+        {exception, #'InvalidRequest'{errors = Errors}} ->
             error({invalid_request, Errors})
     end.
 
@@ -42,7 +42,7 @@ hold(LimitChange, Clock, Context) ->
             ClockUpdated;
         {exception, #limiter_LimitNotFound{}} ->
             error({not_found, LimitID});
-        {exception, #'limiter_base_InvalidRequest'{errors = Errors}} ->
+        {exception, #'InvalidRequest'{errors = Errors}} ->
             error({invalid_request, Errors})
     end.
 
@@ -57,7 +57,7 @@ commit(LimitChange, Clock, Context) ->
             error({not_found, LimitChange#limiter_LimitChange.id});
         {exception, #limiter_LimitChangeNotFound{}} ->
             error({not_found, {limit_change, LimitChange#limiter_LimitChange.change_id}});
-        {exception, #limiter_base_InvalidRequest{errors = Errors}} ->
+        {exception, #'InvalidRequest'{errors = Errors}} ->
             error({invalid_request, Errors});
         {exception, #limiter_ForbiddenOperationAmount{} = Ex} ->
             Amount = Ex#limiter_ForbiddenOperationAmount.amount,

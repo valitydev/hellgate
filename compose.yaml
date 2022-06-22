@@ -63,7 +63,7 @@ services:
       retries: 10
 
   limiter:
-    image: docker.io/rbkmoney/limiter:c7e96068a56da444e78cc7739a902da8e268dc63
+    image: ghcr.io/valitydev/limiter:sha-2dff7b5
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
@@ -71,7 +71,7 @@ services:
       shumway:
         condition: service_healthy
     healthcheck:
-      test: "curl http://localhost:8022/"
+      test: "/opt/limiter/bin/limiter ping"
       interval: 5s
       timeout: 1s
       retries: 20
