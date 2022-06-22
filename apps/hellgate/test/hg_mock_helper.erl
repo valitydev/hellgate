@@ -31,7 +31,7 @@ start_mocked_service_sup() ->
         #{strategy => one_for_all, intensity => 1, period => 1}, []
     ),
     _ = unlink(SupPid),
-    SupPid.
+    {ok, SupPid}.
 
 -spec stop_mocked_service_sup(pid()) -> _.
 stop_mocked_service_sup(SupPid) ->
@@ -39,7 +39,7 @@ stop_mocked_service_sup(SupPid) ->
 
 -spec mock_services(list(), sup_or_config()) -> _.
 mock_services(Services, SupOrConfig) ->
-    {DominantClientServices, WoodyServices} = lists:partition(
+    {DominantClientServices, WoodyServices0} = lists:partition(
         fun
             ({repository, _}) -> true;
             ({repository_client, _}) -> true;
@@ -47,13 +47,23 @@ mock_services(Services, SupOrConfig) ->
         end,
         Services
     ),
+    {PartyClientServices, WoodyServices1} = lists:partition(
+        fun
+            ({party_management, _}) -> true;
+            (_) -> false
+        end,
+        WoodyServices0
+    ),
+    _ = start_party_client(mock_services_(PartyClientServices, SupOrConfig)),
     _ = start_dmt_client(mock_services_(DominantClientServices, SupOrConfig)),
-    start_woody_client(mock_services_(WoodyServices, SupOrConfig)).
+    start_woody_client(mock_services_(WoodyServices1, SupOrConfig)).
+
+start_party_client(Services) ->
+    hg_ct_helper:start_app(party_client, [{services, Services}]).
 
 start_dmt_client(Services) ->
-%%    _ = ct:pal("Services: ~p~n", [Services]),
     ReformattedServices = maps:fold(
-        fun (Key, V, Acc) ->
+        fun(Key, V, Acc) ->
             case (Key) of
                 repository ->
                     Acc#{'Repository' => V};
@@ -81,19 +91,22 @@ mock_services_(Services, Config) when is_list(Config) ->
 mock_services_(Services, SupPid) when is_pid(SupPid) ->
     {ok, IP} = inet:parse_address(?HELLGATE_IP),
     lists:foldl(
-        fun(Service, Acc) ->
-            Name = get_service_name(Service),
-            ServerID = {dummy, Name},
-            WoodyOpts = #{
-                ip => IP,
-                port => 0,
-                event_handler => scoper_woody_event_handler,
-                handlers => [mock_service_handler(Service)]
-            },
-            ChildSpec = woody_server:child_spec(ServerID, WoodyOpts),
-            {ok, _} = supervisor:start_child(SupPid, ChildSpec),
-            {_IP, Port} = woody_server:get_addr(ServerID, WoodyOpts),
-            Acc#{Name => make_url(Name, Port)}
+        fun
+            ({Name, URL}, Acc) when is_binary(URL) ->
+                Acc#{Name => URL};
+            (Service, Acc) ->
+                Name = get_service_name(Service),
+                ServerID = {dummy, Name},
+                WoodyOpts = #{
+                    ip => IP,
+                    port => 0,
+                    event_handler => scoper_woody_event_handler,
+                    handlers => [mock_service_handler(Service)]
+                },
+                ChildSpec = woody_server:child_spec(ServerID, WoodyOpts),
+                {ok, _} = supervisor:start_child(SupPid, ChildSpec),
+                {_IP, Port} = woody_server:get_addr(ServerID, WoodyOpts),
+                Acc#{Name => make_url(Name, Port)}
         end,
         #{},
         Services
