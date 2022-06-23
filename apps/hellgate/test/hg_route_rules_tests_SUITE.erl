@@ -42,10 +42,7 @@
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
     [
-        %%        {group, base_routing_rule},
-        %%        {group, routing_with_risk_coverage_set},
-        {group, routing_with_fail_rate}
-        %%        {group, terminal_priority}
+        {group, routing_rule}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
@@ -58,14 +55,20 @@ groups() ->
         %%            empty_candidate_ok,
         %%            ruleset_misconfig
         %%        ]},
-        %%        {routing_with_risk_coverage_set, [parallel], [
-        %%            routes_selected_for_low_risk_score,
-        %%            routes_selected_for_high_risk_score
-        %%        ]},
+        {routing_with_risk_coverage_set, [parallel], [
+            routes_selected_for_low_risk_score,
+            routes_selected_for_high_risk_score
+        ]},
         {routing_with_fail_rate, [], [
             gathers_fail_rated_routes,
             choice_context_formats_ok
-            %,
+        ]},
+        {routing_rule, [parallel], [
+            routes_selected_for_low_risk_score,
+            routes_selected_for_high_risk_score,
+
+            gathers_fail_rated_routes,
+            choice_context_formats_ok
         ]}
         %%        {terminal_priority, [], [
         %%            terminal_priority_for_shop
@@ -79,14 +82,11 @@ init_per_suite(C) ->
     {Apps, _Ret} = hg_ct_helper:start_apps([
         woody,
         scoper,
-        %%        dmt_client,
         bender_client,
-        party_client,
         hg_proto,
         hellgate,
         {cowboy, CowboySpec}
     ]),
-    Domain = construct_domain_fixture(),
     %%    _ = hg_domain:insert(construct_domain_fixture()),
     PartyID = hg_utils:unique_id(),
     PartyClient = party_client:create_client(),
@@ -95,12 +95,14 @@ init_per_suite(C) ->
     FDConfig = genlib_app:env(hellgate, fault_detector),
     application:set_env(hellgate, fault_detector, FDConfig#{enabled => true}),
     _ = unlink(SupPid),
+    _ = mock_dominant(SupPid),
+    _ = mock_accounter(SupPid),
+    _ = mock_party_management(SupPid),
     [
         {apps, Apps},
         {suite_test_sup, SupPid},
         {party_client, PartyClient},
-        {party_id, PartyID},
-        {domain, Domain}
+        {party_id, PartyID}
         | C
     ].
 
@@ -145,6 +147,123 @@ end_per_testcase(_Name, C) ->
 
 cfg(Key, C) ->
     hg_ct_helper:cfg(Key, C).
+
+mock_dominant(SupPid) ->
+    Domain = construct_domain_fixture(),
+    _ = hg_mock_helper:mock_services(
+        [
+            {repository, fun
+                ('Checkout', {{version, 42}}) ->
+                    {ok, #'Snapshot'{
+                        version = 42,
+                        domain = routing_with_risk_score_fixture(Domain, false)
+                    }};
+                ('Checkout', {{version, 43}}) ->
+                    {ok, #'Snapshot'{
+                        version = 43,
+                        domain = routing_with_risk_score_fixture(Domain, true)
+                    }}
+            end}
+        ],
+        [{test_sup, SupPid}]
+    ).
+
+mock_accounter(SupPid) ->
+    _ = hg_mock_helper:mock_services(
+        [
+            {accounter, fun('CreateAccount', _) -> {ok, 1} end}
+        ],
+        [{test_sup, SupPid}]
+    ).
+
+mock_party_management(SupPid) ->
+    _ = hg_mock_helper:mock_services(
+        [
+            {party_management, fun
+                ('ComputeRoutingRuleset', {?ruleset(2), _, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"">>,
+                        decisions =
+                            {candidates, [
+                                ?candidate({constant, true}, ?trm(21)),
+                                ?candidate({constant, true}, ?trm(22)),
+                                ?candidate({constant, true}, ?trm(23))
+                            ]}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(1), _, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"">>,
+                        decisions = {candidates, []}
+                    }};
+                ('ComputeProviderTerminalTerms', {?prv(21), _, 43, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = #domain_PaymentsProvisionTerms{
+                            currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
+                            categories = {value, ordsets:from_list([?cat(1)])},
+                            payment_methods =
+                                {value,
+                                    ordsets:from_list(
+                                        [
+                                            #domain_PaymentMethodRef{
+                                                id = {payment_terminal, ?pmt_srv(<<"euroset-ref">>)}
+                                            }
+                                        ]
+                                    )},
+                            cash_limit =
+                                {value, #domain_CashRange{
+                                    lower = {inclusive, ?cash(100, <<"RUB">>)},
+                                    upper = {inclusive, ?cash(2000, <<"RUB">>)}
+                                }},
+                            risk_coverage = {value, low}
+                        }
+                    }};
+                ('ComputeProviderTerminalTerms', {?prv(22), _, 43, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = #domain_PaymentsProvisionTerms{
+                            currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
+                            categories = {value, ordsets:from_list([?cat(1)])},
+                            payment_methods =
+                                {value,
+                                    ordsets:from_list(
+                                        [
+                                            #domain_PaymentMethodRef{
+                                                id = {payment_terminal, ?pmt_srv(<<"euroset-ref">>)}
+                                            }
+                                        ]
+                                    )},
+                            cash_limit =
+                                {value, #domain_CashRange{
+                                    lower = {inclusive, ?cash(100, <<"RUB">>)},
+                                    upper = {inclusive, ?cash(2000, <<"RUB">>)}
+                                }},
+                            risk_coverage = {value, high}
+                        }
+                    }};
+                ('ComputeProviderTerminalTerms', _) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = #domain_PaymentsProvisionTerms{
+                            currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
+                            categories = {value, ordsets:from_list([?cat(1)])},
+                            payment_methods =
+                                {value,
+                                    ordsets:from_list(
+                                        [
+                                            #domain_PaymentMethodRef{
+                                                id = {payment_terminal, ?pmt_srv(<<"euroset-ref">>)}
+                                            }
+                                        ]
+                                    )},
+                            cash_limit =
+                                {value, #domain_CashRange{
+                                    lower = {inclusive, ?cash(100, <<"RUB">>)},
+                                    upper = {inclusive, ?cash(2000, <<"RUB">>)}
+                                }}
+                        }
+                    }}
+            end}
+        ],
+        [{test_sup, SupPid}]
+    ).
 
 -spec no_route_found_for_payment(config()) -> test_return().
 no_route_found_for_payment(_C) ->
@@ -302,64 +421,13 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
         flow => instant,
         risk_score => RiskScore
     },
-    Revision = hg_domain:head(),
+    Revision = 43,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
     {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
     ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
 
 -spec gathers_fail_rated_routes(config()) -> test_return().
-gathers_fail_rated_routes(C) ->
-    _ = hg_mock_helper:mock_services(
-        [
-            {repository, fun('Checkout', _) ->
-                {ok, #'Snapshot'{
-                    version = 42,
-                    domain = routing_with_risk_score_fixture(?config(domain, C), false)
-                }}
-            end},
-            {accounter, fun('CreateAccount', _) -> {ok, 1} end},
-            {party_management, fun
-                ('ComputeRoutingRuleset', {?ruleset(2), _, _}) ->
-                    {ok, #domain_RoutingRuleset{
-                        name = <<"">>,
-                        decisions =
-                            {candidates, [
-                                ?candidate({constant, true}, ?trm(21)),
-                                ?candidate({constant, true}, ?trm(22)),
-                                ?candidate({constant, true}, ?trm(23))
-                            ]}
-                    }};
-                ('ComputeRoutingRuleset', {?ruleset(1), _, _}) ->
-                    {ok, #domain_RoutingRuleset{
-                        name = <<"">>,
-                        decisions = {candidates, []}
-                    }};
-                ('ComputeProviderTerminalTerms', _) ->
-                    {ok, #domain_ProvisionTermSet{
-                        payments = #domain_PaymentsProvisionTerms{
-                            currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
-                            categories = {value, ordsets:from_list([?cat(1)])},
-                            payment_methods =
-                                {value,
-                                    ordsets:from_list(
-                                        [
-                                            #domain_PaymentMethodRef{
-                                                id = {payment_terminal, ?pmt_srv(<<"euroset-ref">>)}
-                                            }
-                                        ]
-                                    )},
-                            cash_limit =
-                                {value, #domain_CashRange{
-                                    lower = {inclusive, ?cash(100, <<"RUB">>)},
-                                    upper = {inclusive, ?cash(2000, <<"RUB">>)}
-                                }}
-                        }
-                    }}
-            end},
-            {fault_detector, <<"http://127.0.0.1:20001/">>}
-        ],
-        C
-    ),
+gathers_fail_rated_routes(_C) ->
     VS = #{
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
@@ -384,20 +452,7 @@ gathers_fail_rated_routes(C) ->
     ).
 
 -spec choice_context_formats_ok(config()) -> test_return().
-choice_context_formats_ok(C) ->
-    _ = hg_mock_helper:mock_services(
-        [
-            {repository, fun('Checkout', _) ->
-                {ok, #'Snapshot'{
-                    version = 42,
-                    domain = routing_with_risk_score_fixture(?config(domain, C), false)
-                }}
-            end},
-            {accounter, fun('CreateAccount', _) -> {ok, 1} end}
-        ],
-        C
-    ),
-
+choice_context_formats_ok(_C) ->
     Route1 = hg_routing:new(?prv(21), ?trm(21)),
     Route2 = hg_routing:new(?prv(22), ?trm(22)),
     Route3 = hg_routing:new(?prv(23), ?trm(23)),

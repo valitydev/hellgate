@@ -58,9 +58,13 @@ mock_services(Services, SupOrConfig) ->
     _ = start_dmt_client(mock_services_(DominantClientServices, SupOrConfig)),
     start_woody_client(mock_services_(WoodyServices1, SupOrConfig)).
 
+start_party_client(Services) when map_size(Services) == 0 ->
+    ok;
 start_party_client(Services) ->
     hg_ct_helper:start_app(party_client, [{services, Services}]).
 
+start_dmt_client(Services) when map_size(Services) == 0 ->
+    ok;
 start_dmt_client(Services) ->
     ReformattedServices = maps:fold(
         fun(Key, V, Acc) ->
@@ -80,8 +84,10 @@ start_dmt_client(Services) ->
         {service_urls, ReformattedServices}
     ]).
 
-start_woody_client(Services) ->
-    hg_ct_helper:start_app(hg_proto, [{services, Services}]).
+start_woody_client(Services0) ->
+    ExistingServices = application:get_env(hg_proto, services, #{}),
+    Services1 = maps:merge(ExistingServices, Services0),
+    _ = hg_ct_helper:start_app(hg_proto, [{services, Services1}]).
 
 -spec mock_services_(list(), sup_or_config()) -> map().
 mock_services_([], _Config) ->
