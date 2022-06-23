@@ -6,8 +6,6 @@
 
 -include("hg_ct_domain.hrl").
 -include_lib("damsel/include/dmsl_repair_thrift.hrl").
--include_lib("limiter_proto/include/lim_configurator_thrift.hrl").
--include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
 -include_lib("hellgate/include/allocation.hrl").
 
 -include_lib("stdlib/include/assert.hrl").

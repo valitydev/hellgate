@@ -1,6 +1,7 @@
 -module(hg_limiter_client).
 
--include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 
 -export([get/3]).
 -export([hold/3]).
@@ -27,7 +28,7 @@ get(LimitID, Clock, Context) ->
             Limit;
         {exception, #limiter_LimitNotFound{}} ->
             error({not_found, LimitID});
-        {exception, #'InvalidRequest'{errors = Errors}} ->
+        {exception, #base_InvalidRequest{errors = Errors}} ->
             error({invalid_request, Errors})
     end.
 
@@ -42,7 +43,7 @@ hold(LimitChange, Clock, Context) ->
             ClockUpdated;
         {exception, #limiter_LimitNotFound{}} ->
             error({not_found, LimitID});
-        {exception, #'InvalidRequest'{errors = Errors}} ->
+        {exception, #base_InvalidRequest{errors = Errors}} ->
             error({invalid_request, Errors})
     end.
 
@@ -57,7 +58,7 @@ commit(LimitChange, Clock, Context) ->
             error({not_found, LimitChange#limiter_LimitChange.id});
         {exception, #limiter_LimitChangeNotFound{}} ->
             error({not_found, {limit_change, LimitChange#limiter_LimitChange.change_id}});
-        {exception, #'InvalidRequest'{errors = Errors}} ->
+        {exception, #base_InvalidRequest{errors = Errors}} ->
             error({invalid_request, Errors});
         {exception, #limiter_ForbiddenOperationAmount{} = Ex} ->
             Amount = Ex#limiter_ForbiddenOperationAmount.amount,

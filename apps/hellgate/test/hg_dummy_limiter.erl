@@ -1,6 +1,6 @@
 -module(hg_dummy_limiter).
 
--include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 
 -export([new/0]).
 -export([get/3]).
