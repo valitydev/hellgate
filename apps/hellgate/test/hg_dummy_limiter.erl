@@ -1,7 +1,6 @@
 -module(hg_dummy_limiter).
 
 -include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
--include_lib("limiter_proto/include/lim_configurator_thrift.hrl").
 
 -export([new/0]).
 -export([get/3]).
@@ -39,7 +38,7 @@ commit(LimitChange, Context, Client) ->
 
 -spec create_config(limit_config_params(), client()) -> woody:result() | no_return().
 create_config(LimitCreateParams, Client) ->
-    call_configurator('Create', {LimitCreateParams}, Client).
+    call_configurator('CreateLegacy', {LimitCreateParams}, Client).
 
 -spec get_config(limit_id(), client()) -> woody:result() | no_return().
 get_config(LimitConfigID, Client) ->

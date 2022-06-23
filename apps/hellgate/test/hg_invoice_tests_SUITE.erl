@@ -45,6 +45,7 @@
 -export([refund_limit_success/1]).
 -export([payment_partial_capture_limit_success/1]).
 -export([switch_provider_after_limit_overflow/1]).
+-export([limit_not_found/1]).
 
 -export([processing_deadline_reached_test/1]).
 -export([payment_success_empty_cvv/1]).
@@ -361,6 +362,7 @@ groups() ->
             payment_limit_overflow,
             payment_partial_capture_limit_success,
             switch_provider_after_limit_overflow,
+            limit_not_found,
             refund_limit_success
         ]},
 
@@ -454,18 +456,7 @@ init_per_suite(C) ->
     ),
 
     _ = hg_domain:insert(construct_domain_fixture()),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
-        limiter_create_params(?LIMIT_ID),
-        hg_dummy_limiter:new()
-    ),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
-        limiter_create_params(?LIMIT_ID2),
-        hg_dummy_limiter:new()
-    ),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
-        limiter_create_params(?LIMIT_ID3),
-        hg_dummy_limiter:new()
-    ),
+    _ = hg_limiter_helper:init_per_suite(C),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -1102,10 +1093,7 @@ payment_limit_overflow(C) ->
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
     Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
-    #domain_Invoice{id = ID} = Invoice,
-    #domain_InvoicePayment{id = PaymentID} = Payment,
-    Limit = get_payment_limit(PartyID, ShopID, ID, PaymentID, 1000),
-    ?assertMatch(#limiter_Limit{amount = PaymentAmount}, Limit),
+    ok = hg_limiter_helper:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -1127,11 +1115,9 @@ switch_provider_after_limit_overflow(C) ->
         [?payment_state(Payment)]
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
-    #domain_Invoice{id = ID} = Invoice,
-    #domain_InvoicePayment{id = PaymentID} = Payment,
-    Limit = get_payment_limit(PartyID, ShopID, ID, PaymentID, PaymentAmount),
-    ?assertMatch(#limiter_Limit{amount = PaymentAmount}, Limit),
+    ok = hg_limiter_helper:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
 
+    #domain_InvoicePayment{id = PaymentID} = Payment,
     InvoiceID = start_invoice(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), PaymentAmount, Client),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
         InvoiceID,
@@ -1144,6 +1130,23 @@ switch_provider_after_limit_overflow(C) ->
     [?payment_ev(PaymentID2, ?cash_flow_changed(_))] = next_event(InvoiceID, Client),
     PaymentID2 = await_payment_session_started(InvoiceID, PaymentID2, Client, ?processed()),
     PaymentID2 = await_payment_process_finish(InvoiceID, PaymentID2, Client, 0).
+
+-spec limit_not_found(config()) -> test_return().
+limit_not_found(C) ->
+    PmtSys = ?pmt_sys(<<"visa-ref">>),
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    #{party_id_w_several_limits := PartyID} = cfg(limits, C),
+    PaymentAmount = 69999,
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()) = Invoice,
+        [?payment_state(Payment)]
+    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
+
+    {exception, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, Payment, Invoice).
 
 -spec refund_limit_success(config()) -> test_return().
 refund_limit_success(C) ->
@@ -1243,35 +1246,6 @@ create_payment_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
     await_payment_rollback(InvoiceID, PaymentID, Client).
-
-get_payment_limit(PartyID, ShopID, InvoiceID, PaymentID, Amount) ->
-    Context = #limiter_context_LimitContext{
-        payment_processing = #limiter_context_ContextPaymentProcessing{
-            op = {invoice_payment, #limiter_context_PaymentProcessingOperationInvoicePayment{}},
-            invoice = #limiter_context_Invoice{
-                id = InvoiceID,
-                owner_id = PartyID,
-                shop_id = ShopID,
-                cost = #limiter_base_Cash{
-                    amount = Amount,
-                    currency = #limiter_base_CurrencyRef{symbolic_code = <<"RUB">>}
-                },
-                created_at = hg_datetime:format_now(),
-                effective_payment = #limiter_context_InvoicePayment{
-                    id = PaymentID,
-                    owner_id = PartyID,
-                    shop_id = ShopID,
-                    cost = #limiter_base_Cash{
-                        amount = Amount,
-                        currency = #limiter_base_CurrencyRef{symbolic_code = <<"RUB">>}
-                    },
-                    created_at = hg_datetime:format_now()
-                }
-            }
-        }
-    },
-    {ok, Limit} = hg_dummy_limiter:get(?LIMIT_ID, Context, hg_dummy_limiter:new()),
-    Limit.
 
 %%----------------- operation_limits group end
 
@@ -8729,15 +8703,3 @@ construct_term_set_for_partial_capture_provider_permit(Revision) ->
 set_processing_deadline(Timeout, PaymentParams) ->
     Deadline = woody_deadline:to_binary(woody_deadline:from_timeout(Timeout)),
     PaymentParams#payproc_InvoicePaymentParams{processing_deadline = Deadline}.
-
-limiter_create_params(LimitID) ->
-    #limiter_cfg_LimitCreateParams{
-        id = LimitID,
-        name = <<"ShopMonthTurnover">>,
-        description = <<"description">>,
-        started_at = <<"2000-01-01T00:00:00Z">>,
-        body_type = {cash, #limiter_config_LimitBodyTypeCash{currency = <<"RUB">>}},
-        op_behaviour = #limiter_config_OperationLimitBehaviour{
-            invoice_payment_refund = {subtraction, #limiter_config_Subtraction{}}
-        }
-    }.

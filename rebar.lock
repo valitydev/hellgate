@@ -45,7 +45,7 @@
  {<<"jsx">>,{pkg,<<"jsx">>,<<"3.1.0">>},1},
  {<<"limiter_proto">>,
   {git,"https://github.com/valitydev/limiter-proto.git",
-       {ref,"f46aba6b44f562d909cf09201a951ae117a9c58c"}},
+       {ref,"ac9705389211682263c0a983ae76f663d4857ec9"}},
   0},
  {<<"metrics">>,{pkg,<<"metrics">>,<<"1.0.1">>},2},
  {<<"mg_proto">>,
