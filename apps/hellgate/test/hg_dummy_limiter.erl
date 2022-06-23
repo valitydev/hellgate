@@ -12,11 +12,11 @@
 
 -type client() :: woody_context:ctx().
 
--type limit_id() :: lim_limiter_thrift:'LimitID'().
--type limit_change() :: lim_limiter_thrift:'LimitChange'().
--type limit_context() :: lim_limiter_thrift:'LimitContext'().
--type clock() :: lim_limiter_thrift:'Clock'().
--type limit_config_params() :: lim_configurator_thrift:'LimitCreateParams'().
+-type limit_id() :: limproto_limiter_thrift:'LimitID'().
+-type limit_change() :: limproto_limiter_thrift:'LimitChange'().
+-type limit_context() :: limproto_limiter_thrift:'LimitContext'().
+-type clock() :: limproto_limiter_thrift:'Clock'().
+-type limit_config_params() :: limproto_configurator_thrift:'LimitCreateParams'().
 
 %%% API
 

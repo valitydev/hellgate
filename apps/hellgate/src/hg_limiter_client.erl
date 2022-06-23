@@ -7,11 +7,11 @@
 -export([hold/3]).
 -export([commit/3]).
 
--type limit() :: lim_limiter_thrift:'Limit'().
--type limit_id() :: lim_limiter_thrift:'LimitID'().
--type limit_change() :: lim_limiter_thrift:'LimitChange'().
--type context() :: lim_limiter_thrift:'LimitContext'().
--type clock() :: lim_limiter_thrift:'Clock'().
+-type limit() :: limproto_limiter_thrift:'Limit'().
+-type limit_id() :: limproto_limiter_thrift:'LimitID'().
+-type limit_change() :: limproto_limiter_thrift:'LimitChange'().
+-type context() :: limproto_limiter_thrift:'LimitContext'().
+-type clock() :: limproto_limiter_thrift:'Clock'().
 
 -export_type([limit/0]).
 -export_type([limit_id/0]).
