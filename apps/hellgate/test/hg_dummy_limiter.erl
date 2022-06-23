@@ -48,7 +48,7 @@ get_config(LimitConfigID, Client) ->
 
 -spec call(atom(), tuple(), client()) -> woody:result() | no_return().
 call(Function, Args, Client) ->
-    Call = {{lim_limiter_thrift, 'Limiter'}, Function, Args},
+    Call = {{limproto_limiter_thrift, 'Limiter'}, Function, Args},
     Opts = #{
         url => <<"http://limiter:8022/v1/limiter">>,
         event_handler => scoper_woody_event_handler,
@@ -60,7 +60,7 @@ call(Function, Args, Client) ->
 
 -spec call_configurator(atom(), tuple(), client()) -> woody:result() | no_return().
 call_configurator(Function, Args, Client) ->
-    Call = {{lim_configurator_thrift, 'Configurator'}, Function, Args},
+    Call = {{limproto_configurator_thrift, 'Configurator'}, Function, Args},
     Opts = #{
         url => <<"http://limiter:8022/v1/configurator">>,
         event_handler => scoper_woody_event_handler,
