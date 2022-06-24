@@ -1,6 +1,9 @@
 -module(hg_limiter).
 
--include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_context_limiter_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
 
 -type turnover_selector() :: dmsl_domain_thrift:'TurnoverLimitSelector'().
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
@@ -131,15 +134,15 @@ gen_limit_context(Invoice, Payment) ->
     gen_limit_context(Invoice, Payment, undefined).
 
 gen_limit_context(Invoice, Payment, CapturedCash) ->
-    PaymentCtx = #limiter_context_payproc_InvoicePayment{
+    PaymentCtx = #context_payproc_InvoicePayment{
         payment = Payment#domain_InvoicePayment{
             status = {captured, #domain_InvoicePaymentCaptured{cost = CapturedCash}}
         }
     },
-    #limiter_context_LimitContext{
-        payment_processing = #limiter_context_payproc_Context{
-            op = {invoice_payment, #limiter_context_payproc_OperationInvoicePayment{}},
-            invoice = #limiter_context_payproc_Invoice{
+    #context_limiter_LimitContext{
+        payment_processing = #context_payproc_Context{
+            op = {invoice_payment, #context_payproc_OperationInvoicePayment{}},
+            invoice = #context_payproc_Invoice{
                 invoice = Invoice,
                 payment = PaymentCtx
             }
@@ -147,14 +150,14 @@ gen_limit_context(Invoice, Payment, CapturedCash) ->
     }.
 
 gen_limit_refund_context(Invoice, Payment, Refund) ->
-    PaymentCtx = #limiter_context_payproc_InvoicePayment{
+    PaymentCtx = #context_payproc_InvoicePayment{
         payment = Payment,
         refund = Refund
     },
-    #limiter_context_LimitContext{
-        payment_processing = #limiter_context_payproc_Context{
-            op = {invoice_payment_refund, #limiter_context_payproc_OperationInvoicePaymentRefund{}},
-            invoice = #limiter_context_payproc_Invoice{
+    #context_limiter_LimitContext{
+        payment_processing = #context_payproc_Context{
+            op = {invoice_payment_refund, #context_payproc_OperationInvoicePaymentRefund{}},
+            invoice = #context_payproc_Invoice{
                 invoice = Invoice,
                 payment = PaymentCtx
             }

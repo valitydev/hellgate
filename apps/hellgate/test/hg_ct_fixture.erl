@@ -2,9 +2,6 @@
 
 -include("hg_ct_domain.hrl").
 
--include_lib("damsel/include/dmsl_base_thrift.hrl").
--include_lib("damsel/include/dmsl_domain_thrift.hrl").
-
 %%
 
 -export([construct_currency/1]).
@@ -64,7 +61,7 @@
 
 %%
 
--define(EVERY, {every, #'ScheduleEvery'{}}).
+-define(EVERY, {every, #base_ScheduleEvery{}}).
 
 %%
 
@@ -269,7 +266,7 @@ construct_business_schedule(Ref) ->
         ref = Ref,
         data = #domain_BusinessSchedule{
             name = <<"Every day at 7:40">>,
-            schedule = #'Schedule'{
+            schedule = #base_Schedule{
                 year = ?EVERY,
                 month = ?EVERY,
                 day_of_month = ?EVERY,

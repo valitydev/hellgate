@@ -5,6 +5,7 @@
 
 -module(hg_proxy_host_provider).
 
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 
 %% Woody handler called by hg_woody_wrapper
@@ -41,13 +42,13 @@ handle_function('GetPayment', {Tag}, _) ->
                                 hg_invoice:get_payment_opts(InvoiceSt)
                             );
                         {error, notfound} ->
-                            hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
+                            hg_woody_wrapper:raise(#proxy_provider_PaymentNotFound{})
                     end;
                 {error, notfound} ->
-                    hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
+                    hg_woody_wrapper:raise(#proxy_provider_PaymentNotFound{})
             end;
         {error, notfound} ->
-            hg_woody_wrapper:raise(#prxprv_PaymentNotFound{})
+            hg_woody_wrapper:raise(#proxy_provider_PaymentNotFound{})
     end.
 
 -spec handle_callback_result
@@ -56,8 +57,8 @@ handle_function('GetPayment', {Tag}, _) ->
 handle_callback_result({ok, Response}) ->
     Response;
 handle_callback_result({error, invalid_callback}) ->
-    hg_woody_wrapper:raise(#'InvalidRequest'{errors = [<<"Invalid callback">>]});
+    hg_woody_wrapper:raise(#base_InvalidRequest{errors = [<<"Invalid callback">>]});
 handle_callback_result({error, notfound}) ->
-    hg_woody_wrapper:raise(#'InvalidRequest'{errors = [<<"Not found">>]});
+    hg_woody_wrapper:raise(#base_InvalidRequest{errors = [<<"Not found">>]});
 handle_callback_result({error, Reason}) ->
     error(Reason).

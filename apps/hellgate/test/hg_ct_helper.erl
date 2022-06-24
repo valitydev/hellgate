@@ -325,7 +325,6 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 
 %%
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("hellgate/include/party_events.hrl").
 
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
@@ -338,8 +337,8 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type category() :: dmsl_domain_thrift:'CategoryRef'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type invoice_tpl_id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
--type invoice_params() :: dmsl_payment_processing_thrift:'InvoiceParams'().
--type invoice_params_tpl() :: dmsl_payment_processing_thrift:'InvoiceWithTemplateParams'().
+-type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
+-type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
 -type timestamp() :: integer().
 -type context() :: dmsl_base_thrift:'Content'().
 -type lifetime_interval() :: dmsl_domain_thrift:'LifetimeInterval'().
@@ -347,8 +346,8 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type invoice_tpl_details() :: dmsl_domain_thrift:'InvoiceTemplateDetails'().
 -type invoice_tpl_cost() :: dmsl_domain_thrift:'InvoiceTemplateProductPrice'().
 -type currency() :: dmsl_domain_thrift:'CurrencySymbolicCode'().
--type invoice_tpl_create_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateCreateParams'().
--type invoice_tpl_update_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateUpdateParams'().
+-type invoice_tpl_create_params() :: dmsl_payproc_thrift:'InvoiceTemplateCreateParams'().
+-type invoice_tpl_update_params() :: dmsl_payproc_thrift:'InvoiceTemplateUpdateParams'().
 -type party_client() :: {party_client:client(), party_client:context()}.
 -type payment_inst_ref() :: dmsl_domain_thrift:'PaymentInstitutionRef'().
 -type allocation_prototype() :: dmsl_domain_thrift:'AllocationPrototype'().
@@ -481,7 +480,7 @@ create_claim(PartyID, Changeset, {Client, Context}) ->
 -spec make_contract_params(
     contract_tpl() | undefined,
     payment_inst_ref()
-) -> dmsl_payment_processing_thrift:'ContractParams'().
+) -> dmsl_payproc_thrift:'ContractParams'().
 make_contract_params(TemplateRef, PaymentInstitutionRef) ->
     #payproc_ContractParams{
         contractor = make_contractor(),
@@ -510,7 +509,7 @@ make_contractor() ->
             russian_bank_account = BankAccount
         }}}.
 
--spec make_payout_tool_params() -> dmsl_payment_processing_thrift:'PayoutToolParams'().
+-spec make_payout_tool_params() -> dmsl_payproc_thrift:'PayoutToolParams'().
 make_payout_tool_params() ->
     #payproc_PayoutToolParams{
         currency = ?cur(<<"RUB">>),
@@ -691,7 +690,7 @@ make_invoice_context() ->
 
 -spec make_invoice_context(binary()) -> context().
 make_invoice_context(Data) ->
-    #'Content'{
+    #base_Content{
         type = <<"application/octet-stream">>,
         data = Data
     }.
@@ -725,7 +724,7 @@ make_meta_data(NS) ->
 get_hellgate_url() ->
     "http://" ++ ?HELLGATE_HOST ++ ":" ++ integer_to_list(?HELLGATE_PORT).
 
--spec make_customer_params(party_id(), shop_id(), binary()) -> dmsl_payment_processing_thrift:'CustomerParams'().
+-spec make_customer_params(party_id(), shop_id(), binary()) -> dmsl_payproc_thrift:'CustomerParams'().
 make_customer_params(PartyID, ShopID, EMail) ->
     #payproc_CustomerParams{
         customer_id = hg_utils:unique_id(),
@@ -736,7 +735,7 @@ make_customer_params(PartyID, ShopID, EMail) ->
     }.
 
 -spec make_customer_binding_params(hg_dummy_provider:payment_tool()) ->
-    dmsl_payment_processing_thrift:'CustomerBindingParams'().
+    dmsl_payproc_thrift:'CustomerBindingParams'().
 make_customer_binding_params(PaymentToolSession) ->
     RecPaymentToolID = hg_utils:unique_id(),
     make_customer_binding_params(RecPaymentToolID, PaymentToolSession).
@@ -744,7 +743,7 @@ make_customer_binding_params(PaymentToolSession) ->
 -spec make_customer_binding_params(
     dmsl_domain_thrift:'RecurrentPaymentToolID'(),
     hg_dummy_provider:payment_tool()
-) -> dmsl_payment_processing_thrift:'CustomerBindingParams'().
+) -> dmsl_payproc_thrift:'CustomerBindingParams'().
 make_customer_binding_params(RecPayToolId, PaymentToolSession) ->
     CustomerBindingID = hg_utils:unique_id(),
     make_customer_binding_params(CustomerBindingID, RecPayToolId, PaymentToolSession).
@@ -753,7 +752,7 @@ make_customer_binding_params(RecPayToolId, PaymentToolSession) ->
     dmsl_domain_thrift:'CustomerBindingID'(),
     dmsl_domain_thrift:'RecurrentPaymentToolID'(),
     hg_dummy_provider:payment_tool()
-) -> dmsl_payment_processing_thrift:'CustomerBindingParams'().
+) -> dmsl_payproc_thrift:'CustomerBindingParams'().
 make_customer_binding_params(CustomerBindingId, RecPayToolId, PaymentToolSession) ->
     #payproc_CustomerBindingParams{
         customer_binding_id = CustomerBindingId,

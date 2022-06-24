@@ -3,8 +3,6 @@
 -include_lib("hellgate/include/domain.hrl").
 -include_lib("hellgate/include/payment_events.hrl").
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
-
 -export(
     [
         create/2,
@@ -115,25 +113,25 @@
     hg_accounting:batch().
 
 -type create_params() ::
-    dmsl_payment_processing_thrift:'InvoicePaymentChargebackParams'().
+    dmsl_payproc_thrift:'InvoicePaymentChargebackParams'().
 
 -type cancel_params() ::
-    dmsl_payment_processing_thrift:'InvoicePaymentChargebackCancelParams'().
+    dmsl_payproc_thrift:'InvoicePaymentChargebackCancelParams'().
 
 -type accept_params() ::
-    dmsl_payment_processing_thrift:'InvoicePaymentChargebackAcceptParams'().
+    dmsl_payproc_thrift:'InvoicePaymentChargebackAcceptParams'().
 
 -type reject_params() ::
-    dmsl_payment_processing_thrift:'InvoicePaymentChargebackRejectParams'().
+    dmsl_payproc_thrift:'InvoicePaymentChargebackRejectParams'().
 
 -type reopen_params() ::
-    dmsl_payment_processing_thrift:'InvoicePaymentChargebackReopenParams'().
+    dmsl_payproc_thrift:'InvoicePaymentChargebackReopenParams'().
 
 -type result() ::
     {[change()], action()}.
 
 -type change() ::
-    dmsl_payment_processing_thrift:'InvoicePaymentChargebackChangePayload'().
+    dmsl_payproc_thrift:'InvoicePaymentChargebackChangePayload'().
 
 -type action() ::
     hg_machine_action:t().

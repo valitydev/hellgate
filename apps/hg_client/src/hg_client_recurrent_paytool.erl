@@ -1,6 +1,6 @@
 -module(hg_client_recurrent_paytool).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 %% API
 
@@ -32,11 +32,11 @@
 
 %% Types
 
--type recurrent_paytool_id() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolID'().
--type recurrent_paytool() :: dmsl_payment_processing_thrift:'RecurrentPaymentTool'().
--type recurrent_paytool_params() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolParams'().
+-type recurrent_paytool_id() :: dmsl_payproc_thrift:'RecurrentPaymentToolID'().
+-type recurrent_paytool() :: dmsl_payproc_thrift:'RecurrentPaymentTool'().
+-type recurrent_paytool_params() :: dmsl_payproc_thrift:'RecurrentPaymentToolParams'().
 
--type range() :: dmsl_payment_processing_thrift:'EventRange'().
+-type range() :: dmsl_payproc_thrift:'EventRange'().
 
 %% API
 
@@ -105,7 +105,7 @@ map_result_error({error, Error}) ->
 
 -define(SERVICE, recurrent_paytool).
 
--type event() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolEvent'().
+-type event() :: dmsl_payproc_thrift:'RecurrentPaymentToolEvent'().
 
 -record(state, {
     pollers :: #{recurrent_paytool_id() => hg_client_event_poller:st(event())},

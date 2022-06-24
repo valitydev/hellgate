@@ -1,6 +1,6 @@
 -module(hg_client_invoice_templating).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export([start/1]).
 -export([start_link/1]).
@@ -27,12 +27,12 @@
 %%
 
 -type id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
--type create_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateCreateParams'().
--type update_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateUpdateParams'().
+-type create_params() :: dmsl_payproc_thrift:'InvoiceTemplateCreateParams'().
+-type update_params() :: dmsl_payproc_thrift:'InvoiceTemplateUpdateParams'().
 -type invoice_tpl() :: dmsl_domain_thrift:'InvoiceTemplate'().
 -type timestamp() :: dmsl_base_thrift:'Timestamp'().
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
--type party_revision_param() :: dmsl_payment_processing_thrift:'PartyRevisionParam'().
+-type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
 
 -spec start(hg_client_api:t()) -> pid().
 start(ApiClient) ->
@@ -82,7 +82,7 @@ map_result_error({error, Error}) ->
 
 %%
 
--type event() :: dmsl_payment_processing_thrift:'Event'().
+-type event() :: dmsl_payproc_thrift:'Event'().
 
 -record(state, {
     pollers :: #{id() => hg_client_event_poller:st(event())},
