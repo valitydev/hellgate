@@ -1793,7 +1793,7 @@ payments_w_bank_card_issuer_conditions(C) ->
     %kaz fail
     SecondInvoice = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 1001, C),
     ?assertEqual(
-        {exception, {'InvalidRequest', [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
         hg_client_invoicing:start_payment(SecondInvoice, KazPaymentParams, Client)
     ),
     %rus success
@@ -1840,7 +1840,7 @@ payments_w_bank_conditions(C) ->
     %bank 1 fail
     SecondInvoice = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 1001, C),
     ?assertEqual(
-        {exception, {'InvalidRequest', [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
         hg_client_invoicing:start_payment(SecondInvoice, TestPaymentParams, Client)
     ),
     %bank 1 /w different wildcard fail
@@ -1851,7 +1851,7 @@ payments_w_bank_conditions(C) ->
     },
     WildPaymentParams = make_payment_params({bank_card, WildBankCard}, Session1, instant),
     ?assertEqual(
-        {exception, {'InvalidRequest', [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
         hg_client_invoicing:start_payment(ThirdInvoice, WildPaymentParams, Client)
     ),
     %some other bank success
@@ -1870,7 +1870,7 @@ payments_w_bank_conditions(C) ->
     },
     FallbackPaymentParams = make_payment_params({bank_card, FallbackBankCard}, Session3, instant),
     ?assertEqual(
-        {exception, {'InvalidRequest', [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
         hg_client_invoicing:start_payment(FifthInvoice, FallbackPaymentParams, Client)
     ).
 
