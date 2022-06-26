@@ -25,7 +25,7 @@
 -define(HELLGATE_HOST, "hellgate").
 -define(HELLGATE_PORT, 8022).
 
--spec start_mocked_service_sup() -> pid().
+-spec start_mocked_service_sup() -> {ok, pid()}.
 start_mocked_service_sup() ->
     {ok, SupPid} = genlib_adhoc_supervisor:start_link(
         #{strategy => one_for_all, intensity => 1, period => 1}, []
