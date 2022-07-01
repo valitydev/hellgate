@@ -3,7 +3,7 @@
 -module(hg_routing).
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 
 -export([gather_routes/4]).

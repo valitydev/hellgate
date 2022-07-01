@@ -2,7 +2,6 @@
 
 -include("domain.hrl").
 -include("allocation.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 
 %% API
 -export([calculate/4]).
@@ -23,8 +22,8 @@
 
 -type party() :: dmsl_domain_thrift:'Party'().
 -type shop() :: dmsl_domain_thrift:'Shop'().
--type party_id() :: dmsl_payment_processing_thrift:'PartyID'().
--type shop_id() :: dmsl_payment_processing_thrift:'ShopID'().
+-type party_id() :: dmsl_payproc_thrift:'PartyID'().
+-type shop_id() :: dmsl_payproc_thrift:'ShopID'().
 -type target_map() :: #{
     party_id => party_id(),
     shop_id => shop_id()

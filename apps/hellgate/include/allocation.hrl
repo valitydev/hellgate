@@ -1,5 +1,7 @@
 -ifndef(__hellgate_allocation__).
 -define(__hellgate_allocation__, true).
+
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 %% Prototypes
@@ -96,14 +98,14 @@
 }).
 
 -define(allocation_trx_fee_share(P, Q), #domain_AllocationTransactionFeeShare{
-    parts = #'Rational'{
+    parts = #base_Rational{
         p = P,
         q = Q
     }
 }).
 
 -define(allocation_trx_fee_share(P, Q, RoundingMethod), #domain_AllocationTransactionFeeShare{
-    parts = #'Rational'{
+    parts = #base_Rational{
         p = P,
         q = Q
     },

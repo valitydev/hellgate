@@ -1,7 +1,7 @@
 -module(hg_proxy_provider).
 
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 -export([collect_proxy_options/1]).
 
@@ -21,7 +21,7 @@
 -type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 
--type change() :: dmsl_payment_processing_thrift:'SessionChangePayload'().
+-type change() :: dmsl_payproc_thrift:'SessionChangePayload'().
 -type proxy_state() :: dmsl_base_thrift:'Opaque'().
 
 %%

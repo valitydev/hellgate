@@ -4,7 +4,7 @@
 -include("payment_events.hrl").
 
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export([check_for_action/2]).
 -export([get_repair_state/3]).
@@ -13,7 +13,7 @@
 
 -type risk_score() :: dmsl_domain_thrift:'RiskScore'().
 -type proxy_result() :: dmsl_proxy_provider_thrift:'PaymentProxyResult'().
--type scenario() :: dmsl_payment_processing_thrift:'InvoiceRepairScenario'().
+-type scenario() :: dmsl_payproc_thrift:'InvoiceRepairScenario'().
 
 %% user types
 
@@ -45,14 +45,14 @@ check_for_action(
 check_for_action(skip_inspector, {skip_inspector, #payproc_InvoiceRepairSkipInspector{risk_score = RiskScore}}) ->
     {result, RiskScore};
 check_for_action(repair_session, {fail_session, #payproc_InvoiceRepairFailSession{failure = Failure, trx = Trx}}) ->
-    ProxyResult = #prxprv_PaymentProxyResult{
-        intent = {finish, #'prxprv_FinishIntent'{status = {failure, Failure}}},
+    ProxyResult = #proxy_provider_PaymentProxyResult{
+        intent = {finish, #proxy_provider_FinishIntent{status = {failure, Failure}}},
         trx = Trx
     },
     {result, ProxyResult};
 check_for_action(repair_session, {fulfill_session, #payproc_InvoiceRepairFulfillSession{trx = Trx}}) ->
-    ProxyResult = #prxprv_PaymentProxyResult{
-        intent = {finish, #'prxprv_FinishIntent'{status = {success, #'prxprv_Success'{}}}},
+    ProxyResult = #proxy_provider_PaymentProxyResult{
+        intent = {finish, #proxy_provider_FinishIntent{status = {success, #proxy_provider_Success{}}}},
         trx = Trx
     },
     {result, ProxyResult};

@@ -4,7 +4,7 @@
 
 -module(hg_customer).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -include("customer_events.hrl").
 
@@ -36,16 +36,15 @@
 
 -record(st, {
     customer :: undefined | customer(),
-    active_binding :: undefined | binding_id(),
     binding_activity :: #{binding_id() => integer()},
     created_at :: undefined | hg_datetime:timestamp()
 }).
 
--type customer() :: dmsl_payment_processing_thrift:'Customer'().
--type customer_id() :: dmsl_payment_processing_thrift:'CustomerID'().
--type customer_params() :: dmsl_payment_processing_thrift:'CustomerParams'().
--type customer_change() :: dmsl_payment_processing_thrift:'CustomerChange'().
--type binding_id() :: dmsl_payment_processing_thrift:'CustomerBindingID'().
+-type customer() :: dmsl_payproc_thrift:'Customer'().
+-type customer_id() :: dmsl_payproc_thrift:'CustomerID'().
+-type customer_params() :: dmsl_payproc_thrift:'CustomerParams'().
+-type customer_change() :: dmsl_payproc_thrift:'CustomerChange'().
+-type binding_id() :: dmsl_payproc_thrift:'CustomerBindingID'().
 
 %%
 %% Woody handler
@@ -702,16 +701,12 @@ app_parse_timespan(Value) ->
 %% Marshalling
 %%
 
--define(BINARY_BINDING_STATUS_PENDING, <<"pending">>).
--define(BINARY_BINDING_STATUS_SUCCEEDED, <<"succeeded">>).
--define(BINARY_BINDING_STATUS_FAILED(Failure), [<<"failed">>, Failure]).
-
 -spec marshal_event_payload([customer_change()]) -> hg_machine:event_payload().
 marshal_event_payload(Changes) ->
     wrap_event_payload({customer_changes, Changes}).
 
 wrap_event_payload(Payload) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     Bin = hg_proto_utils:serialize(Type, Payload),
     #{
         format_version => 1,
@@ -720,7 +715,7 @@ wrap_event_payload(Payload) ->
 
 -spec marshal_customer_params(customer_params()) -> binary().
 marshal_customer_params(Params) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'CustomerParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'CustomerParams'}},
     hg_proto_utils:serialize(Type, Params).
 
 %% AuxState
@@ -754,13 +749,13 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) -> [customer_change()].
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     {customer_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
     Buf.
 
 -spec unmarshal_customer_params(binary()) -> customer_params().
 unmarshal_customer_params(Bin) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'CustomerParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'CustomerParams'}},
     hg_proto_utils:deserialize(Type, Bin).
 
 %% Aux State

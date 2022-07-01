@@ -1,7 +1,10 @@
 -module(hg_limiter_helper).
 
--include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
--include_lib("limiter_proto/include/lim_configurator_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_context_limiter_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_config_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_configurator_thrift.hrl").
 
 -include_lib("stdlib/include/assert.hrl").
 
@@ -17,15 +20,15 @@
 
 -spec init_per_suite(config()) -> _.
 init_per_suite(_Config) ->
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
+    {ok, #config_LimitConfig{}} = hg_dummy_limiter:create_config(
         limiter_create_params(?LIMIT_ID),
         hg_dummy_limiter:new()
     ),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
+    {ok, #config_LimitConfig{}} = hg_dummy_limiter:create_config(
         limiter_create_params(?LIMIT_ID2),
         hg_dummy_limiter:new()
     ),
-    {ok, #limiter_config_LimitConfig{}} = hg_dummy_limiter:create_config(
+    {ok, #config_LimitConfig{}} = hg_dummy_limiter:create_config(
         limiter_create_params(?LIMIT_ID3),
         hg_dummy_limiter:new()
     ).
@@ -37,12 +40,12 @@ assert_payment_limit_amount(AssertAmount, Payment, Invoice) ->
 
 -spec get_payment_limit_amount(_, _, _) -> _.
 get_payment_limit_amount(LimitId, Payment, Invoice) ->
-    Context = #limiter_context_LimitContext{
-        payment_processing = #limiter_context_payproc_Context{
-            op = {invoice_payment, #limiter_context_payproc_OperationInvoicePayment{}},
-            invoice = #limiter_context_payproc_Invoice{
+    Context = #context_limiter_LimitContext{
+        payment_processing = #context_payproc_Context{
+            op = {invoice_payment, #context_payproc_OperationInvoicePayment{}},
+            invoice = #context_payproc_Invoice{
                 invoice = Invoice,
-                payment = #limiter_context_payproc_InvoicePayment{
+                payment = #context_payproc_InvoicePayment{
                     payment = Payment
                 }
             }
@@ -51,12 +54,12 @@ get_payment_limit_amount(LimitId, Payment, Invoice) ->
     hg_dummy_limiter:get(LimitId, Context, hg_dummy_limiter:new()).
 
 limiter_create_params(LimitID) ->
-    #limiter_configurator_LimitCreateParams{
+    #configurator_LimitCreateParams{
         id = LimitID,
         name = <<"ShopMonthTurnover">>,
         description = <<"description">>,
         started_at = <<"2000-01-01T00:00:00Z">>,
-        op_behaviour = #limiter_config_OperationLimitBehaviour{
-            invoice_payment_refund = {subtraction, #limiter_config_Subtraction{}}
+        op_behaviour = #config_OperationLimitBehaviour{
+            invoice_payment_refund = {subtraction, #config_Subtraction{}}
         }
     }.

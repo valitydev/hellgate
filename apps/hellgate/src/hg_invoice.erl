@@ -14,10 +14,11 @@
 
 -module(hg_invoice).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include("payment_events.hrl").
 -include("invoice_events.hrl").
 -include("domain.hrl").
+
+-include_lib("damsel/include/dmsl_repair_thrift.hrl").
 
 -define(NS, <<"invoice">>).
 
@@ -70,7 +71,7 @@
 
 -type st() :: #st{}.
 
--type invoice_change() :: dmsl_payment_processing_thrift:'InvoiceChange'().
+-type invoice_change() :: dmsl_payproc_thrift:'InvoiceChange'().
 
 -type activity() ::
     invoice
@@ -432,7 +433,7 @@ repair(ID, Args) ->
     case hg_machine:repair(?NS, ID, Args) of
         {ok, _Result} -> ok;
         {error, notfound} -> erlang:throw(#payproc_InvoiceNotFound{});
-        {error, working} -> erlang:throw(#'InvalidRequest'{errors = [<<"No need to repair">>]});
+        {error, working} -> erlang:throw(#base_InvalidRequest{errors = [<<"No need to repair">>]});
         {error, Reason} -> erlang:error(Reason)
     end.
 
@@ -446,7 +447,7 @@ map_history_error({error, notfound}) ->
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type party() :: dmsl_domain_thrift:'Party'().
 
--type adjustment() :: dmsl_payment_processing_thrift:'InvoiceAdjustment'().
+-type adjustment() :: dmsl_payproc_thrift:'InvoiceAdjustment'().
 
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_st() :: hg_invoice_payment:st().
@@ -941,7 +942,7 @@ force_refund_id_format(manual_refund, Correct = <<?MANUAL_REFUND_ID_PREFIX, _Res
 force_refund_id_format(manual_refund, Incorrect) ->
     <<?MANUAL_REFUND_ID_PREFIX, Incorrect/binary>>;
 force_refund_id_format(refund, <<?MANUAL_REFUND_ID_PREFIX, _ID/binary>>) ->
-    throw(#'InvalidRequest'{errors = [<<"Invalid id format">>]});
+    throw(#base_InvalidRequest{errors = [<<"Invalid id format">>]});
 force_refund_id_format(refund, ID) ->
     ID.
 
@@ -1314,11 +1315,11 @@ make_invoice_cart(Cost, {product, TplProduct}, Shop) ->
 get_templated_price(undefined, {fixed, Cost}, Shop) ->
     get_cost(Cost, Shop);
 get_templated_price(undefined, _, _Shop) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_NO_COST]});
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_NO_COST]});
 get_templated_price(Cost, {fixed, Cost}, Shop) ->
     get_cost(Cost, Shop);
 get_templated_price(_Cost, {fixed, _CostTpl}, _Shop) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_COST]});
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_COST]});
 get_templated_price(Cost, {range, Range}, Shop) ->
     _ = assert_cost_in_range(Cost, Range),
     get_cost(Cost, Shop);
@@ -1340,14 +1341,14 @@ assert_cost_in_range(
     _ = assert_less_than(UType, Amount, UAmount),
     ok;
 assert_cost_in_range(_, _) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_CURRENCY]}).
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_CURRENCY]}).
 
 assert_less_than(inclusive, Less, More) when Less =< More ->
     ok;
 assert_less_than(exclusive, Less, More) when Less < More ->
     ok;
 assert_less_than(_, _, _) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_AMOUNT]}).
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_AMOUNT]}).
 
 make_invoice_due_date(#domain_LifetimeInterval{years = YY, months = MM, days = DD}) ->
     hg_datetime:add_interval(hg_datetime:format_now(), {YY, MM, DD}).
@@ -1453,7 +1454,7 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) -> [invoice_change()].
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     {invoice_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
     Buf.
 
@@ -1465,7 +1466,7 @@ unmarshal_invoice(Bin) ->
 %% Wrap in thrift binary
 
 wrap_event_payload(Payload) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     Bin = hg_proto_utils:serialize(Type, Payload),
     #{
         format_version => 1,
