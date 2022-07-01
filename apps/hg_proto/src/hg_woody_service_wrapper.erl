@@ -1,4 +1,4 @@
--module(hg_service_wrapper).
+-module(hg_woody_service_wrapper).
 
 %% Woody handler
 
@@ -21,17 +21,10 @@
 
 %% Callbacks
 
--callback handle_function(woody:func(), woody:args(), handler_opts() | woody:options()) -> term() | no_return().
+-callback handle_function(woody:func(), woody:args(), handler_opts()) -> term() | no_return().
 
--spec handle_function(woody:func(), woody:args(), woody_context:ctx(), handler_opts() | woody:options()) ->
+-spec handle_function(woody:func(), woody:args(), woody_context:ctx(), handler_opts()) ->
     {ok, term()} | no_return().
-handle_function(FunName, Args, _, #{function := Fun}) ->
-    case Fun(FunName, Args) of
-        {throwing, Exception} ->
-            erlang:throw(Exception);
-        Result ->
-            Result
-    end;
 handle_function(Func, Args, WoodyContext0, #{handler := Handler} = Opts) ->
     WoodyContext = ensure_woody_deadline_set(WoodyContext0, Opts),
     ok = hg_context:save(create_context(WoodyContext, Opts)),

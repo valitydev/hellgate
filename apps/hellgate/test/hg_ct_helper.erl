@@ -188,13 +188,6 @@ start_app(hellgate = AppName) ->
             {transport_opts, #{
                 max_connections => 8096
             }},
-            {scoper_event_handler_options, #{
-                event_handler_opts => #{
-                    formatter_opts => #{
-                        max_length => 1000
-                    }
-                }
-            }},
             {proxy_opts, #{
                 transport_opts => #{
                     max_connections => 300
@@ -297,19 +290,13 @@ start_application_with(App, Env) ->
     start_application(App).
 
 set_app_env(App, Env) ->
-    R = [application:set_env(App, K, V) || {K, V} <- Env],
-    _ = lists:all(fun(E) -> E =:= ok end, R) orelse exit(setenv_failed),
-    ok.
+    lists:foreach(fun({K, V}) -> ok = application:set_env(App, K, V) end, Env).
 
 -spec start_application(Application :: atom()) -> [Application] when Application :: atom().
 start_application(AppName) ->
-    case application:start(AppName, temporary) of
-        ok ->
+    case application:ensure_all_started(AppName, temporary) of
+        {ok, _Apps} ->
             [AppName];
-        {error, {already_started, AppName}} ->
-            [];
-        {error, {Status, DepName}} when Status =:= not_started; Status =:= not_running ->
-            start_application(DepName) ++ start_application(AppName);
         {error, Reason} ->
             exit(Reason)
     end.

@@ -3,11 +3,9 @@
 
 -include("hg_ct_domain.hrl").
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
--include_lib("damsel/include/dmsl_accounter_thrift.hrl").
+-include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0]).
@@ -27,7 +25,6 @@
 -export([choice_context_formats_ok/1]).
 -export([routes_selected_for_high_risk_score/1]).
 -export([routes_selected_for_low_risk_score/1]).
--export([gathers_fail_rated_routes/1]).
 -export([terminal_priority_for_shop/1]).
 
 -define(dummy_party_id, <<"dummy_party_id">>).
@@ -59,7 +56,6 @@ groups() ->
             routes_selected_for_low_risk_score,
             routes_selected_for_high_risk_score,
 
-            gathers_fail_rated_routes,
             choice_context_formats_ok,
 
             terminal_priority_for_shop
@@ -80,13 +76,13 @@ init_per_suite(C) ->
     ]),
     PartyID = hg_utils:unique_id(),
     PartyClient = party_client:create_client(),
-    {ok, SupPid} = hg_mock_helper:start_mocked_service_sup(),
-    {ok, _} = supervisor:start_child(SupPid, hg_dummy_fault_detector:child_spec()),
+    {ok, SupPid} = hg_mock_helper:start_sup(),
     FDConfig = genlib_app:env(hellgate, fault_detector),
     application:set_env(hellgate, fault_detector, FDConfig#{enabled => true}),
     _ = unlink(SupPid),
     _ = mock_dominant(SupPid),
     _ = mock_party_management(SupPid),
+    _ = mock_fault_detector(SupPid),
     [
         {apps, Apps},
         {suite_test_sup, SupPid},
@@ -98,13 +94,13 @@ init_per_suite(C) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     SupPid = cfg(suite_test_sup, C),
-    hg_mock_helper:stop_mocked_service_sup(SupPid).
+    hg_mock_helper:stop_sup(SupPid).
 
 -spec init_per_group(group_name(), config()) -> config().
 init_per_group(_, C) ->
     C.
 
--spec end_per_group(group_name(), config()) -> _.
+-spec end_per_group(group_name(), config()) -> ok.
 end_per_group(_GroupName, _C) ->
     ok.
 
@@ -112,13 +108,11 @@ end_per_group(_GroupName, _C) ->
 init_per_testcase(_, C) ->
     Ctx = hg_context:set_party_client(cfg(party_client, C), hg_context:create()),
     ok = hg_context:save(Ctx),
-    {ok, SupPid} = hg_mock_helper:start_mocked_service_sup(),
-    [{test_sup, SupPid} | C].
+    C.
 
--spec end_per_testcase(test_case_name(), config()) -> _.
-end_per_testcase(_Name, C) ->
+-spec end_per_testcase(test_case_name(), config()) -> ok.
+end_per_testcase(_Name, _C) ->
     ok = hg_context:cleanup(),
-    _ = hg_mock_helper:stop_mocked_service_sup(?config(test_sup, C)),
     ok.
 
 cfg(Key, C) ->
@@ -128,15 +122,14 @@ cfg(Key, C) ->
 -define(routing_with_risk_coverage_set_domain_revision, 2).
 -define(routing_with_fail_rate_domain_revision, 3).
 -define(terminal_priority_domain_revision, 4).
--define(gathers_fail_rated_routes_domain_revision, 5).
 
 mock_dominant(SupPid) ->
     Domain = construct_domain_fixture(),
     RoutingWithFailRateDomain = routing_with_risk_score_fixture(Domain, false),
     RoutingWithRiskCoverageSetDomain = routing_with_risk_score_fixture(Domain, true),
-    _ = hg_mock_helper:mock_services(
+    _ = hg_mock_helper:mock_dominant(
         [
-            {repository, fun
+            {'Repository', fun
                 ('Checkout', {{version, ?routing_with_fail_rate_domain_revision}}) ->
                     {ok, #'Snapshot'{
                         version = ?routing_with_fail_rate_domain_revision,
@@ -154,11 +147,11 @@ mock_dominant(SupPid) ->
                     }}
             end}
         ],
-        [{test_sup, SupPid}]
+        SupPid
     ).
 
 mock_party_management(SupPid) ->
-    _ = hg_mock_helper:mock_services(
+    _ = hg_mock_helper:mock_party_management(
         [
             {party_management, fun
                 (
@@ -173,8 +166,8 @@ mock_party_management(SupPid) ->
                         name = <<"">>,
                         decisions =
                             {candidates, [
-                                ?candidate(<<"high priority">>, {constant, true}, ?trm(1), 10),
-                                ?candidate(<<"low priority">>, {constant, true}, ?trm(2), 5)
+                                ?candidate(<<"high priority">>, {constant, true}, ?trm(11), 10),
+                                ?candidate(<<"low priority">>, {constant, true}, ?trm(12), 5)
                             ]}
                     }};
                 (
@@ -191,8 +184,8 @@ mock_party_management(SupPid) ->
                         name = <<"">>,
                         decisions =
                             {candidates, [
-                                ?candidate(<<"low priority">>, {constant, true}, ?trm(1), 5),
-                                ?candidate(<<"high priority">>, {constant, true}, ?trm(2), 10)
+                                ?candidate(<<"low priority">>, {constant, true}, ?trm(11), 5),
+                                ?candidate(<<"high priority">>, {constant, true}, ?trm(12), 10)
                             ]}
                     }};
                 (
@@ -207,16 +200,6 @@ mock_party_management(SupPid) ->
                         name = <<"">>,
                         decisions =
                             {delegates, []}
-                    }};
-                ('ComputeRoutingRuleset', {?ruleset(2), ?gathers_fail_rated_routes_domain_revision, _}) ->
-                    {ok, #domain_RoutingRuleset{
-                        name = <<"">>,
-                        decisions =
-                            {candidates, [
-                                ?candidate({constant, true}, ?trm(11)),
-                                ?candidate({constant, true}, ?trm(12)),
-                                ?candidate({constant, true}, ?trm(13))
-                            ]}
                     }};
                 ('ComputeRoutingRuleset', {?ruleset(2), DomainRevision, _}) when
                     DomainRevision == ?routing_with_fail_rate_domain_revision orelse
@@ -243,7 +226,6 @@ mock_party_management(SupPid) ->
                 ('ComputeRoutingRuleset', {?ruleset(1), DomainRevision, _}) when
                     DomainRevision == ?routing_with_fail_rate_domain_revision orelse
                         DomainRevision == ?routing_with_risk_coverage_set_domain_revision orelse
-                        DomainRevision == ?gathers_fail_rated_routes_domain_revision orelse
                         DomainRevision == ?terminal_priority_domain_revision
                 ->
                     {ok, #domain_RoutingRuleset{
@@ -300,7 +282,67 @@ mock_party_management(SupPid) ->
                     }}
             end}
         ],
-        [{test_sup, SupPid}]
+        SupPid
+    ).
+
+mock_fault_detector(SupPid) ->
+    hg_mock_helper:mock_services(
+        [
+            {fault_detector, fun ('GetStatistics', _) ->
+                {ok, [
+
+                    #fault_detector_ServiceStatistics{
+                        service_id = <<"hellgate_service.provider_conversion.1">>,
+                        failure_rate = 0.9,
+                        operations_count = 10,
+                        error_operations_count = 9,
+                        overtime_operations_count = 0,
+                        success_operations_count = 1
+                    },
+                    #fault_detector_ServiceStatistics{
+                        service_id = <<"hellgate_service.provider_conversion.2">>,
+                        failure_rate = 0.1,
+                        operations_count = 10,
+                        error_operations_count = 1,
+                        overtime_operations_count = 0,
+                        success_operations_count = 9
+                    },
+                    #fault_detector_ServiceStatistics{
+                        service_id = <<"hellgate_service.provider_conversion.3">>,
+                        failure_rate = 0.2,
+                        operations_count = 10,
+                        error_operations_count = 1,
+                        overtime_operations_count = 0,
+                        success_operations_count = 9
+                    },
+                    #fault_detector_ServiceStatistics{
+                        service_id = <<"hellgate_service.adapter_availability.1">>,
+                        failure_rate = 0.9,
+                        operations_count = 10,
+                        error_operations_count = 9,
+                        overtime_operations_count = 0,
+                        success_operations_count = 1
+                    },
+                    #fault_detector_ServiceStatistics{
+                        service_id = <<"hellgate_service.adapter_availability.2">>,
+                        failure_rate = 0.1,
+                        operations_count = 10,
+                        error_operations_count = 1,
+                        overtime_operations_count = 0,
+                        success_operations_count = 9
+                    },
+                    #fault_detector_ServiceStatistics{
+                        service_id = <<"hellgate_service.adapter_availability.3">>,
+                        failure_rate = 0.2,
+                        operations_count = 10,
+                        error_operations_count = 1,
+                        overtime_operations_count = 0,
+                        success_operations_count = 9
+                    }
+                ]}
+                             end}
+    ],
+        SupPid
     ).
 
 -spec no_route_found_for_payment(config()) -> test_return().
@@ -470,30 +512,6 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
     ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
 
--spec gathers_fail_rated_routes(config()) -> test_return().
-gathers_fail_rated_routes(_C) ->
-    VS = #{
-        category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-        party_id => <<"12345">>,
-        flow => instant
-    },
-    Revision = ?gathers_fail_rated_routes_domain_revision,
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-
-    {ok, {Routes0, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
-    Result = hg_routing:gather_fail_rates(Routes0),
-    ?assert_set_equal(
-        [
-            {hg_routing:new(?prv(11), ?trm(11)), {{dead, 0.9}, {lacking, 0.9}}},
-            {hg_routing:new(?prv(12), ?trm(12)), {{alive, 0.1}, {normal, 0.1}}},
-            {hg_routing:new(?prv(13), ?trm(13)), {{alive, 0.0}, {normal, 0.0}}}
-        ],
-        Result
-    ).
-
 -spec choice_context_formats_ok(config()) -> test_return().
 choice_context_formats_ok(_C) ->
     Route1 = hg_routing:new(?prv(1), ?trm(1)),
@@ -501,22 +519,15 @@ choice_context_formats_ok(_C) ->
     Route3 = hg_routing:new(?prv(3), ?trm(3)),
     Routes = [Route1, Route2, Route3],
 
-    ProviderStatuses = [
-        {{alive, 0.1}, {normal, 0.1}},
-        {{alive, 0.0}, {normal, 0.1}},
-        {{dead, 1.0}, {lacking, 1.0}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
     Revision = ?routing_with_fail_rate_domain_revision,
-    Result = {_, Context} = hg_routing:choose_rated_route(FailRatedRoutes),
+    Result = {_, Context} = hg_routing:choose_route(Routes),
     ?assertMatch(
-        {Route2, #{reject_reason := availability_condition, preferable_route := Route3}},
+        {Route2, #{reject_reason := availability, preferable_route := Route3}},
         Result
     ),
     ?assertMatch(
         #{
-            reject_reason := availability_condition,
+            reject_reason := availability,
             chosen_route := #{
                 provider := #{id := 2, name := <<_/binary>>},
                 terminal := #{id := 2, name := <<_/binary>>},
@@ -537,8 +548,8 @@ choice_context_formats_ok(_C) ->
 
 -spec terminal_priority_for_shop(config()) -> test_return().
 terminal_priority_for_shop(C) ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 10),
-    Route2 = hg_routing:new(?prv(2), ?trm(2), 0, 10),
+    Route1 = hg_routing:new(?prv(11), ?trm(11), 0, 10),
+    Route2 = hg_routing:new(?prv(12), ?trm(12), 0, 10),
     ?assertMatch({Route1, _}, terminal_priority_for_shop(?dummy_party_id, ?dummy_shop_id, C)),
     ?assertMatch({Route2, _}, terminal_priority_for_shop(?dummy_party_id, ?dummy_another_shop_id, C)).
 
@@ -595,26 +606,13 @@ construct_domain_fixture() ->
         {terminal, ?trm(3)} => {terminal, ?terminal_obj(?trm(3), ?prv(3))},
         {terminal, ?trm(11)} => {terminal, ?terminal_obj(?trm(11), ?prv(11))},
         {terminal, ?trm(12)} => {terminal, ?terminal_obj(?trm(12), ?prv(12))},
-        {terminal, ?trm(13)} => {terminal, ?terminal_obj(?trm(13), ?prv(13))},
-        {contract_template, ?tmpl(1)} =>
-            hg_ct_fixture:construct_contract_template(?tmpl(1), ?trms(1)),
-        {system_account_set, ?sas(1)} =>
-            hg_ct_fixture:construct_system_account_set(?sas(1)),
-        {term_set_hierarchy, ?trms(1)} =>
-            {term_set_hierarchy, #domain_TermSetHierarchyObject{
-                ref = ?trms(1),
-                data = #domain_TermSetHierarchy{
-                    term_sets = []
-                }
-            }},
         {payment_institution, ?pinst(1)} =>
             {payment_institution, #domain_PaymentInstitutionObject{
                 ref = ?pinst(1),
                 data = #domain_PaymentInstitution{
                     name = <<"Test Inc.">>,
-                    system_account_set = {value, ?sas(1)},
-                    default_contract_template = {value, ?tmpl(1)},
-                    % TODO do we realy need this decision hell here?
+                    system_account_set = {decisions, []},
+                    default_contract_template = {decisions, []},
                     inspector = {decisions, []},
                     residences = [],
                     realm = test,
@@ -629,8 +627,8 @@ construct_domain_fixture() ->
                 ref = ?pinst(2),
                 data = #domain_PaymentInstitution{
                     name = <<"Chetky Payments Inc.">>,
-                    system_account_set = {value, ?sas(2)},
-                    default_contract_template = {value, ?tmpl(1)},
+                    system_account_set = {decisions, []},
+                    default_contract_template = {decisions, []},
                     inspector = {decisions, []},
                     residences = [],
                     realm = live
@@ -642,129 +640,3 @@ maybe_set_risk_coverage(false, _) ->
     undefined;
 maybe_set_risk_coverage(true, V) ->
     {value, V}.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
--spec test() -> _.
-
--spec prefer_alive_test() -> _.
-prefer_alive_test() ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    Alive = {alive, 0.0},
-    Dead = {dead, 1.0},
-    Normal = {normal, 0.0},
-
-    ProviderStatuses0 = [{Alive, Normal}, {Dead, Normal}, {Dead, Normal}],
-    ProviderStatuses1 = [{Dead, Normal}, {Alive, Normal}, {Dead, Normal}],
-    ProviderStatuses2 = [{Dead, Normal}, {Dead, Normal}, {Alive, Normal}],
-
-    FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
-    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
-
-    {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
-    {Route2, Meta1} = hg_routing:choose_rated_route(FailRatedRoutes1),
-    {Route3, Meta2} = hg_routing:choose_rated_route(FailRatedRoutes2),
-
-    #{reject_reason := availability_condition, preferable_route := Route3} = Meta0,
-    #{reject_reason := availability_condition, preferable_route := Route3} = Meta1,
-    false = maps:is_key(reject_reason, Meta2).
-
--spec prefer_normal_conversion_test() -> _.
-prefer_normal_conversion_test() ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    Alive = {alive, 0.0},
-    Normal = {normal, 0.0},
-    Lacking = {lacking, 1.0},
-
-    ProviderStatuses0 = [{Alive, Normal}, {Alive, Lacking}, {Alive, Lacking}],
-    ProviderStatuses1 = [{Alive, Lacking}, {Alive, Normal}, {Alive, Lacking}],
-    ProviderStatuses2 = [{Alive, Lacking}, {Alive, Lacking}, {Alive, Normal}],
-
-    FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
-    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
-
-    {Route1, Meta0} = hg_routing:choose_rated_route(FailRatedRoutes0),
-    {Route2, Meta1} = hg_routing:choose_rated_route(FailRatedRoutes1),
-    {Route3, Meta2} = hg_routing:choose_rated_route(FailRatedRoutes2),
-
-    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta0,
-    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta1,
-    false = maps:is_key(reject_reason, Meta2).
-
--spec prefer_higher_availability_test() -> _.
-prefer_higher_availability_test() ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{alive, 0.5}, {normal, 0.5}},
-        {{dead, 0.8}, {lacking, 1.0}},
-        {{alive, 0.6}, {normal, 0.5}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    Result = hg_routing:choose_rated_route(FailRatedRoutes),
-    ?assertMatch({Route1, #{reject_reason := availability, preferable_route := Route3}}, Result).
-
--spec prefer_higher_conversion_test() -> _.
-prefer_higher_conversion_test() ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{dead, 0.8}, {lacking, 1.0}},
-        {{alive, 0.5}, {normal, 0.3}},
-        {{alive, 0.5}, {normal, 0.5}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    Result = hg_routing:choose_rated_route(FailRatedRoutes),
-    ?assertMatch({Route2, #{reject_reason := conversion, preferable_route := Route3}}, Result).
-
--spec prefer_weight_over_availability_test() -> _.
-prefer_weight_over_availability_test() ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 1000),
-    Route2 = hg_routing:new(?prv(2), ?trm(2), 0, 1005),
-    Route3 = hg_routing:new(?prv(3), ?trm(3), 0, 1000),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{alive, 0.3}, {normal, 0.3}},
-        {{alive, 0.5}, {normal, 0.3}},
-        {{alive, 0.3}, {normal, 0.3}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    ?assertMatch({Route2, _}, hg_routing:choose_rated_route(FailRatedRoutes)).
-
--spec prefer_weight_over_conversion_test() -> _.
-prefer_weight_over_conversion_test() ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 1000),
-    Route2 = hg_routing:new(?prv(2), ?trm(2), 0, 1005),
-    Route3 = hg_routing:new(?prv(3), ?trm(3), 0, 1000),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{alive, 0.3}, {normal, 0.5}},
-        {{alive, 0.3}, {normal, 0.3}},
-        {{alive, 0.3}, {normal, 0.3}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-    {Route2, _Meta} = hg_routing:choose_rated_route(FailRatedRoutes).
-
--endif.

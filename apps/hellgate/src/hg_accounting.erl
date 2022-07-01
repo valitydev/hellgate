@@ -144,7 +144,7 @@ do_get_account(AccountID) ->
         {ok, Result} ->
             Result;
         {exception, #accounter_AccountNotFound{}} ->
-            hg_service_wrapper:raise(#payproc_AccountNotFound{})
+            hg_woody_service_wrapper:raise(#payproc_AccountNotFound{})
     end.
 
 construct_prototype(CurrencyCode, Description) ->

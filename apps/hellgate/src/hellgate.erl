@@ -94,7 +94,7 @@ enable_health_logging(Check) ->
 construct_service_handler(Name, Module, Opts) ->
     FullOpts = maps:merge(#{handler => Module}, Opts),
     {Path, Service} = hg_proto:get_service_spec(Name),
-    {Path, {Service, {hg_service_wrapper, FullOpts}}}.
+    {Path, {Service, {hg_woody_service_wrapper, FullOpts}}}.
 
 -spec get_prometheus_route() -> {iodata(), module(), _Opts :: any()}.
 get_prometheus_route() ->

@@ -98,9 +98,9 @@
 -export([start_link/1]).
 -export([init/1]).
 
-%% Woody handler called by hg_service_wrapper
+%% Woody handler called by hg_woody_service_wrapper
 
--behaviour(hg_service_wrapper).
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -243,7 +243,7 @@ call_automaton(Function, Args) ->
 
 -type func() :: 'ProcessSignal' | 'ProcessCall' | 'ProcessRepair'.
 
--spec handle_function(func(), woody:args(), hg_service_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         machine,
@@ -374,7 +374,7 @@ marshal_repair_failed({exception, _} = Error) ->
 %%
 
 -type service_handler() ::
-    {Path :: string(), {woody:service(), {module(), hg_service_wrapper:handler_opts()}}}.
+    {Path :: string(), {woody:service(), {module(), hg_woody_service_wrapper:handler_opts()}}}.
 
 -spec get_child_spec([MachineHandler :: module()]) -> supervisor:child_spec().
 get_child_spec(MachineHandlers) ->
@@ -392,7 +392,7 @@ get_service_handler(MachineHandler, Opts) ->
     Ns = MachineHandler:namespace(),
     FullOpts = maps:merge(#{ns => Ns, handler => ?MODULE}, Opts),
     {Path, Service} = hg_proto:get_service_spec(processor, #{namespace => Ns}),
-    {Path, {Service, {hg_service_wrapper, FullOpts}}}.
+    {Path, {Service, {hg_woody_service_wrapper, FullOpts}}}.
 
 %%
 
