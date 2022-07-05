@@ -34,9 +34,9 @@ mock_dominant(Services0, SupPid) ->
     Services1 = lists:map(
         fun
             ({'Repository', Fun}) ->
-                {'Repository', {dmsl_domain_config_thrift, 'Repository'}, Fun};
+                {'Repository', {dmsl_domain_conf_thrift, 'Repository'}, Fun};
             ({'RepositoryClient', Fun}) ->
-                {'RepositoryClient', {dmsl_domain_config_thrift, 'RepositoryClient'}, Fun};
+                {'RepositoryClient', {dmsl_domain_conf_thrift, 'RepositoryClient'}, Fun};
             ({_, _, _} = Service) ->
                 Service
         end,
@@ -73,20 +73,19 @@ mock_services_([], _Config) ->
 mock_services_(Services, SupPid) when is_pid(SupPid) ->
     {ok, IP} = inet:parse_address(?HELLGATE_IP),
     lists:foldl(
-        fun
-            (Service, Acc) ->
-                Name = get_service_name(Service),
-                ServerID = {dummy, Name},
-                WoodyOpts = #{
-                    ip => IP,
-                    port => 0,
-                    event_handler => scoper_woody_event_handler,
-                    handlers => [mock_service_handler(Service)]
-                },
-                ChildSpec = woody_server:child_spec(ServerID, WoodyOpts),
-                {ok, _} = supervisor:start_child(SupPid, ChildSpec),
-                {_IP, Port} = woody_server:get_addr(ServerID, WoodyOpts),
-                Acc#{Name => make_url(Name, Port)}
+        fun(Service, Acc) ->
+            Name = get_service_name(Service),
+            ServerID = {dummy, Name},
+            WoodyOpts = #{
+                ip => IP,
+                port => 0,
+                event_handler => scoper_woody_event_handler,
+                handlers => [mock_service_handler(Service)]
+            },
+            ChildSpec = woody_server:child_spec(ServerID, WoodyOpts),
+            {ok, _} = supervisor:start_child(SupPid, ChildSpec),
+            {_IP, Port} = woody_server:get_addr(ServerID, WoodyOpts),
+            Acc#{Name => make_url(Name, Port)}
         end,
         #{},
         Services

@@ -3,8 +3,8 @@
 
 -include("hg_ct_domain.hrl").
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
@@ -132,17 +132,17 @@ mock_dominant(SupPid) ->
         [
             {'Repository', fun
                 ('Checkout', {{version, ?routing_with_fail_rate_domain_revision}}) ->
-                    {ok, #'Snapshot'{
+                    {ok, #'domain_conf_Snapshot'{
                         version = ?routing_with_fail_rate_domain_revision,
                         domain = RoutingWithFailRateDomain
                     }};
                 ('Checkout', {{version, ?routing_with_risk_coverage_set_domain_revision}}) ->
-                    {ok, #'Snapshot'{
+                    {ok, #'domain_conf_Snapshot'{
                         version = ?routing_with_risk_coverage_set_domain_revision,
                         domain = RoutingWithRiskCoverageSetDomain
                     }};
                 ('Checkout', {{version, Version}}) ->
-                    {ok, #'Snapshot'{
+                    {ok, #'domain_conf_Snapshot'{
                         version = Version,
                         domain = Domain
                     }}
@@ -289,9 +289,8 @@ mock_party_management(SupPid) ->
 mock_fault_detector(SupPid) ->
     hg_mock_helper:mock_services(
         [
-            {fault_detector, fun ('GetStatistics', _) ->
+            {fault_detector, fun('GetStatistics', _) ->
                 {ok, [
-
                     #fault_detector_ServiceStatistics{
                         service_id = <<"hellgate_service.provider_conversion.1">>,
                         failure_rate = 0.9,
@@ -341,8 +340,8 @@ mock_fault_detector(SupPid) ->
                         success_operations_count = 9
                     }
                 ]}
-                             end}
-    ],
+            end}
+        ],
         SupPid
     ).
 
