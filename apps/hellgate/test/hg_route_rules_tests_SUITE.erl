@@ -28,6 +28,7 @@
 -export([terminal_priority_for_shop/1]).
 
 -define(dummy_party_id, <<"dummy_party_id">>).
+-define(dummy_another_party_id, <<"dummy_party_id_1">>).
 -define(dummy_shop_id, <<"dummy_shop_id">>).
 -define(dummy_another_shop_id, <<"dummy_another_shop_id">>).
 -define(assert_set_equal(S1, S2), ?assertEqual(lists:sort(S1), lists:sort(S2))).
@@ -193,7 +194,7 @@ mock_party_management(SupPid) ->
                     {
                         ?ruleset(2),
                         ?base_routing_rule_domain_revision,
-                        #payproc_Varset{party_id = <<"54321">>}
+                        #payproc_Varset{party_id = ?dummy_another_party_id}
                     }
                 ) ->
                     {ok, #domain_RoutingRuleset{
@@ -352,7 +353,7 @@ no_route_found_for_payment(_C) ->
         currency => ?cur(<<"RUB">>),
         cost => ?cash(999, <<"RUB">>),
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-        party_id => <<"12345">>,
+        party_id => ?dummy_party_id,
         flow => instant
     },
 
@@ -391,7 +392,7 @@ gather_route_success(_C) ->
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-        party_id => <<"12345">>,
+        party_id => ?dummy_party_id,
         flow => instant,
         risk_score => low
     },
@@ -426,7 +427,7 @@ rejected_by_table_prohibitions(_C) ->
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
         payment_tool => {bank_card, BankCard},
-        party_id => <<"12345">>,
+        party_id => ?dummy_party_id,
         flow => instant,
         risk_score => low
     },
@@ -458,7 +459,7 @@ empty_candidate_ok(_C) ->
         currency => ?cur(<<"RUB">>),
         cost => ?cash(101010, <<"RUB">>),
         payment_tool => {bank_card, BankCard},
-        party_id => <<"12345">>,
+        party_id => ?dummy_party_id,
         flow => instant
     },
 
@@ -472,7 +473,7 @@ empty_candidate_ok(_C) ->
 -spec ruleset_misconfig(config()) -> test_return().
 ruleset_misconfig(_C) ->
     VS = #{
-        party_id => <<"54321">>,
+        party_id => ?dummy_another_party_id,
         flow => instant
     },
 
@@ -503,7 +504,7 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
         currency => ?cur(<<"RUB">>),
         cost => ?cash(1000, <<"RUB">>),
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-        party_id => <<"12345">>,
+        party_id => ?dummy_party_id,
         flow => instant,
         risk_score => RiskScore
     },
