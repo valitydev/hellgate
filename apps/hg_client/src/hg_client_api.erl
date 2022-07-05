@@ -62,7 +62,7 @@ get_opts(ServiceName) ->
     Opts0 = #{
         event_handler => {scoper_woody_event_handler, EventHandlerOpts}
     },
-    case maps:get(ServiceName, genlib_app:env(hellgate, services), undefined) of
+    case maps:get(ServiceName, genlib_app:env(hg_proto, services), undefined) of
         #{} = Opts ->
             maps:merge(Opts, Opts0);
         _ ->
