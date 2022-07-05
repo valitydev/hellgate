@@ -1,11 +1,8 @@
 -module(hg_customer_tests_SUITE).
 
--include_lib("common_test/include/ct.hrl").
-
 -include("hg_ct_domain.hrl").
 -include("hg_ct_json.hrl").
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("hellgate/include/customer_events.hrl").
 
 -export([init_per_suite/1]).
@@ -302,8 +299,7 @@ start_binding_w_suspend(C) ->
     [
         ?customer_binding_changed(ID, ?customer_binding_interaction_requested(UserInteraction))
     ] = next_event(CustomerID, Client),
-    {URL, GoodForm} = get_post_request(UserInteraction),
-    _ = assert_success_post_request({URL, GoodForm}),
+    _ = assert_success_interaction(UserInteraction),
     SuccessChanges = [
         ?customer_binding_changed(ID, ?customer_binding_status_changed(?customer_binding_succeeded())),
         ?customer_status_changed(?customer_ready())
@@ -473,8 +469,7 @@ start_binding_w_tds(C) ->
     [
         ?customer_binding_changed(_, ?customer_binding_interaction_requested(UserInteraction))
     ] = next_event(CustomerID, Client),
-    {URL, GoodForm} = get_post_request(UserInteraction),
-    _ = assert_success_post_request({URL, GoodForm}),
+    _ = assert_success_interaction(UserInteraction),
     [
         ?customer_binding_changed(_, ?customer_binding_status_changed(?customer_binding_succeeded())),
         ?customer_status_changed(?customer_ready())
@@ -561,12 +556,12 @@ start_two_bindings_w_tds(C) ->
         ?customer_binding_changed(CustomerBindingID2, ?customer_binding_started(CustomerBinding2, _)),
         ?customer_binding_changed(CustomerBindingID2, ?customer_binding_interaction_requested(UserInteraction2))
     ] = await_for_changes(StartChanges, CustomerID, Client),
-    _ = assert_success_post_request(get_post_request(UserInteraction1)),
+    _ = assert_success_interaction(UserInteraction1),
     [
         ?customer_binding_changed(CustomerBindingID1, ?customer_binding_status_changed(?customer_binding_succeeded())),
         ?customer_status_changed(?customer_ready())
     ] = next_event(CustomerID, Client),
-    _ = assert_success_post_request(get_post_request(UserInteraction2)),
+    _ = assert_success_interaction(UserInteraction2),
     [
         ?customer_binding_changed(CustomerBindingID2, ?customer_binding_status_changed(?customer_binding_succeeded()))
     ] = next_event(CustomerID, Client).
@@ -727,17 +722,14 @@ next_event(CustomerID, Client) ->
 
 %%
 
-post_request({URL, Form}) ->
+assert_success_interaction(?redirect(URL, Form)) ->
+    {ok, 200, _RespHeaders, _ClientRef} = post_request(URL, Form).
+
+post_request(URL, Form) ->
     Method = post,
     Headers = [],
     Body = {form, maps:to_list(Form)},
     hackney:request(Method, URL, Headers, Body).
-
-get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
-    {URL, Form}.
-
-assert_success_post_request(Req) ->
-    {ok, 200, _RespHeaders, _ClientRef} = post_request(Req).
 
 %%
 
@@ -811,7 +803,7 @@ construct_payment_methods_terms() ->
             parent_terms = undefined,
             term_sets = [
                 #domain_TimedTermSet{
-                    action_time = #'TimestampInterval'{},
+                    action_time = #base_TimestampInterval{},
                     terms = TermSet
                 }
             ]
@@ -889,7 +881,7 @@ construct_domain_fixture(TermSet) ->
                 parent_terms = undefined,
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TermSet
                     }
                 ]

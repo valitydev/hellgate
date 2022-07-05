@@ -9,8 +9,7 @@
 
 -module(hg_party).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("damsel/include/dmsl_accounter_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 %% Party support functions
 
@@ -36,7 +35,7 @@
 -type contract_id() :: dmsl_domain_thrift:'ContractID'().
 -type shop() :: dmsl_domain_thrift:'Shop'().
 -type shop_id() :: dmsl_domain_thrift:'ShopID'().
--type shop_contract() :: dmsl_payment_processing_thrift:'ShopContract'().
+-type shop_contract() :: dmsl_payproc_thrift:'ShopContract'().
 
 %% Interface
 

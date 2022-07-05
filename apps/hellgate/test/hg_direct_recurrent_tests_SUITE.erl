@@ -1,11 +1,7 @@
 -module(hg_direct_recurrent_tests_SUITE).
 
--include_lib("common_test/include/ct.hrl").
-
 -include("hg_ct_domain.hrl").
 -include("hg_ct_json.hrl").
-
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 
 -include("invoice_events.hrl").
 -include("payment_events.hrl").
@@ -42,16 +38,11 @@
 
 -define(invoice(ID), #domain_Invoice{id = ID}).
 -define(payment(ID), #domain_InvoicePayment{id = ID}).
--define(customer(ID), #payproc_Customer{id = ID}).
--define(adjustment(ID), #domain_InvoicePaymentAdjustment{id = ID}).
--define(adjustment(ID, Status), #domain_InvoicePaymentAdjustment{id = ID, status = Status}).
 -define(invoice_state(Invoice), #payproc_Invoice{invoice = Invoice}).
 -define(invoice_state(Invoice, Payments), #payproc_Invoice{invoice = Invoice, payments = Payments}).
 -define(payment_state(Payment), #payproc_InvoicePayment{payment = Payment}).
 -define(invoice_w_status(Status), #domain_Invoice{status = Status}).
--define(payment_w_status(Status), #domain_InvoicePayment{status = Status}).
 -define(payment_w_status(ID, Status), #domain_InvoicePayment{id = ID, status = Status}).
--define(trx_info(ID), #domain_TransactionInfo{id = ID}).
 -define(evp(Pattern), fun(EvpPattern) ->
     case EvpPattern of
         Pattern -> true;
@@ -234,7 +225,7 @@ customer_paytools_as_first_test(C) ->
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     CustomerID = make_customer_w_rec_tool(cfg(party_id, C), ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_customer_payment_params(CustomerID),
-    ExpectedError = #'InvalidRequest'{errors = [<<"Invalid payer">>]},
+    ExpectedError = #base_InvalidRequest{errors = [<<"Invalid payer">>]},
     {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
 -spec cancelled_first_payment_test(config()) -> test_result().
@@ -655,7 +646,7 @@ construct_domain_fixture(TermSet) ->
                 parent_terms = undefined,
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TermSet
                     }
                 ]

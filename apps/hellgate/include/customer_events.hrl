@@ -1,7 +1,7 @@
 -ifndef(__hellgate_customer_events__).
 -define(__hellgate_customer_events__, 42).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 %%
 %% Customers

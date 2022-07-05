@@ -5,6 +5,7 @@
 
 -module(hg_proxy_host_provider).
 
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 
 %% Woody handler called by hg_woody_service_wrapper
@@ -30,26 +31,24 @@ handle_function('ProcessPaymentCallback', {Tag, Callback}, _) ->
 handle_function('ProcessRecurrentTokenCallback', {Tag, Callback}, _) ->
     handle_callback_result(hg_recurrent_paytool:process_callback(Tag, {provider, Callback}));
 handle_function('GetPayment', {Tag}, _) ->
-    {InvoiceRef, PaymentRef} =
-        case hg_machine_tag:get_binding(hg_invoice:namespace(), Tag) of
-            {ok, EntityID, MachineID} ->
-                {MachineID, EntityID};
-            {error, not_found} ->
-                %% Fallback to machinegun tagging
-                %% TODO: Remove after migration grace period
-                {{tag, Tag}, {tag, Tag}}
-        end,
-    case hg_invoice:get(InvoiceRef) of
-        {ok, InvoiceSt} ->
-            case hg_invoice:get_payment(PaymentRef, InvoiceSt) of
-                {ok, PaymentSt} ->
-                    Opts = hg_invoice:get_payment_opts(InvoiceSt),
-                    hg_invoice_payment:construct_payment_info(PaymentSt, Opts);
+    case hg_machine_tag:get_binding(hg_invoice:namespace(), Tag) of
+        {ok, PaymentID, InvoiceID} ->
+            case hg_invoice:get(InvoiceID) of
+                {ok, InvoiceSt} ->
+                    case hg_invoice:get_payment(PaymentID, InvoiceSt) of
+                        {ok, PaymentSt} ->
+                            hg_invoice_payment:construct_payment_info(
+                                PaymentSt,
+                                hg_invoice:get_payment_opts(InvoiceSt)
+                            );
+                        {error, notfound} ->
+                            hg_woody_wrapper:raise(#proxy_provider_PaymentNotFound{})
+                    end;
                 {error, notfound} ->
-                    hg_woody_service_wrapper:raise(#prxprv_PaymentNotFound{})
+                    hg_woody_service_wrapper:raise(#proxy_provider_PaymentNotFound{})
             end;
         {error, notfound} ->
-            hg_woody_service_wrapper:raise(#prxprv_PaymentNotFound{})
+            hg_woody_service_wrapper:raise(#proxy_provider_PaymentNotFound{})
     end.
 
 -spec handle_callback_result
@@ -58,8 +57,8 @@ handle_function('GetPayment', {Tag}, _) ->
 handle_callback_result({ok, Response}) ->
     Response;
 handle_callback_result({error, invalid_callback}) ->
-    hg_woody_service_wrapper:raise(#'InvalidRequest'{errors = [<<"Invalid callback">>]});
+    hg_woody_service_wrapper:raise(#'base_InvalidRequest'{errors = [<<"Invalid callback">>]});
 handle_callback_result({error, notfound}) ->
-    hg_woody_service_wrapper:raise(#'InvalidRequest'{errors = [<<"Not found">>]});
+    hg_woody_service_wrapper:raise(#'base_InvalidRequest'{errors = [<<"Not found">>]});
 handle_callback_result({error, Reason}) ->
     error(Reason).

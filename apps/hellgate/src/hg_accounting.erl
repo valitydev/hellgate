@@ -22,7 +22,7 @@
 -export([commit/2]).
 -export([rollback/2]).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 

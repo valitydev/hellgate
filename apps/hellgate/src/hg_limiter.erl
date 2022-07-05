@@ -1,8 +1,9 @@
 -module(hg_limiter).
 
--include("domain.hrl").
--include_lib("limiter_proto/include/lim_limiter_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_context_limiter_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
 
 -type turnover_selector() :: dmsl_domain_thrift:'TurnoverLimitSelector'().
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
@@ -20,6 +21,11 @@
 -export([commit_refund_limits/4]).
 -export([rollback_payment_limits/4]).
 -export([rollback_refund_limits/4]).
+
+-define(route(ProviderRef, TerminalRef), #domain_PaymentRoute{
+    provider = ProviderRef,
+    terminal = TerminalRef
+}).
 
 -spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
 get_turnover_limits(undefined) ->
@@ -128,31 +134,33 @@ gen_limit_context(Invoice, Payment) ->
     gen_limit_context(Invoice, Payment, undefined).
 
 gen_limit_context(Invoice, Payment, CapturedCash) ->
-    InvoiceCtx = marshal(invoice, Invoice),
-    PaymentCtx0 = marshal(payment, Payment),
-
-    PaymentCtx1 = PaymentCtx0#limiter_context_InvoicePayment{
-        capture_cost = maybe_marshal(cost, CapturedCash)
+    PaymentCtx = #context_payproc_InvoicePayment{
+        payment = Payment#domain_InvoicePayment{
+            status = {captured, #domain_InvoicePaymentCaptured{cost = CapturedCash}}
+        }
     },
-    #limiter_context_LimitContext{
-        payment_processing = #limiter_context_ContextPaymentProcessing{
-            op = {invoice_payment, #limiter_context_PaymentProcessingOperationInvoicePayment{}},
-            invoice = InvoiceCtx#limiter_context_Invoice{effective_payment = PaymentCtx1}
+    #context_limiter_LimitContext{
+        payment_processing = #context_payproc_Context{
+            op = {invoice_payment, #context_payproc_OperationInvoicePayment{}},
+            invoice = #context_payproc_Invoice{
+                invoice = Invoice,
+                payment = PaymentCtx
+            }
         }
     }.
 
 gen_limit_refund_context(Invoice, Payment, Refund) ->
-    InvoiceCtx = marshal(invoice, Invoice),
-    PaymentCtx0 = marshal(payment, Payment),
-    RefundCtx = marshal(refund, Refund),
-
-    PaymentCtx1 = PaymentCtx0#limiter_context_InvoicePayment{
-        effective_refund = RefundCtx
+    PaymentCtx = #context_payproc_InvoicePayment{
+        payment = Payment,
+        refund = Refund
     },
-    #limiter_context_LimitContext{
-        payment_processing = #limiter_context_ContextPaymentProcessing{
-            op = {invoice_payment_refund, #limiter_context_PaymentProcessingOperationInvoicePaymentRefund{}},
-            invoice = InvoiceCtx#limiter_context_Invoice{effective_payment = PaymentCtx1}
+    #context_limiter_LimitContext{
+        payment_processing = #context_payproc_Context{
+            op = {invoice_payment_refund, #context_payproc_OperationInvoicePaymentRefund{}},
+            invoice = #context_payproc_Invoice{
+                invoice = Invoice,
+                payment = PaymentCtx
+            }
         }
     }.
 
@@ -243,58 +251,3 @@ set_refund_amount(Amount, Refund) ->
 
 set_cash_amount(Amount, Cash) ->
     Cash#domain_Cash{amount = Amount}.
-
-marshal(invoice, Invoice) ->
-    #limiter_context_Invoice{
-        id = Invoice#domain_Invoice.id,
-        owner_id = Invoice#domain_Invoice.owner_id,
-        shop_id = Invoice#domain_Invoice.shop_id,
-        cost = marshal(cost, Invoice#domain_Invoice.cost),
-        created_at = Invoice#domain_Invoice.created_at
-    };
-marshal(payment, Payment) ->
-    #limiter_context_InvoicePayment{
-        id = Payment#domain_InvoicePayment.id,
-        owner_id = Payment#domain_InvoicePayment.owner_id,
-        shop_id = Payment#domain_InvoicePayment.shop_id,
-        cost = marshal(cost, Payment#domain_InvoicePayment.cost),
-        created_at = Payment#domain_InvoicePayment.created_at,
-        flow = marshal(flow, Payment#domain_InvoicePayment.flow),
-        payer = marshal(payer, Payment#domain_InvoicePayment.payer)
-    };
-marshal(refund, Refund) ->
-    #limiter_context_InvoicePaymentRefund{
-        id = Refund#domain_InvoicePaymentRefund.id,
-        cost = marshal(cost, Refund#domain_InvoicePaymentRefund.cash),
-        created_at = Refund#domain_InvoicePaymentRefund.created_at
-    };
-marshal(cost, Cost) ->
-    #limiter_base_Cash{
-        amount = Cost#domain_Cash.amount,
-        currency = marshal(currency, Cost#domain_Cash.currency)
-    };
-marshal(currency, #domain_CurrencyRef{symbolic_code = Currency}) ->
-    #limiter_base_CurrencyRef{
-        symbolic_code = Currency
-    };
-marshal(flow, Flow) ->
-    case Flow of
-        {instant, #domain_InvoicePaymentFlowInstant{}} ->
-            {instant, #limiter_context_InvoicePaymentFlowInstant{}};
-        {hold, #domain_InvoicePaymentFlowHold{}} ->
-            {hold, #limiter_context_InvoicePaymentFlowHold{}}
-    end;
-marshal(payer, Payer) ->
-    case Payer of
-        {payment_resource, #domain_PaymentResourcePayer{}} ->
-            {payment_resource, #limiter_context_PaymentResourcePayer{}};
-        {customer, #domain_CustomerPayer{}} ->
-            {customer, #limiter_context_CustomerPayer{}};
-        {recurrent, #domain_RecurrentPayer{}} ->
-            {recurrent, #limiter_context_RecurrentPayer{}}
-    end.
-
-maybe_marshal(_, undefined) ->
-    undefined;
-maybe_marshal(Type, Value) ->
-    marshal(Type, Value).

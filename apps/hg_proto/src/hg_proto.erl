@@ -16,20 +16,18 @@
 -type service_spec() :: {Path :: string(), service()}.
 
 -spec get_service(Name :: atom()) -> service().
-get_service(claim_committer) ->
-    {dmsl_claim_management_thrift, 'ClaimCommitter'};
 get_service(party_management) ->
-    {dmsl_payment_processing_thrift, 'PartyManagement'};
+    {dmsl_payproc_thrift, 'PartyManagement'};
 get_service(invoicing) ->
-    {dmsl_payment_processing_thrift, 'Invoicing'};
+    {dmsl_payproc_thrift, 'Invoicing'};
 get_service(invoice_templating) ->
-    {dmsl_payment_processing_thrift, 'InvoiceTemplating'};
+    {dmsl_payproc_thrift, 'InvoiceTemplating'};
 get_service(customer_management) ->
-    {dmsl_payment_processing_thrift, 'CustomerManagement'};
+    {dmsl_payproc_thrift, 'CustomerManagement'};
 get_service(recurrent_paytool) ->
-    {dmsl_payment_processing_thrift, 'RecurrentPaymentTools'};
+    {dmsl_payproc_thrift, 'RecurrentPaymentTools'};
 get_service(recurrent_paytool_eventsink) ->
-    {dmsl_payment_processing_thrift, 'RecurrentPaymentToolEventSink'};
+    {dmsl_payproc_thrift, 'RecurrentPaymentToolEventSink'};
 get_service(proxy_provider) ->
     {dmsl_proxy_provider_thrift, 'ProviderProxy'};
 get_service(proxy_inspector) ->
@@ -47,7 +45,7 @@ get_service(eventsink) ->
 get_service(fault_detector) ->
     {fd_proto_fault_detector_thrift, 'FaultDetector'};
 get_service(limiter) ->
-    {lim_limiter_thrift, 'Limiter'}.
+    {limproto_limiter_thrift, 'Limiter'}.
 
 -spec get_service_spec(Name :: atom()) -> service_spec().
 get_service_spec(Name) ->

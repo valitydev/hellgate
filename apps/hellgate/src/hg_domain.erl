@@ -7,7 +7,7 @@
 -module(hg_domain).
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 
 %%
 
@@ -50,7 +50,7 @@ get(Revision, Ref) ->
     try
         extract_data(dmt_client:checkout_object(Revision, Ref))
     catch
-        throw:#'ObjectNotFound'{} ->
+        throw:#domain_conf_ObjectNotFound{} ->
             error({object_not_found, {Revision, Ref}})
     end.
 
@@ -59,7 +59,7 @@ find(Revision, Ref) ->
     try
         extract_data(dmt_client:checkout_object(Revision, Ref))
     catch
-        throw:#'ObjectNotFound'{} ->
+        throw:#domain_conf_ObjectNotFound{} ->
             notfound
     end.
 
@@ -69,7 +69,7 @@ exists(Revision, Ref) ->
         _ = dmt_client:checkout_object(Revision, Ref),
         true
     catch
-        throw:#'ObjectNotFound'{} ->
+        throw:#domain_conf_ObjectNotFound{} ->
             false
     end.
 
@@ -82,7 +82,7 @@ commit(Revision, Commit) ->
 
 -spec reset(revision()) -> revision() | no_return().
 reset(ToRevision) ->
-    #'Snapshot'{domain = Domain} = dmt_client:checkout(ToRevision),
+    #domain_conf_Snapshot{domain = Domain} = dmt_client:checkout(ToRevision),
     upsert(maps:values(Domain)).
 
 %% convenience shortcuts, use carefully
@@ -105,5 +105,5 @@ remove(ObjectOrMany) ->
 
 -spec cleanup() -> revision() | no_return().
 cleanup() ->
-    #'Snapshot'{domain = Domain} = dmt_client:checkout(latest),
+    #domain_conf_Snapshot{domain = Domain} = dmt_client:checkout(latest),
     remove(maps:values(Domain)).

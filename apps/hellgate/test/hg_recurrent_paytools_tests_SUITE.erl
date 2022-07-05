@@ -1,12 +1,10 @@
 -module(hg_recurrent_paytools_tests_SUITE).
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -include("hg_ct_domain.hrl").
 -include("hg_ct_json.hrl").
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("hellgate/include/customer_events.hrl").
 -include_lib("hellgate/include/recurrent_payment_tools.hrl").
 
@@ -349,8 +347,7 @@ recurrent_paytool_w_tds_acquired(C) ->
         ?session_ev(?interaction_requested(UserInteraction))
     ] = next_event(RecurrentPaytoolID, Client),
 
-    {URL, GoodForm} = get_post_request(UserInteraction),
-    _ = assert_success_post_request({URL, GoodForm}),
+    _ = assert_success_interaction(UserInteraction),
     ok = await_acquirement_finish(RecurrentPaytoolID, Client).
 
 recurrent_paytool_abandoned(C) ->
@@ -521,20 +518,14 @@ filter_change(_) ->
 
 %%
 
-assert_success_post_request(Req) ->
+assert_success_interaction(Req) ->
     {ok, 200, _RespHeaders, _ClientRef} = post_request(Req).
 
-% assert_failed_post_request(Req) ->
-%     {ok, 500, _RespHeaders, _ClientRef} = post_request(Req).
-
-post_request({URL, Form}) ->
+post_request(?redirect(URL, Form)) ->
     Method = post,
     Headers = [],
     Body = {form, maps:to_list(Form)},
     hackney:request(Method, URL, Headers, Body).
-
-get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
-    {URL, Form}.
 
 %%
 
@@ -664,7 +655,7 @@ construct_domain_fixture(TermSet) ->
                 parent_terms = undefined,
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TermSet
                     }
                 ]

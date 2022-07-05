@@ -14,10 +14,11 @@
 
 -module(hg_invoice).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include("payment_events.hrl").
 -include("invoice_events.hrl").
 -include("domain.hrl").
+
+-include_lib("damsel/include/dmsl_repair_thrift.hrl").
 
 -define(NS, <<"invoice">>).
 
@@ -70,7 +71,7 @@
 
 -type st() :: #st{}.
 
--type invoice_change() :: dmsl_payment_processing_thrift:'InvoiceChange'().
+-type invoice_change() :: dmsl_payproc_thrift:'InvoiceChange'().
 
 -type activity() ::
     invoice
@@ -82,23 +83,16 @@
 
 %% API
 
--spec get(hg_machine:ref()) -> {ok, st()} | {error, notfound}.
-get(Ref) ->
-    case hg_machine:get_history(?NS, Ref) of
+-spec get(hg_machine:id()) -> {ok, st()} | {error, notfound}.
+get(Id) ->
+    case hg_machine:get_history(?NS, Id) of
         {ok, History} ->
             {ok, collapse_history(unmarshal_history(History))};
         Error ->
             Error
     end.
 
--spec get_payment(hg_machine:tag() | payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
-get_payment({tag, Tag}, #st{payments = Ps}) ->
-    case lists:dropwhile(fun({_, PS}) -> not lists:member(Tag, get_payment_tags(PS)) end, Ps) of
-        [{_ID, PaymentSession} | _] ->
-            {ok, PaymentSession};
-        [] ->
-            {error, notfound}
-    end;
+-spec get_payment(payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
 get_payment(PaymentID, St) ->
     case try_get_payment_session(PaymentID, St) of
         PaymentSession when PaymentSession /= undefined ->
@@ -106,9 +100,6 @@ get_payment(PaymentID, St) ->
         undefined ->
             {error, notfound}
     end.
-
-get_payment_tags(PaymentSession) ->
-    hg_invoice_payment:get_tags(PaymentSession).
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
@@ -367,29 +358,25 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    MachineRef =
-        case hg_machine_tag:get_binding(namespace(), Tag) of
-            {ok, _EntityID, MachineID} ->
-                MachineID;
-            {error, not_found} ->
-                %% Fallback to machinegun tagging
-                %% TODO: Remove after migration grace period
-                {tag, Tag}
-        end,
-    case hg_machine:call(?NS, MachineRef, {callback, Tag, Callback}) of
-        {ok, _Reply} = Response ->
-            Response;
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
+    case hg_machine_tag:get_binding(namespace(), Tag) of
+        {ok, _EntityID, MachineID} ->
+            case hg_machine:call(?NS, MachineID, {callback, Tag, Callback}) of
+                {ok, _} = Ok ->
+                    Ok;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.
 
 %%
 
--spec fail(hg_machine:ref()) -> ok.
-fail(Ref) ->
-    case hg_machine:call(?NS, Ref, fail) of
+-spec fail(hg_machine:id()) -> ok.
+fail(Id) ->
+    case hg_machine:call(?NS, Id, fail) of
         {error, failed} ->
             ok;
         {error, Error} ->
@@ -400,19 +387,19 @@ fail(Ref) ->
 
 %%
 
-get_history(Ref) ->
-    History = hg_machine:get_history(?NS, Ref),
+get_history(ID) ->
+    History = hg_machine:get_history(?NS, ID),
     unmarshal_history(map_history_error(History)).
 
-get_history(Ref, AfterID, Limit) ->
-    History = hg_machine:get_history(?NS, Ref, AfterID, Limit),
+get_history(ID, AfterID, Limit) ->
+    History = hg_machine:get_history(?NS, ID, AfterID, Limit),
     unmarshal_history(map_history_error(History)).
 
-get_state(Ref) ->
-    collapse_history(get_history(Ref)).
+get_state(ID) ->
+    collapse_history(get_history(ID)).
 
-get_state(Ref, AfterID, Limit) ->
-    collapse_history(get_history(Ref, AfterID, Limit)).
+get_state(ID, AfterID, Limit) ->
+    collapse_history(get_history(ID, AfterID, Limit)).
 
 get_public_history(InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_invoice_event(InvoiceID, Ev) || Ev <- get_history(InvoiceID, AfterID, Limit)].
@@ -446,7 +433,7 @@ repair(ID, Args) ->
     case hg_machine:repair(?NS, ID, Args) of
         {ok, _Result} -> ok;
         {error, notfound} -> erlang:throw(#payproc_InvoiceNotFound{});
-        {error, working} -> erlang:throw(#'InvalidRequest'{errors = [<<"No need to repair">>]});
+        {error, working} -> erlang:throw(#base_InvalidRequest{errors = [<<"No need to repair">>]});
         {error, Reason} -> erlang:error(Reason)
     end.
 
@@ -460,7 +447,7 @@ map_history_error({error, notfound}) ->
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type party() :: dmsl_domain_thrift:'Party'().
 
--type adjustment() :: dmsl_payment_processing_thrift:'InvoiceAdjustment'().
+-type adjustment() :: dmsl_payproc_thrift:'InvoiceAdjustment'().
 
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_st() :: hg_invoice_payment:st().
@@ -955,7 +942,7 @@ force_refund_id_format(manual_refund, Correct = <<?MANUAL_REFUND_ID_PREFIX, _Res
 force_refund_id_format(manual_refund, Incorrect) ->
     <<?MANUAL_REFUND_ID_PREFIX, Incorrect/binary>>;
 force_refund_id_format(refund, <<?MANUAL_REFUND_ID_PREFIX, _ID/binary>>) ->
-    throw(#'InvalidRequest'{errors = [<<"Invalid id format">>]});
+    throw(#base_InvalidRequest{errors = [<<"Invalid id format">>]});
 force_refund_id_format(refund, ID) ->
     ID.
 
@@ -1328,11 +1315,11 @@ make_invoice_cart(Cost, {product, TplProduct}, Shop) ->
 get_templated_price(undefined, {fixed, Cost}, Shop) ->
     get_cost(Cost, Shop);
 get_templated_price(undefined, _, _Shop) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_NO_COST]});
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_NO_COST]});
 get_templated_price(Cost, {fixed, Cost}, Shop) ->
     get_cost(Cost, Shop);
 get_templated_price(_Cost, {fixed, _CostTpl}, _Shop) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_COST]});
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_COST]});
 get_templated_price(Cost, {range, Range}, Shop) ->
     _ = assert_cost_in_range(Cost, Range),
     get_cost(Cost, Shop);
@@ -1354,14 +1341,14 @@ assert_cost_in_range(
     _ = assert_less_than(UType, Amount, UAmount),
     ok;
 assert_cost_in_range(_, _) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_CURRENCY]}).
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_CURRENCY]}).
 
 assert_less_than(inclusive, Less, More) when Less =< More ->
     ok;
 assert_less_than(exclusive, Less, More) when Less < More ->
     ok;
 assert_less_than(_, _, _) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_AMOUNT]}).
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_AMOUNT]}).
 
 make_invoice_due_date(#domain_LifetimeInterval{years = YY, months = MM, days = DD}) ->
     hg_datetime:add_interval(hg_datetime:format_now(), {YY, MM, DD}).
@@ -1467,7 +1454,7 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) -> [invoice_change()].
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     {invoice_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
     Buf.
 
@@ -1479,7 +1466,7 @@ unmarshal_invoice(Bin) ->
 %% Wrap in thrift binary
 
 wrap_event_payload(Payload) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     Bin = hg_proto_utils:serialize(Type, Payload),
     #{
         format_version => 1,

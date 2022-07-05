@@ -2,7 +2,8 @@
 
 -module(hg_invoice_template).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -define(NS, <<"invoice_template">>).
 
@@ -30,7 +31,7 @@
 
 %% Internal types
 
--type invoice_template_change() :: dmsl_payment_processing_thrift:'InvoiceTemplateChange'().
+-type invoice_template_change() :: dmsl_payproc_thrift:'InvoiceTemplateChange'().
 
 %% API
 
@@ -180,12 +181,8 @@ map_history_error({error, notfound}) ->
 
 %% Machine
 
--type create_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateCreateParams'().
+-type create_params() :: dmsl_payproc_thrift:'InvoiceTemplateCreateParams'().
 -type call() :: hg_machine:thrift_call().
-
--define(ev(Body),
-    {invoice_template_changes, Body}
-).
 
 -define(tpl_created(InvoiceTpl),
     {invoice_template_created, #payproc_InvoiceTemplateCreated{invoice_template = InvoiceTpl}}
@@ -308,7 +305,7 @@ update_field({context, V}, Tpl) ->
 
 -spec marchal_invoice_template_params(create_params()) -> binary().
 marchal_invoice_template_params(Params) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'InvoiceTemplateCreateParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'InvoiceTemplateCreateParams'}},
     hg_proto_utils:serialize(Type, Params).
 
 -spec marshal_event_payload([invoice_template_change()]) -> hg_machine:event_payload().
@@ -316,7 +313,7 @@ marshal_event_payload(Changes) when is_list(Changes) ->
     wrap_event_payload({invoice_template_changes, Changes}).
 
 wrap_event_payload(Payload) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     Bin = hg_proto_utils:serialize(Type, Payload),
     #{
         format_version => 1,
@@ -327,7 +324,7 @@ wrap_event_payload(Payload) ->
 
 -spec unmarchal_invoice_template_params(binary()) -> create_params().
 unmarchal_invoice_template_params(EncodedParams) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'InvoiceTemplateCreateParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'InvoiceTemplateCreateParams'}},
     hg_proto_utils:deserialize(Type, EncodedParams).
 
 -spec unmarshal_history([hg_machine:event()]) -> [hg_machine:event([invoice_template_change()])].
@@ -340,6 +337,6 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) -> [invoice_template_change()].
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     {invoice_template_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
     Buf.

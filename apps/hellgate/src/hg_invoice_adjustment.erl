@@ -2,7 +2,7 @@
 
 -include("invoice_events.hrl").
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 -export(
     [
@@ -24,7 +24,7 @@
     dmsl_domain_thrift:'InvoiceAdjustmentID'().
 
 -type params() ::
-    dmsl_payment_processing_thrift:'InvoiceAdjustmentParams'().
+    dmsl_payproc_thrift:'InvoiceAdjustmentParams'().
 
 -type adjustment_state() ::
     dmsl_domain_thrift:'InvoiceAdjustmentState'().
@@ -39,7 +39,7 @@
     {[change()], action()}.
 
 -type change() ::
-    dmsl_payment_processing_thrift:'InvoiceAdjustmentChangePayload'().
+    dmsl_payproc_thrift:'InvoiceAdjustmentChangePayload'().
 
 -type action() ::
     hg_machine_action:t().

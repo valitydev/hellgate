@@ -2,6 +2,9 @@
 -define(__hellgate_ct_domain__, 42).
 
 -include_lib("hellgate/include/domain.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
+-include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
 
 -define(ordset(Es), ordsets:from_list(Es)).
 
@@ -53,10 +56,12 @@
     }}
 ).
 
--define(share(P, Q, C), {share, #domain_CashVolumeShare{parts = #'Rational'{p = P, q = Q}, 'of' = C}}).
+-define(ratio(P, Q), #base_Rational{p = P, q = Q}).
+
+-define(share(P, Q, C), {share, #domain_CashVolumeShare{parts = ?ratio(P, Q), 'of' = C}}).
 
 -define(share_with_rounding_method(P, Q, C, RM),
-    {share, #domain_CashVolumeShare{parts = #'Rational'{p = P, q = Q}, 'of' = C, 'rounding_method' = RM}}
+    {share, #domain_CashVolumeShare{parts = ?ratio(P, Q), 'of' = C, rounding_method = RM}}
 ).
 
 -define(cfpost(A1, A2, V), #domain_CashFlowPosting{
@@ -183,5 +188,15 @@
         ]},
     risk_coverage = undefined
 }).
+
+-define(err_gen_failure(), #payproc_error_GeneralFailure{}).
+
+-define(redirect(Uri, Form),
+    {redirect, {post_request, #user_interaction_BrowserPostRequest{uri = Uri, form = Form}}}
+).
+
+-define(payterm_receipt(SPID),
+    {payment_terminal_reciept, #user_interaction_PaymentTerminalReceipt{short_payment_id = SPID}}
+).
 
 -endif.

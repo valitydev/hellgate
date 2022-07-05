@@ -56,10 +56,10 @@ compare(T1, T2) when is_binary(T1) andalso is_binary(T2) ->
 between(Timestamp, Start, End) ->
     LB = to_interval_bound(Start, inclusive),
     UB = to_interval_bound(End, inclusive),
-    between(Timestamp, #'TimestampInterval'{lower_bound = LB, upper_bound = UB}).
+    between(Timestamp, #base_TimestampInterval{lower_bound = LB, upper_bound = UB}).
 
 -spec between(timestamp(), timestamp_interval()) -> boolean().
-between(Timestamp, #'TimestampInterval'{lower_bound = LB, upper_bound = UB}) ->
+between(Timestamp, #base_TimestampInterval{lower_bound = LB, upper_bound = UB}) ->
     check_bound(Timestamp, LB, later) andalso
         check_bound(Timestamp, UB, earlier).
 
@@ -83,13 +83,13 @@ parse(Bin, Precision) when is_binary(Bin) ->
     calendar:rfc3339_to_system_time(Str, [{unit, Precision}]).
 
 -spec add_time_span(time_span(), timestamp()) -> timestamp().
-add_time_span(#'TimeSpan'{} = TimeSpan, Timestamp0) ->
-    Years = nvl(TimeSpan#'TimeSpan'.years),
-    Months = nvl(TimeSpan#'TimeSpan'.months),
-    Days = nvl(TimeSpan#'TimeSpan'.days),
-    Hours = nvl(TimeSpan#'TimeSpan'.hours),
-    Minutes = nvl(TimeSpan#'TimeSpan'.minutes),
-    Seconds = nvl(TimeSpan#'TimeSpan'.seconds),
+add_time_span(#base_TimeSpan{} = TimeSpan, Timestamp0) ->
+    Years = nvl(TimeSpan#base_TimeSpan.years),
+    Months = nvl(TimeSpan#base_TimeSpan.months),
+    Days = nvl(TimeSpan#base_TimeSpan.days),
+    Hours = nvl(TimeSpan#base_TimeSpan.hours),
+    Minutes = nvl(TimeSpan#base_TimeSpan.minutes),
+    Seconds = nvl(TimeSpan#base_TimeSpan.seconds),
     Timestamp1 = parse_ts(add_interval(Timestamp0, {Years, Months, Days})),
     Timestamp2 = genlib_time:add_hours(Timestamp1, Hours),
     Timestamp3 = genlib_time:add_minutes(Timestamp2, Minutes),
@@ -110,7 +110,7 @@ to_integer(Timestamp) ->
 to_interval_bound(undefined, _) ->
     undefined;
 to_interval_bound(Timestamp, BoundType) ->
-    #'TimestampIntervalBound'{bound_type = BoundType, bound_time = Timestamp}.
+    #base_TimestampIntervalBound{bound_type = BoundType, bound_time = Timestamp}.
 
 compare_int(T1, T2) ->
     case T1 > T2 of
@@ -125,7 +125,7 @@ compare_int(T1, T2) ->
 -spec check_bound(timestamp(), timestamp_interval_bound(), later | earlier) -> boolean().
 check_bound(_, undefined, _) ->
     true;
-check_bound(Timestamp, #'TimestampIntervalBound'{bound_type = Type, bound_time = BoundTime}, Operator) ->
+check_bound(Timestamp, #base_TimestampIntervalBound{bound_type = Type, bound_time = BoundTime}, Operator) ->
     case compare(Timestamp, BoundTime) of
         Operator ->
             true;
