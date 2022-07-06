@@ -1,6 +1,5 @@
 -module(ff_ct_sleepy_provider).
 
--include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_withdrawals_provider_adapter_thrift.hrl").
 
 %% API
@@ -20,7 +19,6 @@
 -type identity() :: dmsl_withdrawals_domain_thrift:'Identity'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type currency() :: dmsl_domain_thrift:'Currency'().
--type failure() :: dmsl_domain_thrift:'Failure'().
 -type domain_quote() :: dmsl_withdrawals_provider_adapter_thrift:'Quote'().
 
 -type withdrawal() :: #{
@@ -52,8 +50,6 @@
 -type state() :: any().
 
 -type transaction_info() :: ff_adapter:transaction_info().
--type status() :: {success, transaction_info()} | {failure, failure()}.
--type timer() :: {deadline, binary()} | {timeout, integer()}.
 
 %%
 
@@ -79,18 +75,22 @@ start(Opts) ->
 
 -spec process_withdrawal(withdrawal(), state(), map()) ->
     {ok, #{
-        intent := {finish, status()} | {sleep, timer()} | {sleep, timer(), CallbackTag},
+        intent := ff_adapter_withdrawal:intent(),
         next_state => state(),
         transaction_info => transaction_info()
-    }}
-when
-    CallbackTag :: binary().
-process_withdrawal(#{id := WithdrawalID}, _State, _Options) ->
-    CallbackTag = <<"cb_", WithdrawalID/binary>>,
-    NextStateStr = <<"callback_processing">>,
+    }}.
+process_withdrawal(#{id := _}, nil, _Options) ->
     {ok, #{
-        intent => {sleep, {timeout, 5}, CallbackTag},
-        next_state => {str, NextStateStr},
+        intent => {sleep, #{timer => {timeout, 1}}},
+        next_state => <<"sleeping">>,
+        transaction_info => #{id => <<"SleepyID">>, extra => #{}}
+    }};
+process_withdrawal(#{id := WithdrawalID}, <<"sleeping">>, _Options) ->
+    CallbackTag = <<"cb_", WithdrawalID/binary>>,
+    Deadline = calendar:system_time_to_universal_time(erlang:system_time(millisecond) + 5000, millisecond),
+    {ok, #{
+        intent => {sleep, #{timer => {deadline, {Deadline, 0}}, tag => CallbackTag}},
+        next_state => <<"callback_processing">>,
         transaction_info => #{id => <<"SleepyID">>, extra => #{}}
     }}.
 
@@ -104,7 +104,7 @@ get_quote(_Quote, _Options) ->
 
 -spec handle_callback(callback(), withdrawal(), state(), map()) ->
     {ok, #{
-        intent := {finish, status()} | {sleep, timer()} | {sleep, timer(), binary()},
+        intent := ff_adapter_withdrawal:intent(),
         response := any(),
         next_state => state(),
         transaction_info => transaction_info()
@@ -113,11 +113,11 @@ handle_callback(_Callback, #{quote := #wthadpt_Quote{quote_data = QuoteData}}, _
     QuoteData =:= ?DUMMY_QUOTE_ERROR_FATAL
 ->
     erlang:error(spanish_inquisition);
-handle_callback(#{payload := Payload}, _Withdrawal, _State, _Options) ->
+handle_callback(#{payload := Payload}, _Withdrawal, <<"callback_processing">>, _Options) ->
     TransactionInfo = #{id => <<"SleepyID">>, extra => #{}},
     {ok, #{
         intent => {finish, {success, TransactionInfo}},
-        next_state => {str, <<"callback_finished">>},
+        next_state => <<"callback_finished">>,
         response => #{payload => Payload},
         transaction_info => TransactionInfo
     }}.

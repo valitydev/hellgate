@@ -88,7 +88,7 @@ decode_options(Options) ->
     Options.
 
 decode_state(State) ->
-    State.
+    ff_adapter_withdrawal_codec:unmarshal(adapter_state, State).
 
 decode_callback(#wthadpt_Callback{tag = Tag, payload = Payload}) ->
     #{tag => Tag, payload => Payload}.
@@ -96,34 +96,13 @@ decode_callback(#wthadpt_Callback{tag = Tag, payload = Payload}) ->
 %%
 
 encode_state(State) ->
-    State.
+    ff_adapter_withdrawal_codec:marshal(adapter_state, State).
 
-encode_intent({finish, success}) ->
-    {finish, #wthadpt_FinishIntent{status = {success, #wthadpt_Success{trx_info = undefined}}}};
-encode_intent({finish, {success, TrxInfo}}) ->
-    {finish, #wthadpt_FinishIntent{status = {success, #wthadpt_Success{trx_info = encode_trx(TrxInfo)}}}};
-encode_intent({finish, {failure, Failure}}) ->
-    {finish, #wthadpt_FinishIntent{status = {failure, encode_failure(Failure)}}};
-encode_intent({sleep, Timer, CallbackTag}) ->
-    {sleep, #wthadpt_SleepIntent{timer = encode_timer(Timer), callback_tag = encode_tag(CallbackTag)}};
-encode_intent({sleep, Timer}) ->
-    {sleep, #wthadpt_SleepIntent{timer = encode_timer(Timer)}}.
+encode_intent(Intent) ->
+    ff_adapter_withdrawal_codec:marshal(intent, Intent).
 
-encode_trx(undefined) ->
-    undefined;
-encode_trx(#{id := Id} = TrxInfo) ->
-    Timestamp = maps:get(timestamp, TrxInfo, undefined),
-    Extra = maps:get(extra, TrxInfo, #{}),
-    #domain_TransactionInfo{id = Id, timestamp = Timestamp, extra = Extra}.
-
-encode_failure(Failure) ->
-    #domain_Failure{code = Failure}.
-
-encode_timer(Timer) ->
-    Timer.
-
-encode_tag(Tag) ->
-    Tag.
+encode_trx(TrxInfo) ->
+    ff_adapter_withdrawal_codec:marshal(transaction_info, TrxInfo).
 
 encode_quote(#{
     cash_from := CashFrom,

@@ -114,8 +114,11 @@ marshal(intent, {finish, {failed, Failure}}) ->
     {finish, #wthadpt_FinishIntent{
         status = {failure, ff_dmsl_codec:marshal(failure, Failure)}
     }};
-marshal(intent, {sleep, #{timer := Timer, tag := Tag}}) ->
-    {sleep, #wthadpt_SleepIntent{timer = Timer, callback_tag = Tag}};
+marshal(intent, {sleep, V = #{timer := Timer}}) ->
+    {sleep, #wthadpt_SleepIntent{
+        timer = ff_codec:marshal(timer, Timer),
+        callback_tag = maps:get(tag, V, undefined)
+    }};
 marshal(process_callback_result, {succeeded, CallbackResponse}) ->
     {succeeded, #wthadpt_ProcessCallbackSucceeded{
         response = marshal(callback_response, CallbackResponse)
@@ -320,7 +323,11 @@ unmarshal(intent, {finish, #wthadpt_FinishIntent{status = {success, #wthadpt_Suc
 unmarshal(intent, {finish, #wthadpt_FinishIntent{status = {failure, Failure}}}) ->
     {finish, {failed, ff_dmsl_codec:unmarshal(failure, Failure)}};
 unmarshal(intent, {sleep, #wthadpt_SleepIntent{timer = Timer, callback_tag = Tag}}) ->
-    {sleep, genlib_map:compact(#{timer => Timer, tag => Tag})};
+    {sleep,
+        genlib_map:compact(#{
+            timer => ff_codec:unmarshal(timer, Timer),
+            tag => Tag
+        })};
 unmarshal(process_callback_result, _NotImplemented) ->
     %@TODO
     erlang:error(not_implemented);

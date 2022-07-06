@@ -217,6 +217,24 @@ maybe_unmarshal(Type, V) ->
     unmarshal(Type, V).
 
 -spec marshal(ff_dmsl_codec:type_name(), ff_dmsl_codec:decoded_value()) -> ff_dmsl_codec:encoded_value().
+marshal(transaction_info, V = #{id := ID}) ->
+    #domain_TransactionInfo{
+        id = marshal(string, ID),
+        timestamp = maybe_marshal(string, maps:get(timestamp, V, undefined)),
+        extra = maps:get(extra, V, #{})
+        % TODO additional info
+    };
+marshal(failure, V = #{code := Code}) ->
+    #domain_Failure{
+        code = marshal(string, Code),
+        reason = maybe_marshal(string, maps:get(reason, V, undefined)),
+        sub = maybe_marshal(sub_failure, maps:get(sub, V, undefined))
+    };
+marshal(sub_failure, V = #{code := Code}) ->
+    #domain_SubFailure{
+        code = marshal(string, Code),
+        sub = maybe_marshal(sub_failure, maps:get(sub, V, undefined))
+    };
 marshal(cash, {Amount, CurrencyRef}) ->
     #domain_Cash{
         amount = marshal(amount, Amount),

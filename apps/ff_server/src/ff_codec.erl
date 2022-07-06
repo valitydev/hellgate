@@ -255,6 +255,10 @@ marshal(fees, Fees) ->
     #'fistful_base_Fees'{
         fees = maps:map(fun(_Constant, Value) -> marshal(cash, Value) end, maps:get(fees, Fees))
     };
+marshal(timer, {timeout, Timeout}) ->
+    {timeout, marshal(integer, Timeout)};
+marshal(timer, {deadline, Deadline}) ->
+    {deadline, marshal(timestamp, Deadline)};
 marshal(timestamp, {DateTime, USec}) ->
     DateTimeinSeconds = genlib_time:daytime_to_unixtime(DateTime),
     {TimeinUnit, Unit} =
