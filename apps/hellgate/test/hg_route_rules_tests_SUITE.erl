@@ -3,6 +3,7 @@
 
 -include("hg_ct_domain.hrl").
 
+-include_lib("common_test/include/ct.hrl").
 -include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
@@ -27,10 +28,12 @@
 -export([routes_selected_for_low_risk_score/1]).
 -export([terminal_priority_for_shop/1]).
 
+-define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
+-define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
 -define(dummy_party_id, <<"dummy_party_id">>).
--define(dummy_another_party_id, <<"dummy_party_id_1">>).
--define(dummy_shop_id, <<"dummy_shop_id">>).
--define(dummy_another_shop_id, <<"dummy_another_shop_id">>).
+-define(party_id_for_ruleset_w_no_delegates, <<"dummy_party_id_1">>).
+-define(shop_id_for_ruleset_w_priority_distribution_1, <<"dummy_shop_id">>).
+-define(shop_id_for_ruleset_w_priority_distribution_2, <<"dummy_another_shop_id">>).
 -define(assert_set_equal(S1, S2), ?assertEqual(lists:sort(S1), lists:sort(S2))).
 
 -type config() :: hg_ct_helper:config().
@@ -83,7 +86,6 @@ init_per_suite(C) ->
     _ = unlink(SupPid),
     _ = mock_dominant(SupPid),
     _ = mock_party_management(SupPid),
-    _ = mock_fault_detector(SupPid),
     [
         {apps, Apps},
         {suite_test_sup, SupPid},
@@ -160,7 +162,7 @@ mock_party_management(SupPid) ->
                     {
                         ?ruleset(2),
                         ?terminal_priority_domain_revision,
-                        #payproc_Varset{shop_id = ?dummy_shop_id}
+                        #payproc_Varset{shop_id = ?shop_id_for_ruleset_w_priority_distribution_1}
                     }
                 ) ->
                     {ok, #domain_RoutingRuleset{
@@ -176,9 +178,7 @@ mock_party_management(SupPid) ->
                     {
                         ?ruleset(2),
                         ?terminal_priority_domain_revision,
-                        #payproc_Varset{
-                            shop_id = ?dummy_another_shop_id
-                        }
+                        #payproc_Varset{shop_id = ?shop_id_for_ruleset_w_priority_distribution_2}
                     }
                 ) ->
                     {ok, #domain_RoutingRuleset{
@@ -194,7 +194,7 @@ mock_party_management(SupPid) ->
                     {
                         ?ruleset(2),
                         ?base_routing_rule_domain_revision,
-                        #payproc_Varset{party_id = ?dummy_another_party_id}
+                        #payproc_Varset{party_id = ?party_id_for_ruleset_w_no_delegates}
                     }
                 ) ->
                     {ok, #domain_RoutingRuleset{
@@ -350,7 +350,7 @@ no_route_found_for_payment(_C) ->
     VS = #{
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
-        cost => ?cash(999, <<"RUB">>),
+        cost => ?PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(-1),
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => ?dummy_party_id,
         flow => instant
@@ -389,7 +389,7 @@ gather_route_success(_C) ->
     VS = #{
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
+        cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => ?dummy_party_id,
         flow => instant,
@@ -424,7 +424,7 @@ rejected_by_table_prohibitions(_C) ->
     VS = #{
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
+        cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => {bank_card, BankCard},
         party_id => ?dummy_party_id,
         flow => instant,
@@ -472,7 +472,7 @@ empty_candidate_ok(_C) ->
 -spec ruleset_misconfig(config()) -> test_return().
 ruleset_misconfig(_C) ->
     VS = #{
-        party_id => ?dummy_another_party_id,
+        party_id => ?party_id_for_ruleset_w_no_delegates,
         flow => instant
     },
 
@@ -501,7 +501,7 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     VS = #{
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
+        cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         party_id => ?dummy_party_id,
         flow => instant,
@@ -513,7 +513,9 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
 
 -spec choice_context_formats_ok(config()) -> test_return().
-choice_context_formats_ok(_C) ->
+choice_context_formats_ok(C) ->
+    _ = mock_fault_detector(?config(suite_test_sup, C)),
+
     Route1 = hg_routing:new(?prv(1), ?trm(1)),
     Route2 = hg_routing:new(?prv(2), ?trm(2)),
     Route3 = hg_routing:new(?prv(3), ?trm(3)),
@@ -550,16 +552,16 @@ choice_context_formats_ok(_C) ->
 terminal_priority_for_shop(C) ->
     Route1 = hg_routing:new(?prv(11), ?trm(11), 0, 10),
     Route2 = hg_routing:new(?prv(12), ?trm(12), 0, 10),
-    ?assertMatch({Route1, _}, terminal_priority_for_shop(?dummy_party_id, ?dummy_shop_id, C)),
-    ?assertMatch({Route2, _}, terminal_priority_for_shop(?dummy_party_id, ?dummy_another_shop_id, C)).
+    ?assertMatch({Route1, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_1, C)),
+    ?assertMatch({Route2, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C)).
 
-terminal_priority_for_shop(PartyID, ShopID, _C) ->
+terminal_priority_for_shop(ShopID, _C) ->
     VS = #{
         category => ?cat(1),
         currency => ?cur(<<"RUB">>),
-        cost => ?cash(1000, <<"RUB">>),
+        cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-        party_id => PartyID,
+        party_id => ?dummy_party_id,
         shop_id => ShopID,
         flow => instant
     },

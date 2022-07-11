@@ -823,7 +823,7 @@ preferable_route_scoring_test_() ->
                 {RouteFallback, StatusAlive}
             ])
         ),
-        % TODO TD-167
+        % TODO TD-344
         % We rely here on inverted order of preference which is just an accidental
         % side effect.
         ?_assertMatch(
