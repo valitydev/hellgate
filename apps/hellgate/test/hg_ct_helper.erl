@@ -295,8 +295,8 @@ set_app_env(App, Env) ->
 -spec start_application(Application :: atom()) -> [Application] when Application :: atom().
 start_application(AppName) ->
     case application:ensure_all_started(AppName, temporary) of
-        {ok, _Apps} ->
-            [AppName];
+        {ok, Apps} ->
+            Apps;
         {error, Reason} ->
             exit(Reason)
     end.
