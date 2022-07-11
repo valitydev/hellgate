@@ -10,6 +10,13 @@
 
 %%
 
+-type service_name() :: atom().
+-type service_fun() :: fun((woody:func(), woody:args()) -> term()).
+-type service() ::
+    {service_name(), service_fun()}
+    | {service_name(), woody:service(), service_fun()}.
+-type services() :: [service()].
+
 -define(HELLGATE_IP, "::").
 -define(HELLGATE_HOST, "hellgate").
 
@@ -25,11 +32,11 @@ start_sup() ->
 stop_sup(SupPid) ->
     proc_lib:stop(SupPid, shutdown, 5000).
 
--spec mock_services(list(), pid()) -> _.
+-spec mock_services(services(), pid()) -> _.
 mock_services(Services, SupPid) ->
     start_woody_client(mock_services_(Services, SupPid)).
 
--spec mock_dominant(list(), pid()) -> _.
+-spec mock_dominant(services(), pid()) -> _.
 mock_dominant(Services0, SupPid) ->
     Services1 = lists:map(
         fun
@@ -67,8 +74,8 @@ start_woody_client(Services0) ->
     Services1 = maps:merge(ExistingServices, Services0),
     _ = hg_ct_helper:start_app(hg_proto, [{services, Services1}]).
 
--spec mock_services_(list(), pid()) -> map().
-mock_services_([], _Config) ->
+-spec mock_services_(services(), pid()) -> map().
+mock_services_([], _SupPid) ->
     #{};
 mock_services_(Services, SupPid) when is_pid(SupPid) ->
     {ok, IP} = inet:parse_address(?HELLGATE_IP),

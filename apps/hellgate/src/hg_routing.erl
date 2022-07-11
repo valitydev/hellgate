@@ -789,11 +789,14 @@ balance_routes_with_default_weight_test_() ->
 -spec preferable_route_scoring_test_() -> [testcase()].
 preferable_route_scoring_test_() ->
     StatusAlive = {{alive, 0.0}, {normal, 0.0}},
+    StatusAliveLowerAvailability = {{alive, 0.1}, {normal, 0.0}},
+    StatusAliveLowerConversion = {{alive, 0.0}, {normal, 0.1}},
     StatusDead = {{dead, 0.4}, {lacking, 0.6}},
     StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
     StatusBroken = {{alive, 0.1}, {lacking, 0.8}},
     RoutePreferred1 = new(?prv(1), ?trm(1), 0, 1),
     RoutePreferred2 = new(?prv(1), ?trm(2), 0, 1),
+    RoutePreferred3 = new(?prv(1), ?trm(3), 0, 1),
     RouteFallback = new(?prv(2), ?trm(2), 0, 0),
     [
         ?_assertMatch(
@@ -801,6 +804,16 @@ preferable_route_scoring_test_() ->
             choose_rated_route([
                 {RoutePreferred1, StatusAlive},
                 {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertEqual(
+            {RoutePreferred3, #{
+                chosen_route => RoutePreferred3
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusDead},
+                {RoutePreferred2, StatusDead},
+                {RoutePreferred3, StatusAlive}
             ])
         ),
         ?_assertMatch(
@@ -823,6 +836,30 @@ preferable_route_scoring_test_() ->
                 {RouteFallback, StatusAlive}
             ])
         ),
+        ?_assertMatch(
+            {RoutePreferred1, #{
+                preferable_route := RoutePreferred2,
+                reject_reason := conversion
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RoutePreferred2, StatusAliveLowerConversion}
+            ])
+        ),
+        ?_assertMatch(
+            {RoutePreferred1, #{}},
+            choose_rated_route([
+                {RoutePreferred1, StatusAliveLowerAvailability},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertMatch(
+            {RoutePreferred1, #{}},
+            choose_rated_route([
+                {RoutePreferred1, StatusAliveLowerConversion},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
         % TODO TD-344
         % We rely here on inverted order of preference which is just an accidental
         % side effect.
@@ -838,124 +875,5 @@ preferable_route_scoring_test_() ->
             ])
         )
     ].
-
--spec prefer_alive_test() -> _.
-prefer_alive_test() ->
-    Route1 = new(?prv(1), ?trm(1)),
-    Route2 = new(?prv(2), ?trm(2)),
-    Route3 = new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    Alive = {alive, 0.0},
-    Dead = {dead, 1.0},
-    Normal = {normal, 0.0},
-
-    ProviderStatuses0 = [{Alive, Normal}, {Dead, Normal}, {Dead, Normal}],
-    ProviderStatuses1 = [{Dead, Normal}, {Alive, Normal}, {Dead, Normal}],
-    ProviderStatuses2 = [{Dead, Normal}, {Dead, Normal}, {Alive, Normal}],
-
-    FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
-    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
-
-    {Route1, Meta0} = choose_rated_route(FailRatedRoutes0),
-    {Route2, Meta1} = choose_rated_route(FailRatedRoutes1),
-    {Route3, Meta2} = choose_rated_route(FailRatedRoutes2),
-
-    #{reject_reason := availability_condition, preferable_route := Route3} = Meta0,
-    #{reject_reason := availability_condition, preferable_route := Route3} = Meta1,
-    false = maps:is_key(reject_reason, Meta2).
-
--spec prefer_normal_conversion_test() -> _.
-prefer_normal_conversion_test() ->
-    Route1 = new(?prv(1), ?trm(1)),
-    Route2 = new(?prv(2), ?trm(2)),
-    Route3 = new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    Alive = {alive, 0.0},
-    Normal = {normal, 0.0},
-    Lacking = {lacking, 1.0},
-
-    ProviderStatuses0 = [{Alive, Normal}, {Alive, Lacking}, {Alive, Lacking}],
-    ProviderStatuses1 = [{Alive, Lacking}, {Alive, Normal}, {Alive, Lacking}],
-    ProviderStatuses2 = [{Alive, Lacking}, {Alive, Lacking}, {Alive, Normal}],
-
-    FailRatedRoutes0 = lists:zip(Routes, ProviderStatuses0),
-    FailRatedRoutes1 = lists:zip(Routes, ProviderStatuses1),
-    FailRatedRoutes2 = lists:zip(Routes, ProviderStatuses2),
-
-    {Route1, Meta0} = choose_rated_route(FailRatedRoutes0),
-    {Route2, Meta1} = choose_rated_route(FailRatedRoutes1),
-    {Route3, Meta2} = choose_rated_route(FailRatedRoutes2),
-
-    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta0,
-    #{reject_reason := conversion_condition, preferable_route := Route3} = Meta1,
-    false = maps:is_key(reject_reason, Meta2).
-
--spec prefer_higher_availability_test() -> _.
-prefer_higher_availability_test() ->
-    Route1 = new(?prv(1), ?trm(1)),
-    Route2 = new(?prv(2), ?trm(2)),
-    Route3 = new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{alive, 0.5}, {normal, 0.5}},
-        {{dead, 0.8}, {lacking, 1.0}},
-        {{alive, 0.6}, {normal, 0.5}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    Result = choose_rated_route(FailRatedRoutes),
-    ?assertMatch({Route1, #{reject_reason := availability, preferable_route := Route3}}, Result).
-
--spec prefer_higher_conversion_test() -> _.
-prefer_higher_conversion_test() ->
-    Route1 = new(?prv(1), ?trm(1)),
-    Route2 = new(?prv(2), ?trm(2)),
-    Route3 = new(?prv(3), ?trm(3)),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{dead, 0.8}, {lacking, 1.0}},
-        {{alive, 0.5}, {normal, 0.3}},
-        {{alive, 0.5}, {normal, 0.5}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    Result = choose_rated_route(FailRatedRoutes),
-    ?assertMatch({Route2, #{reject_reason := conversion, preferable_route := Route3}}, Result).
-
--spec prefer_weight_over_availability_test() -> _.
-prefer_weight_over_availability_test() ->
-    Route1 = new(?prv(1), ?trm(1), 0, 1000),
-    Route2 = new(?prv(2), ?trm(2), 0, 1005),
-    Route3 = new(?prv(3), ?trm(3), 0, 1000),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{alive, 0.3}, {normal, 0.3}},
-        {{alive, 0.5}, {normal, 0.3}},
-        {{alive, 0.3}, {normal, 0.3}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-
-    ?assertMatch({Route2, _}, choose_rated_route(FailRatedRoutes)).
-
--spec prefer_weight_over_conversion_test() -> _.
-prefer_weight_over_conversion_test() ->
-    Route1 = new(?prv(1), ?trm(1), 0, 1000),
-    Route2 = new(?prv(2), ?trm(2), 0, 1005),
-    Route3 = new(?prv(3), ?trm(3), 0, 1000),
-    Routes = [Route1, Route2, Route3],
-
-    ProviderStatuses = [
-        {{alive, 0.3}, {normal, 0.5}},
-        {{alive, 0.3}, {normal, 0.3}},
-        {{alive, 0.3}, {normal, 0.3}}
-    ],
-    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
-    {Route2, _Meta} = choose_rated_route(FailRatedRoutes).
 
 -endif.
