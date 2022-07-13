@@ -789,7 +789,6 @@ balance_routes_with_default_weight_test_() ->
 -spec preferable_route_scoring_test_() -> [testcase()].
 preferable_route_scoring_test_() ->
     StatusAlive = {{alive, 0.0}, {normal, 0.0}},
-    StatusAliveLowerAvailability = {{alive, 0.1}, {normal, 0.0}},
     StatusAliveLowerConversion = {{alive, 0.0}, {normal, 0.1}},
     StatusDead = {{dead, 0.4}, {lacking, 0.6}},
     StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
@@ -846,20 +845,6 @@ preferable_route_scoring_test_() ->
                 {RoutePreferred2, StatusAliveLowerConversion}
             ])
         ),
-        ?_assertMatch(
-            {RoutePreferred1, #{}},
-            choose_rated_route([
-                {RoutePreferred1, StatusAliveLowerAvailability},
-                {RouteFallback, StatusAlive}
-            ])
-        ),
-        ?_assertMatch(
-            {RoutePreferred1, #{}},
-            choose_rated_route([
-                {RoutePreferred1, StatusAliveLowerConversion},
-                {RouteFallback, StatusAlive}
-            ])
-        ),
         % TODO TD-344
         % We rely here on inverted order of preference which is just an accidental
         % side effect.
@@ -875,5 +860,35 @@ preferable_route_scoring_test_() ->
             ])
         )
     ].
+
+-spec prefer_weight_over_availability_test() -> _.
+prefer_weight_over_availability_test() ->
+    Route1 = new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.5}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    ?assertMatch({Route2, _}, choose_rated_route(FailRatedRoutes)).
+
+-spec prefer_weight_over_conversion_test() -> _.
+prefer_weight_over_conversion_test() ->
+    Route1 = new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.5}},
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    {Route2, _Meta} = choose_rated_route(FailRatedRoutes).
 
 -endif.
