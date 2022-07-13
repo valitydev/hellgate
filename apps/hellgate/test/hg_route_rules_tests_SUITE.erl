@@ -578,7 +578,7 @@ routing_with_risk_score_fixture(Domain, AddRiskScore) ->
             {provider, #domain_ProviderObject{
                 ref = ?prv(1),
                 data = ?provider(#domain_ProvisionTermSet{
-                    payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                    payments = #domain_PaymentsProvisionTerms{
                         risk_coverage = maybe_set_risk_coverage(AddRiskScore, low)
                     }
                 })
@@ -587,7 +587,7 @@ routing_with_risk_score_fixture(Domain, AddRiskScore) ->
             {provider, #domain_ProviderObject{
                 ref = ?prv(2),
                 data = ?provider(#domain_ProvisionTermSet{
-                    payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                    payments = #domain_PaymentsProvisionTerms{
                         risk_coverage = maybe_set_risk_coverage(AddRiskScore, high)
                     }
                 })
@@ -595,9 +595,7 @@ routing_with_risk_score_fixture(Domain, AddRiskScore) ->
         {provider, ?prv(3)} =>
             {provider, #domain_ProviderObject{
                 ref = ?prv(3),
-                data = ?provider(#domain_ProvisionTermSet{
-                    payments = ?payment_terms
-                })
+                data = ?provider(#domain_ProvisionTermSet{})
             }}
     }.
 

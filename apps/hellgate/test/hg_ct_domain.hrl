@@ -185,8 +185,7 @@
                 {provider, settlement},
                 ?share(21, 1000, operation_amount)
             )
-        ]},
-    risk_coverage = undefined
+        ]}
 }).
 
 -define(err_gen_failure(), #payproc_error_GeneralFailure{}).
