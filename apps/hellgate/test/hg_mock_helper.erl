@@ -123,7 +123,7 @@ get_service_to_mock({ServiceName, Fun}) ->
     {ServiceName, hg_proto:get_service(ServiceName), Fun}.
 
 mock_service_handler({ServiceName, WoodyService, Fun}) ->
-    {make_path(ServiceName), {WoodyService, {hg_mock_helper, #{function => Fun}}}}.
+    {make_path(ServiceName), {WoodyService, {?MODULE, #{function => Fun}}}}.
 
 make_url(ServiceName, Port) ->
     iolist_to_binary(["http://", ?HELLGATE_HOST, ":", integer_to_list(Port), make_path(ServiceName)]).
