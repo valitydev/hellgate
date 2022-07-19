@@ -1,6 +1,6 @@
 -module(hg_dummy_inspector).
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -15,7 +15,7 @@
 get_service_spec() ->
     {"/test/proxy/inspector/dummy", {dmsl_proxy_inspector_thrift, 'InspectorProxy'}}.
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(
     'InspectPayment',
     {#proxy_inspector_Context{

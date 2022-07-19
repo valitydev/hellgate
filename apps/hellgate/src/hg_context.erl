@@ -89,9 +89,9 @@ set_party_client(PartyClient, Context) ->
 get_party_client_context(#{party_client_context := PartyContext}) ->
     PartyContext.
 
--spec set_party_client_context(party_client_context(), context()) -> context().
+-spec set_party_client_context(party_client_context(), context() | options()) -> context().
 set_party_client_context(PartyContext, Context) ->
-    Context#{party_client_context := PartyContext}.
+    Context#{party_client_context => PartyContext}.
 
 %% Internal functions
 
@@ -105,4 +105,4 @@ ensure_woody_context_exists(Options) ->
 ensure_party_context_exists(#{party_client_context := _PartyContext} = Options) ->
     Options;
 ensure_party_context_exists(#{woody_context := WoodyContext} = Options) ->
-    Options#{party_client_context => party_client:create_context(#{woody_context => WoodyContext})}.
+    set_party_client_context(party_client:create_context(#{woody_context => WoodyContext}), Options).

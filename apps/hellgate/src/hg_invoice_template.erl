@@ -7,8 +7,8 @@
 
 -define(NS, <<"invoice_template">>).
 
-%% Woody handler called by hg_woody_wrapper
--behaviour(hg_woody_wrapper).
+%% Woody handler called by hg_woody_service_wrapper
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -46,7 +46,7 @@ get_invoice_template(ID) ->
 
 %% Woody handler
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoice_templating,
@@ -55,7 +55,7 @@ handle_function(Func, Args, Opts) ->
         end
     ).
 
--spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {Params}, _Opts) ->
     TplID = Params#payproc_InvoiceTemplateCreateParams.template_id,
     _ = set_meta(TplID),

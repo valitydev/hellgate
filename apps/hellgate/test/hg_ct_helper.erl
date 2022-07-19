@@ -114,22 +114,9 @@ start_app(dmt_client = AppName) ->
         ]),
         #{}
     };
-start_app(hellgate = AppName) ->
+start_app(hg_proto = AppName) ->
     {
         start_app(AppName, [
-            {host, ?HELLGATE_HOST},
-            {port, ?HELLGATE_PORT},
-            {default_woody_handling_timeout, 30000},
-            {transport_opts, #{
-                max_connections => 8096
-            }},
-            {scoper_event_handler_options, #{
-                event_handler_opts => #{
-                    formatter_opts => #{
-                        max_length => 1000
-                    }
-                }
-            }},
             {services, #{
                 accounter => <<"http://shumway:8022/accounter">>,
                 automaton => <<"http://machinegun:8022/v1/automaton">>,
@@ -188,6 +175,18 @@ start_app(hellgate = AppName) ->
                     url => <<"http://limiter:8022/v1/limiter">>,
                     transport_opts => #{}
                 }
+            }}
+        ]),
+        #{}
+    };
+start_app(hellgate = AppName) ->
+    {
+        start_app(AppName, [
+            {host, ?HELLGATE_HOST},
+            {port, ?HELLGATE_PORT},
+            {default_woody_handling_timeout, 30000},
+            {transport_opts, #{
+                max_connections => 8096
             }},
             {proxy_opts, #{
                 transport_opts => #{
@@ -270,7 +269,7 @@ start_app(snowflake = AppName) ->
         #{}
     };
 start_app(AppName) ->
-    {genlib_app:start_application(AppName), #{}}.
+    {start_application(AppName), #{}}.
 
 -spec start_app(app_name(), term()) -> [app_name()].
 start_app(cowboy = AppName, Env) ->
@@ -283,7 +282,24 @@ start_app(cowboy = AppName, Env) ->
     _ = cowboy:start_clear(Ref, [{num_acceptors, Count} | TransOpt], ProtoOpt),
     [AppName];
 start_app(AppName, Env) ->
-    genlib_app:start_application_with(AppName, Env).
+    start_application_with(AppName, Env).
+
+start_application_with(App, Env) ->
+    _ = application:load(App),
+    _ = set_app_env(App, Env),
+    start_application(App).
+
+set_app_env(App, Env) ->
+    lists:foreach(fun({K, V}) -> ok = application:set_env(App, K, V) end, Env).
+
+-spec start_application(Application :: atom()) -> [Application] when Application :: atom().
+start_application(AppName) ->
+    case application:ensure_all_started(AppName, temporary) of
+        {ok, Apps} ->
+            Apps;
+        {error, Reason} ->
+            exit(Reason)
+    end.
 
 -spec start_apps([app_name() | {app_name(), term()}]) -> {[app_name()], map()}.
 start_apps(Apps) ->

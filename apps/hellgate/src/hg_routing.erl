@@ -20,9 +20,7 @@
 -export([terminal_ref/1]).
 
 -export([prepare_log_message/1]).
-%% Using in ct
--export([gather_fail_rates/1]).
--export([choose_rated_route/1]).
+
 %%
 
 -include("domain.hrl").
@@ -791,11 +789,13 @@ balance_routes_with_default_weight_test_() ->
 -spec preferable_route_scoring_test_() -> [testcase()].
 preferable_route_scoring_test_() ->
     StatusAlive = {{alive, 0.0}, {normal, 0.0}},
+    StatusAliveLowerConversion = {{alive, 0.0}, {normal, 0.1}},
     StatusDead = {{dead, 0.4}, {lacking, 0.6}},
     StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
     StatusBroken = {{alive, 0.1}, {lacking, 0.8}},
     RoutePreferred1 = new(?prv(1), ?trm(1), 0, 1),
     RoutePreferred2 = new(?prv(1), ?trm(2), 0, 1),
+    RoutePreferred3 = new(?prv(1), ?trm(3), 0, 1),
     RouteFallback = new(?prv(2), ?trm(2), 0, 0),
     [
         ?_assertMatch(
@@ -803,6 +803,16 @@ preferable_route_scoring_test_() ->
             choose_rated_route([
                 {RoutePreferred1, StatusAlive},
                 {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertEqual(
+            {RoutePreferred3, #{
+                chosen_route => RoutePreferred3
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusDead},
+                {RoutePreferred2, StatusDead},
+                {RoutePreferred3, StatusAlive}
             ])
         ),
         ?_assertMatch(
@@ -825,7 +835,17 @@ preferable_route_scoring_test_() ->
                 {RouteFallback, StatusAlive}
             ])
         ),
-        % TODO TD-167
+        ?_assertMatch(
+            {RoutePreferred1, #{
+                preferable_route := RoutePreferred2,
+                reject_reason := conversion
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RoutePreferred2, StatusAliveLowerConversion}
+            ])
+        ),
+        % TODO TD-344
         % We rely here on inverted order of preference which is just an accidental
         % side effect.
         ?_assertMatch(
@@ -840,5 +860,35 @@ preferable_route_scoring_test_() ->
             ])
         )
     ].
+
+-spec prefer_weight_over_availability_test() -> _.
+prefer_weight_over_availability_test() ->
+    Route1 = new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.5}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    ?assertMatch({Route2, _}, choose_rated_route(FailRatedRoutes)).
+
+-spec prefer_weight_over_conversion_test() -> _.
+prefer_weight_over_conversion_test() ->
+    Route1 = new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.5}},
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    {Route2, _Meta} = choose_rated_route(FailRatedRoutes).
 
 -endif.

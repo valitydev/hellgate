@@ -4,7 +4,7 @@
 -include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
 -include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -114,7 +114,7 @@ construct_silent_callback(Form) ->
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 -include_lib("hellgate/include/payment_events.hrl").
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(
     'GenerateToken',
     {#proxy_provider_RecurrentTokenContext{

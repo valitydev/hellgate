@@ -165,8 +165,7 @@
     payment_methods =
         {value,
             ?ordset([
-                ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>)),
-                ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))
+                ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))
             ])},
     cash_limit =
         {value,
@@ -186,8 +185,7 @@
                 {provider, settlement},
                 ?share(21, 1000, operation_amount)
             )
-        ]},
-    risk_coverage = undefined
+        ]}
 }).
 
 -define(err_gen_failure(), #payproc_error_GeneralFailure{}).
