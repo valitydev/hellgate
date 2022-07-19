@@ -524,12 +524,12 @@ choice_context_formats_ok(C) ->
     Revision = ?routing_with_fail_rate_domain_revision,
     Result = {_, Context} = hg_routing:choose_route(Routes),
     ?assertMatch(
-        {Route2, #{reject_reason := availability_condition, preferable_route := Route1}},
+        {Route2, #{reject_reason := availability, preferable_route := Route3}},
         Result
     ),
     ?assertMatch(
         #{
-            reject_reason := availability_condition,
+            reject_reason := availability,
             chosen_route := #{
                 provider := #{id := 2, name := <<_/binary>>},
                 terminal := #{id := 2, name := <<_/binary>>},
@@ -537,8 +537,8 @@ choice_context_formats_ok(C) ->
                 weight := ?DOMAIN_CANDIDATE_WEIGHT
             },
             preferable_route := #{
-                provider := #{id := 1, name := <<_/binary>>},
-                terminal := #{id := 1, name := <<_/binary>>},
+                provider := #{id := 3, name := <<_/binary>>},
+                terminal := #{id := 3, name := <<_/binary>>},
                 priority := ?DOMAIN_CANDIDATE_PRIORITY,
                 weight := ?DOMAIN_CANDIDATE_WEIGHT
             }
