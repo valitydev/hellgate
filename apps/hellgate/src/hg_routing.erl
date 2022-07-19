@@ -295,19 +295,16 @@ find_best_routes([Route]) ->
 find_best_routes([First | Rest]) ->
     lists:foldl(
         fun(RouteIn, {CurrentRouteChosen, CurrentRouteIdeal}) ->
-            NewRouteIdeal = select_better_route_ideal(CurrentRouteIdeal, RouteIn),
-            NewRouteChosen = select_better_route(CurrentRouteChosen, RouteIn),
-
+            NewRouteIdeal = select_better_route_ideal(RouteIn, CurrentRouteIdeal),
+            NewRouteChosen = select_better_route(RouteIn, CurrentRouteChosen),
             {NewRouteChosen, NewRouteIdeal}
         end,
         {First, First},
         Rest
     ).
 
-select_better_route({LeftScore, _}, {RightScore, _} = Right) when LeftScore < RightScore ->
-    Right;
-select_better_route(Left, _Right) ->
-    Left.
+select_better_route(Left, Right) ->
+    max(Left, Right).
 
 select_better_route_ideal(Left, Right) ->
     IdealLeft = set_ideal_score(Left),
@@ -808,12 +805,9 @@ preferable_route_scoring_test_() ->
                 {RouteFallback, StatusAlive}
             ])
         ),
-        % TODO TD-344
-        % Preferable route must be RoutePreferred1, as it has the same availability
-        ?_assertMatch(
+        ?_assertEqual(
             {RoutePreferred3, #{
-                chosen_route := RoutePreferred3,
-                preferable_route := RoutePreferred2
+                chosen_route => RoutePreferred3
             }},
             choose_rated_route([
                 {RoutePreferred1, StatusDead},
@@ -841,8 +835,6 @@ preferable_route_scoring_test_() ->
                 {RouteFallback, StatusAlive}
             ])
         ),
-        % TODO TD-344
-        % RoutePreferred2 must not be a preferable route, as it comes after RoutePreferred1 in list
         ?_assertMatch(
             {RoutePreferred1, #{
                 preferable_route := RoutePreferred2,
