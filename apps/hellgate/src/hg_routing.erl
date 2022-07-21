@@ -82,6 +82,7 @@
     availability_condition :: condition_score(),
     conversion_condition :: condition_score(),
     priority_rating :: terminal_priority_rating(),
+    pin :: integer(),
     random_condition :: integer(),
     availability :: float(),
     conversion :: float()
@@ -444,16 +445,18 @@ score_routes(Routes) ->
 score_route({Route, ProviderStatus}) ->
     PriorityRate = priority(Route),
     RandomCondition = weight(Route),
+    Pin = pin(Route),
     {AvailabilityStatus, ConversionStatus} = ProviderStatus,
     {AvailabilityCondition, Availability} = get_availability_score(AvailabilityStatus),
     {ConversionCondition, Conversion} = get_conversion_score(ConversionStatus),
     #route_scores{
         availability_condition = AvailabilityCondition,
         conversion_condition = ConversionCondition,
-        availability = Availability,
-        conversion = Conversion,
         priority_rating = PriorityRate,
-        random_condition = RandomCondition
+        pin = Pin,
+        random_condition = RandomCondition,
+        availability = Availability,
+        conversion = Conversion
     }.
 
 get_availability_score({alive, FailRate}) -> {1, 1.0 - FailRate};
