@@ -27,11 +27,15 @@ make_submachine_desc() ->
         },
         #{
             name => session,
-            action_or_submachine => hg_invoice_payment_session:make_submachine_desc(),
-            % on_event => [
-            %     #{event_name => timeout, action_or_submachine => [#{handler => hg_action_session, func => timeout}]}
-            %     #{event_name => callback, action_or_submachine => [#{handler => hg_action_session, func => callback}]}
-            % ]
+            action_or_submachine => hg_invoice_payment_session:make_submachine_desc()
+        },
+        #{
+            name => flow_waiting,
+            action_or_submachine => #{handler => hg_invoice_payment_new, func => timeout},
+            on_event => [
+                #{event_name => capture, action_or_submachine => #{handler => hg_invoice_payment_new, func => capture}},
+                #{event_name => cancel, action_or_submachine => #{handler => hg_invoice_payment_new, func => cancel}}
+            ]
         },
         #{
             name => commit,

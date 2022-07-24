@@ -27,7 +27,7 @@ make_submachine_desc() ->
         #{
             name => rollback,
             action_or_submachine => #{handler => hg_invoice_payment_refund, func => rollback}
-        },
+        }
     ],
     #{
         handler => hg_invoice_payment_refund,

@@ -30,6 +30,7 @@
 -type submachine_step() :: #{
     name := name(),
     action := submachine_action_desc(),
+    on_event := submachine_event_action_desc(),
     wrap := [name()]
 }.
 
@@ -103,31 +104,44 @@ get_handler_for(Activity, Desc) ->
 %% Machine callback
 -spec init(binary(), handler(), hg_machine:machine()) -> hg_machine:result().
 init(_Data, _Handler, _Machine) ->
-    handle_result(#{action => hg_machine_action:instant()}).
+    #{action => hg_machine_action:instant()}.
 
 -spec process_signal(hg_machine:signal(), handler(), hg_machine:machine()) -> hg_machine:result().
-process_signal(Signal, Handler, #{history := History}) ->
+process_signal(timeout, Handler, #{history := History}) ->
+    % сигнал у нас пока везде timeout поэтому можно не детализировать.
+    % В этом месте мы по submachine_desc понимаем какую функцию какого модуля
+    % нам нужно дернуть, чтобы соответствующая шагу бизнес логика провернулась
+    % ответом функции всегда является структура process_result
+    % Так как у нас есть wrap то мы можем дергать сразу конечную точку, не создавая цепочку вложенных вызовов
     SubmachineDesc = Handler:make_submachine_desc(),
     State = collapse_history(History, SubmachineDesc),
-    Activity = get_next_step(State, SubmachineDesc),
-    handle_result(Handler:process_signal(Activity, Signal, State)).
+    #{action => #{handler := Handler, func := Func}, wrap => Wrap} = get_next_step(State, SubmachineDesc),
+    handle_result(Handler:Func(State), State).
 
 -spec process_call(call(), handler(), hg_machine:machine()) -> {hg_machine:response(), hg_machine:result()}.
 process_call(Call, Handler, #{history := History}) ->
     SubmachineDesc = Handler:make_submachine_desc(),
     State = collapse_history(History, SubmachineDesc),
-    Activity = get_next_step(State, SubmachineDesc),
-    handle_result(Handler:process_call(Activity, Call, State)).
+    #{on_event => Events, wrap => Wrap} = get_next_step(State, SubmachineDesc),
+    % Текущий шаг содержит все события/внешние вызовы, которые можно на нем применить
+    % Поэтому получая шаг, мы получаем события - например коллбеки для сессии или
+    % cancel/capture в платеже, дальше остается получить функцию, которую нужно дернуть и дернуть ее
+    case find_action_for_call(Call, Events) of
+        #{handler := Handler, func := Func} ->
+            handle_result(Handler:Func(State), State);
+        _ ->
+            #{}
+    end.
 
 -spec process_repair(hg_machine:args(), handler(), hg_machine:machine()) -> hg_machine:result() | no_return().
 process_repair(Args, Handler, #{history := History}) ->
-    SubmachineDesc = Handler:make_submachine_desc(),
-    State = collapse_history(History, SubmachineDesc),
-    Activity = get_next_step(State, SubmachineDesc),
-    handle_result(Handler:process_repair(Activity, Args, State)).
+    % пока не понятно как это чинить).
+    ok.
 
-handle_result(#{} = Result) ->
+handle_result(#{} = Result, State) ->
     MachineResult = genlib_map:compact(#{
+        % В этом месте можно получить wrap для текущего вызова
+        % (например передав стейт как аргумент) и используя врап обернуть события
         events => maps:get(changes, Result, undefined),
         action => maps:get(action, Result, undefined),
     }),
@@ -162,7 +176,11 @@ collapse_history(History, SubmachineDesc) ->
 
 -spec apply_event(event(), state() | undefined, submachine_desc()) -> state().
 apply_event(Ev, St, Desc = #{handler := Handler}) ->
-    apply_event_(Ev, St).
+    % Получаем из события его wrap и по нему определяем субавтомат это или нет, если нет,
+    % то отправляем в apply_event базового хендлера, если субавтомат, то получаем/создаем его индекс,
+    % обращаемся в него чтобы получить состояние, обновляем индекс, обновляем базовый стейт. Если это
+    % вложенный субавтомат - рекурсивно едем по индексам, пока не доедем до его хендлера, потом на возврате собираем стейты.
+    Handler:apply_event(Ev, St).
 
 %% Internals
 
@@ -170,8 +188,8 @@ apply_event(Ev, St, Desc = #{handler := Handler}) ->
 get_next_step(State, Desc = #{handler := Handler}) ->
     NextStep = Handler:get_next_step(State),
     case get_step_handler(NextStep, Desc) of
-        {action, Step} ->
-            #{name => NextStep, step => Step, wrap => []};
+        {action, #{action_or_submachine := Action, on_event := OnEvent}} ->
+            #{name => NextStep, action => Action, on_event => OnEvent, wrap => []};
         {submachine, Handler} ->
             SubState = get_substate(NextStep, State),
             Step = #{wrap := Wrap} = get_next_step(SubState, Handler:make_submachine_desc()),
