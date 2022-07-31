@@ -323,45 +323,15 @@ get_sessions(#st{sessions = S}) ->
 
 -spec get_refunds(st()) -> [payment_refund()].
 get_refunds(#st{refunds = Rs, payment = Payment}) ->
-    RefundList = lists:map(
-        fun(#refund_st{refund = R, sessions = S, cash_flow = C}) ->
-            #payproc_InvoicePaymentRefund{
-                refund = enrich_refund_with_cash(R, Payment),
-                sessions = lists:map(fun convert_refund_sessions/1, S),
-                cash_flow = C
-            }
-        end,
-        maps:values(Rs)
-    ),
-    lists:sort(
-        fun(
-            #payproc_InvoicePaymentRefund{refund = X},
-            #payproc_InvoicePaymentRefund{refund = Y}
-        ) ->
-            Xid = X#domain_InvoicePaymentRefund.id,
-            Yid = Y#domain_InvoicePaymentRefund.id,
-            Xid =< Yid
-        end,
-        RefundList
-    ).
+    hg_invoice_payment_refund:get_refunds(Rs, Payment).
 
 -spec get_refunds_count(st()) -> non_neg_integer().
 get_refunds_count(#st{refunds = Refunds}) ->
     maps:size(Refunds).
 
-convert_refund_sessions(#{trx := TR}) ->
-    #payproc_InvoiceRefundSession{
-        transaction_info = TR
-    }.
-
 -spec get_refund(refund_id(), st()) -> domain_refund() | no_return().
-get_refund(ID, St = #st{payment = Payment}) ->
-    case try_get_refund_state(ID, St) of
-        #refund_st{refund = Refund} ->
-            enrich_refund_with_cash(Refund, Payment);
-        undefined ->
-            throw(#payproc_InvoicePaymentRefundNotFound{})
-    end.
+get_refund(ID, #st{refunds = Rs, payment = Payment}) ->
+    hg_invoice_payment_refund:get_refund(ID, Rs, Payment).
 
 %%
 
@@ -846,16 +816,6 @@ log_rejected_routes(rejected_route_found, RejectedRoutes, Varset) ->
     ),
     ok.
 
-validate_refund_time(RefundCreatedAt, PaymentCreatedAt, TimeSpanSelector) ->
-    EligibilityTime = get_selector_value(eligibility_time, TimeSpanSelector),
-    RefundEndTime = hg_datetime:add_time_span(EligibilityTime, PaymentCreatedAt),
-    case hg_datetime:compare(RefundCreatedAt, RefundEndTime) of
-        Result when Result == earlier; Result == simultaneously ->
-            ok;
-        later ->
-            throw(#payproc_OperationNotPermitted{})
-    end.
-
 collect_chargeback_varset(
     #domain_PaymentChargebackServiceTerms{},
     VS
@@ -1193,158 +1153,24 @@ validate_payment_status(_, #domain_InvoicePayment{status = Status}) ->
     throw(#payproc_InvalidPaymentStatus{status = Status}).
 
 -spec refund(refund_params(), st(), opts()) -> {domain_refund(), result()}.
-refund(Params, St0, Opts = #{timestamp := CreatedAt}) ->
-    St = St0#st{opts = Opts},
-    Revision = hg_domain:head(),
+refund(Params, St, Opts) ->
+    _ = assert_no_pending_chargebacks(St),
     Payment = get_payment(St),
-    VS = collect_validation_varset(St, Opts),
-    MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS),
-    Refund = make_refund(Params, Payment, Revision, CreatedAt, St, Opts),
-    FinalCashflow = make_refund_cashflow(Refund, Payment, Revision, St, Opts, MerchantTerms, VS, CreatedAt),
-    Changes = [?refund_created(Refund, FinalCashflow)],
-    Action = hg_machine_action:instant(),
-    ID = Refund#domain_InvoicePaymentRefund.id,
-    {Refund, {[?refund_ev(ID, C) || C <- Changes], Action}}.
+    Route = get_route(St),
+    Refunds = get_refunds(St),
+    RemainingPaymentBalance = get_remaining_payment_balance(St),
+    Allocation = get_allocation(St),
+    hg_invoice_payment_refund:refund(Params, Payment, Route, Refunds, RemainingPaymentBalance, Allocation, Opts).
 
 -spec manual_refund(refund_params(), st(), opts()) -> {domain_refund(), result()}.
-manual_refund(Params, St0, Opts = #{timestamp := CreatedAt}) ->
-    St = St0#st{opts = Opts},
-    Revision = hg_domain:head(),
-    Payment = get_payment(St),
-    VS = collect_validation_varset(St, Opts),
-    MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS),
-    Refund = make_refund(Params, Payment, Revision, CreatedAt, St, Opts),
-    FinalCashflow = make_refund_cashflow(Refund, Payment, Revision, St, Opts, MerchantTerms, VS, CreatedAt),
-    TransactionInfo = Params#payproc_InvoicePaymentRefundParams.transaction_info,
-    Changes = [?refund_created(Refund, FinalCashflow, TransactionInfo)],
-    Action = hg_machine_action:instant(),
-    ID = Refund#domain_InvoicePaymentRefund.id,
-    {Refund, {[?refund_ev(ID, C) || C <- Changes], Action}}.
-
-make_refund(Params, Payment, Revision, CreatedAt, St, Opts) ->
+manual_refund(Params, St, Opts) ->
     _ = assert_no_pending_chargebacks(St),
-    _ = assert_payment_status(captured, Payment),
-    PartyRevision = get_opts_party_revision(Opts),
-    _ = assert_previous_refunds_finished(St),
-    Cash = define_refund_cash(Params#payproc_InvoicePaymentRefundParams.cash, St),
-    _ = assert_refund_cash(Cash, St),
-    Cart = Params#payproc_InvoicePaymentRefundParams.cart,
-    _ = assert_refund_cart(Params#payproc_InvoicePaymentRefundParams.cash, Cart, St),
-    Timestamp = get_payment_created_at(Payment),
-    VS = collect_validation_varset(St, Opts),
-    MerchantTerms = get_merchant_payments_terms(Opts, Revision, Timestamp, VS),
-    Allocation = maybe_allocation(
-        Params#payproc_InvoicePaymentRefundParams.allocation,
-        Cash,
-        MerchantTerms,
-        Opts
-    ),
-    ok = validate_allocation_refund(Allocation, St),
-    MerchantRefundTerms = get_merchant_refunds_terms(MerchantTerms),
-    Refund = #domain_InvoicePaymentRefund{
-        id = Params#payproc_InvoicePaymentRefundParams.id,
-        created_at = CreatedAt,
-        domain_revision = Revision,
-        party_revision = PartyRevision,
-        status = ?refund_pending(),
-        reason = Params#payproc_InvoicePaymentRefundParams.reason,
-        cash = Cash,
-        cart = Cart,
-        external_id = Params#payproc_InvoicePaymentRefundParams.external_id,
-        allocation = Allocation
-    },
-    ok = validate_refund(MerchantRefundTerms, Refund, Payment),
-    Refund.
-
-validate_allocation_refund(undefined, _St) ->
-    ok;
-validate_allocation_refund(SubAllocation, St) ->
-    Allocation =
-        case get_allocation(St) of
-            undefined ->
-                throw(#payproc_AllocationNotFound{});
-            A ->
-                A
-        end,
-    case hg_allocation:sub(Allocation, SubAllocation) of
-        {ok, _} ->
-            ok;
-        {error, {invalid_transaction, Transaction, Details}} ->
-            throw(#payproc_AllocationInvalidTransaction{
-                transaction = marshal_transaction(Transaction),
-                reason = marshal_allocation_sub_details(Details)
-            })
-    end.
-
-marshal_allocation_sub_details(negative_amount) ->
-    <<"Transaction amount is negative">>;
-marshal_allocation_sub_details(currency_mismatch) ->
-    <<"Transaction currency mismatch">>;
-marshal_allocation_sub_details(no_transaction_to_sub) ->
-    <<"No transaction to refund">>.
-
-make_refund_cashflow(Refund, Payment, Revision, St, Opts, MerchantTerms, VS, Timestamp) ->
+    Payment = get_payment(St),
     Route = get_route(St),
-    Party = get_party(Opts),
-    Shop = get_shop(Opts),
-    PaymentInstitutionRef = get_payment_institution_ref(Opts),
-    ProviderPaymentsTerms = get_provider_terminal_terms(Route, VS, Revision),
-    ProviderTerms = get_provider_refunds_terms(ProviderPaymentsTerms, Refund, Payment),
-    Allocation = Refund#domain_InvoicePaymentRefund.allocation,
-    Provider = get_route_provider(Route, Revision),
-    collect_cashflow(
-        refund,
-        ProviderTerms,
-        MerchantTerms,
-        Party,
-        Shop,
-        PaymentInstitutionRef,
-        Route,
-        Allocation,
-        Payment,
-        Refund,
-        Provider,
-        Revision,
-        Timestamp,
-        VS
-    ).
-
-assert_refund_cash(Cash, St) ->
-    PaymentAmount = get_remaining_payment_amount(Cash, St),
-    assert_remaining_payment_amount(PaymentAmount, St).
-
-assert_remaining_payment_amount(?cash(Amount, _), _St) when Amount >= 0 ->
-    ok;
-assert_remaining_payment_amount(?cash(Amount, _), St) when Amount < 0 ->
-    Maximum = get_remaining_payment_balance(St),
-    throw(#payproc_InvoicePaymentAmountExceeded{maximum = Maximum}).
-
-assert_previous_refunds_finished(St) ->
-    PendingRefunds = lists:filter(
-        fun(#payproc_InvoicePaymentRefund{refund = R}) ->
-            R#domain_InvoicePaymentRefund.status =:= ?refund_pending()
-        end,
-        get_refunds(St)
-    ),
-    case PendingRefunds of
-        [] ->
-            ok;
-        [_R | _] ->
-            throw(#payproc_OperationNotPermitted{})
-    end.
-
-assert_refund_cart(_RefundCash, undefined, _St) ->
-    ok;
-assert_refund_cart(undefined, _Cart, _St) ->
-    throw_invalid_request(<<"Refund amount does not match with the cart total amount">>);
-assert_refund_cart(RefundCash, Cart, St) ->
-    InterimPaymentAmount = get_remaining_payment_balance(St),
-    case hg_cash:sub(InterimPaymentAmount, RefundCash) =:= hg_invoice_utils:get_cart_amount(Cart) of
-        true ->
-            ok;
-        _ ->
-            throw_invalid_request(<<"Remaining payment amount not equal cart cost">>)
-    end.
+    Refunds = get_refunds(St),
+    RemainingPaymentBalance = get_remaining_payment_balance(St),
+    Allocation = get_allocation(St),
+    hg_invoice_payment_refund:manual_refund(Params, Payment, Route, Refunds, RemainingPaymentBalance, Allocation, Opts).
 
 get_remaining_payment_amount(Cash, St) ->
     InterimPaymentAmount = get_remaining_payment_balance(St),
@@ -1374,91 +1200,6 @@ get_remaining_payment_balance(St) ->
         PaymentAmount,
         get_refunds(St) ++ Chargebacks
     ).
-
-get_merchant_refunds_terms(#domain_PaymentsServiceTerms{refunds = Terms}) when Terms /= undefined ->
-    Terms;
-get_merchant_refunds_terms(#domain_PaymentsServiceTerms{refunds = undefined}) ->
-    throw(#payproc_OperationNotPermitted{}).
-
-get_provider_refunds_terms(
-    #domain_PaymentsProvisionTerms{refunds = Terms},
-    Refund,
-    Payment
-) when Terms /= undefined ->
-    Cost = get_payment_cost(Payment),
-    Cash = get_refund_cash(Refund),
-    case hg_cash:sub(Cost, Cash) of
-        ?cash(0, _) ->
-            Terms;
-        ?cash(Amount, _) when Amount > 0 ->
-            get_provider_partial_refunds_terms(Terms, Refund, Payment)
-    end;
-get_provider_refunds_terms(#domain_PaymentsProvisionTerms{refunds = undefined}, _Refund, Payment) ->
-    error({misconfiguration, {'No refund terms for a payment', Payment}}).
-
-get_provider_partial_refunds_terms(
-    #domain_PaymentRefundsProvisionTerms{
-        partial_refunds = #domain_PartialRefundsProvisionTerms{
-            cash_limit = CashLimitSelector
-        }
-    } = Terms,
-    Refund,
-    _Payment
-) ->
-    Cash = get_refund_cash(Refund),
-    CashRange = get_selector_value(cash_limit, CashLimitSelector),
-    case hg_cash_range:is_inside(Cash, CashRange) of
-        within ->
-            Terms;
-        {exceeds, _} ->
-            error({misconfiguration, {'Refund amount doesnt match allowed cash range', CashRange}})
-    end;
-get_provider_partial_refunds_terms(
-    #domain_PaymentRefundsProvisionTerms{partial_refunds = undefined},
-    _Refund,
-    Payment
-) ->
-    error({misconfiguration, {'No partial refund terms for a payment', Payment}}).
-
-validate_refund(Terms, Refund, Payment) ->
-    Cost = get_payment_cost(Payment),
-    Cash = get_refund_cash(Refund),
-    case hg_cash:sub(Cost, Cash) of
-        ?cash(0, _) ->
-            validate_common_refund_terms(Terms, Refund, Payment);
-        ?cash(Amount, _) when Amount > 0 ->
-            validate_partial_refund(Terms, Refund, Payment)
-    end.
-
-validate_partial_refund(
-    #domain_PaymentRefundsServiceTerms{partial_refunds = PRs} = Terms,
-    Refund,
-    Payment
-) when PRs /= undefined ->
-    ok = validate_common_refund_terms(Terms, Refund, Payment),
-    ok = validate_cash(
-        get_refund_cash(Refund),
-        PRs#domain_PartialRefundsServiceTerms.cash_limit
-    ),
-    ok;
-validate_partial_refund(
-    #domain_PaymentRefundsServiceTerms{partial_refunds = undefined},
-    _Refund,
-    _Payment
-) ->
-    throw(#payproc_OperationNotPermitted{}).
-
-validate_common_refund_terms(Terms, Refund, Payment) ->
-    ok = validate_payment_tool(
-        get_payment_tool(Payment),
-        Terms#domain_PaymentRefundsServiceTerms.payment_methods
-    ),
-    ok = validate_refund_time(
-        get_refund_created_at(Refund),
-        get_payment_created_at(Payment),
-        Terms#domain_PaymentRefundsServiceTerms.eligibility_time
-    ),
-    ok.
 
 collect_cashflow(
     OpType,
@@ -3762,29 +3503,11 @@ set_refund_status(Status, Refund = #domain_InvoicePaymentRefund{}) ->
 get_refund_cashflow(#refund_st{cash_flow = CashFlow}) ->
     CashFlow.
 
-define_refund_cash(undefined, St) ->
-    get_remaining_payment_balance(St);
-define_refund_cash(?cash(_, SymCode) = Cash, #st{payment = #domain_InvoicePayment{cost = ?cash(_, SymCode)}}) ->
-    Cash;
-define_refund_cash(?cash(_, SymCode), _St) ->
-    throw(#payproc_InconsistentRefundCurrency{currency = SymCode}).
-
 get_refund_cash(#domain_InvoicePaymentRefund{cash = Cash}) ->
     Cash.
 
 get_refund_created_at(#domain_InvoicePaymentRefund{created_at = CreatedAt}) ->
     CreatedAt.
-
-enrich_refund_with_cash(Refund, #domain_InvoicePayment{cost = PaymentCash}) ->
-    #domain_InvoicePaymentRefund{cash = RefundCash} = Refund,
-    case {RefundCash, PaymentCash} of
-        {undefined, _} ->
-            %% Earlier Refunds haven't got field cash and we got this value from PaymentCash.
-            %% There are some refunds without cash in system that's why for compatablity we save this behaviour.
-            Refund#domain_InvoicePaymentRefund{cash = PaymentCash};
-        {?cash(_, SymCode), ?cash(_, SymCode)} ->
-            Refund
-    end.
 
 try_get_adjustment(ID, #st{adjustments = As}) ->
     case lists:keyfind(ID, #domain_InvoicePaymentAdjustment.id, As) of

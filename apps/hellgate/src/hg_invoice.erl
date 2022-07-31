@@ -196,7 +196,7 @@ handle_function_('GetPayment', {InvoiceID, PaymentID}, _Opts) ->
 handle_function_('GetPaymentRefund', {InvoiceID, PaymentID, ID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
-    hg_invoice_payment:get_refund(ID, get_payment_session(PaymentID, St));
+    hg_invoice_payment_refund:get_refund(ID, get_payment_session(PaymentID, St));
 handle_function_('GetPaymentChargeback', {InvoiceID, PaymentID, ID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
@@ -322,7 +322,7 @@ get_invoice_state(#st{invoice = Invoice, payments = Payments}) ->
     }.
 
 get_payment_state(PaymentSession) ->
-    Refunds = hg_invoice_payment:get_refunds(PaymentSession),
+    Refunds = hg_invoice_payment_refund:get_refunds(PaymentSession),
     LegacyRefunds =
         lists:map(
             fun(#payproc_InvoicePaymentRefund{refund = R}) ->
@@ -952,7 +952,7 @@ parse_refund_id(ID) ->
     ID.
 
 make_new_refund_id(PaymentSession) ->
-    Refunds = hg_invoice_payment:get_refunds(PaymentSession),
+    Refunds = hg_invoice_payment_refund:get_refunds(PaymentSession),
     construct_refund_id(Refunds).
 
 construct_refund_id(Refunds) ->
@@ -967,7 +967,7 @@ find_max_refund_id(#payproc_InvoicePaymentRefund{refund = Refund}, Max) ->
 
 get_refund(ID, PaymentSession) ->
     try
-        hg_invoice_payment:get_refund(ID, PaymentSession)
+        hg_invoice_payment_refund:get_refund(ID, PaymentSession)
     catch
         throw:#payproc_InvoicePaymentRefundNotFound{} ->
             undefined
