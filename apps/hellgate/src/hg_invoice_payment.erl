@@ -774,10 +774,14 @@ validate_limit(Cash, CashRange) ->
 gather_routes(PaymentInstitution, VS, Revision, St) ->
     Payment = get_payment(St),
     Predestination = choose_routing_predestination(Payment),
+    ?cash(_, Currency) = get_payment_cost(St),
+    PartyID = Payment#domain_InvoicePayment.owner_id,
+    get_payment_payer()
     case
         hg_routing:gather_routes(
             Predestination,
             PaymentInstitution,
+            Currency,
             VS,
             Revision
         )
@@ -3242,6 +3246,9 @@ get_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
 
 get_payment_flow(#domain_InvoicePayment{flow = Flow}) ->
     Flow.
+
+get_payment_owner_id(#domain_InvoicePayment{owner_id = PartyID}) ->
+    PartyID.
 
 get_payment_shop_id(#domain_InvoicePayment{shop_id = ShopID}) ->
     ShopID.

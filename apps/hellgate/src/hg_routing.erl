@@ -29,9 +29,11 @@
     provider_ref :: dmsl_domain_thrift:'ProviderRef'(),
     terminal_ref :: dmsl_domain_thrift:'TerminalRef'(),
     weight :: integer(),
-    priority :: integer()
+    priority :: integer(),
+    pin :: integer()
 }).
 
+-type pin() :: dmsl_domain_thrift:'RoutingPin'().
 -type route() :: #route{}.
 -type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
@@ -106,14 +108,19 @@ new(ProviderRef, TerminalRef) ->
     }.
 
 -spec new(provider_ref(), terminal_ref(), integer() | undefined, integer()) -> route().
-new(ProviderRef, TerminalRef, undefined, Priority) ->
-    new(ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, Priority);
 new(ProviderRef, TerminalRef, Weight, Priority) ->
+    new(ProviderRef, TerminalRef, Weight, Priority, undefined).
+
+-spec new(provider_ref(), terminal_ref(), integer() | undefined, integer(), pin() | undefined) -> route().
+new(ProviderRef, TerminalRef, undefined, Priority, Pin) ->
+    new(ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, Priority, Pin);
+new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
     #route{
         provider_ref = ProviderRef,
         terminal_ref = TerminalRef,
         weight = Weight,
-        priority = Priority
+        priority = Priority,
+        pin = Pin
     }.
 
 -spec provider_ref(route()) -> provider_ref().
@@ -131,6 +138,10 @@ priority(#route{priority = Priority}) ->
 -spec weight(route()) -> integer().
 weight(#route{weight = Weight}) ->
     Weight.
+
+-spec pin(route()) -> pin() | undefined.
+pin(#route{pin = Pin}) ->
+    Pin.
 
 -spec from_payment_route(payment_route()) -> route().
 from_payment_route(Route) ->
@@ -222,16 +233,18 @@ collect_routes(Predestination, Candidates, VS, Revision) ->
             #domain_RoutingCandidate{
                 terminal = TerminalRef,
                 priority = Priority,
-                weight = Weight
+                weight = Weight,
+                pin = Pin
             } = Candidate,
             % Looks like overhead, we got Terminal only for provider_ref. Maybe we can remove provider_ref from route().
             % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
             #domain_Terminal{
                 provider_ref = ProviderRef
             } = hg_domain:get(Revision, {terminal, TerminalRef}),
+            GatheredPinInfo = gather_pin_info(Pin),
             try
                 true = acceptable_terminal(Predestination, ProviderRef, TerminalRef, VS, Revision),
-                Route = new(ProviderRef, TerminalRef, Weight, Priority),
+                Route = new(ProviderRef, TerminalRef, Weight, Priority, GatheredPinInfo),
                 {[Route | Accepted], Rejected}
             catch
                 {rejected, Reason} ->
@@ -242,6 +255,23 @@ collect_routes(Predestination, Candidates, VS, Revision) ->
         end,
         {[], []},
         Candidates
+    ).
+
+gather_pin_info(#domain_RoutingPin{features = Features}, Currency, PaymentTool, PartyID, ClientIP) ->
+    FeaturesList = ordsets:to_list(Features),
+    lists:foldl(
+        fun
+            (currency, Acc) ->
+            Acc#{currency => Currency};
+            (payment_tool, Acc) ->
+            Acc#{payment_tool => PaymentTool};
+            (party_id, Acc) ->
+            Acc#{party_id => PartyID};
+            (client_ip, Acc) ->
+            Acc#{client_ip => ClientIP}
+        end,
+        #{},
+        FeaturesList
     ).
 
 filter_routes({Routes, Rejected}, Prohibitions) ->
