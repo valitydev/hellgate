@@ -828,19 +828,26 @@ default_termset(Options) ->
                         },
                         #domain_CashFlowDecision{
                             if_ =
-                                {all_of,
+                                {any_of,
                                     ?ordset([
-                                        {condition, {currency_is, ?cur(<<"RUB">>)}},
-                                        {condition,
-                                            {payment_tool,
-                                                {bank_card, #domain_BankCardCondition{
-                                                    definition =
-                                                        {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is = #domain_PaymentSystemRef{
-                                                                id = <<"VISA">>
-                                                            }
-                                                        }}
-                                                }}}}
+                                        {all_of,
+                                            ?ordset([
+                                                {condition, {currency_is, ?cur(<<"RUB">>)}},
+                                                {condition,
+                                                    {payment_tool,
+                                                        {bank_card, #domain_BankCardCondition{
+                                                            definition =
+                                                                {payment_system, #domain_PaymentSystemCondition{
+                                                                    payment_system_is = #domain_PaymentSystemRef{
+                                                                        id = <<"VISA">>
+                                                                    }
+                                                                }}
+                                                        }}}}
+                                            ])},
+                                        {all_of,
+                                            ?ordset([
+                                                condition(cost_in, {424242, <<"RUB">>})
+                                            ])}
                                     ])},
                             then_ =
                                 {value, [

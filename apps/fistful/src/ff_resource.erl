@@ -312,16 +312,15 @@ create_bank_card(#{bank_card := #{token := Token}} = ResourceBankCardParams, Res
             {error, {bin_data, Error}}
     end.
 
--spec create_bank_card_basic(resource_bank_card_params(), bin_data(), payment_system() | undefined) -> {ok, resource()}.
+-spec create_bank_card_basic(resource_bank_card_params(), bin_data() | undefined, payment_system() | undefined) ->
+    {ok, resource()}.
 create_bank_card_basic(#{bank_card := BankCardParams0} = ResourceBankCardParams, BinData, PaymentSystem) ->
-    KeyList = [bank_name, issuer_country, card_type, category],
-    ExtendData0 = maps:with(KeyList, BinData),
-    ExtendData1 = ExtendData0#{bin_data_id => ff_bin_data:id(BinData)},
+    ExtendData = create_extended_data(BinData),
     BankCardParams1 = genlib_map:compact(BankCardParams0#{payment_system => PaymentSystem}),
     {ok,
         {bank_card,
             genlib_map:compact(#{
-                bank_card => maps:merge(BankCardParams1, ExtendData1),
+                bank_card => maps:merge(BankCardParams1, ExtendData),
                 auth_data => maps:get(auth_data, ResourceBankCardParams, undefined)
             })}}.
 
@@ -361,3 +360,10 @@ create_digital_wallet(#{
 -spec create_generic_resource(resource_generic_params()) -> {ok, resource()}.
 create_generic_resource(#{generic := Generic}) ->
     {ok, {generic, #{generic => Generic}}}.
+
+create_extended_data(undefined) ->
+    #{};
+create_extended_data(BinData) ->
+    KeyList = [bank_name, issuer_country, card_type, category],
+    ExtendData0 = maps:with(KeyList, BinData),
+    ExtendData0#{bin_data_id => ff_bin_data:id(BinData)}.

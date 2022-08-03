@@ -22,7 +22,8 @@
 -export([create_cashlimit_validation_error_test/1]).
 -export([create_inconsistent_currency_validation_error_test/1]).
 -export([create_currency_validation_error_test/1]).
--export([create_destination_resource_notfound_test/1]).
+-export([create_destination_resource_no_bindata_ok_test/1]).
+-export([create_destination_resource_no_bindata_fail_test/1]).
 -export([create_destination_notfound_test/1]).
 -export([create_destination_generic_ok_test/1]).
 -export([create_wallet_notfound_test/1]).
@@ -55,7 +56,8 @@ groups() ->
             create_cashlimit_validation_error_test,
             create_currency_validation_error_test,
             create_inconsistent_currency_validation_error_test,
-            create_destination_resource_notfound_test,
+            create_destination_resource_no_bindata_ok_test,
+            create_destination_resource_no_bindata_fail_test,
             create_destination_notfound_test,
             create_destination_generic_ok_test,
             create_wallet_notfound_test,
@@ -280,8 +282,8 @@ create_inconsistent_currency_validation_error_test(C) ->
     },
     ?assertEqual({exception, ExpectedError}, Result).
 
--spec create_destination_resource_notfound_test(config()) -> test_return().
-create_destination_resource_notfound_test(C) ->
+-spec create_destination_resource_no_bindata_fail_test(config()) -> test_return().
+create_destination_resource_no_bindata_fail_test(C) ->
     Cash = make_cash({100, <<"RUB">>}),
     #{
         wallet_id := WalletID,
@@ -293,9 +295,27 @@ create_destination_resource_notfound_test(C) ->
         destination_id = DestinationID,
         body = Cash
     },
+    ?assertError(
+        {woody_error, {external, result_unexpected, _}},
+        call_withdrawal('Create', {Params, #{}})
+    ).
+
+-spec create_destination_resource_no_bindata_ok_test(config()) -> test_return().
+create_destination_resource_no_bindata_ok_test(C) ->
+    %% As per test terms this specific cash amount results in valid cashflow without bin data
+    Cash = make_cash({424242, <<"RUB">>}),
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, <<"TEST_NOTFOUND">>, C),
+    Params = #wthd_WithdrawalParams{
+        id = generate_id(),
+        wallet_id = WalletID,
+        destination_id = DestinationID,
+        body = Cash
+    },
     Result = call_withdrawal('Create', {Params, #{}}),
-    ExpectedError = #wthd_NoDestinationResourceInfo{},
-    ?assertEqual({exception, ExpectedError}, Result).
+    ?assertMatch({ok, _}, Result).
 
 -spec create_destination_notfound_test(config()) -> test_return().
 create_destination_notfound_test(C) ->

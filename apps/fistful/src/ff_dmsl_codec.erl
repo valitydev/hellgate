@@ -4,7 +4,9 @@
 -include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
 
 -export([unmarshal/2]).
+-export([maybe_unmarshal/2]).
 -export([marshal/2]).
+-export([maybe_marshal/2]).
 
 %% Types
 
@@ -211,6 +213,7 @@ unmarshal(string, V) when is_binary(V) ->
 unmarshal(integer, V) when is_integer(V) ->
     V.
 
+-spec maybe_unmarshal(ff_dmsl_codec:type_name(), ff_dmsl_codec:encoded_value()) -> ff_dmsl_codec:decoded_value().
 maybe_unmarshal(_Type, undefined) ->
     undefined;
 maybe_unmarshal(Type, V) ->
@@ -369,6 +372,7 @@ marshal(integer, V) when is_integer(V) ->
 marshal(_, Other) ->
     Other.
 
+-spec maybe_marshal(ff_dmsl_codec:type_name(), ff_dmsl_codec:decoded_value()) -> ff_dmsl_codec:encoded_value().
 maybe_marshal(_Type, undefined) ->
     undefined;
 maybe_marshal(Type, Value) ->

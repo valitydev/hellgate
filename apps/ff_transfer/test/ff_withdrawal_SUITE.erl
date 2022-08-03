@@ -30,7 +30,8 @@
 -export([create_identity_providers_mismatch_error_test/1]).
 -export([create_destination_currency_validation_error_test/1]).
 -export([create_currency_validation_error_test/1]).
--export([create_destination_resource_notfound_test/1]).
+-export([create_destination_resource_no_bindata_ok_test/1]).
+-export([create_destination_resource_no_bindata_fail_test/1]).
 -export([create_destination_notfound_test/1]).
 -export([create_wallet_notfound_test/1]).
 -export([create_ok_test/1]).
@@ -89,7 +90,8 @@ groups() ->
             create_destination_currency_validation_error_test,
             create_currency_validation_error_test,
             create_identity_providers_mismatch_error_test,
-            create_destination_resource_notfound_test,
+            create_destination_resource_no_bindata_ok_test,
+            create_destination_resource_no_bindata_fail_test,
             create_destination_notfound_test,
             create_wallet_notfound_test,
             create_ok_test,
@@ -395,8 +397,8 @@ create_identity_providers_mismatch_error_test(C) ->
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     ?assertMatch({error, {identity_providers_mismatch, {<<"good-two">>, <<"good-one">>}}}, Result).
 
--spec create_destination_resource_notfound_test(config()) -> test_return().
-create_destination_resource_notfound_test(C) ->
+-spec create_destination_resource_no_bindata_fail_test(config()) -> test_return().
+create_destination_resource_no_bindata_fail_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
@@ -409,8 +411,28 @@ create_destination_resource_notfound_test(C) ->
         wallet_id => WalletID,
         body => Cash
     },
+    ?assertError(
+        {badmatch, {error, {invalid_terms, {not_reduced, _}}}},
+        ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new())
+    ).
+
+-spec create_destination_resource_no_bindata_ok_test(config()) -> test_return().
+create_destination_resource_no_bindata_ok_test(C) ->
+    %% As per test terms this specific cash amount results in valid cashflow without bin data
+    Cash = {424242, <<"RUB">>},
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, <<"TEST_NOTFOUND">>, C),
+    WithdrawalID = generate_id(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        body => Cash
+    },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
-    ?assertMatch({error, {destination_resource, {bin_data, not_found}}}, Result).
+    ?assertMatch(ok, Result).
 
 -spec create_destination_notfound_test(config()) -> test_return().
 create_destination_notfound_test(C) ->

@@ -464,17 +464,13 @@ create_resource(
     Identity,
     DomainRevision
 ) ->
-    case ff_resource:get_bin_data(Token, ResourceDescriptor) of
-        {ok, BinData} ->
-            Varset = #{
-                bin_data => ff_dmsl_codec:marshal(bin_data, BinData)
-            },
-            {ok, PaymentInstitution} = get_payment_institution(Identity, Varset, DomainRevision),
-            PaymentSystem = unwrap(ff_payment_institution:payment_system(PaymentInstitution)),
-            ff_resource:create_bank_card_basic(ResourceBankCardParams, BinData, PaymentSystem);
-        {error, Error} ->
-            {error, {bin_data, Error}}
-    end;
+    BinData = ff_maybe:from_result(ff_resource:get_bin_data(Token, ResourceDescriptor)),
+    Varset = #{
+        bin_data => ff_dmsl_codec:maybe_marshal(bin_data, BinData)
+    },
+    {ok, PaymentInstitution} = get_payment_institution(Identity, Varset, DomainRevision),
+    PaymentSystem = ff_maybe:from_result(ff_payment_institution:payment_system(PaymentInstitution)),
+    ff_resource:create_bank_card_basic(ResourceBankCardParams, BinData, PaymentSystem);
 create_resource(ResourceParams, ResourceDescriptor, _Identity, _DomainRevision) ->
     ff_resource:create_resource(ResourceParams, ResourceDescriptor).
 

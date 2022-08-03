@@ -60,9 +60,7 @@ handle_function_('GetQuote', {MarshaledParams}, _Opts) ->
             woody_error:raise(business, #wthd_IdentityProvidersMismatch{
                 wallet_provider = ff_codec:marshal(identity_provider, WalletProvider),
                 destination_provider = ff_codec:marshal(identity_provider, DestinationProvider)
-            });
-        {error, {destination_resource, {bin_data, _}}} ->
-            woody_error:raise(business, #wthd_NoDestinationResourceInfo{})
+            })
     end;
 handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
     Params = ff_withdrawal_codec:unmarshal_withdrawal_params(MarshaledParams),
@@ -107,9 +105,7 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
             woody_error:raise(business, #wthd_IdentityProvidersMismatch{
                 wallet_provider = ff_codec:marshal(identity_provider, WalletProvider),
                 destination_provider = ff_codec:marshal(identity_provider, DestinationProvider)
-            });
-        {error, {destination_resource, {bin_data, not_found}}} ->
-            woody_error:raise(business, #wthd_NoDestinationResourceInfo{})
+            })
     end;
 handle_function_('Get', {ID, EventRange}, _Opts) ->
     ok = scoper:add_meta(#{id => ID}),

@@ -80,6 +80,8 @@ check-format:
 dialyze:
 	$(REBAR) as test dialyzer
 
+static-check: check-format lint xref dialyze
+
 release:
 	$(REBAR) as prod release
 
