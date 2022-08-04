@@ -6,7 +6,7 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 
--export([gather_routes/4]).
+-export([gather_routes/5]).
 -export([choose_route/1]).
 -export([get_payment_terms/3]).
 
@@ -33,7 +33,12 @@
     pin :: integer()
 }).
 
--type pin() :: dmsl_domain_thrift:'RoutingPin'().
+-type pin() :: #{
+    currency => currency(),
+    payment_tool => payment_tool(),
+    party_id => party_id(),
+    client_ip => client_ip() | undefined
+}.
 -type route() :: #route{}.
 -type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
@@ -75,6 +80,18 @@
     preferable_route => route(),
     % Contains one of the field names defined in #route_scores{}
     reject_reason => atom()
+}.
+
+-type currency() :: dmsl_domain_thrift:'CurrencyRef'().
+-type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type client_ip() :: dmsl_domain_thrift:'IPAddress'().
+
+-type gather_route_context() :: #{
+    currency := currency(),
+    payment_tool := payment_tool(),
+    party_id := party_id(),
+    client_ip := client_ip() | undefined
 }.
 
 -type varset() :: hg_varset:varset().
@@ -173,13 +190,14 @@ prepare_log_message({misconfiguration, {routing_candidate, Candidate}}) ->
     route_predestination(),
     payment_institution(),
     varset(),
-    revision()
+    revision(),
+    gather_route_context()
 ) ->
     {ok, {[route()], [rejected_route()]}}
     | {error, misconfiguration_error()}.
-gather_routes(_, #domain_PaymentInstitution{payment_routing_rules = undefined}, _, _) ->
+gather_routes(_, #domain_PaymentInstitution{payment_routing_rules = undefined}, _, _, _) ->
     {ok, {[], []}};
-gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, VS, Revision) ->
+gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, VS, Revision, Ctx) ->
     #domain_RoutingRules{
         policies = Policies,
         prohibitions = Prohibitions
@@ -187,7 +205,7 @@ gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules =
     try
         Candidates = get_candidates(Policies, VS, Revision),
         {Accepted, RejectedRoutes} = filter_routes(
-            collect_routes(Predestination, Candidates, VS, Revision),
+            collect_routes(Predestination, Candidates, VS, Revision, Ctx),
             get_table_prohibitions(Prohibitions, VS, Revision)
         ),
         {ok, {Accepted, RejectedRoutes}}
@@ -227,7 +245,7 @@ validate_decisions_candidates([#domain_RoutingCandidate{allowed = {constant, tru
 validate_decisions_candidates([Candidate | _]) ->
     throw({misconfiguration, {routing_candidate, Candidate}}).
 
-collect_routes(Predestination, Candidates, VS, Revision) ->
+collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
     lists:foldr(
         fun(Candidate, {Accepted, Rejected}) ->
             #domain_RoutingCandidate{
@@ -241,7 +259,7 @@ collect_routes(Predestination, Candidates, VS, Revision) ->
             #domain_Terminal{
                 provider_ref = ProviderRef
             } = hg_domain:get(Revision, {terminal, TerminalRef}),
-            GatheredPinInfo = gather_pin_info(Pin),
+            GatheredPinInfo = gather_pin_info(Pin, Ctx),
             try
                 true = acceptable_terminal(Predestination, ProviderRef, TerminalRef, VS, Revision),
                 Route = new(ProviderRef, TerminalRef, Weight, Priority, GatheredPinInfo),
@@ -257,18 +275,12 @@ collect_routes(Predestination, Candidates, VS, Revision) ->
         Candidates
     ).
 
-gather_pin_info(#domain_RoutingPin{features = Features}, Currency, PaymentTool, PartyID, ClientIP) ->
+gather_pin_info(#domain_RoutingPin{features = Features}, Ctx) ->
     FeaturesList = ordsets:to_list(Features),
     lists:foldl(
         fun
-            (currency, Acc) ->
-            Acc#{currency => Currency};
-            (payment_tool, Acc) ->
-            Acc#{payment_tool => PaymentTool};
-            (party_id, Acc) ->
-            Acc#{party_id => PartyID};
-            (client_ip, Acc) ->
-            Acc#{client_ip => ClientIP}
+            (Feature, Acc) ->
+                Acc#{Feature => maps:get(Feature, Ctx)}
         end,
         #{},
         FeaturesList
@@ -476,6 +488,7 @@ score_route({Route, ProviderStatus}) ->
     PriorityRate = priority(Route),
     RandomCondition = weight(Route),
     Pin = pin(Route),
+    PinHash = erlang:phash2(Pin),
     {AvailabilityStatus, ConversionStatus} = ProviderStatus,
     {AvailabilityCondition, Availability} = get_availability_score(AvailabilityStatus),
     {ConversionCondition, Conversion} = get_conversion_score(ConversionStatus),
@@ -483,7 +496,7 @@ score_route({Route, ProviderStatus}) ->
         availability_condition = AvailabilityCondition,
         conversion_condition = ConversionCondition,
         priority_rating = PriorityRate,
-        pin = Pin,
+        pin = PinHash,
         random_condition = RandomCondition,
         availability = Availability,
         conversion = Conversion
