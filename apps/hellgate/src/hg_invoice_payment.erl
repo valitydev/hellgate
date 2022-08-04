@@ -774,7 +774,7 @@ validate_limit(Cash, CashRange) ->
 gather_routes(PaymentInstitution, VS, Revision, St) ->
     Payment = get_payment(St),
     Predestination = choose_routing_predestination(Payment),
-    #domain_Cash{currency = Currency} = get_payment_cost(St),
+    #domain_Cash{currency = Currency} = get_payment_cost(Payment),
     PartyID = Payment#domain_InvoicePayment.owner_id,
     Payer = get_payment_payer(St),
     PaymentTool = get_payer_payment_tool(Payer),
