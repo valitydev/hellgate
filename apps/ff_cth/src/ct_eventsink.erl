@@ -1,28 +1,29 @@
 -module(ct_eventsink).
 
--include_lib("fistful_proto/include/ff_proto_identity_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_wallet_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_withdrawal_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_withdrawal_session_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_destination_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_source_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_deposit_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_w2w_transfer_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_identity_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_session_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_w2w_transfer_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_evsink_thrift.hrl").
 
 -type sink() ::
     ff_services:service_name().
 
 -type event() ::
-    ff_proto_wallet_thrift:'SinkEvent'()
-    | ff_proto_withdrawal_thrift:'SinkEvent'()
-    | ff_proto_identity_thrift:'SinkEvent'()
-    | ff_proto_destination_thrift:'SinkEvent'()
-    | ff_proto_source_thrift:'SinkEvent'()
-    | ff_proto_deposit_thrift:'SinkEvent'()
-    | ff_proto_withdrawal_thrift:'SinkEvent'()
-    | ff_proto_w2w_transfer_thrift:'SinkEvent'().
+    fistful_wallet_thrift:'SinkEvent'()
+    | fistful_wthd_thrift:'SinkEvent'()
+    | fistful_identity_thrift:'SinkEvent'()
+    | fistful_destination_thrift:'SinkEvent'()
+    | fistful_source_thrift:'SinkEvent'()
+    | fistful_deposit_thrift:'SinkEvent'()
+    | fistful_wthd_thrift:'SinkEvent'()
+    | fistful_w2w_transfer_thrift:'SinkEvent'().
 
--type event_id() :: ff_proto_eventsink_thrift:'EventID'().
+-type event_id() :: fistful_evsink_thrift:'EventID'().
 -type limit() :: non_neg_integer().
 
 -export([last_id/1]).
@@ -73,11 +74,11 @@ get_max_event_id(Events) when is_list(Events) ->
     lists:foldl(fun(Ev, Max) -> erlang:max(get_event_id(Ev), Max) end, 0, Events).
 
 -spec get_event_id(event()) -> event_id().
-get_event_id(#'wlt_SinkEvent'{id = ID}) -> ID;
+get_event_id(#'wallet_SinkEvent'{id = ID}) -> ID;
 get_event_id(#'wthd_SinkEvent'{id = ID}) -> ID;
-get_event_id(#'idnt_SinkEvent'{id = ID}) -> ID;
-get_event_id(#'dst_SinkEvent'{id = ID}) -> ID;
-get_event_id(#'src_SinkEvent'{id = ID}) -> ID;
+get_event_id(#'identity_SinkEvent'{id = ID}) -> ID;
+get_event_id(#'destination_SinkEvent'{id = ID}) -> ID;
+get_event_id(#'source_SinkEvent'{id = ID}) -> ID;
 get_event_id(#'deposit_SinkEvent'{id = ID}) -> ID;
 get_event_id(#'wthd_session_SinkEvent'{id = ID}) -> ID;
 get_event_id(#'w2w_transfer_SinkEvent'{id = ID}) -> ID.

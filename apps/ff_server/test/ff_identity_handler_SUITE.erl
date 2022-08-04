@@ -1,7 +1,9 @@
 -module(ff_identity_handler_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("fistful_proto/include/ff_proto_identity_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_identity_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 -export([all/0]).
 -export([init_per_suite/1]).
@@ -70,19 +72,19 @@ create_identity_ok(_C) ->
     Ctx = #{<<"NS">> => #{<<"owner">> => PartyID}},
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     Identity0 = create_identity(EID, Name, PartyID, ProvID, Ctx, Metadata),
-    IID = Identity0#idnt_IdentityState.id,
+    IID = Identity0#identity_IdentityState.id,
     {ok, Identity1} = call_api('Get', {IID, #'fistful_base_EventRange'{}}),
 
-    ProvID = Identity1#idnt_IdentityState.provider_id,
-    IID = Identity1#idnt_IdentityState.id,
-    Name = Identity1#idnt_IdentityState.name,
-    PartyID = Identity1#idnt_IdentityState.party_id,
-    unblocked = Identity1#idnt_IdentityState.blocking,
-    Metadata = Identity1#idnt_IdentityState.metadata,
+    ProvID = Identity1#identity_IdentityState.provider_id,
+    IID = Identity1#identity_IdentityState.id,
+    Name = Identity1#identity_IdentityState.name,
+    PartyID = Identity1#identity_IdentityState.party_id,
+    unblocked = Identity1#identity_IdentityState.blocking,
+    Metadata = Identity1#identity_IdentityState.metadata,
     Ctx0 = Ctx#{
         <<"com.rbkmoney.wapi">> => #{<<"name">> => Name}
     },
-    Ctx0 = ff_entity_context_codec:unmarshal(Identity1#idnt_IdentityState.context),
+    Ctx0 = ff_entity_context_codec:unmarshal(Identity1#identity_IdentityState.context),
     ok.
 
 get_event_unknown_identity_ok(_C) ->
@@ -106,7 +108,7 @@ get_withdrawal_methods_ok(_C) ->
     Name = <<"Identity Name">>,
     ProvID = <<"good-one">>,
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
-    #idnt_IdentityState{id = ID} = create_identity(EID, Name, PID, ProvID, Ctx, Metadata),
+    #identity_IdentityState{id = ID} = create_identity(EID, Name, PID, ProvID, Ctx, Metadata),
     {ok, [
         {bank_card, _},
         {crypto_currency, _},
@@ -121,7 +123,7 @@ get_withdrawal_methods_ok(_C) ->
 %%----------
 
 create_identity(EID, Name, PartyID, ProvID, Ctx, Metadata) ->
-    Params = #idnt_IdentityParams{
+    Params = #identity_IdentityParams{
         id = genlib:unique(),
         name = Name,
         party = PartyID,
@@ -136,7 +138,7 @@ create_identity(EID, Name, PartyID, ProvID, Ctx, Metadata) ->
     IdentityState.
 
 call_api(Fun, Args) ->
-    Service = {ff_proto_identity_thrift, 'Management'},
+    Service = {fistful_identity_thrift, 'Management'},
     Request = {Service, Fun, Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/identity">>,

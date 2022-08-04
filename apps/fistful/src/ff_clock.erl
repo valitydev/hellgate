@@ -1,6 +1,6 @@
 -module(ff_clock).
 
--include_lib("fistful_proto/include/ff_proto_transfer_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_transfer_thrift.hrl").
 
 -define(VERSION, 1).
 -define(TYPE_LATEST, latest).
@@ -30,14 +30,14 @@ latest_clock() ->
     new(?TYPE_LATEST).
 
 -spec marshal(kind(), clock()) ->
-    ff_proto_transfer_thrift:'Clock'().
+    fistful_transfer_thrift:'Clock'().
 marshal(transfer, #{type := ?TYPE_LATEST = Type}) ->
     {Type, #transfer_LatestClock{}};
 marshal(transfer, #{type := ?TYPE_VECTOR = Type, state := State}) ->
     {Type, #transfer_VectorClock{state = State}}.
 
 -spec unmarshal(kind(), Clock) -> clock() when
-    Clock :: ff_proto_transfer_thrift:'Clock'().
+    Clock :: fistful_transfer_thrift:'Clock'().
 unmarshal(transfer, {?TYPE_LATEST = Type, #transfer_LatestClock{}}) ->
     new(Type);
 unmarshal(transfer, {?TYPE_VECTOR = Type, #transfer_VectorClock{state = State}}) ->

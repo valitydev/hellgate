@@ -18,6 +18,8 @@ services:
         condition: service_healthy
       party-management:
         condition: service_healthy
+      limiter:
+        condition: service_healthy
       shumway:
         condition: service_healthy
       bender:
@@ -26,7 +28,7 @@ services:
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-0b47590
+    image: ghcr.io/valitydev/dominant:sha-b978f94
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -45,6 +47,20 @@ services:
       - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
     healthcheck:
       test: "curl http://localhost:8022/"
+      interval: 5s
+      timeout: 1s
+      retries: 20
+
+  limiter:
+    image: ghcr.io/valitydev/limiter:sha-40e4b22
+    command: /opt/limiter/bin/limiter foreground
+    depends_on:
+      machinegun:
+        condition: service_healthy
+      shumway:
+        condition: service_healthy
+    healthcheck:
+      test: "/opt/limiter/bin/limiter ping"
       interval: 5s
       timeout: 1s
       retries: 20
@@ -71,7 +87,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-3353490
+    image: ghcr.io/valitydev/party-management:sha-bbbeae5
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:

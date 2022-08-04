@@ -1,7 +1,7 @@
 %%% Client for adapter for withdrawal provider
 -module(ff_adapter_withdrawal).
 
--include_lib("damsel/include/dmsl_withdrawals_provider_adapter_thrift.hrl").
+-include_lib("damsel/include/dmsl_wthd_provider_thrift.hrl").
 
 %% Accessors
 
@@ -172,18 +172,18 @@ get_quote(Adapter, Params, AOpt) ->
 %%
 
 call(Adapter, Function, Args) ->
-    Request = {{dmsl_withdrawals_provider_adapter_thrift, 'Adapter'}, Function, Args},
+    Request = {{dmsl_wthd_provider_thrift, 'Adapter'}, Function, Args},
     ff_woody_client:call(Adapter, Request).
 
 -spec decode_result
-    (dmsl_withdrawals_provider_adapter_thrift:'ProcessResult'()) -> {ok, process_result()};
-    (dmsl_withdrawals_provider_adapter_thrift:'Quote'()) -> {ok, quote()};
-    (dmsl_withdrawals_provider_adapter_thrift:'CallbackResult'()) -> {ok, handle_callback_result()}.
-decode_result(#wthadpt_ProcessResult{} = ProcessResult) ->
+    (dmsl_wthd_provider_thrift:'ProcessResult'()) -> {ok, process_result()};
+    (dmsl_wthd_provider_thrift:'Quote'()) -> {ok, quote()};
+    (dmsl_wthd_provider_thrift:'CallbackResult'()) -> {ok, handle_callback_result()}.
+decode_result(#wthd_provider_ProcessResult{} = ProcessResult) ->
     {ok, unmarshal(process_result, ProcessResult)};
-decode_result(#wthadpt_Quote{} = Quote) ->
+decode_result(#wthd_provider_Quote{} = Quote) ->
     {ok, unmarshal(quote, Quote)};
-decode_result(#wthadpt_CallbackResult{} = CallbackResult) ->
+decode_result(#wthd_provider_CallbackResult{} = CallbackResult) ->
     {ok, unmarshal(callback_result, CallbackResult)}.
 
 %% @doc
@@ -199,19 +199,19 @@ decode_result(#wthadpt_CallbackResult{} = CallbackResult) ->
 %%
 %% @todo Remove this code when adapter stops set TransactionInfo to field Success.trx_info
 
-rebind_transaction_info(#wthadpt_ProcessResult{intent = Intent} = Result) ->
-    {NewIntent, TransactionInfo} = extract_transaction_info(Intent, Result#wthadpt_ProcessResult.trx),
-    Result#wthadpt_ProcessResult{intent = NewIntent, trx = TransactionInfo};
-rebind_transaction_info(#wthadpt_CallbackResult{intent = Intent} = Result) ->
-    {NewIntent, TransactionInfo} = extract_transaction_info(Intent, Result#wthadpt_CallbackResult.trx),
-    Result#wthadpt_CallbackResult{intent = NewIntent, trx = TransactionInfo}.
+rebind_transaction_info(#wthd_provider_ProcessResult{intent = Intent} = Result) ->
+    {NewIntent, TransactionInfo} = extract_transaction_info(Intent, Result#wthd_provider_ProcessResult.trx),
+    Result#wthd_provider_ProcessResult{intent = NewIntent, trx = TransactionInfo};
+rebind_transaction_info(#wthd_provider_CallbackResult{intent = Intent} = Result) ->
+    {NewIntent, TransactionInfo} = extract_transaction_info(Intent, Result#wthd_provider_CallbackResult.trx),
+    Result#wthd_provider_CallbackResult{intent = NewIntent, trx = TransactionInfo}.
 
-extract_transaction_info({finish, #wthadpt_FinishIntent{status = {success, Success}}}, TransactionInfo) ->
+extract_transaction_info({finish, #wthd_provider_FinishIntent{status = {success, Success}}}, TransactionInfo) ->
     {
-        {finish, #wthadpt_FinishIntent{status = {success, #wthadpt_Success{trx_info = undefined}}}},
+        {finish, #wthd_provider_FinishIntent{status = {success, #wthd_provider_Success{trx_info = undefined}}}},
         case Success of
-            #wthadpt_Success{trx_info = undefined} -> TransactionInfo;
-            #wthadpt_Success{trx_info = LegacyTransactionInfo} -> LegacyTransactionInfo
+            #wthd_provider_Success{trx_info = undefined} -> TransactionInfo;
+            #wthd_provider_Success{trx_info = LegacyTransactionInfo} -> LegacyTransactionInfo
         end
     };
 extract_transaction_info(Intent, TransactionInfo) ->

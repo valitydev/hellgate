@@ -1,6 +1,6 @@
 -module(ff_entity_context_codec).
 
--include_lib("fistful_proto/include/ff_proto_msgpack_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_msgp_thrift.hrl").
 
 -type ctx() :: ff_entity_context:context().
 

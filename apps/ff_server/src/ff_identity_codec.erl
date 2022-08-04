@@ -2,7 +2,7 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_identity_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_identity_thrift.hrl").
 
 -export([unmarshal_identity_params/1]).
 
@@ -13,8 +13,8 @@
 -export([unmarshal/2]).
 
 %% This special functions hasn't got opposite functions.
--spec unmarshal_identity_params(ff_proto_identity_thrift:'IdentityParams'()) -> ff_identity_machine:params().
-unmarshal_identity_params(#idnt_IdentityParams{
+-spec unmarshal_identity_params(fistful_identity_thrift:'IdentityParams'()) -> ff_identity_machine:params().
+unmarshal_identity_params(#identity_IdentityParams{
     id = ID,
     name = Name,
     party = PartyID,
@@ -32,18 +32,18 @@ unmarshal_identity_params(#idnt_IdentityParams{
     }).
 
 -spec marshal_identity_event({integer(), ff_machine:timestamped_event(ff_identity:event())}) ->
-    ff_proto_identity_thrift:'Event'().
+    fistful_identity_thrift:'Event'().
 marshal_identity_event({ID, {ev, Timestamp, Ev}}) ->
-    #idnt_Event{
+    #identity_Event{
         sequence = marshal(event_id, ID),
         occured_at = marshal(timestamp, Timestamp),
         change = marshal(change, Ev)
     }.
 
 -spec marshal_identity_state(ff_identity:identity_state(), ff_entity_context:context()) ->
-    ff_proto_identity_thrift:'IdentityState'().
+    fistful_identity_thrift:'IdentityState'().
 marshal_identity_state(IdentityState, Context) ->
-    #idnt_IdentityState{
+    #identity_IdentityState{
         id = maybe_marshal(id, ff_identity:id(IdentityState)),
         name = marshal(string, ff_identity:name(IdentityState)),
         party_id = marshal(id, ff_identity:party(IdentityState)),
@@ -60,14 +60,14 @@ marshal_identity_state(IdentityState, Context) ->
 marshal({list, T}, V) ->
     [marshal(T, E) || E <- V];
 marshal(timestamped_change, {ev, Timestamp, Change}) ->
-    #idnt_TimestampedChange{
+    #identity_TimestampedChange{
         change = marshal(change, Change),
         occured_at = ff_codec:marshal(timestamp, Timestamp)
     };
 marshal(change, {created, Identity}) ->
     {created, marshal(identity, Identity)};
 marshal(identity, Identity) ->
-    #idnt_Identity{
+    #identity_Identity{
         id = maybe_marshal(id, ff_identity:id(Identity)),
         name = maybe_marshal(string, ff_identity:name(Identity)),
         party = marshal(id, ff_identity:party(Identity)),
@@ -92,10 +92,10 @@ marshal(T, V) ->
 unmarshal({list, T}, V) ->
     [unmarshal(T, E) || E <- V];
 unmarshal(timestamped_change, TimestampedChange) ->
-    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#idnt_TimestampedChange.occured_at),
-    Change = unmarshal(change, TimestampedChange#idnt_TimestampedChange.change),
+    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#identity_TimestampedChange.occured_at),
+    Change = unmarshal(change, TimestampedChange#identity_TimestampedChange.change),
     {ev, Timestamp, Change};
-unmarshal(repair_scenario, {add_events, #idnt_AddEventsRepair{events = Events, action = Action}}) ->
+unmarshal(repair_scenario, {add_events, #identity_AddEventsRepair{events = Events, action = Action}}) ->
     {add_events,
         genlib_map:compact(#{
             events => unmarshal({list, change}, Events),
@@ -106,11 +106,11 @@ unmarshal(change, {created, Identity}) ->
 % We have to support this unmarshal cause mg contain identety's events with challenge
 unmarshal(change, {level_changed, LevelID}) ->
     {level_changed, unmarshal(id, LevelID)};
-unmarshal(change, {identity_challenge, #idnt_ChallengeChange{id = ID, payload = Payload}}) ->
+unmarshal(change, {identity_challenge, #identity_ChallengeChange{id = ID, payload = Payload}}) ->
     {{challenge, unmarshal(id, ID)}, unmarshal(challenge_payload, Payload)};
 unmarshal(change, {effective_challenge_changed, ChallengeID}) ->
     {effective_challenge_changed, unmarshal(id, ChallengeID)};
-unmarshal(identity, #idnt_Identity{
+unmarshal(identity, #identity_Identity{
     id = ID,
     name = Name,
     party = PartyID,
@@ -135,7 +135,7 @@ unmarshal(challenge_payload, {created, Challenge}) ->
     {created, unmarshal(challenge_payload_created, Challenge)};
 unmarshal(challenge_payload, {status_changed, ChallengeStatus}) ->
     {status_changed, unmarshal(challenge_payload_status_changed, ChallengeStatus)};
-unmarshal(challenge_payload_created, #idnt_Challenge{
+unmarshal(challenge_payload_created, #identity_Challenge{
     id = ID,
     cls = ChallengeClass,
     provider_id = ProviderID,
@@ -157,20 +157,20 @@ unmarshal(challenge_payload_created, #idnt_Challenge{
     };
 unmarshal(challenge_proofs, Proof) ->
     {
-        unmarshal(proof_type, Proof#idnt_ChallengeProof.type),
-        unmarshal(id, Proof#idnt_ChallengeProof.token)
+        unmarshal(proof_type, Proof#identity_ChallengeProof.type),
+        unmarshal(id, Proof#identity_ChallengeProof.token)
     };
 unmarshal(proof_type, rus_domestic_passport) ->
     rus_domestic_passport;
 unmarshal(proof_type, rus_retiree_insurance_cert) ->
     rus_retiree_insurance_cert;
-unmarshal(challenge_payload_status_changed, {pending, #idnt_ChallengePending{}}) ->
+unmarshal(challenge_payload_status_changed, {pending, #identity_ChallengePending{}}) ->
     pending;
-unmarshal(challenge_payload_status_changed, {cancelled, #idnt_ChallengeCancelled{}}) ->
+unmarshal(challenge_payload_status_changed, {cancelled, #identity_ChallengeCancelled{}}) ->
     cancelled;
 unmarshal(
     challenge_payload_status_changed,
-    {completed, #idnt_ChallengeCompleted{
+    {completed, #identity_ChallengeCompleted{
         resolution = Resolution,
         valid_until = ValidUntil
     }}
@@ -180,7 +180,7 @@ unmarshal(
             resolution => unmarshal(resolution, Resolution),
             valid_until => maybe_unmarshal(timestamp, ValidUntil)
         })};
-unmarshal(challenge_payload_status_changed, {failed, #idnt_ChallengeFailed{}}) ->
+unmarshal(challenge_payload_status_changed, {failed, #identity_ChallengeFailed{}}) ->
     % FIXME: Describe failures in protocol
     {failed, unknown};
 unmarshal(resolution, approved) ->

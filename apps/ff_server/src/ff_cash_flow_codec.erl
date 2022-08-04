@@ -2,7 +2,7 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_cashflow_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_cashflow_thrift.hrl").
 
 -export([marshal/2]).
 -export([unmarshal/2]).

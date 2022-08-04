@@ -2,7 +2,7 @@
 
 -behaviour(ff_woody_wrapper).
 
--include_lib("damsel/include/dmsl_withdrawals_provider_adapter_thrift.hrl").
+-include_lib("damsel/include/dmsl_wthd_provider_thrift.hrl").
 
 %% Exports
 
@@ -10,7 +10,7 @@
 
 %% Types
 
--type process_callback_result() :: dmsl_withdrawals_provider_adapter_thrift:'ProcessCallbackResult'().
+-type process_callback_result() :: dmsl_wthd_provider_thrift:'ProcessCallbackResult'().
 
 %% Handler
 
@@ -30,7 +30,7 @@ handle_function_('ProcessCallback', {Callback}, _Opts) ->
         {error, {session_already_finished, Context}} ->
             {ok, marshal(process_callback_result, {finished, Context})};
         {error, {unknown_session, _Ref}} ->
-            woody_error:raise(business, #wthadpt_SessionNotFound{})
+            woody_error:raise(business, #wthd_provider_SessionNotFound{})
     end.
 
 %%

@@ -1,8 +1,9 @@
 -module(ff_withdrawal_session_repair_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("fistful_proto/include/ff_proto_withdrawal_session_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_session_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -178,7 +179,8 @@ create_failed_session(IdentityID, DestinationID, _C) ->
         resource => DestinationResource,
         route => #{
             version => 1,
-            provider_id => 1
+            provider_id => 1,
+            terminal_id => 1
         }
     },
     ok = ff_withdrawal_session_machine:create(ID, TransferData, SessionParams),
@@ -191,7 +193,7 @@ get_session_status(ID) ->
     ff_withdrawal_session:status(Session).
 
 call_repair(Args) ->
-    Service = {ff_proto_withdrawal_session_thrift, 'Repairer'},
+    Service = {fistful_wthd_session_thrift, 'Repairer'},
     Request = {Service, 'Repair', Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/repair/withdrawal/session">>,

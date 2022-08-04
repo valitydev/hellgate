@@ -1,6 +1,8 @@
 -module(ff_cash_flow).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export([make_empty_final/0]).
 -export([gather_used_accounts/1]).
@@ -195,7 +197,7 @@ decode_rounding_method(RoundingMethod) ->
     RoundingMethod.
 
 -spec decode_rational(dmsl_base_thrift:'Rational'()) -> genlib_rational:t().
-decode_rational(#'Rational'{p = P, q = Q}) ->
+decode_rational(#'base_Rational'{p = P, q = Q}) ->
     genlib_rational:new(P, Q).
 
 -spec compute_volume(plan_volume(), constant_mapping()) -> {ok, cash()} | {error, volume_finalize_error()}.

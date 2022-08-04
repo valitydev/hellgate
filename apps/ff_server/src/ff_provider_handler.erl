@@ -2,7 +2,8 @@
 
 -behaviour(ff_woody_wrapper).
 
--include_lib("fistful_proto/include/ff_proto_provider_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_provider_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 %% ff_woody_wrapper callbacks
 -export([handle_function/3]).
@@ -37,11 +38,11 @@ handle_function_('ListProviders', _, _Opts) ->
 
 %%
 
--spec marshal_providers([ff_provider:provider()]) -> [ff_proto_provider_thrift:'Provider'()].
+-spec marshal_providers([ff_provider:provider()]) -> [fistful_provider_thrift:'Provider'()].
 marshal_providers(Providers) when is_list(Providers) ->
     lists:map(fun(Provider) -> marshal_provider(Provider) end, Providers).
 
--spec marshal_provider(ff_provider:provider()) -> ff_proto_provider_thrift:'Provider'().
+-spec marshal_provider(ff_provider:provider()) -> fistful_provider_thrift:'Provider'().
 marshal_provider(Provider) ->
     ID = ff_provider:id(Provider),
     Name = ff_provider:name(Provider),

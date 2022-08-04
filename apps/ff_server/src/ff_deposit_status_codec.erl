@@ -2,7 +2,7 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_deposit_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_status_thrift.hrl").
 
 -export([marshal/2]).
 -export([unmarshal/2]).
@@ -11,20 +11,20 @@
 
 -spec marshal(ff_codec:type_name(), ff_codec:decoded_value()) -> ff_codec:encoded_value().
 marshal(status, pending) ->
-    {pending, #dep_status_Pending{}};
+    {pending, #deposit_status_Pending{}};
 marshal(status, succeeded) ->
-    {succeeded, #dep_status_Succeeded{}};
+    {succeeded, #deposit_status_Succeeded{}};
 marshal(status, {failed, Failure}) ->
-    {failed, #dep_status_Failed{failure = marshal(failure, Failure)}};
+    {failed, #deposit_status_Failed{failure = marshal(failure, Failure)}};
 marshal(T, V) ->
     ff_codec:marshal(T, V).
 
 -spec unmarshal(ff_codec:type_name(), ff_codec:encoded_value()) -> ff_codec:decoded_value().
-unmarshal(status, {pending, #dep_status_Pending{}}) ->
+unmarshal(status, {pending, #deposit_status_Pending{}}) ->
     pending;
-unmarshal(status, {succeeded, #dep_status_Succeeded{}}) ->
+unmarshal(status, {succeeded, #deposit_status_Succeeded{}}) ->
     succeeded;
-unmarshal(status, {failed, #dep_status_Failed{failure = Failure}}) ->
+unmarshal(status, {failed, #deposit_status_Failed{failure = Failure}}) ->
     {failed, unmarshal(failure, Failure)};
 unmarshal(T, V) ->
     ff_codec:unmarshal(T, V).

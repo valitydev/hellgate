@@ -2,7 +2,9 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_w2w_transfer_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_w2w_transfer_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_w2w_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 
 -export([marshal_w2w_transfer_state/2]).
 -export([unmarshal_w2w_transfer_params/1]).
@@ -13,7 +15,7 @@
 %% API
 
 -spec marshal_w2w_transfer_state(w2w_transfer:w2w_transfer_state(), ff_entity_context:context()) ->
-    ff_proto_w2w_transfer_thrift:'W2WTransferState'().
+    fistful_w2w_transfer_thrift:'W2WTransferState'().
 marshal_w2w_transfer_state(W2WTransferState, Ctx) ->
     CashFlow = w2w_transfer:effective_final_cash_flow(W2WTransferState),
     Adjustments = w2w_transfer:adjustments(W2WTransferState),
@@ -33,7 +35,7 @@ marshal_w2w_transfer_state(W2WTransferState, Ctx) ->
         context = marshal(ctx, Ctx)
     }.
 
--spec unmarshal_w2w_transfer_params(ff_proto_w2w_transfer_thrift:'W2WTransferParams'()) ->
+-spec unmarshal_w2w_transfer_params(fistful_w2w_transfer_thrift:'W2WTransferParams'()) ->
     w2w_transfer_machine:params().
 unmarshal_w2w_transfer_params(#w2w_transfer_W2WTransferParams{
     id = ID,

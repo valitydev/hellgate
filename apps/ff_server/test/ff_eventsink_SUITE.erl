@@ -1,6 +1,8 @@
 -module(ff_eventsink_SUITE).
 
--include_lib("fistful_proto/include/ff_proto_withdrawal_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_evsink_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_transfer_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).

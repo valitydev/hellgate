@@ -1,6 +1,6 @@
 -module(ff_destination_SUITE).
 
--include_lib("fistful_proto/include/ff_proto_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
 

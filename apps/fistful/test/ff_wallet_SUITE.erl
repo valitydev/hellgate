@@ -29,7 +29,8 @@
 -import(ff_pipeline, [unwrap/1]).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -type config() :: ct_helper:config().
 -type test_case_name() :: ct_helper:test_case_name().
@@ -198,14 +199,14 @@ construct_wallet_params(IdentityID, Currency) ->
     }.
 
 suspend_party(Party, C) ->
-    Service = {dmsl_payment_processing_thrift, 'PartyManagement'},
+    Service = {dmsl_payproc_thrift, 'PartyManagement'},
     Args = {Party},
     Request = {Service, 'Suspend', Args},
     _ = ff_woody_client:call(partymgmt, Request, ct_helper:get_woody_ctx(C)),
     ok.
 
 block_party(Party, C) ->
-    Service = {dmsl_payment_processing_thrift, 'PartyManagement'},
+    Service = {dmsl_payproc_thrift, 'PartyManagement'},
     Args = {Party, <<"BECAUSE">>},
     Request = {Service, 'Block', Args},
     _ = ff_woody_client:call(partymgmt, Request, ct_helper:get_woody_ctx(C)),

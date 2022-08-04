@@ -1,6 +1,6 @@
 -module(ff_source_SUITE).
 
--include_lib("fistful_proto/include/ff_proto_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_source_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
 

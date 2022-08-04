@@ -1,7 +1,10 @@
 -module(ff_transfer_SUITE).
 
--include_lib("fistful_proto/include/ff_proto_fistful_admin_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_withdrawal_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_admin_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -113,22 +116,22 @@ deposit_via_admin_ok(C) ->
     {ok, Src1} = call_admin(
         'CreateSource',
         {
-            #ff_admin_SourceParams{
+            #admin_SourceParams{
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
                 currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
-                resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
+                resource = {internal, #source_Internal{details = <<"Infinite source of cash">>}}
             }
         }
     ),
 
-    SrcID = Src1#src_Source.id,
-    {authorized, #src_Authorized{}} = ct_helper:await(
-        {authorized, #src_Authorized{}},
+    SrcID = Src1#source_Source.id,
+    {authorized, #source_Authorized{}} = ct_helper:await(
+        {authorized, #source_Authorized{}},
         fun() ->
             {ok, Src} = call_admin('GetSource', {SrcID}),
-            Src#src_Source.status
+            Src#source_Source.status
         end
     ),
 
@@ -136,7 +139,7 @@ deposit_via_admin_ok(C) ->
     {ok, Dep1} = call_admin(
         'CreateDeposit',
         {
-            #ff_admin_DepositParams{
+            #admin_DepositParams{
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
@@ -171,29 +174,29 @@ deposit_via_admin_fails(C) ->
     {ok, Src1} = call_admin(
         'CreateSource',
         {
-            #ff_admin_SourceParams{
+            #admin_SourceParams{
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
                 currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
-                resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
+                resource = {internal, #source_Internal{details = <<"Infinite source of cash">>}}
             }
         }
     ),
 
-    SrcID = Src1#src_Source.id,
-    {authorized, #src_Authorized{}} = ct_helper:await(
-        {authorized, #src_Authorized{}},
+    SrcID = Src1#source_Source.id,
+    {authorized, #source_Authorized{}} = ct_helper:await(
+        {authorized, #source_Authorized{}},
         fun() ->
             {ok, Src} = call_admin('GetSource', {SrcID}),
-            Src#src_Source.status
+            Src#source_Source.status
         end
     ),
 
     {ok, Dep1} = call_admin(
         'CreateDeposit',
         {
-            #ff_admin_DepositParams{
+            #admin_DepositParams{
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
@@ -230,28 +233,28 @@ deposit_via_admin_amount_fails(C) ->
     {ok, _Src1} = call_admin(
         'CreateSource',
         {
-            #ff_admin_SourceParams{
+            #admin_SourceParams{
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
                 currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
-                resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
+                resource = {internal, #source_Internal{details = <<"Infinite source of cash">>}}
             }
         }
     ),
 
-    {authorized, #src_Authorized{}} = ct_helper:await(
-        {authorized, #src_Authorized{}},
+    {authorized, #source_Authorized{}} = ct_helper:await(
+        {authorized, #source_Authorized{}},
         fun() ->
             {ok, Src} = call_admin('GetSource', {SrcID}),
-            Src#src_Source.status
+            Src#source_Source.status
         end
     ),
 
-    {exception, #ff_admin_DepositAmountInvalid{}} = call_admin(
+    {exception, #admin_DepositAmountInvalid{}} = call_admin(
         'CreateDeposit',
         {
-            #ff_admin_DepositParams{
+            #admin_DepositParams{
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
@@ -275,29 +278,29 @@ deposit_via_admin_currency_fails(C) ->
     {ok, Src1} = call_admin(
         'CreateSource',
         {
-            #ff_admin_SourceParams{
+            #admin_SourceParams{
                 id = SrcID,
                 name = <<"HAHA NO">>,
                 identity_id = IID,
                 currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>},
-                resource = {internal, #src_Internal{details = <<"Infinite source of cash">>}}
+                resource = {internal, #source_Internal{details = <<"Infinite source of cash">>}}
             }
         }
     ),
 
-    SrcID = Src1#src_Source.id,
-    {authorized, #src_Authorized{}} = ct_helper:await(
-        {authorized, #src_Authorized{}},
+    SrcID = Src1#source_Source.id,
+    {authorized, #source_Authorized{}} = ct_helper:await(
+        {authorized, #source_Authorized{}},
         fun() ->
             {ok, Src} = call_admin('GetSource', {SrcID}),
-            Src#src_Source.status
+            Src#source_Source.status
         end
     ),
     BadCurrency = <<"CAT">>,
-    {exception, #ff_admin_DepositCurrencyInvalid{}} = call_admin(
+    {exception, #admin_DepositCurrencyInvalid{}} = call_admin(
         'CreateDeposit',
         {
-            #ff_admin_DepositParams{
+            #admin_DepositParams{
                 id = DepID,
                 source = SrcID,
                 destination = WalID,
@@ -466,7 +469,7 @@ generate_id() ->
     genlib:to_binary(genlib_time:ticks()).
 
 call_admin(Fun, Args) ->
-    Service = {ff_proto_fistful_admin_thrift, 'FistfulAdmin'},
+    Service = {fistful_admin_thrift, 'FistfulAdmin'},
     Request = {Service, Fun, Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/admin">>,
@@ -602,7 +605,7 @@ process_withdrawal(WalID, DestID, Params) ->
 %%%
 
 get_withdrawal_events(WdrID) ->
-    Service = {{ff_proto_withdrawal_thrift, 'Management'}, <<"/v1/withdrawal">>},
+    Service = {{fistful_wthd_thrift, 'Management'}, <<"/v1/withdrawal">>},
     {ok, Events} = call('GetEvents', Service, {WdrID, #'fistful_base_EventRange'{'after' = 0, limit = 1000}}),
     Events.
 

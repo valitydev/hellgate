@@ -1,9 +1,11 @@
 -module(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_base_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_repairer_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_account_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_msgpack_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_repairer_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_account_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_msgp_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_evsink_thrift.hrl").
 
 -export([unmarshal/2]).
 -export([unmarshal/3]).
@@ -354,7 +356,7 @@ unmarshal(three_ds_verification, Value) when
         Value =:= authentication_could_not_be_performed
 ->
     Value;
-unmarshal(complex_action, #ff_repairer_ComplexAction{
+unmarshal(complex_action, #repairer_ComplexAction{
     timer = TimerAction,
     remove = RemoveAction
 }) ->
@@ -363,13 +365,13 @@ unmarshal(timer_action, undefined) ->
     [];
 unmarshal(timer_action, {set_timer, SetTimerAction}) ->
     [{set_timer, unmarshal(set_timer_action, SetTimerAction)}];
-unmarshal(timer_action, {unset_timer, #ff_repairer_UnsetTimerAction{}}) ->
+unmarshal(timer_action, {unset_timer, #repairer_UnsetTimerAction{}}) ->
     [unset_timer];
 unmarshal(remove_action, undefined) ->
     [];
-unmarshal(remove_action, #ff_repairer_RemoveAction{}) ->
+unmarshal(remove_action, #repairer_RemoveAction{}) ->
     [remove];
-unmarshal(set_timer_action, #ff_repairer_SetTimerAction{
+unmarshal(set_timer_action, #repairer_SetTimerAction{
     timer = Timer
 }) ->
     unmarshal(timer, Timer);
@@ -614,7 +616,7 @@ bank_card_codec_test() ->
             auth_data => {session, #{session_id => <<"session_id">>}}
         }},
     {bank_card, MarshalledResourceBankCard} = marshal(resource, ResourceBankCard),
-    Type = {struct, struct, {ff_proto_base_thrift, 'ResourceBankCard'}},
+    Type = {struct, struct, {fistful_fistful_base_thrift, 'ResourceBankCard'}},
     Binary = ff_proto_utils:serialize(Type, MarshalledResourceBankCard),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
     ?assertEqual(
@@ -646,7 +648,7 @@ generic_resource_codec_test() ->
         provider => #{id => <<"foo">>},
         data => #{type => <<"type">>, data => <<"data">>}
     },
-    Type = {struct, struct, {ff_proto_base_thrift, 'ResourceGenericData'}},
+    Type = {struct, struct, {fistful_fistful_base_thrift, 'ResourceGenericData'}},
     Binary = ff_proto_utils:serialize(Type, marshal(generic_resource, GenericResource)),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
     ?assertEqual(
@@ -666,7 +668,7 @@ fees_codec_test() ->
             surplus => {200, <<"RUB">>}
         }
     },
-    Type = {struct, struct, {ff_proto_base_thrift, 'Fees'}},
+    Type = {struct, struct, {fistful_fistful_base_thrift, 'Fees'}},
     Binary = ff_proto_utils:serialize(Type, marshal(fees, Expected)),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
     ?assertEqual(Expected, unmarshal(fees, Decoded)).

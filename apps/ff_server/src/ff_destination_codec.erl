@@ -2,7 +2,7 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
 
 -export([unmarshal_destination_params/1]).
 -export([marshal_destination_state/2]).
@@ -14,20 +14,20 @@
 
 %% API
 
--spec unmarshal_destination_params(ff_proto_destination_thrift:'DestinationParams'()) -> ff_destination:params().
+-spec unmarshal_destination_params(fistful_destination_thrift:'DestinationParams'()) -> ff_destination:params().
 unmarshal_destination_params(Params) ->
     genlib_map:compact(#{
-        id => unmarshal(id, Params#dst_DestinationParams.id),
-        identity => unmarshal(id, Params#dst_DestinationParams.identity),
-        name => unmarshal(string, Params#dst_DestinationParams.name),
-        currency => unmarshal(string, Params#dst_DestinationParams.currency),
-        resource => unmarshal(resource, Params#dst_DestinationParams.resource),
-        external_id => maybe_unmarshal(id, Params#dst_DestinationParams.external_id),
-        metadata => maybe_unmarshal(ctx, Params#dst_DestinationParams.metadata)
+        id => unmarshal(id, Params#destination_DestinationParams.id),
+        identity => unmarshal(id, Params#destination_DestinationParams.identity),
+        name => unmarshal(string, Params#destination_DestinationParams.name),
+        currency => unmarshal(string, Params#destination_DestinationParams.currency),
+        resource => unmarshal(resource, Params#destination_DestinationParams.resource),
+        external_id => maybe_unmarshal(id, Params#destination_DestinationParams.external_id),
+        metadata => maybe_unmarshal(ctx, Params#destination_DestinationParams.metadata)
     }).
 
 -spec marshal_destination_state(ff_destination:destination_state(), ff_entity_context:context()) ->
-    ff_proto_destination_thrift:'DestinationState'().
+    fistful_destination_thrift:'DestinationState'().
 marshal_destination_state(DestinationState, Context) ->
     Blocking =
         case ff_destination:is_accessible(DestinationState) of
@@ -36,7 +36,7 @@ marshal_destination_state(DestinationState, Context) ->
             _ ->
                 blocked
         end,
-    #dst_DestinationState{
+    #destination_DestinationState{
         id = marshal(id, ff_destination:id(DestinationState)),
         name = marshal(string, ff_destination:name(DestinationState)),
         resource = maybe_marshal(resource, ff_destination:resource(DestinationState)),
@@ -49,9 +49,9 @@ marshal_destination_state(DestinationState, Context) ->
         context = maybe_marshal(ctx, Context)
     }.
 
--spec marshal_event(ff_destination_machine:event()) -> ff_proto_destination_thrift:'Event'().
+-spec marshal_event(ff_destination_machine:event()) -> fistful_destination_thrift:'Event'().
 marshal_event({EventID, {ev, Timestamp, Change}}) ->
-    #dst_Event{
+    #destination_Event{
         event_id = ff_codec:marshal(event_id, EventID),
         occured_at = ff_codec:marshal(timestamp, Timestamp),
         change = marshal(change, Change)
@@ -59,7 +59,7 @@ marshal_event({EventID, {ev, Timestamp, Change}}) ->
 
 -spec marshal(ff_codec:type_name(), ff_codec:decoded_value()) -> ff_codec:encoded_value().
 marshal(timestamped_change, {ev, Timestamp, Change}) ->
-    #dst_TimestampedChange{
+    #destination_TimestampedChange{
         change = marshal(change, Change),
         occured_at = ff_codec:marshal(timestamp, Timestamp)
     };
@@ -76,7 +76,7 @@ marshal(
         resource := Resource
     }
 ) ->
-    #dst_Destination{
+    #destination_Destination{
         name = Name,
         resource = marshal(resource, Resource),
         created_at = maybe_marshal(timestamp_ms, maps:get(created_at, Destination, undefined)),
@@ -84,13 +84,13 @@ marshal(
         metadata = maybe_marshal(ctx, maps:get(metadata, Destination, undefined))
     };
 marshal(status, authorized) ->
-    {authorized, #dst_Authorized{}};
+    {authorized, #destination_Authorized{}};
 marshal(status, unauthorized) ->
-    {unauthorized, #dst_Unauthorized{}};
+    {unauthorized, #destination_Unauthorized{}};
 marshal(status_change, unauthorized) ->
-    {changed, {unauthorized, #dst_Unauthorized{}}};
+    {changed, {unauthorized, #destination_Unauthorized{}}};
 marshal(status_change, authorized) ->
-    {changed, {authorized, #dst_Authorized{}}};
+    {changed, {authorized, #destination_Authorized{}}};
 marshal(ctx, Ctx) ->
     marshal(context, Ctx);
 marshal(T, V) ->
@@ -99,15 +99,15 @@ marshal(T, V) ->
 -spec unmarshal(ff_codec:type_name(), ff_codec:encoded_value()) -> ff_codec:decoded_value().
 unmarshal({list, T}, V) ->
     [unmarshal(T, E) || E <- V];
-unmarshal(repair_scenario, {add_events, #dst_AddEventsRepair{events = Events, action = Action}}) ->
+unmarshal(repair_scenario, {add_events, #destination_AddEventsRepair{events = Events, action = Action}}) ->
     {add_events,
         genlib_map:compact(#{
             events => unmarshal({list, change}, Events),
             action => maybe_unmarshal(complex_action, Action)
         })};
 unmarshal(timestamped_change, TimestampedChange) ->
-    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#dst_TimestampedChange.occured_at),
-    Change = unmarshal(change, TimestampedChange#dst_TimestampedChange.change),
+    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#destination_TimestampedChange.occured_at),
+    Change = unmarshal(change, TimestampedChange#destination_TimestampedChange.change),
     {ev, Timestamp, Change};
 unmarshal(change, {created, Destination}) ->
     {created, unmarshal(destination, Destination)};
@@ -118,19 +118,19 @@ unmarshal(change, {status, StatusChange}) ->
 unmarshal(destination, Dest) ->
     genlib_map:compact(#{
         version => 3,
-        resource => unmarshal(resource, Dest#dst_Destination.resource),
-        name => unmarshal(string, Dest#dst_Destination.name),
-        created_at => maybe_unmarshal(timestamp_ms, Dest#dst_Destination.created_at),
-        external_id => maybe_unmarshal(id, Dest#dst_Destination.external_id),
-        metadata => maybe_unmarshal(ctx, Dest#dst_Destination.metadata)
+        resource => unmarshal(resource, Dest#destination_Destination.resource),
+        name => unmarshal(string, Dest#destination_Destination.name),
+        created_at => maybe_unmarshal(timestamp_ms, Dest#destination_Destination.created_at),
+        external_id => maybe_unmarshal(id, Dest#destination_Destination.external_id),
+        metadata => maybe_unmarshal(ctx, Dest#destination_Destination.metadata)
     });
-unmarshal(status, {authorized, #dst_Authorized{}}) ->
+unmarshal(status, {authorized, #destination_Authorized{}}) ->
     authorized;
-unmarshal(status, {unauthorized, #dst_Unauthorized{}}) ->
+unmarshal(status, {unauthorized, #destination_Unauthorized{}}) ->
     unauthorized;
-unmarshal(status_change, {changed, {unauthorized, #dst_Unauthorized{}}}) ->
+unmarshal(status_change, {changed, {unauthorized, #destination_Unauthorized{}}}) ->
     unauthorized;
-unmarshal(status_change, {changed, {authorized, #dst_Authorized{}}}) ->
+unmarshal(status_change, {changed, {authorized, #destination_Authorized{}}}) ->
     authorized;
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);

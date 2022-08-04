@@ -3,7 +3,7 @@
 %% Storage schema behaviour
 -behaviour(machinery_mg_schema).
 
--include_lib("fistful_proto/include/ff_proto_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wallet_thrift.hrl").
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 -export([get_version/1]).
@@ -75,13 +75,13 @@ marshal_event(undefined = Version, TimestampedChange, Context) ->
     machinery_mg_schema_generic:marshal({event, Version}, TimestampedChange, Context);
 marshal_event(1, TimestampedChange, Context) ->
     ThriftChange = ff_wallet_codec:marshal(timestamped_change, TimestampedChange),
-    Type = {struct, struct, {ff_proto_wallet_thrift, 'TimestampedChange'}},
+    Type = {struct, struct, {fistful_wallet_thrift, 'TimestampedChange'}},
     {{bin, ff_proto_utils:serialize(Type, ThriftChange)}, Context}.
 
 -spec unmarshal_event(machinery_mg_schema:version(), machinery_msgpack:t(), context()) -> {event(), context()}.
 unmarshal_event(1, EncodedChange, Context) ->
     {bin, EncodedThriftChange} = EncodedChange,
-    Type = {struct, struct, {ff_proto_wallet_thrift, 'TimestampedChange'}},
+    Type = {struct, struct, {fistful_wallet_thrift, 'TimestampedChange'}},
     ThriftChange = ff_proto_utils:deserialize(Type, EncodedThriftChange),
     {ff_wallet_codec:unmarshal(timestamped_change, ThriftChange), Context};
 unmarshal_event(undefined = Version, EncodedChange, Context0) ->

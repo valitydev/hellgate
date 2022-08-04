@@ -1,5 +1,6 @@
 -module(ff_dmsl_codec).
 
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
 
@@ -137,9 +138,12 @@ unmarshal(currency, #domain_Currency{
         numcode => Numcode,
         exponent => Exponent
     };
-unmarshal(user_interaction, {redirect, {get_request, #'BrowserGetRequest'{uri = URI}}}) ->
+unmarshal(user_interaction, {redirect, {get_request, #'user_interaction_BrowserGetRequest'{uri = URI}}}) ->
     {redirect, #{content => {get, URI}}};
-unmarshal(user_interaction, {redirect, {post_request, #'BrowserPostRequest'{uri = URI, form = Form}}}) ->
+unmarshal(
+    user_interaction,
+    {redirect, {post_request, #'user_interaction_BrowserPostRequest'{uri = URI, form = Form}}}
+) ->
     {redirect, #{content => {post, URI, Form}}};
 unmarshal(
     resource,
@@ -353,7 +357,7 @@ marshal(attempt_limit, Limit) ->
         attempts = Limit
     };
 marshal(content, #{type := Type, data := Data}) ->
-    #'Content'{
+    #'base_Content'{
         type = marshal(string, Type),
         data = Data
     };

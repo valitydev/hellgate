@@ -77,5 +77,15 @@ namespaces:
         processor:
             url: http://bender:8022/v1/stateproc/bender_sequence
 
+    # Limiter
+    lim/config_v1:
+        processor:
+            url: http://limiter:8022/v1/stateproc/lim/config_v1
+            pool_size: 500
+    lim/range_v1:
+        processor:
+            url: http://limiter:8022/v1/stateproc/lim/range_v1
+            pool_size: 500
+
 storage:
     type: memory

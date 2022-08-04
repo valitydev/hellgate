@@ -1,7 +1,7 @@
 -module(ff_bin_data).
 
 -include_lib("binbase_proto/include/binbase_binbase_thrift.hrl").
--include_lib("binbase_proto/include/binbase_msgpack_thrift.hrl").
+-include_lib("msgpack_proto/include/msgp_msgpack_thrift.hrl").
 
 -type token() :: binary().
 -type issuer_country() :: atom().
@@ -73,7 +73,7 @@ id(Data) ->
 %%
 
 encode_msgpack(nil) ->
-    {nl, #'binbase_Nil'{}};
+    {nl, #'msgpack_Nil'{}};
 encode_msgpack(V) when is_boolean(V) ->
     {b, V};
 encode_msgpack(V) when is_integer(V) ->
@@ -115,7 +115,7 @@ decode_result(Token, #'binbase_ResponseData'{bin_data = Bindata, version = Versi
         })
     end).
 
-decode_msgpack({nl, #'binbase_Nil'{}}) ->
+decode_msgpack({nl, #'msgpack_Nil'{}}) ->
     nil;
 decode_msgpack({b, V}) when is_boolean(V) ->
     V;

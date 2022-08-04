@@ -2,7 +2,15 @@
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_deposit_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_cashflow_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_revert_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_revert_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_revert_adj_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_adj_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 %% Common test API
 
@@ -265,34 +273,34 @@ create_adjustment_ok_test(C) ->
     } = prepare_standard_environment_with_deposit(C),
     AdjustmentID = generate_id(),
     ExternalID = generate_id(),
-    Params = #dep_adj_AdjustmentParams{
+    Params = #deposit_adj_AdjustmentParams{
         id = AdjustmentID,
         change =
-            {change_status, #dep_adj_ChangeStatusRequest{
-                new_status = {failed, #dep_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
+            {change_status, #deposit_adj_ChangeStatusRequest{
+                new_status = {failed, #deposit_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
             }},
         external_id = ExternalID
     },
     {ok, AdjustmentState} = call_deposit('CreateAdjustment', {DepositID, Params}),
     ExpectedAdjustment = get_adjustment(DepositID, AdjustmentID),
 
-    ?assertEqual(AdjustmentID, AdjustmentState#dep_adj_AdjustmentState.id),
-    ?assertEqual(ExternalID, AdjustmentState#dep_adj_AdjustmentState.external_id),
+    ?assertEqual(AdjustmentID, AdjustmentState#deposit_adj_AdjustmentState.id),
+    ?assertEqual(ExternalID, AdjustmentState#deposit_adj_AdjustmentState.external_id),
     ?assertEqual(
         ff_adjustment:created_at(ExpectedAdjustment),
-        ff_codec:unmarshal(timestamp_ms, AdjustmentState#dep_adj_AdjustmentState.created_at)
+        ff_codec:unmarshal(timestamp_ms, AdjustmentState#deposit_adj_AdjustmentState.created_at)
     ),
     ?assertEqual(
         ff_adjustment:domain_revision(ExpectedAdjustment),
-        AdjustmentState#dep_adj_AdjustmentState.domain_revision
+        AdjustmentState#deposit_adj_AdjustmentState.domain_revision
     ),
     ?assertEqual(
         ff_adjustment:party_revision(ExpectedAdjustment),
-        AdjustmentState#dep_adj_AdjustmentState.party_revision
+        AdjustmentState#deposit_adj_AdjustmentState.party_revision
     ),
     ?assertEqual(
         ff_deposit_adjustment_codec:marshal(changes_plan, ff_adjustment:changes_plan(ExpectedAdjustment)),
-        AdjustmentState#dep_adj_AdjustmentState.changes_plan
+        AdjustmentState#deposit_adj_AdjustmentState.changes_plan
     ).
 
 -spec create_adjustment_unavailable_status_error_test(config()) -> test_return().
@@ -300,16 +308,16 @@ create_adjustment_unavailable_status_error_test(C) ->
     #{
         deposit_id := DepositID
     } = prepare_standard_environment_with_deposit(C),
-    Params = #dep_adj_AdjustmentParams{
+    Params = #deposit_adj_AdjustmentParams{
         id = generate_id(),
         change =
-            {change_status, #dep_adj_ChangeStatusRequest{
-                new_status = {pending, #dep_status_Pending{}}
+            {change_status, #deposit_adj_ChangeStatusRequest{
+                new_status = {pending, #deposit_status_Pending{}}
             }}
     },
     Result = call_deposit('CreateAdjustment', {DepositID, Params}),
     ExpectedError = #deposit_ForbiddenStatusChange{
-        target_status = {pending, #dep_status_Pending{}}
+        target_status = {pending, #deposit_status_Pending{}}
     },
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -318,16 +326,16 @@ create_adjustment_already_has_status_error_test(C) ->
     #{
         deposit_id := DepositID
     } = prepare_standard_environment_with_deposit(C),
-    Params = #dep_adj_AdjustmentParams{
+    Params = #deposit_adj_AdjustmentParams{
         id = generate_id(),
         change =
-            {change_status, #dep_adj_ChangeStatusRequest{
-                new_status = {succeeded, #dep_status_Succeeded{}}
+            {change_status, #deposit_adj_ChangeStatusRequest{
+                new_status = {succeeded, #deposit_status_Succeeded{}}
             }}
     },
     Result = call_deposit('CreateAdjustment', {DepositID, Params}),
     ExpectedError = #deposit_AlreadyHasStatus{
-        deposit_status = {succeeded, #dep_status_Succeeded{}}
+        deposit_status = {succeeded, #deposit_status_Succeeded{}}
     },
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -438,34 +446,35 @@ create_revert_adjustment_ok_test(C) ->
     } = prepare_standard_environment_with_revert(C),
     AdjustmentID = generate_id(),
     ExternalID = generate_id(),
-    Params = #dep_rev_adj_AdjustmentParams{
+    Params = #deposit_revert_adj_AdjustmentParams{
         id = AdjustmentID,
         change =
-            {change_status, #dep_rev_adj_ChangeStatusRequest{
-                new_status = {failed, #dep_rev_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
+            {change_status, #deposit_revert_adj_ChangeStatusRequest{
+                new_status =
+                    {failed, #deposit_revert_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
             }},
         external_id = ExternalID
     },
     {ok, AdjustmentState} = call_deposit('CreateRevertAdjustment', {DepositID, RevertID, Params}),
     ExpectedAdjustment = get_revert_adjustment(DepositID, RevertID, AdjustmentID),
 
-    ?assertEqual(AdjustmentID, AdjustmentState#dep_rev_adj_AdjustmentState.id),
-    ?assertEqual(ExternalID, AdjustmentState#dep_rev_adj_AdjustmentState.external_id),
+    ?assertEqual(AdjustmentID, AdjustmentState#deposit_revert_adj_AdjustmentState.id),
+    ?assertEqual(ExternalID, AdjustmentState#deposit_revert_adj_AdjustmentState.external_id),
     ?assertEqual(
         ff_adjustment:created_at(ExpectedAdjustment),
-        ff_codec:unmarshal(timestamp_ms, AdjustmentState#dep_rev_adj_AdjustmentState.created_at)
+        ff_codec:unmarshal(timestamp_ms, AdjustmentState#deposit_revert_adj_AdjustmentState.created_at)
     ),
     ?assertEqual(
         ff_adjustment:domain_revision(ExpectedAdjustment),
-        AdjustmentState#dep_rev_adj_AdjustmentState.domain_revision
+        AdjustmentState#deposit_revert_adj_AdjustmentState.domain_revision
     ),
     ?assertEqual(
         ff_adjustment:party_revision(ExpectedAdjustment),
-        AdjustmentState#dep_rev_adj_AdjustmentState.party_revision
+        AdjustmentState#deposit_revert_adj_AdjustmentState.party_revision
     ),
     ?assertEqual(
         ff_deposit_revert_adjustment_codec:marshal(changes_plan, ff_adjustment:changes_plan(ExpectedAdjustment)),
-        AdjustmentState#dep_rev_adj_AdjustmentState.changes_plan
+        AdjustmentState#deposit_revert_adj_AdjustmentState.changes_plan
     ).
 
 -spec create_revert_adjustment_unavailable_status_error_test(config()) -> test_return().
@@ -474,16 +483,16 @@ create_revert_adjustment_unavailable_status_error_test(C) ->
         deposit_id := DepositID,
         revert_id := RevertID
     } = prepare_standard_environment_with_revert(C),
-    Params = #dep_rev_adj_AdjustmentParams{
+    Params = #deposit_revert_adj_AdjustmentParams{
         id = generate_id(),
         change =
-            {change_status, #dep_rev_adj_ChangeStatusRequest{
-                new_status = {pending, #dep_rev_status_Pending{}}
+            {change_status, #deposit_revert_adj_ChangeStatusRequest{
+                new_status = {pending, #deposit_revert_status_Pending{}}
             }}
     },
     Result = call_deposit('CreateRevertAdjustment', {DepositID, RevertID, Params}),
     ExpectedError = #deposit_ForbiddenRevertStatusChange{
-        target_status = {pending, #dep_rev_status_Pending{}}
+        target_status = {pending, #deposit_revert_status_Pending{}}
     },
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -493,16 +502,16 @@ create_revert_adjustment_already_has_status_error_test(C) ->
         deposit_id := DepositID,
         revert_id := RevertID
     } = prepare_standard_environment_with_revert(C),
-    Params = #dep_rev_adj_AdjustmentParams{
+    Params = #deposit_revert_adj_AdjustmentParams{
         id = generate_id(),
         change =
-            {change_status, #dep_rev_adj_ChangeStatusRequest{
-                new_status = {succeeded, #dep_rev_status_Succeeded{}}
+            {change_status, #deposit_revert_adj_ChangeStatusRequest{
+                new_status = {succeeded, #deposit_revert_status_Succeeded{}}
             }}
     },
     Result = call_deposit('CreateRevertAdjustment', {DepositID, RevertID, Params}),
     ExpectedError = #deposit_RevertAlreadyHasStatus{
-        revert_status = {succeeded, #dep_rev_status_Succeeded{}}
+        revert_status = {succeeded, #deposit_revert_status_Succeeded{}}
     },
     ?assertEqual({exception, ExpectedError}, Result).
 
@@ -512,19 +521,20 @@ deposit_state_content_test(C) ->
         deposit_id := DepositID,
         revert_id := RevertID
     } = prepare_standard_environment_with_revert(C),
-    AdjustmentParams = #dep_adj_AdjustmentParams{
+    AdjustmentParams = #deposit_adj_AdjustmentParams{
         id = generate_id(),
         change =
-            {change_status, #dep_adj_ChangeStatusRequest{
-                new_status = {failed, #dep_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
+            {change_status, #deposit_adj_ChangeStatusRequest{
+                new_status = {failed, #deposit_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
             }}
     },
     {ok, _} = call_deposit('CreateAdjustment', {DepositID, AdjustmentParams}),
-    RevertAdjustmentParams = #dep_rev_adj_AdjustmentParams{
+    RevertAdjustmentParams = #deposit_revert_adj_AdjustmentParams{
         id = generate_id(),
         change =
-            {change_status, #dep_rev_adj_ChangeStatusRequest{
-                new_status = {failed, #dep_rev_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
+            {change_status, #deposit_revert_adj_ChangeStatusRequest{
+                new_status =
+                    {failed, #deposit_revert_status_Failed{failure = #'fistful_base_Failure'{code = <<"Ooops">>}}}
             }}
     },
     {ok, _} = call_deposit('CreateRevertAdjustment', {DepositID, RevertID, RevertAdjustmentParams}),

@@ -1,6 +1,9 @@
 -module(ff_destination_handler_SUITE).
 
--include_lib("fistful_proto/include/ff_proto_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_account_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -148,7 +151,7 @@ create_destination_forbidden_withdrawal_method_fail(C) ->
     IdentityID = create_identity(Party, C),
     Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
-    Params = #dst_DestinationParams{
+    Params = #destination_DestinationParams{
         id = ID,
         identity = IdentityID,
         name = DstName,
@@ -172,7 +175,7 @@ create_destination_ok(Resource, C) ->
     IdentityID = create_identity(Party, C),
     Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
-    Params = #dst_DestinationParams{
+    Params = #destination_DestinationParams{
         id = ID,
         identity = IdentityID,
         name = DstName,
@@ -182,31 +185,31 @@ create_destination_ok(Resource, C) ->
         metadata = Metadata
     },
     {ok, Dst} = call_service('Create', {Params, Ctx}),
-    DstName = Dst#dst_DestinationState.name,
-    ID = Dst#dst_DestinationState.id,
-    Resource = Dst#dst_DestinationState.resource,
-    ExternalId = Dst#dst_DestinationState.external_id,
-    Metadata = Dst#dst_DestinationState.metadata,
-    Ctx = Dst#dst_DestinationState.context,
+    DstName = Dst#destination_DestinationState.name,
+    ID = Dst#destination_DestinationState.id,
+    Resource = Dst#destination_DestinationState.resource,
+    ExternalId = Dst#destination_DestinationState.external_id,
+    Metadata = Dst#destination_DestinationState.metadata,
+    Ctx = Dst#destination_DestinationState.context,
 
-    Account = Dst#dst_DestinationState.account,
+    Account = Dst#destination_DestinationState.account,
     IdentityID = Account#account_Account.identity,
     #'fistful_base_CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
 
-    {authorized, #dst_Authorized{}} = ct_helper:await(
-        {authorized, #dst_Authorized{}},
+    {authorized, #destination_Authorized{}} = ct_helper:await(
+        {authorized, #destination_Authorized{}},
         fun() ->
-            {ok, #dst_DestinationState{status = Status}} =
+            {ok, #destination_DestinationState{status = Status}} =
                 call_service('Get', {ID, #'fistful_base_EventRange'{}}),
             Status
         end,
         genlib_retry:linear(15, 1000)
     ),
 
-    {ok, #dst_DestinationState{}} = call_service('Get', {ID, #'fistful_base_EventRange'{}}).
+    {ok, #destination_DestinationState{}} = call_service('Get', {ID, #'fistful_base_EventRange'{}}).
 
 call_service(Fun, Args) ->
-    Service = {ff_proto_destination_thrift, 'Management'},
+    Service = {fistful_destination_thrift, 'Management'},
     Request = {Service, Fun, Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/destination">>,

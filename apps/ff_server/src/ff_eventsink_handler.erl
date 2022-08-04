@@ -4,7 +4,7 @@
 
 -export([handle_function/3]).
 
--include_lib("fistful_proto/include/ff_proto_eventsink_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_evsink_thrift.hrl").
 
 -type options() :: #{
     schema := module(),

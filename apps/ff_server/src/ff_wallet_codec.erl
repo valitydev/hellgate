@@ -2,7 +2,8 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_account_thrift.hrl").
 
 -export([marshal_wallet_state/3]).
 -export([unmarshal_wallet_params/1]).
@@ -12,9 +13,9 @@
 
 %% API
 -spec marshal_wallet_state(ff_wallet:wallet_state(), ff_wallet:id(), ff_entity_context:context()) ->
-    ff_proto_wallet_thrift:'WalletState'().
+    fistful_wallet_thrift:'WalletState'().
 marshal_wallet_state(WalletState, ID, Context) ->
-    #wlt_WalletState{
+    #wallet_WalletState{
         id = marshal(id, ID),
         name = marshal(string, ff_wallet:name(WalletState)),
         blocking = marshal(blocking, ff_wallet:blocking(WalletState)),
@@ -25,8 +26,8 @@ marshal_wallet_state(WalletState, ID, Context) ->
         context = marshal(ctx, Context)
     }.
 
--spec unmarshal_wallet_params(ff_proto_wallet_thrift:'WalletParams'()) -> ff_wallet_machine:params().
-unmarshal_wallet_params(#wlt_WalletParams{
+-spec unmarshal_wallet_params(fistful_wallet_thrift:'WalletParams'()) -> ff_wallet_machine:params().
+unmarshal_wallet_params(#wallet_WalletParams{
     id = ID,
     account_params = AccountParams,
     name = Name,
@@ -45,7 +46,7 @@ unmarshal_wallet_params(#wlt_WalletParams{
 
 -spec marshal(ff_codec:type_name(), ff_codec:decoded_value()) -> ff_codec:encoded_value().
 marshal(timestamped_change, {ev, Timestamp, Change}) ->
-    #wlt_TimestampedChange{
+    #wallet_TimestampedChange{
         change = marshal(change, Change),
         occured_at = ff_codec:marshal(timestamp, Timestamp)
     };
@@ -54,7 +55,7 @@ marshal(change, {created, Wallet}) ->
 marshal(change, {account, AccountChange}) ->
     {account, marshal(account_change, AccountChange)};
 marshal(wallet, Wallet) ->
-    #wlt_Wallet{
+    #wallet_Wallet{
         name = marshal(string, maps:get(name, Wallet, <<>>)),
         blocking = marshal(blocking, maps:get(blocking, Wallet)),
         external_id = maybe_marshal(id, maps:get(external_id, Wallet, undefined)),
@@ -78,10 +79,10 @@ marshal(T, V) ->
 unmarshal({list, T}, V) ->
     [unmarshal(T, E) || E <- V];
 unmarshal(timestamped_change, TimestampedChange) ->
-    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#wlt_TimestampedChange.occured_at),
-    Change = unmarshal(change, TimestampedChange#wlt_TimestampedChange.change),
+    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#wallet_TimestampedChange.occured_at),
+    Change = unmarshal(change, TimestampedChange#wallet_TimestampedChange.change),
     {ev, Timestamp, Change};
-unmarshal(repair_scenario, {add_events, #wlt_AddEventsRepair{events = Events, action = Action}}) ->
+unmarshal(repair_scenario, {add_events, #wallet_AddEventsRepair{events = Events, action = Action}}) ->
     {add_events,
         genlib_map:compact(#{
             events => unmarshal({list, change}, Events),
@@ -91,7 +92,7 @@ unmarshal(change, {created, Wallet}) ->
     {created, unmarshal(wallet, Wallet)};
 unmarshal(change, {account, AccountChange}) ->
     {account, unmarshal(account_change, AccountChange)};
-unmarshal(wallet, #wlt_Wallet{
+unmarshal(wallet, #wallet_Wallet{
     name = Name,
     blocking = Blocking,
     external_id = ExternalID,

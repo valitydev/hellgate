@@ -2,7 +2,8 @@
 
 -behaviour(ff_woody_wrapper).
 
--include_lib("fistful_proto/include/ff_proto_fistful_admin_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_admin_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 %% ff_woody_wrapper callbacks
 -export([handle_function/3]).
@@ -26,15 +27,15 @@ handle_function(Func, Args, Opts) ->
 %%
 
 handle_function_('CreateSource', {Params}, Opts) ->
-    SourceID = Params#ff_admin_SourceParams.id,
+    SourceID = Params#admin_SourceParams.id,
     case
         ff_source_machine:create(
             #{
                 id => SourceID,
-                identity => Params#ff_admin_SourceParams.identity_id,
-                name => Params#ff_admin_SourceParams.name,
-                currency => ff_codec:unmarshal(currency_ref, Params#ff_admin_SourceParams.currency),
-                resource => ff_source_codec:unmarshal(resource, Params#ff_admin_SourceParams.resource)
+                identity => Params#admin_SourceParams.identity_id,
+                name => Params#admin_SourceParams.name,
+                currency => ff_codec:unmarshal(currency_ref, Params#admin_SourceParams.currency),
+                resource => ff_source_codec:unmarshal(resource, Params#admin_SourceParams.resource)
             },
             ff_entity_context:new()
         )
@@ -57,12 +58,12 @@ handle_function_('GetSource', {ID}, _Opts) ->
             woody_error:raise(business, #fistful_SourceNotFound{})
     end;
 handle_function_('CreateDeposit', {Params}, Opts) ->
-    DepositID = Params#ff_admin_DepositParams.id,
+    DepositID = Params#admin_DepositParams.id,
     DepositParams = #{
         id => DepositID,
-        source_id => Params#ff_admin_DepositParams.source,
-        wallet_id => Params#ff_admin_DepositParams.destination,
-        body => ff_codec:unmarshal(cash, Params#ff_admin_DepositParams.body)
+        source_id => Params#admin_DepositParams.source,
+        wallet_id => Params#admin_DepositParams.destination,
+        body => ff_codec:unmarshal(cash, Params#admin_DepositParams.body)
     },
     case handle_create_result(ff_deposit_machine:create(DepositParams, ff_entity_context:new())) of
         ok ->
@@ -74,11 +75,11 @@ handle_function_('CreateDeposit', {Params}, Opts) ->
         {error, {wallet, notfound}} ->
             woody_error:raise(business, #fistful_DestinationNotFound{});
         {error, {terms_violation, {not_allowed_currency, _More}}} ->
-            woody_error:raise(business, #ff_admin_DepositCurrencyInvalid{});
+            woody_error:raise(business, #admin_DepositCurrencyInvalid{});
         {error, {inconsistent_currency, _Details}} ->
-            woody_error:raise(business, #ff_admin_DepositCurrencyInvalid{});
+            woody_error:raise(business, #admin_DepositCurrencyInvalid{});
         {error, {bad_deposit_amount, _Amount}} ->
-            woody_error:raise(business, #ff_admin_DepositAmountInvalid{});
+            woody_error:raise(business, #admin_DepositAmountInvalid{});
         {error, Error} ->
             woody_error:raise(system, {internal, result_unexpected, woody_error:format_details(Error)})
     end;

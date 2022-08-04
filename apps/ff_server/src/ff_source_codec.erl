@@ -2,7 +2,7 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_source_thrift.hrl").
 
 -export([unmarshal_source_params/1]).
 -export([marshal_source_state/2]).
@@ -13,20 +13,20 @@
 
 %% API
 
--spec unmarshal_source_params(ff_proto_source_thrift:'SourceParams'()) -> ff_source:params().
+-spec unmarshal_source_params(fistful_source_thrift:'SourceParams'()) -> ff_source:params().
 unmarshal_source_params(Params) ->
     genlib_map:compact(#{
-        id => unmarshal(id, Params#src_SourceParams.id),
-        identity => unmarshal(id, Params#src_SourceParams.identity_id),
-        name => unmarshal(string, Params#src_SourceParams.name),
-        currency => unmarshal(currency_ref, Params#src_SourceParams.currency),
-        resource => unmarshal(resource, Params#src_SourceParams.resource),
-        external_id => maybe_unmarshal(id, Params#src_SourceParams.external_id),
-        metadata => maybe_unmarshal(ctx, Params#src_SourceParams.metadata)
+        id => unmarshal(id, Params#source_SourceParams.id),
+        identity => unmarshal(id, Params#source_SourceParams.identity_id),
+        name => unmarshal(string, Params#source_SourceParams.name),
+        currency => unmarshal(currency_ref, Params#source_SourceParams.currency),
+        resource => unmarshal(resource, Params#source_SourceParams.resource),
+        external_id => maybe_unmarshal(id, Params#source_SourceParams.external_id),
+        metadata => maybe_unmarshal(ctx, Params#source_SourceParams.metadata)
     }).
 
 -spec marshal_source_state(ff_source:source_state(), ff_entity_context:context()) ->
-    ff_proto_source_thrift:'SourceState'().
+    fistful_source_thrift:'SourceState'().
 marshal_source_state(SourceState, Context) ->
     Blocking =
         case ff_source:is_accessible(SourceState) of
@@ -35,7 +35,7 @@ marshal_source_state(SourceState, Context) ->
             _ ->
                 blocked
         end,
-    #src_SourceState{
+    #source_SourceState{
         id = maybe_marshal(id, ff_source:id(SourceState)),
         name = marshal(string, ff_source:name(SourceState)),
         resource = marshal(resource, ff_source:resource(SourceState)),
@@ -48,9 +48,9 @@ marshal_source_state(SourceState, Context) ->
         context = maybe_marshal(ctx, Context)
     }.
 
--spec marshal_event(ff_source_machine:event()) -> ff_proto_source_thrift:'Event'().
+-spec marshal_event(ff_source_machine:event()) -> fistful_source_thrift:'Event'().
 marshal_event({EventID, {ev, Timestamp, Change}}) ->
-    #src_Event{
+    #source_Event{
         event_id = ff_codec:marshal(event_id, EventID),
         occured_at = ff_codec:marshal(timestamp, Timestamp),
         change = marshal(change, Change)
@@ -58,7 +58,7 @@ marshal_event({EventID, {ev, Timestamp, Change}}) ->
 
 -spec marshal(ff_codec:type_name(), ff_codec:decoded_value()) -> ff_codec:encoded_value().
 marshal(timestamped_change, {ev, Timestamp, Change}) ->
-    #src_TimestampedChange{
+    #source_TimestampedChange{
         change = marshal(change, Change),
         occured_at = ff_codec:marshal(timestamp, Timestamp)
     };
@@ -67,7 +67,7 @@ marshal(change, {created, Source}) ->
 marshal(change, {account, AccountChange}) ->
     {account, marshal(account_change, AccountChange)};
 marshal(change, {status_changed, Status}) ->
-    {status, #src_StatusChange{status = marshal(status, Status)}};
+    {status, #source_StatusChange{status = marshal(status, Status)}};
 marshal(
     source,
     Source = #{
@@ -75,7 +75,7 @@ marshal(
         resource := Resource
     }
 ) ->
-    #src_Source{
+    #source_Source{
         id = marshal(id, ff_source:id(Source)),
         status = maybe_marshal(status, ff_source:status(Source)),
         name = marshal(string, Name),
@@ -88,13 +88,13 @@ marshal(resource, #{type := internal} = Internal) ->
     {internal, marshal(internal, Internal)};
 marshal(internal, Internal) ->
     Details = maps:get(details, Internal, undefined),
-    #src_Internal{
+    #source_Internal{
         details = marshal(string, Details)
     };
 marshal(status, unauthorized) ->
-    {unauthorized, #src_Unauthorized{}};
+    {unauthorized, #source_Unauthorized{}};
 marshal(status, authorized) ->
-    {authorized, #src_Authorized{}};
+    {authorized, #source_Authorized{}};
 marshal(ctx, Ctx) ->
     marshal(context, Ctx);
 marshal(T, V) ->
@@ -103,23 +103,23 @@ marshal(T, V) ->
 -spec unmarshal(ff_codec:type_name(), ff_codec:encoded_value()) -> ff_codec:decoded_value().
 unmarshal({list, T}, V) ->
     [unmarshal(T, E) || E <- V];
-unmarshal(repair_scenario, {add_events, #src_AddEventsRepair{events = Events, action = Action}}) ->
+unmarshal(repair_scenario, {add_events, #source_AddEventsRepair{events = Events, action = Action}}) ->
     {add_events,
         genlib_map:compact(#{
             events => unmarshal({list, change}, Events),
             action => maybe_unmarshal(complex_action, Action)
         })};
 unmarshal(timestamped_change, TimestampedChange) ->
-    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#src_TimestampedChange.occured_at),
-    Change = unmarshal(change, TimestampedChange#src_TimestampedChange.change),
+    Timestamp = ff_codec:unmarshal(timestamp, TimestampedChange#source_TimestampedChange.occured_at),
+    Change = unmarshal(change, TimestampedChange#source_TimestampedChange.change),
     {ev, Timestamp, Change};
 unmarshal(change, {created, Source}) ->
     {created, unmarshal(source, Source)};
 unmarshal(change, {account, AccountChange}) ->
     {account, unmarshal(account_change, AccountChange)};
-unmarshal(change, {status, #src_StatusChange{status = Status}}) ->
+unmarshal(change, {status, #source_StatusChange{status = Status}}) ->
     {status_changed, unmarshal(status, Status)};
-unmarshal(source, #src_Source{
+unmarshal(source, #source_Source{
     name = Name,
     resource = Resource,
     external_id = ExternalID,
@@ -134,14 +134,14 @@ unmarshal(source, #src_Source{
         created_at => maybe_unmarshal(timestamp_ms, CreatedAt),
         metadata => maybe_unmarshal(context, Metadata)
     });
-unmarshal(resource, {internal, #src_Internal{details = Details}}) ->
+unmarshal(resource, {internal, #source_Internal{details = Details}}) ->
     genlib_map:compact(#{
         type => internal,
         details => unmarshal(string, Details)
     });
-unmarshal(status, {unauthorized, #src_Unauthorized{}}) ->
+unmarshal(status, {unauthorized, #source_Unauthorized{}}) ->
     unauthorized;
-unmarshal(status, {authorized, #src_Authorized{}}) ->
+unmarshal(status, {authorized, #source_Authorized{}}) ->
     authorized;
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);

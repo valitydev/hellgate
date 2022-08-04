@@ -16,51 +16,51 @@
 
 -spec get_service(service_name()) -> service().
 get_service(fistful_admin) ->
-    {ff_proto_fistful_admin_thrift, 'FistfulAdmin'};
+    {fistful_admin_thrift, 'FistfulAdmin'};
 get_service(fistful_provider) ->
-    {ff_proto_provider_thrift, 'Management'};
+    {fistful_provider_thrift, 'Management'};
 get_service(ff_withdrawal_adapter_host) ->
-    {dmsl_withdrawals_provider_adapter_thrift, 'AdapterHost'};
+    {dmsl_wthd_provider_thrift, 'AdapterHost'};
 get_service(deposit_event_sink) ->
-    {ff_proto_deposit_thrift, 'EventSink'};
+    {fistful_deposit_thrift, 'EventSink'};
 get_service(source_event_sink) ->
-    {ff_proto_source_thrift, 'EventSink'};
+    {fistful_source_thrift, 'EventSink'};
 get_service(destination_event_sink) ->
-    {ff_proto_destination_thrift, 'EventSink'};
+    {fistful_destination_thrift, 'EventSink'};
 get_service(identity_event_sink) ->
-    {ff_proto_identity_thrift, 'EventSink'};
+    {fistful_identity_thrift, 'EventSink'};
 get_service(wallet_event_sink) ->
-    {ff_proto_wallet_thrift, 'EventSink'};
+    {fistful_wallet_thrift, 'EventSink'};
 get_service(withdrawal_event_sink) ->
-    {ff_proto_withdrawal_thrift, 'EventSink'};
+    {fistful_wthd_thrift, 'EventSink'};
 get_service(withdrawal_session_event_sink) ->
-    {ff_proto_withdrawal_session_thrift, 'EventSink'};
+    {fistful_wthd_session_thrift, 'EventSink'};
 get_service(withdrawal_session_repairer) ->
-    {ff_proto_withdrawal_session_thrift, 'Repairer'};
+    {fistful_wthd_session_thrift, 'Repairer'};
 get_service(withdrawal_repairer) ->
-    {ff_proto_withdrawal_thrift, 'Repairer'};
+    {fistful_wthd_thrift, 'Repairer'};
 get_service(deposit_repairer) ->
-    {ff_proto_deposit_thrift, 'Repairer'};
+    {fistful_deposit_thrift, 'Repairer'};
 get_service(wallet_management) ->
-    {ff_proto_wallet_thrift, 'Management'};
+    {fistful_wallet_thrift, 'Management'};
 get_service(identity_management) ->
-    {ff_proto_identity_thrift, 'Management'};
+    {fistful_identity_thrift, 'Management'};
 get_service(destination_management) ->
-    {ff_proto_destination_thrift, 'Management'};
+    {fistful_destination_thrift, 'Management'};
 get_service(source_management) ->
-    {ff_proto_source_thrift, 'Management'};
+    {fistful_source_thrift, 'Management'};
 get_service(withdrawal_management) ->
-    {ff_proto_withdrawal_thrift, 'Management'};
+    {fistful_wthd_thrift, 'Management'};
 get_service(withdrawal_session_management) ->
-    {ff_proto_withdrawal_session_thrift, 'Management'};
+    {fistful_wthd_session_thrift, 'Management'};
 get_service(deposit_management) ->
-    {ff_proto_deposit_thrift, 'Management'};
+    {fistful_deposit_thrift, 'Management'};
 get_service(w2w_transfer_event_sink) ->
-    {ff_proto_w2w_transfer_thrift, 'EventSink'};
+    {fistful_w2w_transfer_thrift, 'EventSink'};
 get_service(w2w_transfer_repairer) ->
-    {ff_proto_w2w_transfer_thrift, 'Repairer'};
+    {fistful_w2w_transfer_thrift, 'Repairer'};
 get_service(w2w_transfer_management) ->
-    {ff_proto_w2w_transfer_thrift, 'Management'}.
+    {fistful_w2w_transfer_thrift, 'Management'}.
 
 -spec get_service_spec(service_name()) -> service_spec().
 get_service_spec(Name) ->

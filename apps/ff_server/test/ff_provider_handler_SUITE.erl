@@ -1,7 +1,8 @@
 -module(ff_provider_handler_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("fistful_proto/include/ff_proto_provider_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_provider_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).

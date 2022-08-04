@@ -4,10 +4,10 @@
 
 -export([publish_events/1]).
 
--include_lib("fistful_proto/include/ff_proto_identity_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_identity_thrift.hrl").
 
 -type event() :: ff_eventsink_publisher:event(ff_identity:event()).
--type sinkevent() :: ff_eventsink_publisher:sinkevent(ff_proto_identity_thrift:'SinkEvent'()).
+-type sinkevent() :: ff_eventsink_publisher:sinkevent(fistful_identity_thrift:'SinkEvent'()).
 
 -spec publish_events(list(event())) -> list(sinkevent()).
 publish_events(Events) ->
@@ -23,11 +23,11 @@ publish_event(#{
         {ev, EventDt, Payload}
     }
 }) ->
-    #idnt_SinkEvent{
+    #identity_SinkEvent{
         id = marshal(event_id, ID),
         created_at = marshal(timestamp, Dt),
         source = marshal(id, SourceID),
-        payload = #idnt_EventSinkPayload{
+        payload = #identity_EventSinkPayload{
             sequence = marshal(event_id, EventID),
             occured_at = marshal(timestamp, EventDt),
             changes = [marshal(change, Payload)]

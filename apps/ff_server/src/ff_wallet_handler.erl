@@ -2,7 +2,9 @@
 
 -behaviour(ff_woody_wrapper).
 
--include_lib("fistful_proto/include/ff_proto_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 %% ff_woody_wrapper callbacks
 -export([handle_function/3]).
@@ -24,7 +26,7 @@ handle_function(Func, Args, Opts) ->
 %% Internals
 %%
 handle_function_('Create', {Params, Context}, Opts) ->
-    WalletID = Params#wlt_WalletParams.id,
+    WalletID = Params#wallet_WalletParams.id,
     case
         ff_wallet_machine:create(
             ff_wallet_codec:unmarshal_wallet_params(Params),

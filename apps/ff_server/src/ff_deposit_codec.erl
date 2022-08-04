@@ -2,14 +2,16 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_deposit_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 
 -export([marshal_deposit_state/2]).
 -export([marshal/2]).
 -export([unmarshal/2]).
 
 -spec marshal_deposit_state(ff_deposit:deposit_state(), ff_entity_context:context()) ->
-    ff_proto_deposit_thrift:'DepositState'().
+    fistful_deposit_thrift:'DepositState'().
 marshal_deposit_state(DepositState, Context) ->
     CashFlow = ff_deposit:effective_final_cash_flow(DepositState),
     Reverts = ff_deposit:reverts(DepositState),
@@ -188,7 +190,7 @@ deposit_symmetry_test() ->
         source_id = genlib:unique(),
         wallet_id = genlib:unique(),
         external_id = undefined,
-        status = {pending, #dep_status_Pending{}},
+        status = {pending, #deposit_status_Pending{}},
         id = genlib:unique(),
         domain_revision = 24500062,
         party_revision = 140028,
@@ -231,7 +233,7 @@ deposit_timestamped_change_codec_test() ->
     },
     Change = {created, Deposit},
     TimestampedChange = {ev, machinery_time:now(), Change},
-    Type = {struct, struct, {ff_proto_deposit_thrift, 'TimestampedChange'}},
+    Type = {struct, struct, {fistful_deposit_thrift, 'TimestampedChange'}},
     Binary = ff_proto_utils:serialize(Type, marshal(timestamped_change, TimestampedChange)),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
     ?assertEqual(TimestampedChange, unmarshal(timestamped_change, Decoded)).
@@ -255,7 +257,7 @@ deposit_change_revert_codec_test() ->
     },
     Change = {revert, Revert},
     TimestampedChange = {ev, machinery_time:now(), Change},
-    Type = {struct, struct, {ff_proto_deposit_thrift, 'TimestampedChange'}},
+    Type = {struct, struct, {fistful_deposit_thrift, 'TimestampedChange'}},
     Binary = ff_proto_utils:serialize(Type, marshal(timestamped_change, TimestampedChange)),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
     ?assertEqual(TimestampedChange, unmarshal(timestamped_change, Decoded)).
@@ -286,7 +288,7 @@ deposit_change_adjustment_codec_test() ->
     },
     Change = {adjustment, Adjustment},
     TimestampedChange = {ev, machinery_time:now(), Change},
-    Type = {struct, struct, {ff_proto_deposit_thrift, 'TimestampedChange'}},
+    Type = {struct, struct, {fistful_deposit_thrift, 'TimestampedChange'}},
     Binary = ff_proto_utils:serialize(Type, marshal(timestamped_change, TimestampedChange)),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
     ?assertEqual(TimestampedChange, unmarshal(timestamped_change, Decoded)).

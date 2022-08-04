@@ -4,10 +4,10 @@
 
 -export([publish_events/1]).
 
--include_lib("fistful_proto/include/ff_proto_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wallet_thrift.hrl").
 
 -type event() :: ff_eventsink_publisher:event(ff_wallet:event()).
--type sinkevent() :: ff_eventsink_publisher:sinkevent(ff_proto_wallet_thrift:'SinkEvent'()).
+-type sinkevent() :: ff_eventsink_publisher:sinkevent(fistful_wallet_thrift:'SinkEvent'()).
 
 -spec publish_events(list(event())) -> list(sinkevent()).
 publish_events(Events) ->
@@ -23,11 +23,11 @@ publish_event(#{
         {ev, EventDt, Payload}
     }
 }) ->
-    #wlt_SinkEvent{
+    #wallet_SinkEvent{
         id = marshal(event_id, ID),
         created_at = marshal(timestamp, Dt),
         source = marshal(id, SourceID),
-        payload = #wlt_Event{
+        payload = #wallet_Event{
             sequence = marshal(event_id, EventID),
             occured_at = marshal(timestamp, EventDt),
             changes = [marshal(change, Payload)]

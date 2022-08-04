@@ -2,7 +2,11 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_withdrawal_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_msgp_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_repairer_thrift.hrl").
 
 -export([unmarshal_quote_params/1]).
 
@@ -17,7 +21,7 @@
 
 %% API
 
--spec unmarshal_quote_params(ff_proto_withdrawal_thrift:'QuoteParams'()) -> ff_withdrawal:quote_params().
+-spec unmarshal_quote_params(fistful_wthd_thrift:'QuoteParams'()) -> ff_withdrawal:quote_params().
 unmarshal_quote_params(Params) ->
     genlib_map:compact(#{
         wallet_id => unmarshal(id, Params#wthd_QuoteParams.wallet_id),
@@ -28,7 +32,7 @@ unmarshal_quote_params(Params) ->
         external_id => maybe_unmarshal(id, Params#wthd_QuoteParams.external_id)
     }).
 
--spec marshal_withdrawal_params(ff_withdrawal:params()) -> ff_proto_withdrawal_thrift:'WithdrawalParams'().
+-spec marshal_withdrawal_params(ff_withdrawal:params()) -> fistful_wthd_thrift:'WithdrawalParams'().
 marshal_withdrawal_params(Params) ->
     #wthd_WithdrawalParams{
         id = marshal(id, maps:get(id, Params)),
@@ -39,7 +43,7 @@ marshal_withdrawal_params(Params) ->
         metadata = maybe_marshal(ctx, maps:get(metadata, Params, undefined))
     }.
 
--spec unmarshal_withdrawal_params(ff_proto_withdrawal_thrift:'WithdrawalParams'()) -> ff_withdrawal:params().
+-spec unmarshal_withdrawal_params(fistful_wthd_thrift:'WithdrawalParams'()) -> ff_withdrawal:params().
 unmarshal_withdrawal_params(Params) ->
     genlib_map:compact(#{
         id => unmarshal(id, Params#wthd_WithdrawalParams.id),
@@ -52,7 +56,7 @@ unmarshal_withdrawal_params(Params) ->
     }).
 
 -spec marshal_withdrawal_state(ff_withdrawal:withdrawal_state(), ff_entity_context:context()) ->
-    ff_proto_withdrawal_thrift:'WithdrawalState'().
+    fistful_wthd_thrift:'WithdrawalState'().
 marshal_withdrawal_state(WithdrawalState, Context) ->
     CashFlow = ff_withdrawal:effective_final_cash_flow(WithdrawalState),
     Adjustments = ff_withdrawal:adjustments(WithdrawalState),
@@ -77,7 +81,7 @@ marshal_withdrawal_state(WithdrawalState, Context) ->
         quote = maybe_marshal(quote_state, ff_withdrawal:quote(WithdrawalState))
     }.
 
--spec marshal_event(ff_withdrawal_machine:event()) -> ff_proto_withdrawal_thrift:'Event'().
+-spec marshal_event(ff_withdrawal_machine:event()) -> fistful_wthd_thrift:'Event'().
 marshal_event({EventID, {ev, Timestamp, Change}}) ->
     #wthd_Event{
         event_id = ff_codec:marshal(event_id, EventID),
@@ -436,9 +440,9 @@ unmarshal_repair_scenario_test() ->
                     status = {pending, #wthd_status_Pending{}}
                 }}
             ],
-            action = #ff_repairer_ComplexAction{
+            action = #repairer_ComplexAction{
                 timer =
-                    {set_timer, #ff_repairer_SetTimerAction{
+                    {set_timer, #repairer_SetTimerAction{
                         timer = {timeout, 0}
                     }}
             }

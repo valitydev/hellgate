@@ -2,7 +2,9 @@
 
 -behaviour(ff_woody_wrapper).
 
--include_lib("fistful_proto/include/ff_proto_deposit_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 %% ff_woody_wrapper callbacks
 -export([handle_function/3]).

@@ -2,7 +2,9 @@
 
 -behaviour(ff_woody_wrapper).
 
--include_lib("fistful_proto/include/ff_proto_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 %% ff_woody_wrapper callbacks
 -export([handle_function/3]).
@@ -24,7 +26,7 @@ handle_function(Func, Args, Opts) ->
 %% Internals
 %%
 handle_function_('Create', {Params, Ctx}, Opts) ->
-    ID = Params#dst_DestinationParams.id,
+    ID = Params#destination_DestinationParams.id,
     case
         ff_destination_machine:create(
             ff_destination_codec:unmarshal_destination_params(Params),

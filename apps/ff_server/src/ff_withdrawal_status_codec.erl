@@ -2,7 +2,7 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_withdrawal_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_status_thrift.hrl").
 
 -export([marshal/2]).
 -export([unmarshal/2]).

@@ -2,7 +2,8 @@
 
 -behaviour(woody_server_thrift_handler).
 
--include_lib("damsel/include/dmsl_withdrawals_provider_adapter_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_wthd_provider_thrift.hrl").
 
 %% woody_server_thrift_handler callbacks
 -export([handle_function/4]).
@@ -22,7 +23,7 @@ handle_function('ProcessWithdrawal', {Withdrawal, InternalState, Options}, _Cont
     #{intent := Intent} = ProcessResult,
     NewState = maps:get(next_state, ProcessResult, undefined),
     TransactionInfo = maps:get(transaction_info, ProcessResult, undefined),
-    {ok, #wthadpt_ProcessResult{
+    {ok, #wthd_provider_ProcessResult{
         intent = encode_intent(Intent),
         next_state = encode_state(NewState),
         trx = encode_trx(TransactionInfo)
@@ -43,7 +44,7 @@ handle_function('HandleCallback', {Callback, Withdrawal, InternalState, Options}
     #{intent := Intent, response := Response} = CallbackResult,
     NewState = maps:get(next_state, CallbackResult, undefined),
     TransactionInfo = maps:get(transaction_info, CallbackResult, undefined),
-    {ok, #wthadpt_CallbackResult{
+    {ok, #wthd_provider_CallbackResult{
         intent = encode_intent(Intent),
         next_state = encode_state(NewState),
         response = encode_callback_response(Response),
@@ -54,7 +55,7 @@ handle_function('HandleCallback', {Callback, Withdrawal, InternalState, Options}
 %% Internals
 %%
 
-decode_withdrawal(#wthadpt_Withdrawal{
+decode_withdrawal(#wthd_provider_Withdrawal{
     id = Id,
     body = Body,
     destination = Destination,
@@ -71,7 +72,7 @@ decode_withdrawal(#wthadpt_Withdrawal{
         quote => Quote
     }.
 
-decode_quote_params(#wthadpt_GetQuoteParams{
+decode_quote_params(#wthd_provider_GetQuoteParams{
     idempotency_id = IdempotencyID,
     currency_from = CurrencyFrom,
     currency_to = CurrencyTo,
@@ -90,7 +91,7 @@ decode_options(Options) ->
 decode_state(State) ->
     ff_adapter_withdrawal_codec:unmarshal(adapter_state, State).
 
-decode_callback(#wthadpt_Callback{tag = Tag, payload = Payload}) ->
+decode_callback(#wthd_provider_Callback{tag = Tag, payload = Payload}) ->
     #{tag => Tag, payload => Payload}.
 
 %%
@@ -111,7 +112,7 @@ encode_quote(#{
     expires_on := ExpiresOn,
     quote_data := QuoteData
 }) ->
-    #wthadpt_Quote{
+    #wthd_provider_Quote{
         cash_from = CashFrom,
         cash_to = CashTo,
         created_at = CreatedAt,
@@ -120,7 +121,7 @@ encode_quote(#{
     }.
 
 encode_callback_response(#{payload := Payload}) ->
-    #wthadpt_CallbackResponse{payload = Payload}.
+    #wthd_provider_CallbackResponse{payload = Payload}.
 
 get_handler(Opts) ->
     proplists:get_value(handler, Opts, ff_ct_provider).

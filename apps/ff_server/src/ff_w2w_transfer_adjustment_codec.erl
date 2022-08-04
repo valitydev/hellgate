@@ -2,7 +2,7 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_w2w_adjustment_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_w2w_adj_thrift.hrl").
 
 -export([marshal/2]).
 -export([unmarshal/2]).

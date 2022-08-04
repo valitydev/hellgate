@@ -16,7 +16,7 @@ init(Opts) ->
         ff_ct_provider_thrift_service_sup,
         #{
             handlers => [
-                {Path, {{dmsl_withdrawals_provider_adapter_thrift, 'Adapter'}, {ff_ct_provider_thrift, []}}}
+                {Path, {{dmsl_wthd_provider_thrift, 'Adapter'}, {ff_ct_provider_thrift, []}}}
             ],
             event_handler => scoper_woody_event_handler,
             ip => proplists:get_value(ip, Opts, "::"),

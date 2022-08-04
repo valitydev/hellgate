@@ -2,7 +2,11 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_deposit_revert_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_revert_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_revert_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_deposit_revert_adj_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_cashflow_thrift.hrl").
 
 -export([marshal/2]).
 -export([unmarshal/2]).
@@ -143,7 +147,7 @@ revert_symmetry_test() ->
         created_at = <<"2000-01-01T00:00:00Z">>,
         external_id = undefined,
         reason = <<"why not">>,
-        status = {pending, #dep_rev_status_Pending{}},
+        status = {pending, #deposit_revert_status_Pending{}},
         id = genlib:unique()
     },
     ?assertEqual(Encoded, marshal(revert, unmarshal(revert, Encoded))).
@@ -167,12 +171,12 @@ change_adjustment_symmetry_test() ->
         {adjustment, #deposit_revert_AdjustmentChange{
             id = genlib:unique(),
             payload =
-                {created, #dep_rev_adj_CreatedChange{
-                    adjustment = #dep_rev_adj_Adjustment{
+                {created, #deposit_revert_adj_CreatedChange{
+                    adjustment = #deposit_revert_adj_Adjustment{
                         id = genlib:unique(),
-                        status = {pending, #dep_rev_adj_Pending{}},
-                        changes_plan = #dep_rev_adj_ChangesPlan{
-                            new_cash_flow = #dep_rev_adj_CashFlowChangePlan{
+                        status = {pending, #deposit_revert_adj_Pending{}},
+                        changes_plan = #deposit_revert_adj_ChangesPlan{
+                            new_cash_flow = #deposit_revert_adj_CashFlowChangePlan{
                                 old_cash_flow_inverted = #cashflow_FinalCashFlow{postings = []},
                                 new_cash_flow = #cashflow_FinalCashFlow{postings = []}
                             }

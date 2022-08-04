@@ -10,7 +10,8 @@
         machinery,
         machinery_extra,
         damsel,
-        fistful
+        fistful,
+        limiter_proto
     ]},
     {env, []},
     {modules, []},

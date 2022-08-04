@@ -1,6 +1,7 @@
 -module(ff_varset).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export_type([varset/0]).
 -export_type([encoded_varset/0]).
@@ -23,7 +24,7 @@
     bin_data => dmsl_domain_thrift:'BinData'()
 }.
 
--type encoded_varset() :: dmsl_payment_processing_thrift:'Varset'().
+-type encoded_varset() :: dmsl_payproc_thrift:'Varset'().
 
 -spec encode(varset()) -> encoded_varset().
 encode(Varset) ->
@@ -39,7 +40,7 @@ encode(Varset) ->
         bin_data = genlib_map:get(bin_data, Varset)
     }.
 
--spec encode_contract_terms_varset(varset()) -> dmsl_payment_processing_thrift:'ComputeContractTermsVarset'().
+-spec encode_contract_terms_varset(varset()) -> dmsl_payproc_thrift:'ComputeContractTermsVarset'().
 encode_contract_terms_varset(Varset) ->
     #payproc_ComputeContractTermsVarset{
         currency = genlib_map:get(currency, Varset),

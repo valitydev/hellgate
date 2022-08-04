@@ -2,8 +2,8 @@
 
 -behaviour(ff_codec).
 
--include_lib("fistful_proto/include/ff_proto_withdrawal_session_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_session_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 
 -export([marshal_state/3]).
 
@@ -12,7 +12,7 @@
 
 %% API
 -spec marshal_state(ff_withdrawal_session:session_state(), ff_withdrawal_session:id(), ff_entity_context:context()) ->
-    ff_proto_withdrawal_session_thrift:'SessionState'().
+    fistful_wthd_session_thrift:'SessionState'().
 marshal_state(State, ID, Context) ->
     #wthd_session_SessionState{
         id = marshal(id, ID),

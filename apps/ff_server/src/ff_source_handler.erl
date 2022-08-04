@@ -2,7 +2,9 @@
 
 -behaviour(ff_woody_wrapper).
 
--include_lib("fistful_proto/include/ff_proto_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 %% ff_woody_wrapper callbacks
 -export([handle_function/3]).
@@ -24,7 +26,7 @@ handle_function(Func, Args, Opts) ->
 %% Internals
 %%
 handle_function_('Create', {Params, Ctx}, Opts) ->
-    ID = Params#src_SourceParams.id,
+    ID = Params#source_SourceParams.id,
     ok = scoper:add_meta(#{id => ID}),
     case
         ff_source_machine:create(

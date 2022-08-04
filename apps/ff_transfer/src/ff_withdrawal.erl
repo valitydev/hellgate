@@ -4,8 +4,7 @@
 
 -module(ff_withdrawal).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("damsel/include/dmsl_withdrawals_provider_adapter_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 -type id() :: binary().
 
@@ -211,6 +210,7 @@
 -export([domain_revision/1]).
 -export([destination_resource/1]).
 -export([metadata/1]).
+-export([params/1]).
 
 %% API
 
@@ -300,8 +300,8 @@
     | limit_check
     | {fail, fail_type()}
     | adjustment
+    | rollback_routing
     % Legacy activity
-    | stop
     | finish.
 
 -type fail_type() ::
@@ -379,6 +379,10 @@ created_at(T) ->
 -spec metadata(withdrawal_state()) -> metadata() | undefined.
 metadata(T) ->
     maps:get(metadata, T, undefined).
+
+-spec params(withdrawal_state()) -> transfer_params().
+params(#{params := V}) ->
+    V.
 
 %% API
 
@@ -596,10 +600,6 @@ do_start_adjustment(Params, Withdrawal) ->
 update_attempts(Attempts, T) ->
     maps:put(attempts, Attempts, T).
 
--spec params(withdrawal_state()) -> transfer_params().
-params(#{params := V}) ->
-    V.
-
 -spec p_transfer(withdrawal_state()) -> p_transfer() | undefined.
 p_transfer(Withdrawal) ->
     ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)).
@@ -708,15 +708,8 @@ do_pending_activity(#{p_transfer := cancelled, session := failed}) ->
 
 do_finished_activity(#{active_adjustment := true}) ->
     adjustment;
-%% Legacy activity. Remove after first deployment
-do_finished_activity(#{status := {failed, _}, p_transfer := prepared}) ->
-    p_transfer_cancel;
-do_finished_activity(#{status := succeeded, p_transfer := prepared}) ->
-    p_transfer_commit;
-do_finished_activity(#{status := succeeded, p_transfer := committed}) ->
-    stop;
-do_finished_activity(#{status := {failed, _}, p_transfer := cancelled}) ->
-    stop.
+do_finished_activity(#{status := {failed, _}}) ->
+    rollback_routing.
 
 -spec do_process_transfer(activity(), withdrawal_state()) -> process_result().
 do_process_transfer(routing, Withdrawal) ->
@@ -724,14 +717,17 @@ do_process_transfer(routing, Withdrawal) ->
 do_process_transfer(p_transfer_start, Withdrawal) ->
     process_p_transfer_creation(Withdrawal);
 do_process_transfer(p_transfer_prepare, Withdrawal) ->
+    ok = do_rollback_routing(route(Withdrawal), Withdrawal),
     Tr = ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)),
     {ok, Events} = ff_postings_transfer:prepare(Tr),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
 do_process_transfer(p_transfer_commit, Withdrawal) ->
+    ok = commit_routes_limits([route(Withdrawal)], Withdrawal),
     Tr = ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)),
     {ok, Events} = ff_postings_transfer:commit(Tr),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
 do_process_transfer(p_transfer_cancel, Withdrawal) ->
+    ok = rollback_routes_limits([route(Withdrawal)], Withdrawal),
     Tr = ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)),
     {ok, Events} = ff_postings_transfer:cancel(Tr),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
@@ -747,45 +743,39 @@ do_process_transfer(finish, Withdrawal) ->
     process_transfer_finish(Withdrawal);
 do_process_transfer(adjustment, Withdrawal) ->
     process_adjustment(Withdrawal);
-do_process_transfer(stop, _Withdrawal) ->
-    {undefined, []}.
+do_process_transfer(rollback_routing, Withdrawal) ->
+    process_rollback_routing(Withdrawal).
 
 -spec process_routing(withdrawal_state()) -> process_result().
 process_routing(Withdrawal) ->
     case do_process_routing(Withdrawal) of
-        {ok, [Route | _]} ->
+        {ok, [Route | _Rest]} ->
             {continue, [
                 {route_changed, Route}
             ]};
         {error, route_not_found} ->
-            process_transfer_fail(route_not_found, Withdrawal);
+            Events = process_transfer_fail(route_not_found, Withdrawal),
+            {continue, Events};
         {error, {inconsistent_quote_route, _Data} = Reason} ->
-            process_transfer_fail(Reason, Withdrawal)
+            Events = process_transfer_fail(Reason, Withdrawal),
+            {continue, Events}
     end.
+
+-spec process_rollback_routing(withdrawal_state()) -> process_result().
+process_rollback_routing(Withdrawal) ->
+    _ = do_rollback_routing(undefined, Withdrawal),
+    {undefined, []}.
 
 -spec do_process_routing(withdrawal_state()) -> {ok, [route()]} | {error, Reason} when
     Reason :: route_not_found | InconsistentQuote,
     InconsistentQuote :: {inconsistent_quote_route, {provider_id, provider_id()} | {terminal_id, terminal_id()}}.
 do_process_routing(Withdrawal) ->
-    WalletID = wallet_id(Withdrawal),
-    {ok, Wallet} = get_wallet(WalletID),
-    DomainRevision = operation_domain_revision(Withdrawal),
-    {ok, Destination} = get_destination(destination_id(Withdrawal)),
-    Resource = destination_resource(Withdrawal),
-    Identity = get_wallet_identity(Wallet),
-    PartyID = ff_identity:party(get_wallet_identity(Wallet)),
-    VarsetParams = genlib_map:compact(#{
-        body => body(Withdrawal),
-        wallet_id => WalletID,
-        wallet => Wallet,
-        party_id => PartyID,
-        destination => Destination,
-        resource => Resource
-    }),
-
     do(fun() ->
-        Varset = build_party_varset(VarsetParams),
-        Routes = unwrap(ff_withdrawal_routing:prepare_routes(Varset, Identity, DomainRevision)),
+        {Varset, Context} = make_routing_varset_and_context(Withdrawal),
+        GatherResult = ff_withdrawal_routing:gather_routes(Varset, Context),
+        FilterResult = ff_withdrawal_routing:filter_limit_overflow_routes(GatherResult, Varset, Context),
+        ff_withdrawal_routing:log_reject_context(FilterResult),
+        Routes = unwrap(ff_withdrawal_routing:routes(FilterResult)),
         case quote(Withdrawal) of
             undefined ->
                 Routes;
@@ -795,6 +785,57 @@ do_process_routing(Withdrawal) ->
                 [Route]
         end
     end).
+
+do_rollback_routing(ExcludeRoute, Withdrawal) ->
+    {Varset, Context} = make_routing_varset_and_context(Withdrawal),
+    {ok, Routes} = ff_withdrawal_routing:routes(ff_withdrawal_routing:gather_routes(Varset, Context)),
+    RollbackRoutes =
+        case ExcludeRoute of
+            undefined ->
+                Routes;
+            #{terminal_id := TerminalID} ->
+                lists:filter(
+                    fun(#{terminal_id := TID}) ->
+                        TerminalID =/= TID
+                    end,
+                    Routes
+                )
+        end,
+    rollback_routes_limits(RollbackRoutes, Varset, Context).
+
+rollback_routes_limits(Routes, Withdrawal) ->
+    {Varset, Context} = make_routing_varset_and_context(Withdrawal),
+    rollback_routes_limits(Routes, Varset, Context).
+
+rollback_routes_limits(Routes, Varset, Context) ->
+    ff_withdrawal_routing:rollback_routes_limits(Routes, Varset, Context).
+
+commit_routes_limits(Routes, Withdrawal) ->
+    {Varset, Context} = make_routing_varset_and_context(Withdrawal),
+    ff_withdrawal_routing:commit_routes_limits(Routes, Varset, Context).
+
+make_routing_varset_and_context(Withdrawal) ->
+    DomainRevision = operation_domain_revision(Withdrawal),
+    WalletID = wallet_id(Withdrawal),
+    {ok, Wallet} = get_wallet(WalletID),
+    {ok, Destination} = get_destination(destination_id(Withdrawal)),
+    Resource = destination_resource(Withdrawal),
+    PartyID = ff_identity:party(get_wallet_identity(Wallet)),
+    VarsetParams = genlib_map:compact(#{
+        body => body(Withdrawal),
+        wallet_id => WalletID,
+        wallet => Wallet,
+        party_id => PartyID,
+        destination => Destination,
+        resource => Resource
+    }),
+    Identity = get_wallet_identity(Wallet),
+    Context = #{
+        domain_revision => DomainRevision,
+        identity => Identity,
+        withdrawal => Withdrawal
+    },
+    {build_party_varset(VarsetParams), Context}.
 
 -spec validate_quote_route(route(), quote_state()) -> {ok, valid} | {error, InconsistentQuote} when
     InconsistentQuote :: {inconsistent_quote_route, {provider_id, provider_id()} | {terminal_id, terminal_id()}}.
@@ -932,10 +973,10 @@ process_session_sleep(Withdrawal) ->
 process_transfer_finish(_Withdrawal) ->
     {undefined, [{status_changed, succeeded}]}.
 
--spec process_transfer_fail(fail_type(), withdrawal_state()) -> process_result().
+-spec process_transfer_fail(fail_type(), withdrawal_state()) -> [event()].
 process_transfer_fail(FailType, Withdrawal) ->
     Failure = build_failure(FailType, Withdrawal),
-    {undefined, [{status_changed, {failed, Failure}}]}.
+    [{status_changed, {failed, Failure}}].
 
 -spec handle_child_result(process_result(), withdrawal_state()) -> process_result().
 handle_child_result({undefined, Events} = Result, Withdrawal) ->
@@ -1238,6 +1279,7 @@ get_quote_(Params) ->
         } = Params,
         Resource = maps:get(resource, Params, undefined),
 
+        %% TODO: don't apply turnover limits here
         [Route | _] = unwrap(route, ff_withdrawal_routing:prepare_routes(Varset, Identity, DomainRevision)),
         {Adapter, AdapterOpts} = ff_withdrawal_session:get_adapter_with_opts(Route),
         GetQuoteParams = #{
@@ -1588,7 +1630,8 @@ process_route_change(Withdrawal, Reason) ->
             {ok, Providers} = do_process_routing(Withdrawal),
             do_process_route_change(Providers, Withdrawal, Reason);
         false ->
-            process_transfer_fail(Reason, Withdrawal)
+            Events = process_transfer_fail(Reason, Withdrawal),
+            {undefined, Events}
     end.
 
 -spec is_failure_transient(fail_type(), withdrawal_state()) -> boolean().
@@ -1663,10 +1706,12 @@ do_process_route_change(Routes, Withdrawal, Reason) ->
             ]};
         {error, route_not_found} ->
             %% No more routes, return last error
-            process_transfer_fail(Reason, Withdrawal);
+            Events = process_transfer_fail(Reason, Withdrawal),
+            {continue, Events};
         {error, attempt_limit_exceeded} ->
             %% Attempt limit exceeded, return last error
-            process_transfer_fail(Reason, Withdrawal)
+            Events = process_transfer_fail(Reason, Withdrawal),
+            {continue, Events}
     end.
 
 -spec handle_adjustment_changes(ff_adjustment:changes()) -> [event()].

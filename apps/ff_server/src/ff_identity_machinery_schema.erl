@@ -3,7 +3,7 @@
 %% Storage schema behaviour
 -behaviour(machinery_mg_schema).
 
--include_lib("fistful_proto/include/ff_proto_identity_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_identity_thrift.hrl").
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 -export([get_version/1]).
@@ -28,8 +28,8 @@
 
 -type legacy_change() :: any().
 
--type timestamped_change() :: ff_proto_identity_thrift:'TimestampedChange'().
--type thrift_change() :: ff_proto_identity_thrift:'Change'().
+-type timestamped_change() :: fistful_identity_thrift:'TimestampedChange'().
+-type thrift_change() :: fistful_identity_thrift:'Change'().
 
 -type data() ::
     aux_state()
@@ -83,7 +83,7 @@ marshal_event(undefined = Version, TimestampedChange, Context) ->
     machinery_mg_schema_generic:marshal({event, Version}, TimestampedChange, Context);
 marshal_event(Version, TimestampedChange, Context) when Version =:= 1; Version =:= 2 ->
     ThriftChange = ff_identity_codec:marshal(timestamped_change, TimestampedChange),
-    Type = {struct, struct, {ff_proto_identity_thrift, 'TimestampedChange'}},
+    Type = {struct, struct, {fistful_identity_thrift, 'TimestampedChange'}},
     {{bin, ff_proto_utils:serialize(Type, ThriftChange)}, Context}.
 
 -spec unmarshal_event(machinery_mg_schema:version(), machinery_msgpack:t(), context()) -> {event(), context()}.
@@ -92,8 +92,8 @@ unmarshal_event(2, EncodedChange, Context) ->
     {ff_identity_codec:unmarshal(timestamped_change, ThriftChange), Context};
 unmarshal_event(1, EncodedChange, Context) ->
     ThriftChange = unmashal_thrift_change(EncodedChange),
-    MigratedChange = ThriftChange#idnt_TimestampedChange{
-        change = maybe_migrate_thrift_change(ThriftChange#idnt_TimestampedChange.change, Context)
+    MigratedChange = ThriftChange#identity_TimestampedChange{
+        change = maybe_migrate_thrift_change(ThriftChange#identity_TimestampedChange.change, Context)
     },
     {ff_identity_codec:unmarshal(timestamped_change, MigratedChange), Context};
 unmarshal_event(undefined = Version, EncodedChange, Context) ->
@@ -107,13 +107,13 @@ unmarshal_event(undefined = Version, EncodedChange, Context) ->
 -spec unmashal_thrift_change(machinery_msgpack:t()) -> timestamped_change().
 unmashal_thrift_change(EncodedChange) ->
     {bin, EncodedThriftChange} = EncodedChange,
-    Type = {struct, struct, {ff_proto_identity_thrift, 'TimestampedChange'}},
+    Type = {struct, struct, {fistful_identity_thrift, 'TimestampedChange'}},
     ff_proto_utils:deserialize(Type, EncodedThriftChange).
 
 -spec maybe_migrate_thrift_change(thrift_change(), context()) -> thrift_change().
-maybe_migrate_thrift_change({created, #idnt_Identity{name = undefined} = Identity}, MigrateContext) ->
-    Context = fetch_entity_context(Identity#idnt_Identity.id, MigrateContext),
-    {created, Identity#idnt_Identity{name = get_legacy_name(Context)}};
+maybe_migrate_thrift_change({created, #identity_Identity{name = undefined} = Identity}, MigrateContext) ->
+    Context = fetch_entity_context(Identity#identity_Identity.id, MigrateContext),
+    {created, Identity#identity_Identity{name = get_legacy_name(Context)}};
 maybe_migrate_thrift_change(Change, _MigrateContext) ->
     Change.
 

@@ -89,30 +89,30 @@ start_processing_apps(Options) ->
                 handlers => [
                     {
                         <<"/bank">>,
-                        {{dmsl_withdrawals_provider_adapter_thrift, 'Adapter'}, {ff_ct_provider_handler, []}}
+                        {{dmsl_wthd_provider_thrift, 'Adapter'}, {ff_ct_provider_handler, []}}
                     },
                     {
                         <<"/quotebank">>,
-                        {{dmsl_withdrawals_provider_adapter_thrift, 'Adapter'}, {ff_ct_provider_handler, []}}
+                        {{dmsl_wthd_provider_thrift, 'Adapter'}, {ff_ct_provider_handler, []}}
                     },
                     {
                         <<"/downbank">>,
                         {
-                            {dmsl_withdrawals_provider_adapter_thrift, 'Adapter'},
+                            {dmsl_wthd_provider_thrift, 'Adapter'},
                             {ff_ct_provider_handler, [{handler, ff_ct_fail_provider}]}
                         }
                     },
                     {
                         <<"/downbank2">>,
                         {
-                            {dmsl_withdrawals_provider_adapter_thrift, 'Adapter'},
+                            {dmsl_wthd_provider_thrift, 'Adapter'},
                             {ff_ct_provider_handler, [{handler, ff_ct_unknown_failure_provider}]}
                         }
                     },
                     {
                         <<"/sleepybank">>,
                         {
-                            {dmsl_withdrawals_provider_adapter_thrift, 'Adapter'},
+                            {dmsl_wthd_provider_thrift, 'Adapter'},
                             {ff_ct_provider_handler, [{handler, ff_ct_sleepy_provider}]}
                         }
                     },
@@ -232,7 +232,8 @@ services(Options) ->
         automaton => "http://machinegun:8022/v1/automaton",
         accounter => "http://shumway:8022/accounter",
         partymgmt => "http://party-management:8022/v1/processing/partymgmt",
-        binbase => "http://localhost:8222/binbase"
+        binbase => "http://localhost:8222/binbase",
+        limiter => "http://limiter:8022/v1/limiter"
     },
     maps:get(services, Options, Default).
 
@@ -366,6 +367,26 @@ domain_config(Options) ->
                     ?ruleset(?PAYINST1_ROUTING_POLICIES + 13)
                 ),
                 delegate(
+                    condition(cost_in, {800800, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 16)
+                ),
+                delegate(
+                    condition(cost_in, {900900, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 17)
+                ),
+                delegate(
+                    condition(cost_in, {901000, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 18)
+                ),
+                delegate(
+                    condition(cost_in, {902000, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 19)
+                ),
+                delegate(
+                    condition(cost_in, {903000, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 19)
+                ),
+                delegate(
                     {condition,
                         {payment_tool,
                             {bank_card, #domain_BankCardCondition{
@@ -463,6 +484,36 @@ domain_config(Options) ->
                     condition(cost_in, {3000000, 10000000, <<"RUB">>}),
                     ?trm(307)
                 )
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 16),
+            {candidates, [
+                candidate({constant, true}, ?trm(1800))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 17),
+            {candidates, [
+                candidate({constant, true}, ?trm(1900))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 18),
+            {candidates, [
+                candidate({constant, true}, ?trm(2000), 1000),
+                candidate({constant, true}, ?trm(1900), 4000)
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 19),
+            {candidates, [
+                candidate({constant, true}, ?trm(2200), 1000),
+                candidate({constant, true}, ?trm(2100), 4000)
             ]}
         ),
 
@@ -715,6 +766,82 @@ domain_config(Options) ->
                                             )
                                         ]}
                                 }
+                            ]}
+                    }
+                }
+            }
+        ),
+
+        ct_domain:withdrawal_terminal(
+            ?trm(1800),
+            ?prv(1),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        currencies = {value, ?ordset([?cur(<<"RUB">>), ?cur(<<"BTC">>)])},
+                        turnover_limit =
+                            {value, [
+                                ?trnvrlimit(?LIMIT_TURNOVER_NUM_PAYTOOL_ID1, 1000)
+                            ]}
+                    }
+                }
+            }
+        ),
+
+        ct_domain:withdrawal_terminal(
+            ?trm(1900),
+            ?prv(1),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        turnover_limit =
+                            {value, [
+                                ?trnvrlimit(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, 0)
+                            ]}
+                    }
+                }
+            }
+        ),
+
+        ct_domain:withdrawal_terminal(
+            ?trm(2000),
+            ?prv(1),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        turnover_limit =
+                            {value, [
+                                ?trnvrlimit(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, 1000)
+                            ]}
+                    }
+                }
+            }
+        ),
+
+        ct_domain:withdrawal_terminal(
+            ?trm(2100),
+            ?prv(1),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        turnover_limit =
+                            {value, [
+                                ?trnvrlimit(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, 1804000)
+                            ]}
+                    }
+                }
+            }
+        ),
+
+        ct_domain:withdrawal_terminal(
+            ?trm(2200),
+            ?prv(1),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        turnover_limit =
+                            {value, [
+                                ?trnvrlimit(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2, 903000)
                             ]}
                     }
                 }

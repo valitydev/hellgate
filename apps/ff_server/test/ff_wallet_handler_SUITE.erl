@@ -1,8 +1,10 @@
 -module(ff_wallet_handler_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("fistful_proto/include/ff_proto_wallet_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wallet_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_account_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -97,14 +99,14 @@ create_ok(C) ->
     CreateResult = call_service('Create', {Params, Ctx}),
     GetResult = call_service('Get', {ID, #'fistful_base_EventRange'{}}),
     {ok, Wallet} = GetResult,
-    Account = Wallet#wlt_WalletState.account,
+    Account = Wallet#wallet_WalletState.account,
     CurrencyRef = Account#account_Account.currency,
     ?assertMatch(CreateResult, GetResult),
-    ?assertMatch(<<"Valet">>, Wallet#wlt_WalletState.name),
-    ?assertMatch(unblocked, Wallet#wlt_WalletState.blocking),
-    ?assertMatch(ExternalID, Wallet#wlt_WalletState.external_id),
-    ?assertMatch(Metadata, Wallet#wlt_WalletState.metadata),
-    ?assertMatch(Ctx, Wallet#wlt_WalletState.context),
+    ?assertMatch(<<"Valet">>, Wallet#wallet_WalletState.name),
+    ?assertMatch(unblocked, Wallet#wallet_WalletState.blocking),
+    ?assertMatch(ExternalID, Wallet#wallet_WalletState.external_id),
+    ?assertMatch(Metadata, Wallet#wallet_WalletState.metadata),
+    ?assertMatch(Ctx, Wallet#wallet_WalletState.context),
     ?assertMatch(IdentityID, Account#account_Account.identity),
     ?assertMatch(Currency, CurrencyRef#'fistful_base_CurrencyRef'.symbolic_code).
 
@@ -156,10 +158,10 @@ get_account_balance(C) ->
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     Params = construct_wallet_params(ID, IdentityID, Currency, ExternalID, Metadata),
     {ok, Wallet} = call_service('Create', {Params, Ctx}),
-    WalletID = Wallet#wlt_WalletState.id,
+    WalletID = Wallet#wallet_WalletState.id,
     {ok, AccountBalance} = call_service('GetAccountBalance', {WalletID}),
     CurrencyRef = AccountBalance#account_AccountBalance.currency,
-    Account = Wallet#wlt_WalletState.account,
+    Account = Wallet#wallet_WalletState.account,
     AccountID = Account#account_Account.id,
     ?assertMatch(AccountID, AccountBalance#account_AccountBalance.id),
     ?assertMatch(Currency, CurrencyRef#'fistful_base_CurrencyRef'.symbolic_code),
@@ -171,7 +173,7 @@ get_account_balance(C) ->
 %%  Internal
 %%-----------
 call_service(Fun, Args) ->
-    Service = {ff_proto_wallet_thrift, 'Management'},
+    Service = {fistful_wallet_thrift, 'Management'},
     Request = {Service, Fun, Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/wallet">>,
@@ -199,21 +201,21 @@ create_identity(Party, Name, ProviderID, _C) ->
     ID.
 
 suspend_party(Party, C) ->
-    Service = {dmsl_payment_processing_thrift, 'PartyManagement'},
+    Service = {dmsl_payproc_thrift, 'PartyManagement'},
     Args = {Party},
     Request = {Service, 'Suspend', Args},
     _ = ff_woody_client:call(partymgmt, Request, ct_helper:get_woody_ctx(C)),
     ok.
 
 block_party(Party, C) ->
-    Service = {dmsl_payment_processing_thrift, 'PartyManagement'},
+    Service = {dmsl_payproc_thrift, 'PartyManagement'},
     Args = {Party, <<"BECAUSE">>},
     Request = {Service, 'Block', Args},
     _ = ff_woody_client:call(partymgmt, Request, ct_helper:get_woody_ctx(C)),
     ok.
 
 construct_wallet_params(ID, IdentityID, Currency) ->
-    #wlt_WalletParams{
+    #wallet_WalletParams{
         id = ID,
         name = <<"Valet">>,
         account_params = #account_AccountParams{
@@ -223,7 +225,7 @@ construct_wallet_params(ID, IdentityID, Currency) ->
     }.
 
 construct_wallet_params(ID, IdentityID, Currency, ExternalID) ->
-    #wlt_WalletParams{
+    #wallet_WalletParams{
         id = ID,
         name = <<"Valet">>,
         external_id = ExternalID,
@@ -234,7 +236,7 @@ construct_wallet_params(ID, IdentityID, Currency, ExternalID) ->
     }.
 
 construct_wallet_params(ID, IdentityID, Currency, ExternalID, Metadata) ->
-    #wlt_WalletParams{
+    #wallet_WalletParams{
         id = ID,
         name = <<"Valet">>,
         external_id = ExternalID,

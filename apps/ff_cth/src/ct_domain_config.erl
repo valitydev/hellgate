@@ -17,7 +17,7 @@
 
 %%
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 
 -type revision() :: dmt_client:version().
 -type object() :: dmsl_domain_thrift:'DomainObject'().
@@ -28,7 +28,7 @@ head() ->
 
 -spec all(revision()) -> dmsl_domain_thrift:'Domain'().
 all(Revision) ->
-    #'Snapshot'{domain = Domain} = dmt_client:checkout(Revision),
+    #'domain_conf_Snapshot'{domain = Domain} = dmt_client:checkout(Revision),
     Domain.
 
 -spec commit(revision(), dmt_client:commit()) -> revision() | no_return().
@@ -61,9 +61,9 @@ reset(Revision) ->
 
 -spec cleanup() -> revision() | no_return().
 cleanup() ->
-    #'Snapshot'{domain = Domain} = dmt_client:checkout(latest),
+    #'domain_conf_Snapshot'{domain = Domain} = dmt_client:checkout(latest),
     remove(maps:values(Domain)).
 
 -spec bump_revision() -> revision() | no_return().
 bump_revision() ->
-    dmt_client:commit(#'Commit'{ops = []}).
+    dmt_client:commit(#'domain_conf_Commit'{ops = []}).

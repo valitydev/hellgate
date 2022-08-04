@@ -1,7 +1,10 @@
 -module(ff_source_handler_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("fistful_proto/include/ff_proto_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_source_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_account_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -76,27 +79,27 @@ end_per_testcase(_Name, _C) ->
 -spec get_source_events_ok_test(config()) -> test_return().
 get_source_events_ok_test(C) ->
     Resource =
-        {internal, #src_Internal{
+        {internal, #source_Internal{
             details = <<"details">>
         }},
     State = create_source_ok(Resource, C),
-    ID = State#src_SourceState.id,
+    ID = State#source_SourceState.id,
     {ok, [_Event | _Rest]} = call_service('GetEvents', {ID, #'fistful_base_EventRange'{}}).
 
 -spec get_source_context_ok_test(config()) -> test_return().
 get_source_context_ok_test(C) ->
     Resource =
-        {internal, #src_Internal{
+        {internal, #source_Internal{
             details = <<"details">>
         }},
     State = create_source_ok(Resource, C),
-    ID = State#src_SourceState.id,
+    ID = State#source_SourceState.id,
     {ok, _Context} = call_service('GetContext', {ID}).
 
 -spec create_source_ok_test(config()) -> test_return().
 create_source_ok_test(C) ->
     Resource =
-        {internal, #src_Internal{
+        {internal, #source_Internal{
             details = <<"details">>
         }},
     create_source_ok(Resource, C).
@@ -121,7 +124,7 @@ create_source_ok(Resource, C) ->
     IdentityID = create_identity(Party, C),
     Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
-    Params = #src_SourceParams{
+    Params = #source_SourceParams{
         id = ID,
         identity_id = IdentityID,
         name = Name,
@@ -131,34 +134,34 @@ create_source_ok(Resource, C) ->
         metadata = Metadata
     },
     {ok, Src} = call_service('Create', {Params, Ctx}),
-    Name = Src#src_SourceState.name,
-    ID = Src#src_SourceState.id,
-    Resource = Src#src_SourceState.resource,
-    ExternalId = Src#src_SourceState.external_id,
-    Metadata = Src#src_SourceState.metadata,
-    Ctx = Src#src_SourceState.context,
+    Name = Src#source_SourceState.name,
+    ID = Src#source_SourceState.id,
+    Resource = Src#source_SourceState.resource,
+    ExternalId = Src#source_SourceState.external_id,
+    Metadata = Src#source_SourceState.metadata,
+    Ctx = Src#source_SourceState.context,
 
-    Account = Src#src_SourceState.account,
+    Account = Src#source_SourceState.account,
     IdentityID = Account#account_Account.identity,
     #'fistful_base_CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
 
-    {unauthorized, #src_Unauthorized{}} = Src#src_SourceState.status,
+    {unauthorized, #source_Unauthorized{}} = Src#source_SourceState.status,
 
-    {authorized, #src_Authorized{}} = ct_helper:await(
-        {authorized, #src_Authorized{}},
+    {authorized, #source_Authorized{}} = ct_helper:await(
+        {authorized, #source_Authorized{}},
         fun() ->
-            {ok, #src_SourceState{status = Status}} =
+            {ok, #source_SourceState{status = Status}} =
                 call_service('Get', {ID, #'fistful_base_EventRange'{}}),
             Status
         end,
         genlib_retry:linear(15, 1000)
     ),
 
-    {ok, #src_SourceState{} = State} = call_service('Get', {ID, #'fistful_base_EventRange'{}}),
+    {ok, #source_SourceState{} = State} = call_service('Get', {ID, #'fistful_base_EventRange'{}}),
     State.
 
 call_service(Fun, Args) ->
-    Service = {ff_proto_source_thrift, 'Management'},
+    Service = {fistful_source_thrift, 'Management'},
     Request = {Service, Fun, Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/source">>,

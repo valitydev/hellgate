@@ -1,10 +1,12 @@
 -module(ff_withdrawal_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 -include_lib("ff_cth/include/ct_domain.hrl").
--include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_withdrawal_session_thrift.hrl").
--include_lib("fistful_proto/include/ff_proto_withdrawal_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_session_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_wthd_status_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_repairer_thrift.hrl").
 
 %% Common test API
 
@@ -651,9 +653,9 @@ force_status_change_test(C) ->
                             }}
                     }}
                 ],
-                action = #ff_repairer_ComplexAction{
+                action = #repairer_ComplexAction{
                     timer =
-                        {set_timer, #ff_repairer_SetTimerAction{
+                        {set_timer, #repairer_SetTimerAction{
                             timer = {timeout, 10000}
                         }}
                 }
@@ -1043,7 +1045,7 @@ repair_withdrawal_session(WithdrawalID) ->
     ok.
 
 call_session_repair(SessionID, Scenario) ->
-    Service = {ff_proto_withdrawal_session_thrift, 'Repairer'},
+    Service = {fistful_wthd_session_thrift, 'Repairer'},
     Request = {Service, 'Repair', {SessionID, Scenario}},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/repair/withdrawal/session">>,
@@ -1052,7 +1054,7 @@ call_session_repair(SessionID, Scenario) ->
     ff_woody_client:call(Client, Request).
 
 call_withdrawal_repair(SessionID, Scenario) ->
-    Service = {ff_proto_withdrawal_thrift, 'Repairer'},
+    Service = {fistful_wthd_thrift, 'Repairer'},
     Request = {Service, 'Repair', {SessionID, Scenario}},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/repair/withdrawal">>,

@@ -9,7 +9,7 @@
 -export([head/0]).
 
 -type revision() :: dmt_client:version().
--type object_data() :: dmt_client:object_data().
+-type object_data() :: dmt_client:untagged_domain_object().
 -type object_ref() :: dmsl_domain_thrift:'Reference'().
 
 -export_type([revision/0]).
@@ -18,7 +18,7 @@
 
 %%
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 
 -spec object(object_ref()) -> {ok, object_data()} | {error, notfound}.
 object(ObjectRef) ->

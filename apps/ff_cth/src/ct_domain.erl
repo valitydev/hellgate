@@ -30,6 +30,7 @@
 %%
 
 -include_lib("ff_cth/include/ct_domain.hrl").
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 
 -define(DTP(Type), dmsl_domain_thrift:Type()).
@@ -133,8 +134,7 @@ category(Ref, Name, Type) ->
     }}.
 
 -spec payment_method(?DTP('PaymentMethodRef')) -> object().
-payment_method(?pmt(_Type, Name) = Ref) when is_atom(Name) ->
-    payment_method(erlang:atom_to_binary(Name, unicode), Ref);
+
 payment_method(?pmt(?PAYMENT_METHOD_BANK_CARD(ID)) = Ref) when is_binary(ID) ->
     payment_method(ID, Ref);
 payment_method(?pmt(?PAYMENT_METHOD_DIGITAL_WALLET(ID)) = Ref) when is_binary(ID) ->
@@ -291,7 +291,7 @@ term_set_hierarchy(Ref, ParentRef, TermSets) ->
 -spec timed_term_set(?DTP('TermSet')) -> ?DTP('TimedTermSet').
 timed_term_set(TermSet) ->
     #domain_TimedTermSet{
-        action_time = #'TimestampInterval'{},
+        action_time = #'base_TimestampInterval'{},
         terms = TermSet
     }.
 
