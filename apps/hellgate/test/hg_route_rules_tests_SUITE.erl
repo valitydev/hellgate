@@ -436,12 +436,13 @@ gather_route_success(_C) ->
 
 -spec rejected_by_table_prohibitions(config()) -> test_return().
 rejected_by_table_prohibitions(_C) ->
-    PaymentTool = {bank_card, #domain_BankCard{
-        token = <<"bank card token">>,
-        payment_system = ?pmt_sys(<<"visa-ref">>),
-        bin = <<"411111">>,
-        last_digits = <<"11">>
-    }},
+    PaymentTool =
+        {bank_card, #domain_BankCard{
+            token = <<"bank card token">>,
+            payment_system = ?pmt_sys(<<"visa-ref">>),
+            bin = <<"411111">>,
+            last_digits = <<"11">>
+        }},
     Currency = ?cur(<<"RUB">>),
     VS = #{
         category => ?cat(1),
@@ -475,12 +476,13 @@ rejected_by_table_prohibitions(_C) ->
 
 -spec empty_candidate_ok(config()) -> test_return().
 empty_candidate_ok(_C) ->
-    PaymentTool = {bank_card, #domain_BankCard{
-        token = <<"bank card token">>,
-        payment_system = ?pmt_sys(<<"visa-ref">>),
-        bin = <<"411111">>,
-        last_digits = <<"11">>
-    }},
+    PaymentTool =
+        {bank_card, #domain_BankCard{
+            token = <<"bank card token">>,
+            payment_system = ?pmt_sys(<<"visa-ref">>),
+            bin = <<"411111">>,
+            last_digits = <<"11">>
+        }},
     Currency = ?cur(<<"RUB">>),
     VS = #{
         category => ?cat(1),
