@@ -245,7 +245,7 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
             currency => Currency,
             payment_tool => PaymentTool,
             party_id => Params#payproc_RecurrentPaymentToolParams.party_id,
-            client_ip => get_client_info_ip(PaymentTool)
+            client_ip => get_client_info_ip(Params#payproc_RecurrentPaymentToolParams.payment_resource)
         }),
         {ChosenRoute, ChoiceContext} = hg_routing:choose_route(NonFailRatedRoutes),
         ChosenPaymentRoute = hg_routing:to_payment_route(ChosenRoute),

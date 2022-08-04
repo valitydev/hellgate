@@ -30,7 +30,7 @@
     terminal_ref :: dmsl_domain_thrift:'TerminalRef'(),
     weight :: integer(),
     priority :: integer(),
-    pin :: integer()
+    pin :: pin()
 }).
 
 -type pin() :: #{
@@ -117,18 +117,18 @@
 
 -spec new(provider_ref(), terminal_ref()) -> route().
 new(ProviderRef, TerminalRef) ->
-    #route{
-        provider_ref = ProviderRef,
-        terminal_ref = TerminalRef,
-        weight = ?DOMAIN_CANDIDATE_WEIGHT,
-        priority = ?DOMAIN_CANDIDATE_PRIORITY
-    }.
+    new(
+        ProviderRef,
+        TerminalRef,
+        ?DOMAIN_CANDIDATE_WEIGHT,
+        ?DOMAIN_CANDIDATE_PRIORITY
+    ).
 
 -spec new(provider_ref(), terminal_ref(), integer() | undefined, integer()) -> route().
 new(ProviderRef, TerminalRef, Weight, Priority) ->
-    new(ProviderRef, TerminalRef, Weight, Priority, undefined).
+    new(ProviderRef, TerminalRef, Weight, Priority, #{}).
 
--spec new(provider_ref(), terminal_ref(), integer() | undefined, integer(), pin() | undefined) -> route().
+-spec new(provider_ref(), terminal_ref(), integer() | undefined, integer(), pin()) -> route().
 new(ProviderRef, TerminalRef, undefined, Priority, Pin) ->
     new(ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, Priority, Pin);
 new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
@@ -163,12 +163,7 @@ pin(#route{pin = Pin}) ->
 -spec from_payment_route(payment_route()) -> route().
 from_payment_route(Route) ->
     ?route(ProviderRef, TerminalRef) = Route,
-    #route{
-        provider_ref = ProviderRef,
-        terminal_ref = TerminalRef,
-        weight = ?DOMAIN_CANDIDATE_WEIGHT,
-        priority = ?DOMAIN_CANDIDATE_PRIORITY
-    }.
+    new(ProviderRef, TerminalRef).
 
 -spec to_payment_route(route()) -> payment_route().
 to_payment_route(#route{} = Route) ->
@@ -765,6 +760,7 @@ record_comparsion_test() ->
             conversion_condition = 1,
             conversion = 0.5,
             priority_rating = 1,
+            pin = 0,
             random_condition = 1
         },
         {42, 42}
@@ -776,6 +772,7 @@ record_comparsion_test() ->
             conversion_condition = 1,
             conversion = 0.5,
             priority_rating = 1,
+            pin = 0,
             random_condition = 1
         },
         {99, 99}

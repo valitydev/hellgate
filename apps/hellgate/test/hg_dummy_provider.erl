@@ -633,20 +633,15 @@ get_payment_tool_scenario(
 
 -type tokenized_bank_card_payment_system() ::
     {
-        dmsl_domain_thrift:'LegacyBankCardPaymentSystem'() | dmsl_domain_thrift:'PaymentSystemRef'(),
-        dmsl_domain_thrift:'LegacyBankCardTokenProvider'() | dmsl_domain_thrift:'BankCardTokenServiceRef'(),
+        dmsl_domain_thrift:'PaymentSystemRef'(),
+        dmsl_domain_thrift:'BankCardTokenServiceRef'(),
         dmsl_domain_thrift:'TokenizationMethod'()
     }.
 -type payment_system() ::
-    dmsl_domain_thrift:'LegacyBankCardPaymentSystem'()
-    | dmsl_domain_thrift:'PaymentServiceRef'()
+    dmsl_domain_thrift:'PaymentServiceRef'()
     | dmsl_domain_thrift:'PaymentSystemRef'()
-    | dmsl_domain_thrift:'LegacyTerminalPaymentProvider'()
-    | dmsl_domain_thrift:'LegacyDigitalWalletProvider'()
-    | dmsl_domain_thrift:'LegacyMobileOperator'()
     | dmsl_domain_thrift:'MobileOperatorRef'()
     | dmsl_domain_thrift:'CryptoCurrencyRef'()
-    | dmsl_domain_thrift:'LegacyCryptoCurrency'()
     | tokenized_bank_card_payment_system().
 -type payment_tool() :: {dmsl_domain_thrift:'PaymentTool'(), dmsl_domain_thrift:'PaymentSessionID'()}.
 -type payment_tool_code() ::
