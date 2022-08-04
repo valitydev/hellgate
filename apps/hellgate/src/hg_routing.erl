@@ -278,9 +278,8 @@ collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
 gather_pin_info(#domain_RoutingPin{features = Features}, Ctx) ->
     FeaturesList = ordsets:to_list(Features),
     lists:foldl(
-        fun
-            (Feature, Acc) ->
-                Acc#{Feature => maps:get(Feature, Ctx)}
+        fun(Feature, Acc) ->
+            Acc#{Feature => maps:get(Feature, Ctx)}
         end,
         #{},
         FeaturesList

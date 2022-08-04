@@ -3270,11 +3270,16 @@ get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
 get_payer_payment_tool(?recurrent_payer(PaymentTool, _, _)) ->
     PaymentTool.
 
-get_payer_client_ip(?payment_resource_payer(#domain_DisposablePaymentResource{
-    client_info = #domain_ClientInfo{
-        ip_address = IP
-    }
-}, _ContactInfo)) ->
+get_payer_client_ip(
+    ?payment_resource_payer(
+        #domain_DisposablePaymentResource{
+            client_info = #domain_ClientInfo{
+                ip_address = IP
+            }
+        },
+        _ContactInfo
+    )
+) ->
     IP;
 get_payer_client_ip(_OtherPayer) ->
     undefined.
