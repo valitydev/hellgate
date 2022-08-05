@@ -271,7 +271,7 @@ collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
     ).
 
 gather_pin_info(undefined, _Ctx) ->
-    undefined;
+    #{};
 gather_pin_info(#domain_RoutingPin{features = Features}, Ctx) ->
     FeaturesList = ordsets:to_list(Features),
     lists:foldl(
