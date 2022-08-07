@@ -15,6 +15,7 @@
 -export([from_payment_route/1]).
 -export([new/2]).
 -export([new/4]).
+-export([new/5]).
 -export([to_payment_route/1]).
 -export([provider_ref/1]).
 -export([terminal_ref/1]).

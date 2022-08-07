@@ -99,22 +99,31 @@
     ]
 }).
 
--define(candidate(Allowed, TerminalRef), #domain_RoutingCandidate{
-    allowed = Allowed,
-    terminal = TerminalRef
-}).
+-define(pin(Features), #domain_RoutingPin{features = ordsets:from_list(Features)}).
 
--define(candidate(Descr, Allowed, TerminalRef), #domain_RoutingCandidate{
-    description = Descr,
-    allowed = Allowed,
-    terminal = TerminalRef
-}).
+-define(candidate(Allowed, TerminalRef),
+    ?candidate(undefined, Allowed, TerminalRef)
+).
 
--define(candidate(Descr, Allowed, TerminalRef, Priority), #domain_RoutingCandidate{
+-define(candidate(Descr, Allowed, TerminalRef),
+    ?candidate(Descr, Allowed, TerminalRef, undefined)
+).
+
+-define(candidate(Descr, Allowed, TerminalRef, Priority),
+    ?candidate(Descr, Allowed, TerminalRef, Priority, undefined)
+).
+
+-define(candidate(Descr, Allowed, TerminalRef, Priority, Weight),
+    ?candidate(Descr, Allowed, TerminalRef, Priority, Weight, undefined)
+).
+
+-define(candidate(Descr, Allowed, TerminalRef, Priority, Weight, Pin), #domain_RoutingCandidate{
     description = Descr,
     allowed = Allowed,
     terminal = TerminalRef,
-    priority = Priority
+    priority = Priority,
+    weight = Weight,
+    pin = Pin
 }).
 
 -define(delegate(Allowed, RuleSetRef), #domain_RoutingDelegate{
