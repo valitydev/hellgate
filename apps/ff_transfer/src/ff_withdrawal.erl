@@ -787,21 +787,17 @@ do_process_routing(Withdrawal) ->
     end).
 
 do_rollback_routing(ExcludeRoute, Withdrawal) ->
-    {Varset, Context} = make_routing_varset_and_context(Withdrawal),
-    {ok, Routes} = ff_withdrawal_routing:routes(ff_withdrawal_routing:gather_routes(Varset, Context)),
-    RollbackRoutes =
-        case ExcludeRoute of
-            undefined ->
-                Routes;
-            #{terminal_id := TerminalID} ->
-                lists:filter(
-                    fun(#{terminal_id := TID}) ->
-                        TerminalID =/= TID
-                    end,
-                    Routes
-                )
-        end,
-    rollback_routes_limits(RollbackRoutes, Varset, Context).
+    do(fun() ->
+        {Varset, Context} = make_routing_varset_and_context(Withdrawal),
+        Routes = unwrap(ff_withdrawal_routing:routes(ff_withdrawal_routing:gather_routes(Varset, Context))),
+        RollbackRoutes = maybe_exclude_route(ExcludeRoute, Routes),
+        rollback_routes_limits(RollbackRoutes, Varset, Context)
+    end).
+
+maybe_exclude_route(#{terminal_id := TerminalID}, Routes) ->
+    lists:filter(fun(#{terminal_id := TID}) -> TerminalID =/= TID end, Routes);
+maybe_exclude_route(undefined, Routes) ->
+    Routes.
 
 rollback_routes_limits(Routes, Withdrawal) ->
     {Varset, Context} = make_routing_varset_and_context(Withdrawal),
