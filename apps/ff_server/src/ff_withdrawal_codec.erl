@@ -59,6 +59,7 @@ unmarshal_withdrawal_params(Params) ->
     fistful_wthd_thrift:'WithdrawalState'().
 marshal_withdrawal_state(WithdrawalState, Context) ->
     CashFlow = ff_withdrawal:effective_final_cash_flow(WithdrawalState),
+    DomainRevision = ff_withdrawal:final_domain_revision(WithdrawalState),
     Adjustments = ff_withdrawal:adjustments(WithdrawalState),
     Sessions = ff_withdrawal:sessions(WithdrawalState),
     #wthd_WithdrawalState{
@@ -68,7 +69,7 @@ marshal_withdrawal_state(WithdrawalState, Context) ->
         destination_id = marshal(id, ff_withdrawal:destination_id(WithdrawalState)),
         route = maybe_marshal(route, ff_withdrawal:route(WithdrawalState)),
         external_id = maybe_marshal(id, ff_withdrawal:external_id(WithdrawalState)),
-        domain_revision = maybe_marshal(domain_revision, ff_withdrawal:domain_revision(WithdrawalState)),
+        domain_revision = maybe_marshal(domain_revision, DomainRevision),
         party_revision = maybe_marshal(party_revision, ff_withdrawal:party_revision(WithdrawalState)),
         created_at = maybe_marshal(timestamp_ms, ff_withdrawal:created_at(WithdrawalState)),
         status = maybe_marshal(status, ff_withdrawal:status(WithdrawalState)),

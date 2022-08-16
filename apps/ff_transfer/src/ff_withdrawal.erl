@@ -98,8 +98,8 @@
     route := route(),
     operation_timestamp := ff_time:timestamp_ms(),
     resource_descriptor => resource_descriptor(),
-    domain_revision => party_revision(),
-    party_revision => domain_revision()
+    domain_revision => domain_revision(),
+    party_revision => party_revision()
 }.
 
 -type quote_state() :: #{
@@ -151,12 +151,14 @@
 }.
 
 -type adjustment_change() ::
-    {change_status, status()}.
+    {change_status, status()}
+    | {change_cash_flow, domain_revision()}.
 
 -type start_adjustment_error() ::
     invalid_withdrawal_status_error()
     | invalid_status_change_error()
     | {another_adjustment_in_progress, adjustment_id()}
+    | {invalid_cash_flow_change, {already_has_domain_revision, domain_revision()}}
     | ff_adjustment:create_error().
 
 -type unknown_adjustment_error() :: ff_adjustment_utils:unknown_adjustment_error().
@@ -223,6 +225,7 @@
 -export([find_adjustment/2]).
 -export([adjustments/1]).
 -export([effective_final_cash_flow/1]).
+-export([final_domain_revision/1]).
 -export([sessions/1]).
 -export([session_id/1]).
 -export([get_current_session/1]).
@@ -505,6 +508,15 @@ effective_final_cash_flow(Withdrawal) ->
             ff_cash_flow:make_empty_final();
         CashFlow ->
             CashFlow
+    end.
+
+-spec final_domain_revision(withdrawal_state()) -> domain_revision().
+final_domain_revision(Withdrawal) ->
+    case ff_adjustment_utils:domain_revision(adjustments_index(Withdrawal)) of
+        undefined ->
+            operation_domain_revision(Withdrawal);
+        DomainRevision ->
+            DomainRevision
     end.
 
 -spec sessions(withdrawal_state()) -> [session()].
@@ -811,7 +823,7 @@ commit_routes_limits(Routes, Withdrawal) ->
     ff_withdrawal_routing:commit_routes_limits(Routes, Varset, Context).
 
 make_routing_varset_and_context(Withdrawal) ->
-    DomainRevision = operation_domain_revision(Withdrawal),
+    DomainRevision = final_domain_revision(Withdrawal),
     WalletID = wallet_id(Withdrawal),
     {ok, Wallet} = get_wallet(WalletID),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
@@ -855,7 +867,7 @@ validate_quote_terminal(#{terminal_id := TerminalID}, _) ->
 process_limit_check(Withdrawal) ->
     WalletID = wallet_id(Withdrawal),
     {ok, Wallet} = get_wallet(WalletID),
-    DomainRevision = operation_domain_revision(Withdrawal),
+    DomainRevision = final_domain_revision(Withdrawal),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
     Resource = destination_resource(Withdrawal),
     Identity = get_wallet_identity(Wallet),
@@ -992,11 +1004,14 @@ is_childs_active(Withdrawal) ->
 
 -spec make_final_cash_flow(withdrawal_state()) -> final_cash_flow().
 make_final_cash_flow(Withdrawal) ->
+    make_final_cash_flow(final_domain_revision(Withdrawal), Withdrawal).
+
+-spec make_final_cash_flow(domain_revision(), withdrawal_state()) -> final_cash_flow().
+make_final_cash_flow(DomainRevision, Withdrawal) ->
     Body = body(Withdrawal),
     WalletID = wallet_id(Withdrawal),
     {ok, Wallet} = get_wallet(WalletID),
     Route = route(Withdrawal),
-    DomainRevision = operation_domain_revision(Withdrawal),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
     Resource = destination_resource(Withdrawal),
     Identity = get_wallet_identity(Wallet),
@@ -1498,7 +1513,8 @@ validate_adjustment_start(Params, Withdrawal) ->
     do(fun() ->
         valid = unwrap(validate_no_pending_adjustment(Withdrawal)),
         valid = unwrap(validate_withdrawal_finish(Withdrawal)),
-        valid = unwrap(validate_status_change(Params, Withdrawal))
+        valid = unwrap(validate_status_change(Params, Withdrawal)),
+        valid = unwrap(validate_domain_revision_change(Params, Withdrawal))
     end).
 
 -spec validate_withdrawal_finish(withdrawal_state()) ->
@@ -1552,6 +1568,29 @@ validate_change_same_status(NewStatus, OldStatus) when NewStatus =/= OldStatus -
 validate_change_same_status(Status, Status) ->
     {error, {already_has_status, Status}}.
 
+-spec validate_domain_revision_change(adjustment_params(), withdrawal_state()) ->
+    {ok, valid}
+    | {error, {invalid_cash_flow_change, {already_has_domain_revision, domain_revision()}}}.
+validate_domain_revision_change(#{change := {change_cash_flow, DomainRevision}}, Withdrawal) ->
+    do(fun() ->
+        valid = unwrap(
+            invalid_cash_flow_change,
+            validate_change_same_domain_revision(DomainRevision, final_domain_revision(Withdrawal))
+        )
+    end);
+validate_domain_revision_change(_Params, _Withdrawal) ->
+    {ok, valid}.
+
+-spec validate_change_same_domain_revision(domain_revision(), domain_revision()) ->
+    {ok, valid}
+    | {error, {already_has_domain_revision, domain_revision()}}.
+validate_change_same_domain_revision(NewDomainRevision, OldDomainRevision) when
+    NewDomainRevision =/= OldDomainRevision
+->
+    {ok, valid};
+validate_change_same_domain_revision(DomainRevision, DomainRevision) ->
+    {error, {already_has_domain_revision, DomainRevision}}.
+
 %% Adjustment helpers
 
 -spec apply_adjustment_event(wrapped_adjustment_event(), withdrawal_state()) -> withdrawal_state().
@@ -1567,15 +1606,23 @@ make_adjustment_params(Params, Withdrawal) ->
         id => ID,
         changes_plan => make_adjustment_change(Change, Withdrawal),
         external_id => genlib_map:get(external_id, Params),
-        domain_revision => operation_domain_revision(Withdrawal),
+        domain_revision => adjustment_domain_revision(Change, Withdrawal),
         party_revision => operation_party_revision(Withdrawal),
         operation_timestamp => operation_timestamp(Withdrawal)
     }).
 
+-spec adjustment_domain_revision(adjustment_change(), withdrawal_state()) -> domain_revision().
+adjustment_domain_revision({change_cash_flow, NewDomainRevision}, _Withdrawal) ->
+    NewDomainRevision;
+adjustment_domain_revision(_, Withdrawal) ->
+    operation_domain_revision(Withdrawal).
+
 -spec make_adjustment_change(adjustment_change(), withdrawal_state()) -> ff_adjustment:changes().
 make_adjustment_change({change_status, NewStatus}, Withdrawal) ->
     CurrentStatus = status(Withdrawal),
-    make_change_status_params(CurrentStatus, NewStatus, Withdrawal).
+    make_change_status_params(CurrentStatus, NewStatus, Withdrawal);
+make_adjustment_change({change_cash_flow, NewDomainRevision}, Withdrawal) ->
+    make_change_cash_flow_params(NewDomainRevision, Withdrawal).
 
 -spec make_change_status_params(status(), status(), withdrawal_state()) -> ff_adjustment:changes().
 make_change_status_params(succeeded, {failed, _} = NewStatus, Withdrawal) ->
@@ -1606,6 +1653,19 @@ make_change_status_params({failed, _}, {failed, _} = NewStatus, _Withdrawal) ->
     #{
         new_status => #{
             new_status => NewStatus
+        }
+    }.
+
+make_change_cash_flow_params(NewDomainRevision, Withdrawal) ->
+    CurrentCashFlow = effective_final_cash_flow(Withdrawal),
+    NewCashFlow = make_final_cash_flow(NewDomainRevision, Withdrawal),
+    #{
+        new_cash_flow => #{
+            old_cash_flow_inverted => ff_cash_flow:inverse(CurrentCashFlow),
+            new_cash_flow => NewCashFlow
+        },
+        new_domain_revision => #{
+            new_domain_revision => NewDomainRevision
         }
     }.
 
@@ -1836,9 +1896,9 @@ get_attempt_limit(Withdrawal) ->
         },
         created_at := Timestamp,
         party_revision := PartyRevision,
-        domain_revision := DomainRevision,
         resource := Resource
     } = Withdrawal,
+    DomainRevision = final_domain_revision(Withdrawal),
     {ok, Wallet} = get_wallet(WalletID),
     {ok, Destination} = get_destination(DestinationID),
     Identity = get_wallet_identity(Wallet),

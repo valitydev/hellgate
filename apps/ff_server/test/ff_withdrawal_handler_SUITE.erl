@@ -38,6 +38,7 @@
 -export([create_adjustment_ok_test/1]).
 -export([create_adjustment_unavailable_status_error_test/1]).
 -export([create_adjustment_already_has_status_error_test/1]).
+-export([create_adjustment_already_has_data_revision_error_test/1]).
 -export([withdrawal_state_content_test/1]).
 
 -type config() :: ct_helper:config().
@@ -72,6 +73,7 @@ groups() ->
             create_adjustment_ok_test,
             create_adjustment_unavailable_status_error_test,
             create_adjustment_already_has_status_error_test,
+            create_adjustment_already_has_data_revision_error_test,
             withdrawal_state_content_test
         ]}
     ].
@@ -501,6 +503,26 @@ create_adjustment_already_has_status_error_test(C) ->
     Result = call_withdrawal('CreateAdjustment', {WithdrawalID, Params}),
     ExpectedError = #wthd_AlreadyHasStatus{
         withdrawal_status = {succeeded, #wthd_status_Succeeded{}}
+    },
+    ?assertEqual({exception, ExpectedError}, Result).
+
+-spec create_adjustment_already_has_data_revision_error_test(config()) -> test_return().
+create_adjustment_already_has_data_revision_error_test(C) ->
+    #{
+        withdrawal_id := WithdrawalID
+    } = prepare_standard_environment_with_withdrawal(C),
+    Withdrawal = get_withdrawal(WithdrawalID),
+    DomainRevision = ff_withdrawal:domain_revision(Withdrawal),
+    Params = #wthd_adj_AdjustmentParams{
+        id = generate_id(),
+        change =
+            {change_cash_flow, #wthd_adj_ChangeCashFlowRequest{
+                domain_revision = DomainRevision
+            }}
+    },
+    Result = call_withdrawal('CreateAdjustment', {WithdrawalID, Params}),
+    ExpectedError = #wthd_AlreadyHasDataRevision{
+        domain_revision = DomainRevision
     },
     ?assertEqual({exception, ExpectedError}, Result).
 

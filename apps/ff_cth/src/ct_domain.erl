@@ -24,6 +24,7 @@
 -export([timed_term_set/1]).
 -export([globals/2]).
 -export([withdrawal_provider/4]).
+-export([withdrawal_provider/5]).
 -export([withdrawal_terminal/2]).
 -export([withdrawal_terminal/3]).
 
@@ -44,8 +45,18 @@
     binary(),
     ?DTP('ProvisionTermSet') | undefined
 ) -> object().
-withdrawal_provider(?prv(ID) = Ref, ProxyRef, IdentityID, TermSet) ->
+withdrawal_provider(Ref, ProxyRef, IdentityID, TermSet) ->
     {ok, AccountID} = ct_helper:create_account(<<"RUB">>),
+    withdrawal_provider(AccountID, Ref, ProxyRef, IdentityID, TermSet).
+
+-spec withdrawal_provider(
+    ff_account:accounter_account_id(),
+    ?DTP('ProviderRef'),
+    ?DTP('ProxyRef'),
+    binary(),
+    ?DTP('ProvisionTermSet') | undefined
+) -> object().
+withdrawal_provider(AccountID, ?prv(ID) = Ref, ProxyRef, IdentityID, TermSet) ->
     {provider, #domain_ProviderObject{
         ref = Ref,
         data = #domain_Provider{

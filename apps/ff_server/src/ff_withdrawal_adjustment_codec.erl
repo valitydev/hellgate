@@ -51,7 +51,8 @@ marshal(status, succeeded) ->
 marshal(changes_plan, Plan) ->
     #wthd_adj_ChangesPlan{
         new_cash_flow = maybe_marshal(cash_flow_change_plan, maps:get(new_cash_flow, Plan, undefined)),
-        new_status = maybe_marshal(status_change_plan, maps:get(new_status, Plan, undefined))
+        new_status = maybe_marshal(status_change_plan, maps:get(new_status, Plan, undefined)),
+        new_domain_revision = maybe_marshal(domain_revision_change_plan, maps:get(new_domain_revision, Plan, undefined))
     };
 marshal(cash_flow_change_plan, Plan) ->
     OldCashFLow = ff_cash_flow_codec:marshal(final_cash_flow, maps:get(old_cash_flow_inverted, Plan)),
@@ -64,9 +65,17 @@ marshal(status_change_plan, Plan) ->
     #wthd_adj_StatusChangePlan{
         new_status = ff_withdrawal_status_codec:marshal(status, maps:get(new_status, Plan))
     };
+marshal(domain_revision_change_plan, Plan) ->
+    #wthd_adj_DataRevisionChangePlan{
+        new_domain_revision = ff_codec:marshal(domain_revision, maps:get(new_domain_revision, Plan))
+    };
 marshal(change_request, {change_status, Status}) ->
     {change_status, #wthd_adj_ChangeStatusRequest{
         new_status = ff_withdrawal_status_codec:marshal(status, Status)
+    }};
+marshal(change_request, {change_cash_flow, DomainRevision}) ->
+    {change_status, #wthd_adj_ChangeCashFlowRequest{
+        domain_revision = ff_codec:marshal(domain_revision, DomainRevision)
     }};
 marshal(T, V) ->
     ff_codec:marshal(T, V).
@@ -102,7 +111,10 @@ unmarshal(status, {succeeded, #wthd_adj_Succeeded{}}) ->
 unmarshal(changes_plan, Plan) ->
     genlib_map:compact(#{
         new_cash_flow => maybe_unmarshal(cash_flow_change_plan, Plan#wthd_adj_ChangesPlan.new_cash_flow),
-        new_status => maybe_unmarshal(status_change_plan, Plan#wthd_adj_ChangesPlan.new_status)
+        new_status => maybe_unmarshal(status_change_plan, Plan#wthd_adj_ChangesPlan.new_status),
+        new_domain_revision => maybe_unmarshal(
+            domain_revision_change_plan, Plan#wthd_adj_ChangesPlan.new_domain_revision
+        )
     });
 unmarshal(cash_flow_change_plan, Plan) ->
     OldCashFlow = Plan#wthd_adj_CashFlowChangePlan.old_cash_flow_inverted,
@@ -116,9 +128,17 @@ unmarshal(status_change_plan, Plan) ->
     #{
         new_status => ff_withdrawal_status_codec:unmarshal(status, Status)
     };
+unmarshal(domain_revision_change_plan, Plan) ->
+    DomainRevision = Plan#wthd_adj_DataRevisionChangePlan.new_domain_revision,
+    #{
+        new_domain_revision => ff_codec:unmarshal(domain_revision, DomainRevision)
+    };
 unmarshal(change_request, {change_status, Request}) ->
     Status = Request#wthd_adj_ChangeStatusRequest.new_status,
     {change_status, ff_withdrawal_status_codec:unmarshal(status, Status)};
+unmarshal(change_request, {change_cash_flow, Request}) ->
+    DomainRevision = Request#wthd_adj_ChangeCashFlowRequest.domain_revision,
+    {change_cash_flow, ff_codec:unmarshal(domain_revision, DomainRevision)};
 unmarshal(T, V) ->
     ff_codec:unmarshal(T, V).
 
@@ -179,7 +199,8 @@ adjustment_codec_test() ->
         new_cash_flow => CashFlowChange,
         new_status => #{
             new_status => succeeded
-        }
+        },
+        new_domain_revision => #{new_domain_revision => 123}
     },
 
     Adjustment = #{

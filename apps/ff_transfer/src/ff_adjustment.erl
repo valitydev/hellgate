@@ -28,7 +28,8 @@
 
 -type changes() :: #{
     new_cash_flow => cash_flow_change(),
-    new_status => status_change()
+    new_status => status_change(),
+    new_domain_revision => #{new_domain_revision := domain_revision()}
 }.
 
 -type cash_flow_change() :: #{

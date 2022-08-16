@@ -140,6 +140,8 @@ start_optional_apps(_) ->
 setup_dominant(Options) ->
     DomainConfig = domain_config(Options),
     _ = ct_domain_config:upsert(DomainConfig),
+    DomainConfigUpdate = domain_config_add_version(Options),
+    _ = ct_domain_config:upsert(DomainConfigUpdate),
     ok.
 
 configure_processing_apps(Options) ->
@@ -261,6 +263,50 @@ dummy_payment_inst_identity_id(Options) ->
 dummy_provider_identity_id(Options) ->
     maps:get(dummy_provider_identity_id, Options).
 
+domain_config_add_version(Options) ->
+    {ok, Provider} = ff_domain_config:object({provider, ?prv(1)}),
+    #domain_Provider{
+        accounts = #{
+            ?cur(<<"RUB">>) := #domain_ProviderAccount{settlement = AccountID}
+        }
+    } = Provider,
+    ProviderTermSet = #domain_ProvisionTermSet{
+        wallet = #domain_WalletProvisionTerms{
+            withdrawals = #domain_WithdrawalProvisionTerms{
+                currencies = {value, ?ordset([?cur(<<"RUB">>)])},
+                payout_methods = {value, ?ordset([])},
+                cash_limit =
+                    {value,
+                        ?cashrng(
+                            {inclusive, ?cash(0, <<"RUB">>)},
+                            {exclusive, ?cash(10000000, <<"RUB">>)}
+                        )},
+                cash_flow =
+                    {decisions, [
+                        #domain_CashFlowDecision{
+                            if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                            then_ =
+                                {value, [
+                                    ?cfpost(
+                                        {system, settlement},
+                                        {provider, settlement},
+                                        {product,
+                                            {min_of,
+                                                ?ordset([
+                                                    ?fixed(10, <<"RUB">>),
+                                                    ?share(5, 100, operation_amount, round_half_towards_zero)
+                                                ])}}
+                                    )
+                                ]}
+                        }
+                    ]}
+            }
+        }
+    },
+    [
+        ct_domain:withdrawal_provider(AccountID, ?prv(1), ?prx(2), provider_identity_id(Options), ProviderTermSet)
+    ].
+
 domain_config(Options) ->
     ProviderTermSet = #domain_ProvisionTermSet{
         wallet = #domain_WalletProvisionTerms{
@@ -288,6 +334,34 @@ domain_config(Options) ->
                                                     ?fixed(10, <<"RUB">>),
                                                     ?share(5, 100, operation_amount, round_half_towards_zero)
                                                 ])}}
+                                    )
+                                ]}
+                        }
+                    ]}
+            }
+        }
+    },
+    TempProviderTermSet = #domain_ProvisionTermSet{
+        wallet = #domain_WalletProvisionTerms{
+            withdrawals = #domain_WithdrawalProvisionTerms{
+                currencies = {value, ?ordset([?cur(<<"RUB">>)])},
+                payout_methods = {value, ?ordset([])},
+                cash_limit =
+                    {value,
+                        ?cashrng(
+                            {inclusive, ?cash(0, <<"RUB">>)},
+                            {exclusive, ?cash(10000000, <<"RUB">>)}
+                        )},
+                cash_flow =
+                    {decisions, [
+                        #domain_CashFlowDecision{
+                            if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
+                            then_ =
+                                {value, [
+                                    ?cfpost(
+                                        {system, settlement},
+                                        {provider, settlement},
+                                        ?fixed(2, <<"RUB">>)
                                     )
                                 ]}
                         }
@@ -687,7 +761,7 @@ domain_config(Options) ->
         ct_domain:proxy(?prx(7), <<"Another down proxy">>, <<"http://localhost:8222/downbank2">>),
         ct_domain:proxy(?prx(8), <<"Sleep proxy">>, <<"http://localhost:8222/sleepybank">>),
 
-        ct_domain:withdrawal_provider(?prv(1), ?prx(2), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(1), ?prx(2), provider_identity_id(Options), TempProviderTermSet),
         ct_domain:withdrawal_provider(?prv(2), ?prx(2), provider_identity_id(Options), ProviderTermSet),
         ct_domain:withdrawal_provider(?prv(3), ?prx(3), dummy_provider_identity_id(Options), ProviderTermSet),
         ct_domain:withdrawal_provider(?prv(4), ?prx(6), provider_identity_id(Options), ProviderTermSet),

@@ -8,7 +8,8 @@
     adjustments := #{id() => adjustment()},
     inversed_order := [id()],
     active => id(),
-    cash_flow => final_cash_flow()
+    cash_flow => final_cash_flow(),
+    domain_revision => domain_revision()
 }.
 
 -type wrapped_event() ::
@@ -35,8 +36,10 @@
 -export([new_index/0]).
 
 -export([set_cash_flow/2]).
-
 -export([cash_flow/1]).
+
+-export([set_domain_revision/2]).
+-export([domain_revision/1]).
 
 -export([adjustments/1]).
 -export([is_active/1]).
@@ -59,6 +62,7 @@
 -type final_cash_flow() :: ff_cash_flow:final_cash_flow().
 -type action() :: machinery:action() | undefined.
 -type changes() :: ff_adjustment:changes().
+-type domain_revision() :: ff_domain_config:revision().
 
 %% API
 
@@ -76,6 +80,14 @@ set_cash_flow(Body, Index) ->
 -spec cash_flow(index()) -> final_cash_flow() | undefined.
 cash_flow(Index) ->
     maps:get(cash_flow, Index, undefined).
+
+-spec set_domain_revision(domain_revision(), index()) -> index().
+set_domain_revision(DomainRevision, Index) ->
+    Index#{domain_revision => DomainRevision}.
+
+-spec domain_revision(index()) -> domain_revision() | undefined.
+domain_revision(Index) ->
+    maps:get(domain_revision, Index, undefined).
 
 -spec adjustments(index()) -> [adjustment()].
 adjustments(Index) ->
@@ -129,7 +141,8 @@ apply_event(WrappedEvent, Index0) ->
     Index2 = update_order(Event, Index1),
     Index3 = update_active(Event, Adjustment1, Index2),
     Index4 = update_target_data(Event, Adjustment1, Index3),
-    Index4.
+    Index5 = update_domain_revision(Event, Adjustment1, Index4),
+    Index5.
 
 -spec maybe_migrate(wrapped_event() | any()) -> wrapped_event().
 maybe_migrate(Event) ->
@@ -173,9 +186,15 @@ update_active(_OtherEvent, Adjustment, Index) when is_map_key(active, Index) ->
 -spec update_target_data(event(), adjustment(), index()) -> index().
 update_target_data({status_changed, succeeded}, Adjustment, Index0) ->
     Changes = ff_adjustment:changes_plan(Adjustment),
-    Index1 = update_target_cash_flow(Changes, Index0),
-    Index1;
+    update_target_cash_flow(Changes, Index0);
 update_target_data(_OtherEvent, _Adjustment, Index) ->
+    Index.
+
+-spec update_domain_revision(event(), adjustment(), index()) -> index().
+update_domain_revision({status_changed, succeeded}, Adjustment, Index0) ->
+    Changes = ff_adjustment:changes_plan(Adjustment),
+    update_target_domain_revision(Changes, Index0);
+update_domain_revision(_OtherEvent, _Adjustment, Index) ->
     Index.
 
 -spec update_target_cash_flow(changes(), index()) -> index().
@@ -183,6 +202,12 @@ update_target_cash_flow(#{new_cash_flow := CashFlowChange}, Index) ->
     #{new_cash_flow := CashFlow} = CashFlowChange,
     set_cash_flow(CashFlow, Index);
 update_target_cash_flow(_OtherChange, Index) ->
+    Index.
+
+-spec update_target_domain_revision(changes(), index()) -> index().
+update_target_domain_revision(#{new_domain_revision := #{new_domain_revision := DomainRevision}}, Index) ->
+    set_domain_revision(DomainRevision, Index);
+update_target_domain_revision(_OtherChange, Index) ->
     Index.
 
 -spec do_get_not_finished([adjustment()]) -> {ok, id()} | error.
