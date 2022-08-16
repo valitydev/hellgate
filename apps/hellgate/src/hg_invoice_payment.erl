@@ -3631,15 +3631,16 @@ merge_chargeback_change(Change, ChargebackState) ->
     hg_invoice_payment_chargeback:merge_change(Change, ChargebackState).
 
 merge_refund_change(?refund_created(Refund, Cashflow, TransactionInfo), undefined) ->
-    #refund_st{refund = Refund, cash_flow = Cashflow, transaction_info = TransactionInfo};
-merge_refund_change(?refund_status_changed(Status), RefundSt) ->
-    set_refund(set_refund_status(Status, get_refund(RefundSt)), RefundSt);
-merge_refund_change(?refund_rollback_started(Failure), RefundSt) ->
-    RefundSt#refund_st{failure = Failure};
-merge_refund_change(?session_ev(?refunded(), ?session_started()), RefundSt) ->
-    add_refund_session(create_session(?refunded(), undefined), RefundSt);
-merge_refund_change(?session_ev(?refunded(), Change), RefundSt) ->
-    update_refund_session(merge_session_change(Change, get_refund_session(RefundSt), #{}), RefundSt).
+    hg_invoice_payment_refund:merge_change(Change, RefundState).
+%     #refund_st{refund = Refund, cash_flow = Cashflow, transaction_info = TransactionInfo};
+% merge_refund_change(?refund_status_changed(Status), RefundSt) ->
+%     set_refund(set_refund_status(Status, get_refund(RefundSt)), RefundSt);
+% merge_refund_change(?refund_rollback_started(Failure), RefundSt) ->
+%     RefundSt#refund_st{failure = Failure};
+% merge_refund_change(?session_ev(?refunded(), ?session_started()), RefundSt) ->
+%     add_refund_session(create_session(?refunded(), undefined), RefundSt);
+% merge_refund_change(?session_ev(?refunded(), Change), RefundSt) ->
+%     update_refund_session(merge_session_change(Change, get_refund_session(RefundSt), #{}), RefundSt).
 
 merge_adjustment_change(?adjustment_created(Adjustment), undefined) ->
     Adjustment;
