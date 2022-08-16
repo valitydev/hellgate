@@ -774,12 +774,23 @@ validate_limit(Cash, CashRange) ->
 gather_routes(PaymentInstitution, VS, Revision, St) ->
     Payment = get_payment(St),
     Predestination = choose_routing_predestination(Payment),
+    #domain_Cash{currency = Currency} = get_payment_cost(Payment),
+    PartyID = Payment#domain_InvoicePayment.owner_id,
+    Payer = get_payment_payer(St),
+    PaymentTool = get_payer_payment_tool(Payer),
+    ClientIP = get_payer_client_ip(Payer),
     case
         hg_routing:gather_routes(
             Predestination,
             PaymentInstitution,
             VS,
-            Revision
+            Revision,
+            #{
+                currency => Currency,
+                payment_tool => PaymentTool,
+                party_id => PartyID,
+                client_ip => ClientIP
+            }
         )
     of
         {ok, {[], RejectedRoutes}} ->
@@ -3258,6 +3269,20 @@ get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
     PaymentTool;
 get_payer_payment_tool(?recurrent_payer(PaymentTool, _, _)) ->
     PaymentTool.
+
+get_payer_client_ip(
+    ?payment_resource_payer(
+        #domain_DisposablePaymentResource{
+            client_info = #domain_ClientInfo{
+                ip_address = IP
+            }
+        },
+        _ContactInfo
+    )
+) ->
+    IP;
+get_payer_client_ip(_OtherPayer) ->
+    undefined.
 
 get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = PaymentTool}) ->
     PaymentTool.

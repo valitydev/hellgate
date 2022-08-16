@@ -27,6 +27,8 @@
 -export([routes_selected_for_high_risk_score/1]).
 -export([routes_selected_for_low_risk_score/1]).
 -export([terminal_priority_for_shop/1]).
+-export([gather_pinned_route/1]).
+-export([choose_pinned_route/1]).
 
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
 -define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
@@ -35,6 +37,7 @@
 -define(shop_id_for_ruleset_w_priority_distribution_1, <<"dummy_shop_id">>).
 -define(shop_id_for_ruleset_w_priority_distribution_2, <<"dummy_another_shop_id">>).
 -define(assert_set_equal(S1, S2), ?assertEqual(lists:sort(S1), lists:sort(S2))).
+-define(assert_set_match(S1, S2), ?assertMatch(lists:sort(S1), lists:sort(S2))).
 
 -type config() :: hg_ct_helper:config().
 -type test_case_name() :: hg_ct_helper:test_case_name().
@@ -62,7 +65,10 @@ groups() ->
 
             choice_context_formats_ok,
 
-            terminal_priority_for_shop
+            terminal_priority_for_shop,
+
+            gather_pinned_route,
+            choose_pinned_route
         ]}
     ].
 
@@ -125,6 +131,7 @@ cfg(Key, C) ->
 -define(routing_with_risk_coverage_set_domain_revision, 2).
 -define(routing_with_fail_rate_domain_revision, 3).
 -define(terminal_priority_domain_revision, 4).
+-define(pinned_route_revision, 5).
 
 mock_dominant(SupPid) ->
     Domain = construct_domain_fixture(),
@@ -203,6 +210,25 @@ mock_party_management(SupPid) ->
                             {delegates, []}
                     }};
                 ('ComputeRoutingRuleset', {?ruleset(2), DomainRevision, _}) when
+                    DomainRevision == ?pinned_route_revision
+                ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"">>,
+                        decisions =
+                            {candidates, [
+                                ?candidate(
+                                    <<"">>,
+                                    {constant, true},
+                                    ?trm(1),
+                                    0,
+                                    0,
+                                    ?pin([currency, payment_tool, party_id, client_ip])
+                                ),
+                                ?candidate(<<"">>, {constant, true}, ?trm(2), 0, 0, ?pin([currency, payment_tool])),
+                                ?candidate(<<"">>, {constant, true}, ?trm(3), 0, 0, ?pin([currency, payment_tool]))
+                            ]}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(2), DomainRevision, _}) when
                     DomainRevision == ?routing_with_fail_rate_domain_revision orelse
                         DomainRevision == ?routing_with_risk_coverage_set_domain_revision orelse
                         DomainRevision == ?base_routing_rule_domain_revision
@@ -227,7 +253,8 @@ mock_party_management(SupPid) ->
                 ('ComputeRoutingRuleset', {?ruleset(1), DomainRevision, _}) when
                     DomainRevision == ?routing_with_fail_rate_domain_revision orelse
                         DomainRevision == ?routing_with_risk_coverage_set_domain_revision orelse
-                        DomainRevision == ?terminal_priority_domain_revision
+                        DomainRevision == ?terminal_priority_domain_revision orelse
+                        DomainRevision == ?pinned_route_revision
                 ->
                     {ok, #domain_RoutingRuleset{
                         name = <<"No prohibition: all candidate is allowed">>,
@@ -347,11 +374,13 @@ mock_fault_detector(SupPid) ->
 
 -spec no_route_found_for_payment(config()) -> test_return().
 no_route_found_for_payment(_C) ->
+    Currency0 = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
+        currency => Currency0,
         cost => ?PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(-1),
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+        payment_tool => PaymentTool,
         party_id => ?dummy_party_id,
         flow => instant
     },
@@ -359,7 +388,13 @@ no_route_found_for_payment(_C) ->
     Revision = ?base_routing_rule_domain_revision,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
 
-    {ok, {[], RejectedRoutes1}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
+    Ctx0 = #{
+        currency => Currency0,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+    {ok, {[], RejectedRoutes1}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx0),
 
     ?assert_set_equal(
         [
@@ -370,11 +405,15 @@ no_route_found_for_payment(_C) ->
         RejectedRoutes1
     ),
 
+    Currency1 = ?cur(<<"EUR">>),
     VS1 = VS#{
-        currency => ?cur(<<"EUR">>),
+        currency => Currency1,
         cost => ?cash(1000, <<"EUR">>)
     },
-    {ok, {[], RejectedRoutes2}} = hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision),
+    Ctx1 = Ctx0#{
+        currency => Currency1
+    },
+    {ok, {[], RejectedRoutes2}} = hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision, Ctx1),
     ?assert_set_equal(
         [
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', currency}},
@@ -386,11 +425,13 @@ no_route_found_for_payment(_C) ->
 
 -spec gather_route_success(config()) -> test_return().
 gather_route_success(_C) ->
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
+        currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+        payment_tool => PaymentTool,
         party_id => ?dummy_party_id,
         flow => instant,
         risk_score => low
@@ -398,11 +439,18 @@ gather_route_success(_C) ->
 
     Revision = ?base_routing_rule_domain_revision,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
     {ok, {[Route], RejectedRoutes}} = hg_routing:gather_routes(
         payment,
         PaymentInstitution,
         VS,
-        Revision
+        Revision,
+        Ctx
     ),
     ?assertMatch(?trm(1), hg_routing:terminal_ref(Route)),
     ?assertMatch(
@@ -415,17 +463,19 @@ gather_route_success(_C) ->
 
 -spec rejected_by_table_prohibitions(config()) -> test_return().
 rejected_by_table_prohibitions(_C) ->
-    BankCard = #domain_BankCard{
-        token = <<"bank card token">>,
-        payment_system = ?pmt_sys(<<"visa-ref">>),
-        bin = <<"411111">>,
-        last_digits = <<"11">>
-    },
+    PaymentTool =
+        {bank_card, #domain_BankCard{
+            token = <<"bank card token">>,
+            payment_system = ?pmt_sys(<<"visa-ref">>),
+            bin = <<"411111">>,
+            last_digits = <<"11">>
+        }},
+    Currency = ?cur(<<"RUB">>),
     VS = #{
         category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
+        currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
-        payment_tool => {bank_card, BankCard},
+        payment_tool => PaymentTool,
         party_id => ?dummy_party_id,
         flow => instant,
         risk_score => low
@@ -434,7 +484,13 @@ rejected_by_table_prohibitions(_C) ->
     Revision = ?base_routing_rule_domain_revision,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
 
-    {ok, {[], RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+    {ok, {[], RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
     ?assert_set_equal(
         [
             {?prv(3), ?trm(3), {'RoutingRule', undefined}},
@@ -447,26 +503,34 @@ rejected_by_table_prohibitions(_C) ->
 
 -spec empty_candidate_ok(config()) -> test_return().
 empty_candidate_ok(_C) ->
-    BankCard = #domain_BankCard{
-        token = <<"bank card token">>,
-        payment_system = ?pmt_sys(<<"visa-ref">>),
-        bin = <<"411111">>,
-        last_digits = <<"11">>
-    },
+    PaymentTool =
+        {bank_card, #domain_BankCard{
+            token = <<"bank card token">>,
+            payment_system = ?pmt_sys(<<"visa-ref">>),
+            bin = <<"411111">>,
+            last_digits = <<"11">>
+        }},
+    Currency = ?cur(<<"RUB">>),
     VS = #{
         category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
+        currency => Currency,
         cost => ?cash(101010, <<"RUB">>),
-        payment_tool => {bank_card, BankCard},
+        payment_tool => PaymentTool,
         party_id => ?dummy_party_id,
         flow => instant
     },
 
     Revision = ?base_routing_rule_domain_revision,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(2)}),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
     ?assertMatch(
         {ok, {[], []}},
-        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision)
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
     ).
 
 -spec ruleset_misconfig(config()) -> test_return().
@@ -479,13 +543,20 @@ ruleset_misconfig(_C) ->
     Revision = ?base_routing_rule_domain_revision,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
 
+    Ctx = #{
+        currency => ?cur(<<"RUB">>),
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+        party_id => ?party_id_for_ruleset_w_no_delegates,
+        client_ip => undefined
+    },
     ?assertMatch(
         {error, {misconfiguration, {routing_decisions, {delegates, []}}}},
         hg_routing:gather_routes(
             payment,
             PaymentInstitution,
             VS,
-            Revision
+            Revision,
+            Ctx
         )
     ).
 
@@ -498,18 +569,26 @@ routes_selected_for_high_risk_score(C) ->
     routes_selected_with_risk_score(C, high, [?prv(2), ?prv(3)]).
 
 routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
+        currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+        payment_tool => PaymentTool,
         party_id => ?dummy_party_id,
         flow => instant,
         risk_score => RiskScore
     },
     Revision = ?routing_with_risk_coverage_set_domain_revision,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-    {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+    {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
     ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
 
 -spec choice_context_formats_ok(config()) -> test_return().
@@ -556,19 +635,91 @@ terminal_priority_for_shop(C) ->
     ?assertMatch({Route2, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C)).
 
 terminal_priority_for_shop(ShopID, _C) ->
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
-        currency => ?cur(<<"RUB">>),
+        currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
-        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+        payment_tool => PaymentTool,
         party_id => ?dummy_party_id,
         shop_id => ShopID,
         flow => instant
     },
     Revision = ?terminal_priority_domain_revision,
     PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
     hg_routing:choose_route(Routes).
+
+-spec gather_pinned_route(config()) -> test_return().
+gather_pinned_route(_C) ->
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    VS = #{
+        category => ?cat(1),
+        currency => Currency,
+        cost => ?PROVIDER_MIN_ALLOWED,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        flow => instant
+    },
+    Revision = ?pinned_route_revision,
+    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    Pin = #{
+        currency => Currency,
+        payment_tool => PaymentTool
+    },
+    ?assert_set_equal(
+        [
+            hg_routing:new(?prv(1), ?trm(1), 0, 0, Ctx),
+            hg_routing:new(?prv(2), ?trm(2), 0, 0, Pin),
+            hg_routing:new(?prv(3), ?trm(3), 0, 0, Pin)
+        ],
+        Routes
+    ).
+
+-spec choose_pinned_route(config()) -> test_return().
+choose_pinned_route(_C) ->
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    Pin1 = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+    Pin2 = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id
+    },
+    Pin3 = #{
+        currency => Currency,
+        payment_tool => PaymentTool
+    },
+    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin1),
+    Route2 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin2),
+    Route3 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin3),
+    Routes = [
+        Route1,
+        Route2,
+        Route3
+    ],
+    [ChosenRoute | _] = lists:sort(Routes),
+    {ChosenRoute, _} = hg_routing:choose_route(Routes).
 
 %%% Domain config fixtures
 
