@@ -2457,7 +2457,6 @@ finish_session_processing({payment, Step} = Activity, {Events, Action}, St) when
     case get_session(Target, St1) of
         #{status := finished, result := ?session_succeeded(), target := Target} ->
             TargetType = get_target_type(Target),
-            _ = maybe_notify_fault_detector(Activity, TargetType, start, St),
             _ = maybe_notify_fault_detector(Activity, TargetType, finish, St),
             NewAction = hg_machine_action:set_timeout(0, Action),
             {next, {Events, NewAction}};
@@ -2559,7 +2558,6 @@ process_failure({payment, Step} = Activity, Events, Action, Failure, St, _Refund
         fatal ->
             TargetType = get_target_type(Target),
             OperationStatus = choose_fd_operation_status_for_failure(Failure),
-            _ = maybe_notify_fault_detector(Activity, TargetType, start, St),
             _ = maybe_notify_fault_detector(Activity, TargetType, OperationStatus, St),
             process_fatal_payment_failure(Target, Events, Action, Failure, St)
     end;
@@ -2589,7 +2587,6 @@ process_payment_session(State) ->
         error:{woody_error, {_Source, result_unexpected, _Details}} = Reason:StackTrace ->
             % It looks like an unexpected error here is equivalent to a failed operation
             % in terms of conversion
-            _ = maybe_notify_fault_detector(start, State),
             _ = maybe_notify_fault_detector(error, State),
             erlang:raise(error, Reason, StackTrace)
     end.
@@ -2603,7 +2600,6 @@ process_payment_session_callback(Payload, State) ->
         error:{woody_error, {_Source, result_unexpected, _Details}} = Reason:StackTrace ->
             % It looks like an unexpected error here is equivalent to a failed operation
             % in terms of conversion
-            _ = maybe_notify_fault_detector(start, State),
             _ = maybe_notify_fault_detector(error, State),
             erlang:raise(error, Reason, StackTrace)
     end.
@@ -2651,39 +2647,13 @@ maybe_notify_fault_detector(Status, St) ->
     maybe_notify_fault_detector(Activity, TargetType, Status, St).
 
 maybe_notify_fault_detector({payment, processing_session}, processed, Status, St) ->
-    notify_fault_detector(Status, St);
-maybe_notify_fault_detector(_Activity, _TargetType, _Status, _St) ->
-    ok.
-
-notify_fault_detector(Status, St) ->
-    ServiceType = provider_conversion,
     ProviderRef = get_route_provider(get_route(St)),
     ProviderID = ProviderRef#domain_ProviderRef.id,
     PaymentID = get_payment_id(get_payment(St)),
     InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
-    FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
-    Config = genlib_map:get(conversion, FDConfig, #{}),
-    SlidingWindow = genlib_map:get(sliding_window, Config, 60000),
-    OpTimeLimit = genlib_map:get(operation_time_limit, Config, 1200000),
-    PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
-    ServiceConfig = hg_fault_detector_client:build_config(SlidingWindow, OpTimeLimit, PreAggrSize),
-    ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
-    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [InvoiceID, PaymentID]),
-    fd_register(Status, ServiceID, OperationID, ServiceConfig).
-
-fd_register(start, ServiceID, OperationID, ServiceConfig) ->
-    _ = fd_maybe_init_service_and_start(ServiceID, OperationID, ServiceConfig);
-fd_register(Status, ServiceID, OperationID, ServiceConfig) ->
-    _ = hg_fault_detector_client:register_operation(Status, ServiceID, OperationID, ServiceConfig).
-
-fd_maybe_init_service_and_start(ServiceID, OperationID, ServiceConfig) ->
-    case hg_fault_detector_client:register_operation(start, ServiceID, OperationID, ServiceConfig) of
-        {error, not_found} ->
-            _ = hg_fault_detector_client:init_service(ServiceID, ServiceConfig),
-            _ = hg_fault_detector_client:register_operation(start, ServiceID, OperationID, ServiceConfig);
-        Result ->
-            Result
-    end.
+    hg_fault_detector_client:notify(Status, InvoiceID, PaymentID, ProviderID);
+maybe_notify_fault_detector(_Activity, _TargetType, _Status, _St) ->
+    ok.
 
 process_fatal_payment_failure(?cancelled(), _Events, _Action, Failure, _St) ->
     error({invalid_cancel_failure, Failure});
@@ -3035,7 +3005,7 @@ construct_proxy_context(St) ->
     #proxy_provider_PaymentContext{
         session = construct_session(get_activity_session(St)),
         payment_info = construct_payment_info(St, get_opts(St)),
-        options = collect_proxy_options(St)
+        options = hg_proxy_provider:collect_proxy_options(get_route(St))
     }.
 
 construct_session(Session = #{target := Target}) ->
@@ -3177,31 +3147,6 @@ construct_proxy_capture(?captured(_, Cost)) ->
     #proxy_provider_InvoicePaymentCapture{
         cost = construct_proxy_cash(Cost)
     }.
-
-collect_proxy_options(
-    #st{
-        route = #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef}
-    }
-) ->
-    Revision = hg_domain:head(),
-    Provider = hg_domain:get(Revision, {provider, ProviderRef}),
-    Terminal = hg_domain:get(Revision, {terminal, TerminalRef}),
-    Proxy = Provider#domain_Provider.proxy,
-    ProxyDef = hg_domain:get(Revision, {proxy, Proxy#domain_Proxy.ref}),
-    lists:foldl(
-        fun
-            (undefined, M) ->
-                M;
-            (M1, M) ->
-                maps:merge(M1, M)
-        end,
-        #{},
-        [
-            Terminal#domain_Terminal.options,
-            Proxy#domain_Proxy.additional,
-            ProxyDef#domain_ProxyDefinition.options
-        ]
-    ).
 
 %%
 

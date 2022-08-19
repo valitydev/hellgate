@@ -19,6 +19,8 @@
 -define(state_error(TimeStamp), #fault_detector_Error{time_end = TimeStamp}).
 -define(state_finish(TimeStamp), #fault_detector_Finish{time_end = TimeStamp}).
 
+-export([notify/4]).
+
 -export([build_config/0]).
 -export([build_config/2]).
 -export([build_config/3]).
@@ -50,6 +52,30 @@
     | provider_conversion.
 
 %% API
+
+-spec notify(operation_status(), id(), id(), id()) ->
+    {ok, registered} | {error, not_found} | {error, any()} | disabled.
+notify(Status, InvoiceID, PaymentID, ProviderID) ->
+    ServiceType = provider_conversion,
+    OperationID = build_operation_id(ServiceType, [InvoiceID, PaymentID]),
+    ServiceID = build_service_id(ServiceType, ProviderID),
+    register(Status, ServiceID, OperationID).
+
+register(Status, ServiceID, OperationID) ->
+    FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
+    Config = genlib_map:get(conversion, FDConfig, #{}),
+    SlidingWindow = genlib_map:get(sliding_window, Config, 60000),
+    OpTimeLimit = genlib_map:get(operation_time_limit, Config, 1200000),
+    PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
+    ServiceConfig = build_config(SlidingWindow, OpTimeLimit, PreAggrSize),
+    case register_operation(start, ServiceID, OperationID, ServiceConfig) of
+        {error, not_found} ->
+            _ = init_service(ServiceID, ServiceConfig),
+            _ = register_operation(start, ServiceID, OperationID, ServiceConfig);
+        Result ->
+            Result
+    end,
+    register_operation(Status, ServiceID, OperationID, ServiceConfig).
 
 %%------------------------------------------------------------------------------
 %% @doc
