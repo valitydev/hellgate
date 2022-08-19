@@ -238,9 +238,15 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
     VS1 = VS#{risk_score => RiskScore},
     PaymentInstitutionRef = get_payment_institution_ref(Shop, Party),
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
+    #domain_Shop{account = #domain_ShopAccount{currency = Currency}} = Shop,
     try
         check_risk_score(RiskScore),
-        NonFailRatedRoutes = gather_routes(PaymentInstitution, VS1, Revision),
+        NonFailRatedRoutes = gather_routes(PaymentInstitution, VS1, Revision, #{
+            currency => Currency,
+            payment_tool => PaymentTool,
+            party_id => Params#payproc_RecurrentPaymentToolParams.party_id,
+            client_ip => get_client_info_ip(Params#payproc_RecurrentPaymentToolParams.payment_resource)
+        }),
         {ChosenRoute, ChoiceContext} = hg_routing:choose_route(NonFailRatedRoutes),
         ChosenPaymentRoute = hg_routing:to_payment_route(ChosenRoute),
         LoggerMetadata = hg_routing:get_logger_metadata(ChoiceContext, Revision),
@@ -263,14 +269,15 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
             error(handle_route_error(Error, RecPaymentTool, VS1))
     end.
 
-gather_routes(PaymentInstitution, VS, Revision) ->
+gather_routes(PaymentInstitution, VS, Revision, Ctx) ->
     Predestination = recurrent_paytool,
     case
         hg_routing:gather_routes(
             Predestination,
             PaymentInstitution,
             VS,
-            Revision
+            Revision,
+            Ctx
         )
     of
         {ok, {[], RejectedRoutes}} ->
@@ -280,6 +287,15 @@ gather_routes(PaymentInstitution, VS, Revision) ->
         {error, {misconfiguration, _Reason}} ->
             throw({no_route_found, misconfiguration})
     end.
+
+get_client_info_ip(#domain_DisposablePaymentResource{
+    client_info = #domain_ClientInfo{
+        ip_address = IP
+    }
+}) ->
+    IP;
+get_client_info_ip(_) ->
+    undefined.
 
 %% TODO uncomment after inspect will implement
 % check_risk_score(fatal) ->
