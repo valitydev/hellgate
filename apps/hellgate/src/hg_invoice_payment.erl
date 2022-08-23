@@ -123,7 +123,6 @@
     | processing_failure
     | updating_accounter
     | flow_waiting
-    | finalizing_session
     | finalizing_accounter.
 
 -record(st, {
@@ -191,12 +190,9 @@
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type final_cash_flow() :: dmsl_domain_thrift:'FinalCashFlow'().
 -type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
--type session_result() :: dmsl_payproc_thrift:'SessionResult'().
--type proxy_state() :: dmsl_proxy_provider_thrift:'ProxyState'().
 -type tag() :: dmsl_proxy_provider_thrift:'CallbackTag'().
 -type callback() :: dmsl_proxy_provider_thrift:'Callback'().
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
--type timeout_behaviour() :: dmsl_timeout_behaviour_thrift:'TimeoutBehaviour'().
 -type make_recurrent() :: true | false.
 -type recurrent_token() :: dmsl_domain_thrift:'Token'().
 -type retry_strategy() :: hg_retry:strategy().
@@ -206,18 +202,7 @@
 -type shop() :: dmsl_domain_thrift:'Shop'().
 -type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
 -type recurrent_paytool_service_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
--type session_status() :: active | suspended | finished.
-
--type session() :: #{
-    target := target(),
-    status := session_status(),
-    trx := trx_info(),
-    tags := [tag()],
-    timeout_behaviour := timeout_behaviour(),
-    result => session_result(),
-    proxy_state => proxy_state(),
-    timings => hg_timings:t()
-}.
+-type session() :: hg_session:t().
 
 -type opts() :: #{
     party => party(),
@@ -373,8 +358,8 @@ get_activity(#st{activity = Activity}) ->
 get_tags(#st{sessions = Sessions, refunds = Refunds}) ->
     lists:usort(
         lists:flatten(
-            [get_session_tags(S) || S <- lists:flatten(maps:values(Sessions))] ++
-                [get_session_tags(get_refund_session(R)) || R <- maps:values(Refunds)]
+            [hg_session:tags(S) || S <- lists:flatten(maps:values(Sessions))] ++
+                [hg_session:tags(get_refund_session(R)) || R <- maps:values(Refunds)]
         )
     ).
 
@@ -978,7 +963,7 @@ get_selector_value(Name, Selector) ->
 
 -spec start_session(target()) -> events().
 start_session(Target) ->
-    [?session_ev(Target, ?session_started())].
+    hg_session:create(Target).
 
 start_capture(Reason, Cost, Cart, Allocation) ->
     [?payment_capture_started(Reason, Cost, Cart, Allocation)] ++
@@ -1097,19 +1082,19 @@ assert_capture_cost_currency(?cash(_, PassedSymCode), #domain_InvoicePayment{cos
         passed_currency = PassedSymCode
     }).
 
-validate_processing_deadline(#domain_InvoicePayment{processing_deadline = Deadline}, _TargetType = processed) ->
-    case hg_invoice_utils:check_deadline(Deadline) of
-        ok ->
-            ok;
-        {error, deadline_reached} ->
-            {failure,
-                payproc_errors:construct(
-                    'PaymentFailure',
-                    {authorization_failed, {processing_deadline_reached, #payproc_error_GeneralFailure{}}}
-                )}
-    end;
-validate_processing_deadline(_, _TargetType) ->
-    ok.
+% validate_processing_deadline(#domain_InvoicePayment{processing_deadline = Deadline}, _TargetType = processed) ->
+%     case hg_invoice_utils:check_deadline(Deadline) of
+%         ok ->
+%             ok;
+%         {error, deadline_reached} ->
+%             {failure,
+%                 payproc_errors:construct(
+%                     'PaymentFailure',
+%                     {authorization_failed, {processing_deadline_reached, #payproc_error_GeneralFailure{}}}
+%                 )}
+%     end;
+% validate_processing_deadline(_, _TargetType) ->
+%     ok.
 
 assert_capture_cart(_Cost, undefined) ->
     ok;
@@ -2078,11 +2063,8 @@ process_timeout({payment, routing}, Action, St) ->
     process_routing(Action, St);
 process_timeout({payment, cash_flow_building}, Action, St) ->
     process_cash_flow_building(Action, St);
-process_timeout({payment, Step}, Action, St) when
-    Step =:= processing_session orelse
-        Step =:= finalizing_session
-->
-    process_session(Action, St);
+process_timeout({payment, processing_session}, _Action, St) ->
+    process_session(St);
 process_timeout({payment, Step}, Action, St) when
     Step =:= processing_failure orelse
         Step =:= routing_failure orelse
@@ -2096,8 +2078,8 @@ process_timeout({chargeback, ID, Type}, Action, St) ->
     process_chargeback(Type, ID, Action, St);
 process_timeout({refund_new, ID}, Action, St) ->
     process_refund_cashflow(ID, Action, St);
-process_timeout({refund_session, _ID}, Action, St) ->
-    process_session(Action, St);
+process_timeout({refund_session, _ID}, _Action, St) ->
+    process_session(St);
 process_timeout({refund_failure, _ID}, Action, St) ->
     process_result(Action, St);
 process_timeout({refund_accounter, _ID}, Action, St) ->
@@ -2130,7 +2112,7 @@ process_callback(Tag, Payload, St) ->
     process_callback(Tag, Payload, Action, Session, St).
 
 process_callback(Tag, Payload, Action, Session, St) when Session /= undefined ->
-    case {get_session_status(Session), get_session_tags(Session)} of
+    case {hg_session:status(Session), hg_session:tags(Session)} of
         {suspended, [Tag | _]} ->
             handle_callback(Payload, Action, St);
         _ ->
@@ -2299,7 +2281,7 @@ process_refund_cashflow(ID, Action, St) ->
     case get_available_amount(SettlementID) of
         % TODO we must pull this rule out of refund terms
         Available when Available >= 0 ->
-            Events = [?session_ev(?refunded(), ?session_started()) | get_manual_refund_events(RefundSt)],
+            Events = start_session(?refunded()) ++ get_manual_refund_events(RefundSt),
             {next, {
                 [?refund_ev(ID, C) || C <- Events],
                 hg_machine_action:set_timeout(0, Action)
@@ -2355,56 +2337,56 @@ process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, cap
 
 %%
 
--spec process_session(action(), st()) -> machine_result().
-process_session(Action, St) ->
-    process_session(get_activity_session(St), Action, St).
+-spec handle_callback(callback(), action(), st()) -> {callback_response(), machine_result()}.
+handle_callback(Payload, _Action, St) ->
+    {Response, {Result, Session}} = hg_session:process_callback(Payload, get_activity_session(St)),
+    {Response, finish_session_processing(get_activity(St), Result, Session, St)}.
 
-process_session(undefined, Action, St0) ->
-    Target = get_target(St0),
-    TargetType = get_target_type(Target),
-    case validate_processing_deadline(get_payment(St0), TargetType) of
-        ok ->
-            Events = start_session(Target),
-            St1 = collapse_changes(Events, St0),
-            Result = {Events, hg_machine_action:set_timeout(0, Action)},
-            finish_session_processing(Result, St1);
-        Failure ->
-            process_failure(get_activity(St0), [], Action, Failure, St0)
-    end;
-process_session(Session, Action, St = #st{repair_scenario = undefined}) ->
-    process_session(Session, Action, [], St);
-process_session(Session, Action, St = #st{repair_scenario = Scenario}) ->
-    case hg_invoice_repair:check_for_action(repair_session, Scenario) of
-        {result, ProxyResult} ->
-            Result = handle_proxy_result(ProxyResult, Action, [], Session, create_session_context(St)),
-            finish_session_processing(Result, St);
-        call ->
-            process_session(Session, Action, [], St)
+%% it seems not to be used anywhere
+% process_session(undefined, Action, St0) ->
+%     Target = get_target(St0),
+%     TargetType = get_target_type(Target),
+%     case validate_processing_deadline(get_payment(St0), TargetType) of
+%         ok ->
+%             Events = start_session(Target),
+%             Result = {Events, hg_machine_action:set_timeout(0, Action)},
+%             {next, Result}
+%         Failure ->
+%             process_failure(get_activity(St0), [], Action, Failure, St0)
+%     end;
+-spec process_session(st()) -> machine_result().
+process_session(St = #st{repair_scenario = Scenario}) ->
+    Session0 = get_activity_session(St),
+    Session1 =
+        case hg_invoice_repair:check_for_action(repair_session, Scenario) of
+            RepairScenario = {result, _} ->
+                hg_session:set_repair_scenario(RepairScenario, Session0);
+            call ->
+                Session0
+        end,
+    {Result, Session2} = hg_session:process(Session1),
+    finish_session_processing(get_activity(St), Result, Session2, St).
+
+-spec finish_session_processing(activity(), result(), hg_session:t(), st()) -> machine_result().
+finish_session_processing(Activity, {Events0, Action}, Session, St) ->
+    Events1 =
+        case Activity of
+            {refund_session, ID} ->
+                [?refund_ev(ID, Ev) || Ev <- Events0];
+            _ ->
+                Events0
+        end,
+    case {hg_session:status(Session), hg_session:result(Session)} of
+        {finished, ?session_succeeded()} ->
+            TargetType = get_target_type(hg_session:target(Session)),
+            _ = maybe_notify_fault_detector(Activity, TargetType, finish, St),
+            NewAction = hg_machine_action:set_timeout(0, Action),
+            {next, {Events1, NewAction}};
+        {finished, ?session_failed(Failure)} ->
+            process_failure(Activity, Events1, Action, Failure, St);
+        _ ->
+            {next, {Events1, Action}}
     end.
-
-process_session(Session, Action, Events, St) ->
-    Status = get_session_status(Session),
-    process_session(Status, Session, Action, Events, St).
-
--spec process_session(session_status(), session(), action(), events(), st()) -> machine_result().
-process_session(active, Session, Action, Events, St) ->
-    process_active_session(Action, Session, Events, St);
-process_session(suspended, Session, Action, Events, St) ->
-    process_callback_timeout(Action, Session, Events, St).
-
-create_session_context(St) ->
-    PaymentID = get_payment_id(get_payment(St)),
-    InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
-    #{
-        invoice_id => InvoiceID,
-        payment_id => PaymentID
-    }.
-
--spec process_active_session(action(), session(), events(), st()) -> machine_result().
-process_active_session(Action, Session, Events, St) ->
-    {ok, ProxyResult} = process_payment_session(St),
-    Result = handle_proxy_result(ProxyResult, Action, Events, Session, create_session_context(St)),
-    finish_session_processing(Result, St).
 
 -spec finalize_payment(action(), st()) -> machine_result().
 finalize_payment(Action, St) ->
@@ -2431,64 +2413,6 @@ finalize_payment(Action, St) ->
                 start_session(Target)
         end,
     {done, {StartEvents, hg_machine_action:set_timeout(0, Action)}}.
-
--spec process_callback_timeout(action(), session(), events(), st()) -> machine_result().
-process_callback_timeout(Action, Session, Events, St) ->
-    case get_session_timeout_behaviour(Session) of
-        {callback, Payload} ->
-            {ok, CallbackResult} = process_payment_session_callback(Payload, St),
-            {_Response, Result} = handle_callback_result(
-                CallbackResult, Action, get_activity_session(St), create_session_context(St)
-            ),
-            finish_session_processing(Result, St);
-        {operation_failure, OperationFailure} ->
-            SessionEvents = [?session_finished(?session_failed(OperationFailure))],
-            Result = {Events ++ wrap_session_events(SessionEvents, Session), Action},
-            finish_session_processing(Result, St)
-    end.
-
--spec handle_callback(callback(), action(), st()) -> {callback_response(), machine_result()}.
-handle_callback(Payload, Action, St) ->
-    {ok, CallbackResult} = process_payment_session_callback(Payload, St),
-    {Response, Result} = handle_callback_result(
-        CallbackResult, Action, get_activity_session(St), create_session_context(St)
-    ),
-    {Response, finish_session_processing(Result, St)}.
-
--spec finish_session_processing(result(), st()) -> machine_result().
-finish_session_processing(Result, St) ->
-    finish_session_processing(get_activity(St), Result, St).
-
-finish_session_processing({payment, Step} = Activity, {Events, Action}, St) when
-    Step =:= processing_session orelse
-        Step =:= finalizing_session
-->
-    Target = get_target(St),
-    St1 = collapse_changes(Events, St),
-    case get_session(Target, St1) of
-        #{status := finished, result := ?session_succeeded(), target := Target} ->
-            TargetType = get_target_type(Target),
-            _ = maybe_notify_fault_detector(Activity, TargetType, finish, St),
-            NewAction = hg_machine_action:set_timeout(0, Action),
-            {next, {Events, NewAction}};
-        #{status := finished, result := ?session_failed(Failure)} ->
-            process_failure(Activity, Events, Action, Failure, St);
-        #{} ->
-            {next, {Events, Action}}
-    end;
-finish_session_processing({refund_session, ID} = Activity, {Events, Action}, St) ->
-    Events1 = [?refund_ev(ID, Ev) || Ev <- Events],
-    St1 = collapse_changes(Events1, St),
-    RefundSt1 = try_get_refund_state(ID, St1),
-    case get_refund_session(RefundSt1) of
-        #{status := finished, result := ?session_succeeded()} ->
-            NewAction = hg_machine_action:set_timeout(0, Action),
-            {next, {Events1, NewAction}};
-        #{status := finished, result := ?session_failed(Failure)} ->
-            process_failure(Activity, Events1, Action, Failure, St1, RefundSt1);
-        #{} ->
-            {next, {Events1, Action}}
-    end.
 
 -spec process_result(action(), st()) -> machine_result().
 process_result(Action, St) ->
@@ -2556,10 +2480,7 @@ process_failure({payment, Step}, Events, Action, Failure, _St, _RefundSt) when
         Step =:= routing
 ->
     {done, {Events ++ [?payment_status_changed(?failed(Failure))], Action}};
-process_failure({payment, Step} = Activity, Events, Action, Failure, St, _RefundSt) when
-    Step =:= processing_session orelse
-        Step =:= finalizing_session
-->
+process_failure({payment, processing_session} = Activity, Events, Action, Failure, St, _RefundSt) ->
     Target = get_target(St),
     case check_retry_possibility(Target, Failure, St) of
         {retry, Timeout} ->
@@ -2583,36 +2504,8 @@ process_failure({refund_session, ID}, Events, Action, Failure, St, _RefundSt) ->
             Events1 = [?refund_ev(ID, E) || E <- SessionEvents],
             {next, {Events ++ Events1, SessionAction}};
         fatal ->
-            Events1 = [
-                ?refund_ev(ID, ?refund_rollback_started(Failure))
-            ],
-            {next, {Events ++ Events1, hg_machine_action:set_timeout(0, Action)}}
-    end.
-
-process_payment_session(State) ->
-    ProxyContext = construct_proxy_context(State),
-    Route = get_route(State),
-    try
-        hg_proxy_provider:process_payment(ProxyContext, Route)
-    catch
-        error:{woody_error, {_Source, result_unexpected, _Details}} = Reason:StackTrace ->
-            % It looks like an unexpected error here is equivalent to a failed operation
-            % in terms of conversion
-            _ = maybe_notify_fault_detector(error, State),
-            erlang:raise(error, Reason, StackTrace)
-    end.
-
-process_payment_session_callback(Payload, State) ->
-    ProxyContext = construct_proxy_context(State),
-    Route = get_route(State),
-    try
-        hg_proxy_provider:handle_payment_callback(Payload, ProxyContext, Route)
-    catch
-        error:{woody_error, {_Source, result_unexpected, _Details}} = Reason:StackTrace ->
-            % It looks like an unexpected error here is equivalent to a failed operation
-            % in terms of conversion
-            _ = maybe_notify_fault_detector(error, State),
-            erlang:raise(error, Reason, StackTrace)
+            RollbackStarted = [?refund_ev(ID, ?refund_rollback_started(Failure))],
+            {next, {Events ++ RollbackStarted, hg_machine_action:set_timeout(0, Action)}}
     end.
 
 check_recurrent_token(#st{
@@ -2651,11 +2544,6 @@ do_choose_fd_operation_status_for_failure({authorization_failed, {FailType, _}})
     end;
 do_choose_fd_operation_status_for_failure(_Failure) ->
     finish.
-
-maybe_notify_fault_detector(Status, St) ->
-    Activity = get_activity(St),
-    TargetType = get_target_type(get_target(St)),
-    maybe_notify_fault_detector(Activity, TargetType, Status, St).
 
 maybe_notify_fault_detector({payment, processing_session}, processed, Status, St) ->
     ProviderRef = get_route_provider(get_route(St)),
@@ -2737,125 +2625,8 @@ get_action(?processed(), Action, St) ->
 get_action(_Target, Action, _St) ->
     Action.
 
-handle_proxy_result(
-    #proxy_provider_PaymentProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
-    Action0,
-    Events0,
-    Session,
-    Context
-) ->
-    Events1 = wrap_session_events(hg_proxy_provider:bind_transaction(Trx, Session), Session),
-    Events2 = update_proxy_state(ProxyState, Session),
-    {Events3, Action} = handle_proxy_intent(Intent, Action0, Session, Context),
-    {lists:flatten([Events0, Events1, Events2, Events3]), Action}.
-
-handle_callback_result(
-    #proxy_provider_PaymentCallbackResult{result = ProxyResult, response = Response},
-    Action0,
-    Session,
-    Context
-) ->
-    {Response, handle_proxy_callback_result(ProxyResult, Action0, Session, Context)}.
-
-handle_proxy_callback_result(
-    #proxy_provider_PaymentCallbackProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
-    Action0,
-    Session,
-    Context
-) ->
-    Events0 = [wrap_session_event(?session_activated(), Session)],
-    Events1 = wrap_session_events(hg_proxy_provider:bind_transaction(Trx, Session), Session),
-    Events2 = update_proxy_state(ProxyState, Session),
-    {Events3, Action} = handle_proxy_intent(Intent, hg_machine_action:unset_timer(Action0), Session, Context),
-    {lists:flatten([Events0, Events1, Events2, Events3]), Action};
-handle_proxy_callback_result(
-    #proxy_provider_PaymentCallbackProxyResult{intent = undefined, trx = Trx, next_state = ProxyState},
-    Action0,
-    Session,
-    _Context
-) ->
-    Events1 = hg_proxy_provider:bind_transaction(Trx, Session),
-    Events2 = update_proxy_state(ProxyState, Session),
-    {wrap_session_events(Events1 ++ Events2, Session), Action0}.
-
-wrap_session_events(SessionEvents, #{target := Target}) ->
-    [?session_ev(Target, Ev) || Ev <- SessionEvents].
-
-wrap_session_event(SessionEvent, #{target := Target}) ->
-    ?session_ev(Target, SessionEvent).
-
-update_proxy_state(undefined, _Session) ->
-    [];
-update_proxy_state(ProxyState, Session) ->
-    case get_session_proxy_state(Session) of
-        ProxyState ->
-            % proxy state did not change, no need to publish an event
-            [];
-        _WasState ->
-            [wrap_session_event(?proxy_st_changed(ProxyState), Session)]
-    end.
-
-handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, Session, _Context) ->
-    Events0 = [wrap_session_event(?session_finished(?session_succeeded()), Session)],
-    Events1 =
-        case Success of
-            #proxy_provider_Success{token = undefined} ->
-                Events0;
-            #proxy_provider_Success{token = Token} ->
-                [?rec_token_acquired(Token) | Events0]
-        end,
-    {Events1, Action};
-handle_proxy_intent(
-    #proxy_provider_FinishIntent{status = {failure, Failure}}, Action, Session = #{target := {captured, _}}, _Context
-) ->
-    handle_proxy_capture_failure(Action, Failure, Session);
-handle_proxy_intent(#proxy_provider_FinishIntent{status = {failure, Failure}}, Action, Session, _Context) ->
-    Events = [wrap_session_event(?session_finished(?session_failed({failure, Failure})), Session)],
-    {Events, Action};
-handle_proxy_intent(
-    #proxy_provider_SleepIntent{
-        timer = Timer,
-        user_interaction = UserInteraction
-    },
-    Action0,
-    Session,
-    _Context
-) ->
-    Action = hg_machine_action:set_timer(Timer, Action0),
-    Events = wrap_session_events(try_request_interaction(UserInteraction), Session),
-    {Events, Action};
-handle_proxy_intent(
-    #proxy_provider_SuspendIntent{
-        tag = Tag,
-        timeout = Timer,
-        user_interaction = UserInteraction,
-        timeout_behaviour = TimeoutBehaviour
-    },
-    Action0,
-    Session,
-    #{payment_id := PaymentID, invoice_id := InvoiceID}
-) ->
-    ok = hg_machine_tag:create_binding(hg_invoice:namespace(), Tag, PaymentID, InvoiceID),
-    Action = set_timer(Timer, Action0),
-    Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
-    {wrap_session_events(Events, Session), Action}.
-
-handle_proxy_capture_failure(Action, Failure, Session = #{target := Target}) ->
-    case check_failure_type(Target, {failure, Failure}) of
-        transient ->
-            Events = [wrap_session_event(?session_finished(?session_failed({failure, Failure})), Session)],
-            {Events, Action};
-        _ ->
-            error({invalid_capture_failure, Failure})
-    end.
-
 set_timer(Timer, Action) ->
     hg_machine_action:set_timer(Timer, Action).
-
-try_request_interaction(undefined) ->
-    [];
-try_request_interaction(UserInteraction) ->
-    [?interaction_requested(UserInteraction)].
 
 get_provider_terms(St, Revision) ->
     Opts = get_opts(St),
@@ -3012,19 +2783,6 @@ construct_payment_info(St, Opts) ->
         }
     ).
 
-construct_proxy_context(St) ->
-    #proxy_provider_PaymentContext{
-        session = construct_session(get_activity_session(St)),
-        payment_info = construct_payment_info(St, get_opts(St)),
-        options = hg_proxy_provider:collect_proxy_options(get_route(St))
-    }.
-
-construct_session(Session = #{target := Target}) ->
-    #proxy_provider_Session{
-        target = Target,
-        state = get_session_proxy_state(Session)
-    }.
-
 construct_payment_info(idle, _Target, _St, PaymentInfo) ->
     PaymentInfo;
 construct_payment_info(
@@ -3150,7 +2908,7 @@ construct_proxy_refund(#refund_st{refund = Refund} = St) ->
     #proxy_provider_InvoicePaymentRefund{
         id = get_refund_id(Refund),
         created_at = get_refund_created_at(Refund),
-        trx = get_session_trx(get_refund_session(St)),
+        trx = hg_session:trx_info(get_refund_session(St)),
         cash = construct_proxy_cash(get_refund_cash(Refund))
     }.
 
@@ -3318,7 +3076,7 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
             St
     end;
 merge_change(Change = ?rec_token_acquired(Token), #st{} = St, Opts) ->
-    _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
+    _ = validate_transition([{payment, processing_session}], Change, St, Opts),
     St#st{recurrent_token = Token};
 merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
     _ = validate_transition(
@@ -3450,7 +3208,7 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
                 St#st{activity = {refund_accounter, ID}};
             ?refund_status_changed(?refund_succeeded()) ->
                 _ = validate_transition([{refund_accounter, ID}], Change, St, Opts),
-                RefundSt0 = merge_refund_change(Event, try_get_refund_state(ID, St)),
+                RefundSt0 = merge_refund_change(Event, try_get_refund_state(ID, St), St, Opts),
                 Allocation = get_allocation(St),
                 FinalAllocation = hg_maybe:apply(
                     fun(A) ->
@@ -3473,7 +3231,7 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
                 _ = validate_transition([{refund_session, ID}], Change, St, Opts),
                 St
         end,
-    RefundSt1 = merge_refund_change(Event, try_get_refund_state(ID, St1)),
+    RefundSt1 = merge_refund_change(Event, try_get_refund_state(ID, St1), St1, Opts),
     St2 = set_refund_state(ID, RefundSt1, St1),
     case get_refund_status(get_refund(RefundSt1)) of
         {S, _} when S == succeeded; S == failed ->
@@ -3515,52 +3273,45 @@ merge_change(
                 processing_session,
                 flow_waiting,
                 processing_capture,
-                updating_accounter,
-                finalizing_session
+                updating_accounter
             ]
         ],
         Change,
         St,
         Opts
     ),
-    % FIXME why the hell dedicated handling
-    Session0 = create_session(Target, get_trx(St)),
-    Session = mark_session_timing_event(started, Opts, Session0),
+    Session = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
     St1 = add_session(Target, Session, St#st{target = Target}),
     St2 = save_retry_attempt(Target, St1),
     case Activity of
-        {payment, processing_session} ->
+        {payment, updating_accounter} ->
             %% session retrying
             St2#st{activity = {payment, processing_session}};
         {payment, PaymentActivity} when PaymentActivity == flow_waiting; PaymentActivity == processing_capture ->
             %% session flow
             St2#st{
-                activity = {payment, finalizing_session},
+                activity = {payment, processing_session},
                 timings = try_accrue_waiting_timing(Opts, St2)
             };
-        {payment, updating_accounter} ->
-            %% session flow
-            St2#st{activity = {payment, finalizing_session}};
-        {payment, finalizing_session} ->
-            %% session retrying
-            St2#st{activity = {payment, finalizing_session}};
         _ ->
             St2
     end;
-merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity}, Opts) ->
-    _ = validate_transition([{payment, S} || S <- [processing_session, finalizing_session]], Change, St, Opts),
-    Session = merge_session_change(Event, get_session(Target, St), Opts),
+merge_change(Change = ?session_ev(Target, _Event), St = #st{activity = Activity}, Opts) ->
+    _ = validate_transition([{payment, S} || S <- [processing_session]], Change, St, Opts),
+    Session = hg_session:apply_event(
+        Change,
+        get_session(Target, St),
+        create_session_event_context(St, Opts)
+    ),
     St1 = update_session(Target, Session, St),
     % FIXME leaky transactions
-    St2 = set_trx(get_session_trx(Session), St1),
+    St2 = set_trx(hg_session:trx_info(Session), St1),
     case Session of
         #{status := finished, result := ?session_succeeded()} ->
             NextActivity =
                 case Activity of
                     {payment, processing_session} ->
                         {payment, processing_accounter};
-                    {payment, finalizing_session} ->
-                        {payment, finalizing_accounter};
                     _ ->
                         Activity
                 end,
@@ -3575,16 +3326,18 @@ save_retry_attempt(Target, #st{retry_attempts = Attempts} = St) ->
 merge_chargeback_change(Change, ChargebackState) ->
     hg_invoice_payment_chargeback:merge_change(Change, ChargebackState).
 
-merge_refund_change(?refund_created(Refund, Cashflow, TransactionInfo), undefined) ->
+merge_refund_change(?refund_created(Refund, Cashflow, TransactionInfo), undefined, _St, _Opts) ->
     #refund_st{refund = Refund, cash_flow = Cashflow, transaction_info = TransactionInfo};
-merge_refund_change(?refund_status_changed(Status), RefundSt) ->
+merge_refund_change(?refund_status_changed(Status), RefundSt, _St, _Opts) ->
     set_refund(set_refund_status(Status, get_refund(RefundSt)), RefundSt);
-merge_refund_change(?refund_rollback_started(Failure), RefundSt) ->
+merge_refund_change(?refund_rollback_started(Failure), RefundSt, _St, _Opts) ->
     RefundSt#refund_st{failure = Failure};
-merge_refund_change(?session_ev(?refunded(), ?session_started()), RefundSt) ->
-    add_refund_session(create_session(?refunded(), undefined), RefundSt);
-merge_refund_change(?session_ev(?refunded(), Change), RefundSt) ->
-    update_refund_session(merge_session_change(Change, get_refund_session(RefundSt), #{}), RefundSt).
+merge_refund_change(Change = ?session_ev(?refunded(), ?session_started()), RefundSt, St, Opts) ->
+    Session = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
+    add_refund_session(Session, RefundSt);
+merge_refund_change(Change = ?session_ev(?refunded(), _), RefundSt, St, Opts) ->
+    Session = hg_session:apply_event(Change, get_refund_session(RefundSt), create_session_event_context(St, Opts)),
+    update_refund_session(Session, RefundSt).
 
 merge_adjustment_change(?adjustment_created(Adjustment), undefined) ->
     Adjustment;
@@ -3700,6 +3453,19 @@ get_captured_cost(_, #domain_InvoicePayment{cost = Cost}) ->
 get_captured_allocation(#domain_InvoicePaymentCaptured{allocation = Allocation}) ->
     Allocation.
 
+-spec create_session_event_context(st(), change_opts()) -> hg_session:event_context().
+create_session_event_context(St, Opts) ->
+    TagContext = #{
+        invoice_id => get_invoice_id(get_invoice(get_opts(St))),
+        payment_id => get_payment_id(get_payment(St))
+    },
+    #{
+        timestamp => define_event_timestamp(Opts),
+        context => TagContext,
+        route => get_route(St),
+        payment_info => construct_payment_info(St, get_opts(St))
+    }.
+
 get_refund_session(#refund_st{sessions = []}) ->
     undefined;
 get_refund_session(#refund_st{sessions = [Session | _]}) ->
@@ -3767,57 +3533,6 @@ try_get_adjustment(ID, #st{adjustments = As}) ->
 set_adjustment(ID, Adjustment, St = #st{adjustments = As}) ->
     St#st{adjustments = lists:keystore(ID, #domain_InvoicePaymentAdjustment.id, As, Adjustment)}.
 
-merge_session_change(?session_finished(Result), Session, Opts) ->
-    Session2 = Session#{status := finished, result => Result},
-    accrue_session_timing(finished, started, Opts, Session2);
-merge_session_change(?session_activated(), Session, Opts) ->
-    Session2 = Session#{status := active},
-    accrue_session_timing(suspended, suspended, Opts, Session2);
-merge_session_change(?session_suspended(Tag, TimeoutBehaviour), Session, Opts) ->
-    Session2 = set_session_tag(Tag, Session),
-    Session3 = set_timeout_behaviour(TimeoutBehaviour, Session2),
-    Session4 = mark_session_timing_event(suspended, Opts, Session3),
-    Session4#{status := suspended};
-merge_session_change(?trx_bound(Trx), Session, _Opts) ->
-    Session#{trx := Trx};
-merge_session_change(?proxy_st_changed(ProxyState), Session, _Opts) ->
-    Session#{proxy_state => ProxyState};
-merge_session_change(?interaction_requested(_), Session, _Opts) ->
-    Session.
-
-set_timeout_behaviour(undefined, Session) ->
-    Session#{timeout_behaviour => {operation_failure, ?operation_timeout()}};
-set_timeout_behaviour(TimeoutBehaviour, Session) ->
-    Session#{timeout_behaviour => TimeoutBehaviour}.
-
-set_session_tag(undefined, Session) ->
-    Session;
-set_session_tag(Tag, Session) ->
-    Session#{tags := [Tag | get_session_tags(Session)]}.
-
-set_session_timings(Timings, Session) ->
-    Session#{timings => Timings}.
-
-get_session_timings(Session) ->
-    maps:get(timings, Session, hg_timings:new()).
-
-accrue_session_timing(Name, Event, Opts, Session) ->
-    Timings = get_session_timings(Session),
-    set_session_timings(hg_timings:accrue(Name, Event, define_event_timestamp(Opts), Timings), Session).
-
-mark_session_timing_event(Event, Opts, Session) ->
-    Timings = get_session_timings(Session),
-    set_session_timings(hg_timings:mark(Event, define_event_timestamp(Opts), Timings), Session).
-
-create_session(Target, Trx) ->
-    #{
-        target => Target,
-        status => active,
-        trx => Trx,
-        tags => [],
-        timeout_behaviour => {operation_failure, ?operation_timeout()}
-    }.
-
 get_invoice_state(InvoiceID) ->
     case hg_invoice:get(InvoiceID) of
         {ok, Invoice} ->
@@ -3853,21 +3568,6 @@ update_session(Target, Session, St = #st{sessions = Sessions}) ->
     TargetType = get_target_type(Target),
     [_ | Rest] = maps:get(TargetType, Sessions, []),
     St#st{sessions = Sessions#{TargetType => [Session | Rest]}}.
-
-get_session_status(#{status := Status}) ->
-    Status.
-
-get_session_trx(#{trx := Trx}) ->
-    Trx.
-
-get_session_timeout_behaviour(#{timeout_behaviour := TimeoutBehaviour}) ->
-    TimeoutBehaviour.
-
-get_session_proxy_state(Session) ->
-    maps:get(proxy_state, Session, undefined).
-
-get_session_tags(#{tags := Tags}) ->
-    Tags.
 
 get_target(#st{target = Target}) ->
     Target.
@@ -4063,7 +3763,7 @@ make_log_params(timings, #st{timings = Timings, sessions = Sessions}) ->
     ),
     Params2 = maps:fold(
         fun(Target, Ss, Acc) ->
-            TargetTimings = hg_timings:merge([get_session_timings(S) || S <- Ss]),
+            TargetTimings = hg_timings:merge([hg_session:timings(S) || S <- Ss]),
             maps:fold(
                 fun(N, T, Acc1) -> [{hg_utils:join($., [<<"session">>, Target, N]), T} | Acc1] end,
                 Acc,

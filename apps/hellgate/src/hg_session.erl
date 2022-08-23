@@ -8,7 +8,7 @@
 -type t() :: #{
     target := target(),
     status := session_status(),
-    trx := trx_info() | undefined,
+    trx := hg_maybe:maybe(trx_info()),
     tags := [tag()],
     timeout_behaviour := timeout_behaviour(),
     context := tag_context(),
@@ -16,12 +16,12 @@
     payment_info := payment_info(),
     result => session_result(),
     proxy_state => proxy_state(),
-    timings => hg_timings:t(),
-    repair_scenario => {result, proxy_result()}
+    timings => timings(),
+    repair_scenario => repair_scenario()
 }.
 
 -type event_context() :: #{
-    timestamp => hg_datetime:timestamp(),
+    timestamp := integer(),
     context => tag_context(),
     route => route(),
     payment_info => payment_info()
@@ -29,9 +29,11 @@
 
 -type process_result() :: {result(), t()}.
 -type tag_context() :: #{
-    invoice_id => binary(),
-    payment_id => binary()
+    invoice_id := binary(),
+    payment_id := binary()
 }.
+
+-type repair_scenario() :: {result, proxy_result()}.
 
 -export_type([t/0]).
 -export_type([event_context/0]).
@@ -39,23 +41,29 @@
 
 %% Accessors
 
--export([status/1]).
 -export([target/1]).
+-export([status/1]).
+-export([trx_info/1]).
 -export([tags/1]).
 -export([tag_context/1]).
 -export([route/1]).
 -export([payment_info/1]).
+-export([result/1]).
 -export([timeout_behaviour/1]).
--export([repair_scenario/1]).
 -export([proxy_state/1]).
+-export([timings/1]).
+-export([repair_scenario/1]).
 
 %% API
+
+-export([set_repair_scenario/2]).
 
 -export([create/1]).
 -export([deduce_activity/1]).
 -export([apply_event/3]).
 
 -export([process/1]).
+-export([process_callback/2]).
 
 %% Internal types
 
@@ -69,12 +77,16 @@
 -type proxy_result() :: dmsl_proxy_provider_thrift:'PaymentProxyResult'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type payment_info() :: dmsl_proxy_provider_thrift:'PaymentInfo'().
+-type timings() :: hg_timings:t().
 
--type event() :: dmsl_payproc_thrift:'InvoicePaymentSessionChange'().
+-type event() :: dmsl_payproc_thrift:'InvoicePaymentChangePayload'().
 -type event_payload() :: dmsl_payproc_thrift:'SessionChangePayload'().
 -type events() :: [event()].
 -type action() :: hg_machine_action:t().
 -type result() :: {events(), action()}.
+
+-type callback() :: dmsl_proxy_provider_thrift:'Callback'().
+-type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 
 -type activity() ::
     repair
@@ -84,43 +96,59 @@
 
 %% Accessors
 
--spec status(t()) -> session_status().
-status(#{status := V}) ->
-    V.
-
 -spec target(t()) -> target().
 target(#{target := V}) ->
     V.
 
+-spec status(t()) -> session_status().
+status(#{status := V}) ->
+    V.
+
+-spec trx_info(t()) -> hg_maybe:maybe(trx_info()).
+trx_info(#{trx := V}) ->
+    V.
+
 -spec tags(t()) -> [tag()].
-tags(#{tags := Tags}) ->
-    Tags.
+tags(#{tags := V}) ->
+    V.
 
--spec tag_context(t()) -> [tag_context()].
-tag_context(#{context := Context}) ->
-    Context.
+-spec tag_context(t()) -> tag_context().
+tag_context(#{context := V}) ->
+    V.
 
--spec route(t()) -> [route()].
-route(#{route := Route}) ->
-    Route.
+-spec route(t()) -> route().
+route(#{route := V}) ->
+    V.
 
--spec payment_info(t()) -> [payment_info()].
-payment_info(#{payment_info := PaymentInfo}) ->
-    PaymentInfo.
+-spec payment_info(t()) -> payment_info().
+payment_info(#{payment_info := V}) ->
+    V.
+
+-spec result(t()) -> hg_maybe:maybe(session_result()).
+result(T) ->
+    maps:get(result, T, undefined).
 
 -spec timeout_behaviour(t()) -> timeout_behaviour().
 timeout_behaviour(#{timeout_behaviour := V}) ->
     V.
 
--spec repair_scenario(t()) -> hg_maybe:maybe({result, proxy_result()}).
-repair_scenario(T) ->
-    maps:get(repair_scenario, T, undefined).
-
 -spec proxy_state(t()) -> hg_maybe:maybe(proxy_state()).
 proxy_state(T) ->
     maps:get(proxy_state, T, undefined).
 
+-spec timings(t()) -> hg_maybe:maybe(timings()).
+timings(T) ->
+    maps:get(timings, T, undefined).
+
+-spec repair_scenario(t()) -> hg_maybe:maybe(repair_scenario()).
+repair_scenario(T) ->
+    maps:get(repair_scenario, T, undefined).
+
 %% API
+
+-spec set_repair_scenario(repair_scenario(), t()) -> t().
+set_repair_scenario(Scenario, Session) ->
+    Session#{repair_scenario => Scenario}.
 
 -spec create(target()) -> events().
 create(Target) ->
@@ -130,6 +158,12 @@ create(Target) ->
 process(Session) ->
     Activity = deduce_activity(Session),
     do_process(Activity, Session).
+
+-spec process_callback(callback(), t()) -> {callback_response(), process_result()}.
+process_callback(Payload, Session) ->
+    {ok, CallbackResult} = process_session_callback(Payload, Session),
+    {Response, Result} = handle_callback_result(CallbackResult, Session),
+    {Response, apply_result(Result, Session)}.
 
 -spec deduce_activity(t()) -> activity().
 deduce_activity(Session) ->
@@ -162,14 +196,14 @@ repair(Session = #{repair_scenario := {result, ProxyResult}}) ->
     apply_result(Result, Session).
 
 process_active_session(Session) ->
-    {ok, ProxyResult} = process_payment_session(Session),
+    {ok, ProxyResult} = process_session(Session),
     Result = handle_proxy_result(ProxyResult, Session),
     apply_result(Result, Session).
 
 process_callback_timeout(Session) ->
     case timeout_behaviour(Session) of
         {callback, Payload} ->
-            {ok, CallbackResult} = process_payment_session_callback(Payload, Session),
+            {ok, CallbackResult} = process_session_callback(Payload, Session),
             {_Response, Result} = handle_callback_result(CallbackResult, Session),
             apply_result(Result, Session);
         {operation_failure, OperationFailure} ->
@@ -180,7 +214,7 @@ process_callback_timeout(Session) ->
 
 %% Internal
 
-process_payment_session(Session) ->
+process_session(Session) ->
     ProxyContext = construct_proxy_context(Session),
     Route = route(Session),
     try
@@ -193,7 +227,7 @@ process_payment_session(Session) ->
             erlang:raise(error, Reason, StackTrace)
     end.
 
-process_payment_session_callback(Payload, Session) ->
+process_session_callback(Payload, Session) ->
     ProxyContext = construct_proxy_context(Session),
     Route = route(Session),
     try
@@ -324,16 +358,12 @@ handle_proxy_intent(
 
 -spec check_failure_type(target(), dmsl_domain_thrift:'OperationFailure'()) -> transient | fatal.
 check_failure_type(Target, {failure, Failure}) ->
-    payproc_errors:match(get_error_class(Target), Failure, fun do_check_failure_type/1);
-check_failure_type(_Target, _Other) ->
-    fatal.
+    payproc_errors:match(get_error_class(Target), Failure, fun do_check_failure_type/1).
 
 get_error_class({Target, _}) when Target =:= processed; Target =:= captured; Target =:= cancelled ->
     'PaymentFailure';
 get_error_class({refunded, _}) ->
-    'RefundFailure';
-get_error_class(Target) ->
-    error({unsupported_target, Target}).
+    'RefundFailure'.
 
 do_check_failure_type({authorization_failed, {temporarily_unavailable, _}}) ->
     transient;
@@ -347,41 +377,43 @@ try_request_interaction(UserInteraction) ->
 
 %% Event utils
 
--spec wrap_session_events([event_payload()], target()) -> events().
-wrap_session_events(SessionEvents, Target) ->
-    [wrap_session_event(Ev, Target) || Ev <- SessionEvents].
+-spec wrap_session_events([event_payload()], t()) -> events().
+wrap_session_events(SessionEvents, Session) ->
+    [wrap_session_event(Ev, Session) || Ev <- SessionEvents].
 
--spec wrap_session_event(event_payload(), target()) -> events().
-wrap_session_event(SessionEvent, Target) ->
-    ?session_ev(Target, SessionEvent).
+-spec wrap_session_event(event_payload(), t()) -> event().
+wrap_session_event(SessionEvent, Session) ->
+    ?session_ev(target(Session), SessionEvent).
 
 -spec update_state_with(events(), t()) -> t().
 update_state_with(Events, T) ->
+    Context = #{timestamp => erlang:system_time(millisecond)},
     lists:foldl(
-        fun(Ev, State) -> apply_event(Ev, State, #{}) end,
+        fun(Ev, State) -> apply_event(Ev, State, Context) end,
         T,
         Events
     ).
 
 -spec apply_event(event(), t() | undefined, event_context()) -> t().
 apply_event(?session_ev(Target, ?session_started()), undefined, Context) ->
-    create_session(Target, Context);
+    Session0 = create_session(Target, Context),
+    mark_timing_event(started, Context, Session0);
 apply_event(?session_ev(_Target, Event), Session, Context) ->
     apply_event_(Event, Session, Context).
 
 apply_event_(?session_finished(Result), Session, Context) ->
-    Session2 = Session#{status := finished, result => Result},
+    Session2 = Session#{status => finished, result => Result},
     accrue_timing(finished, started, Context, Session2);
 apply_event_(?session_activated(), Session, Context) ->
-    Session2 = Session#{status := active},
+    Session2 = Session#{status => active},
     accrue_timing(suspended, suspended, Context, Session2);
 apply_event_(?session_suspended(Tag, TimeoutBehaviour), Session, Context) ->
     Session2 = set_tag(Tag, Session),
     Session3 = set_timeout_behaviour(TimeoutBehaviour, Session2),
     Session4 = mark_timing_event(suspended, Context, Session3),
-    Session4#{status := suspended};
+    Session4#{status => suspended};
 apply_event_(?trx_bound(Trx), Session, _Context) ->
-    Session#{trx := Trx};
+    Session#{trx => Trx};
 apply_event_(?proxy_st_changed(ProxyState), Session, _Context) ->
     Session#{proxy_state => ProxyState};
 apply_event_(?interaction_requested(_), Session, _Context) ->
@@ -415,18 +447,10 @@ set_session_timings(Timings, Session) ->
 get_session_timings(Session) ->
     maps:get(timings, Session, hg_timings:new()).
 
-accrue_timing(Name, Event, Context, Session) ->
+accrue_timing(Name, Event, #{timestamp := Timestamp}, Session) ->
     Timings = get_session_timings(Session),
-    set_session_timings(hg_timings:accrue(Name, Event, define_event_timestamp(Context), Timings), Session).
+    set_session_timings(hg_timings:accrue(Name, Event, Timestamp, Timings), Session).
 
-mark_timing_event(Event, Context, Session) ->
+mark_timing_event(Event, #{timestamp := Timestamp}, Session) ->
     Timings = get_session_timings(Session),
-    set_session_timings(hg_timings:mark(Event, define_event_timestamp(Context), Timings), Session).
-
-%% Timings
-
--spec define_event_timestamp(event_context()) -> integer().
-define_event_timestamp(#{timestamp := Dt}) ->
-    hg_datetime:parse(Dt, millisecond);
-define_event_timestamp(#{}) ->
-    erlang:system_time(millisecond).
+    set_session_timings(hg_timings:mark(Event, Timestamp, Timings), Session).

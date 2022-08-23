@@ -68,13 +68,14 @@ register(Status, ServiceID, OperationID) ->
     OpTimeLimit = genlib_map:get(operation_time_limit, Config, 1200000),
     PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
     ServiceConfig = build_config(SlidingWindow, OpTimeLimit, PreAggrSize),
-    case register_operation(start, ServiceID, OperationID, ServiceConfig) of
-        {error, not_found} ->
-            _ = init_service(ServiceID, ServiceConfig),
-            _ = register_operation(start, ServiceID, OperationID, ServiceConfig);
-        Result ->
-            Result
-    end,
+    _ =
+        case register_operation(start, ServiceID, OperationID, ServiceConfig) of
+            {error, not_found} ->
+                _ = init_service(ServiceID, ServiceConfig),
+                _ = register_operation(start, ServiceID, OperationID, ServiceConfig);
+            Result ->
+                Result
+        end,
     register_operation(Status, ServiceID, OperationID, ServiceConfig).
 
 %%------------------------------------------------------------------------------
