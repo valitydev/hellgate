@@ -76,7 +76,7 @@
 -export([process_call/3]).
 
 -export([merge_change/3]).
--export([collapse_changes/2]).
+-export([collapse_changes/3]).
 
 -export([get_log_params/2]).
 
@@ -426,7 +426,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         processing_deadline = Deadline
     },
     Events = [?payment_started(Payment2)],
-    {collapse_changes(Events, undefined), {Events, hg_machine_action:instant()}}.
+    {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
 
 get_merchant_payments_terms(Opts, Revision, Timestamp, VS) ->
     Party = get_party(Opts),
@@ -1082,19 +1082,19 @@ assert_capture_cost_currency(?cash(_, PassedSymCode), #domain_InvoicePayment{cos
         passed_currency = PassedSymCode
     }).
 
-% validate_processing_deadline(#domain_InvoicePayment{processing_deadline = Deadline}, _TargetType = processed) ->
-%     case hg_invoice_utils:check_deadline(Deadline) of
-%         ok ->
-%             ok;
-%         {error, deadline_reached} ->
-%             {failure,
-%                 payproc_errors:construct(
-%                     'PaymentFailure',
-%                     {authorization_failed, {processing_deadline_reached, #payproc_error_GeneralFailure{}}}
-%                 )}
-%     end;
-% validate_processing_deadline(_, _TargetType) ->
-%     ok.
+validate_processing_deadline(#domain_InvoicePayment{processing_deadline = Deadline}, _TargetType = processed) ->
+    case hg_invoice_utils:check_deadline(Deadline) of
+        ok ->
+            ok;
+        {error, deadline_reached} ->
+            {failure,
+                payproc_errors:construct(
+                    'PaymentFailure',
+                    {authorization_failed, {processing_deadline_reached, #payproc_error_GeneralFailure{}}}
+                )}
+    end;
+validate_processing_deadline(_, _TargetType) ->
+    ok.
 
 assert_capture_cart(_Cost, undefined) ->
     ok;
@@ -2342,21 +2342,24 @@ handle_callback(Payload, _Action, St) ->
     {Response, {Result, Session}} = hg_session:process_callback(Payload, get_activity_session(St)),
     {Response, finish_session_processing(get_activity(St), Result, Session, St)}.
 
-%% it seems not to be used anywhere
-% process_session(undefined, Action, St0) ->
-%     Target = get_target(St0),
-%     TargetType = get_target_type(Target),
-%     case validate_processing_deadline(get_payment(St0), TargetType) of
-%         ok ->
-%             Events = start_session(Target),
-%             Result = {Events, hg_machine_action:set_timeout(0, Action)},
-%             {next, Result}
-%         Failure ->
-%             process_failure(get_activity(St0), [], Action, Failure, St0)
-%     end;
 -spec process_session(st()) -> machine_result().
-process_session(St = #st{repair_scenario = Scenario}) ->
-    Session0 = get_activity_session(St),
+process_session(St) ->
+    Session = get_activity_session(St),
+    process_session(Session, St).
+
+process_session(undefined, St0) ->
+    Target = get_target(St0),
+    TargetType = get_target_type(Target),
+    Action = hg_machine_action:new(),
+    case validate_processing_deadline(get_payment(St0), TargetType) of
+        ok ->
+            Events = start_session(Target),
+            Result = {Events, hg_machine_action:set_timeout(0, Action)},
+            {next, Result};
+        Failure ->
+            process_failure(get_activity(St0), [], Action, Failure, St0)
+    end;
+process_session(Session0, St = #st{repair_scenario = Scenario}) ->
     Session1 =
         case hg_invoice_repair:check_for_action(repair_session, Scenario) of
             RepairScenario = {result, _} ->
@@ -3011,7 +3014,8 @@ throw_invalid_recurrent_parent(Details) ->
 
 -type change_opts() :: #{
     timestamp => hg_datetime:timestamp(),
-    validation => strict
+    validation => strict,
+    invoice_id => invoice_id()
 }.
 
 -spec merge_change(change(), st() | undefined, change_opts()) -> st().
@@ -3454,9 +3458,9 @@ get_captured_allocation(#domain_InvoicePaymentCaptured{allocation = Allocation})
     Allocation.
 
 -spec create_session_event_context(st(), change_opts()) -> hg_session:event_context().
-create_session_event_context(St, Opts) ->
+create_session_event_context(St, Opts = #{invoice_id := InvoiceID}) ->
     TagContext = #{
-        invoice_id => get_invoice_id(get_invoice(get_opts(St))),
+        invoice_id => InvoiceID,
         payment_id => get_payment_id(get_payment(St))
     },
     #{
@@ -3601,10 +3605,7 @@ get_activity_session({refund_session, ID}, St) ->
 
 %%
 
--spec collapse_changes([change()], st() | undefined) -> st() | undefined.
-collapse_changes(Changes, St) ->
-    collapse_changes(Changes, St, #{}).
-
+-spec collapse_changes([change()], st() | undefined, change_opts()) -> st() | undefined.
 collapse_changes(Changes, St, Opts) ->
     lists:foldl(fun(C, St1) -> merge_change(C, St1, Opts) end, St, Changes).
 
