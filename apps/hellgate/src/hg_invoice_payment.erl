@@ -3297,8 +3297,10 @@ merge_change(
         St,
         Opts
     ),
-    Session = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
-    St1 = add_session(Target, Session, St#st{target = Target}),
+    Session0 = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
+    %% Set trx to deduplicate trx bound events
+    Session1 = hg_session:set_trx_info(get_trx(St), Session0),
+    St1 = add_session(Target, Session1, St#st{target = Target}),
     St2 = save_retry_attempt(Target, St1),
     case Activity of
         {payment, processing_session} ->

@@ -57,6 +57,7 @@
 
 -export([set_repair_scenario/2]).
 -export([set_payment_info/2]).
+-export([set_trx_info/2]).
 
 -export([create/1]).
 -export([deduce_activity/1]).
@@ -153,6 +154,10 @@ set_repair_scenario(Scenario, Session) ->
 -spec set_payment_info(payment_info(), t()) -> t().
 set_payment_info(PaymentInfo, Session) ->
     Session#{payment_info => PaymentInfo}.
+
+-spec set_trx_info(hg_maybe:maybe(trx_info()), t()) -> t().
+set_trx_info(Trx, Session) ->
+    Session#{trx := Trx}.
 
 -spec create(target()) -> events().
 create(Target) ->
