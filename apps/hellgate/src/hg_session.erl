@@ -8,7 +8,7 @@
 -type t() :: #{
     target := target(),
     status := session_status(),
-    trx => trx_info(),
+    trx := hg_maybe:maybe(trx_info()),
     tags := [tag()],
     timeout_behaviour := timeout_behaviour(),
     context := tag_context(),
@@ -105,8 +105,8 @@ status(#{status := V}) ->
     V.
 
 -spec trx_info(t()) -> hg_maybe:maybe(trx_info()).
-trx_info(T) ->
-    maps:get(trx, T, undefined).
+trx_info(#{trx := V}) ->
+    V.
 
 -spec tags(t()) -> [tag()].
 tags(#{tags := V}) ->
@@ -410,16 +410,16 @@ apply_event(_, Session, _Context) ->
     Session.
 
 apply_event_(?session_finished(Result), Session, Context) ->
-    Session2 = Session#{status := finished, result => Result},
+    Session2 = Session#{status => finished, result => Result},
     accrue_timing(finished, started, Context, Session2);
 apply_event_(?session_activated(), Session, Context) ->
-    Session2 = Session#{status := active},
+    Session2 = Session#{status => active},
     accrue_timing(suspended, suspended, Context, Session2);
 apply_event_(?session_suspended(Tag, TimeoutBehaviour), Session, Context) ->
     Session2 = set_tag(Tag, Session),
     Session3 = set_timeout_behaviour(TimeoutBehaviour, Session2),
     Session4 = mark_timing_event(suspended, Context, Session3),
-    Session4#{status := suspended};
+    Session4#{status => suspended};
 apply_event_(?trx_bound(Trx), Session, _Context) ->
     Session#{trx => Trx};
 apply_event_(?proxy_st_changed(ProxyState), Session, _Context) ->
@@ -431,6 +431,7 @@ create_session(Target, #{context := Context, route := Route}) ->
     #{
         target => Target,
         status => active,
+        trx => undefined,
         tags => [],
         timeout_behaviour => {operation_failure, ?operation_timeout()},
         context => Context,
