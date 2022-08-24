@@ -3445,6 +3445,8 @@ get_final_cashflow(#st{final_cash_flow = Cashflow}) ->
 get_trx(#st{trx = Trx}) ->
     Trx.
 
+set_trx(undefined, St = #st{}) ->
+    St;
 set_trx(Trx, St = #st{}) ->
     St#st{trx = Trx}.
 
