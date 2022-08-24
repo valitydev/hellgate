@@ -123,6 +123,7 @@
     | processing_failure
     | updating_accounter
     | flow_waiting
+    | finalizing_session
     | finalizing_accounter.
 
 -record(st, {
@@ -2063,7 +2064,10 @@ process_timeout({payment, routing}, Action, St) ->
     process_routing(Action, St);
 process_timeout({payment, cash_flow_building}, Action, St) ->
     process_cash_flow_building(Action, St);
-process_timeout({payment, processing_session}, _Action, St) ->
+process_timeout({payment, Step}, _Action, St) when
+    Step =:= processing_session orelse
+        Step =:= finalizing_session
+->
     process_session(St);
 process_timeout({payment, Step}, Action, St) when
     Step =:= processing_failure orelse
@@ -2339,8 +2343,11 @@ process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, cap
 
 -spec handle_callback(callback(), action(), st()) -> {callback_response(), machine_result()}.
 handle_callback(Payload, _Action, St) ->
-    {Response, {Result, Session}} = hg_session:process_callback(Payload, get_activity_session(St)),
-    {Response, finish_session_processing(get_activity(St), Result, Session, St)}.
+    Session0 = get_activity_session(St),
+    PaymentInfo = construct_payment_info(St, get_opts(St)),
+    Session1 = hg_session:set_payment_info(PaymentInfo, Session0),
+    {Response, {Result, Session2}} = hg_session:process_callback(Payload, Session1),
+    {Response, finish_session_processing(get_activity(St), Result, Session2, St)}.
 
 -spec process_session(st()) -> machine_result().
 process_session(St) ->
@@ -2367,8 +2374,10 @@ process_session(Session0, St = #st{repair_scenario = Scenario}) ->
             call ->
                 Session0
         end,
-    {Result, Session2} = hg_session:process(Session1),
-    finish_session_processing(get_activity(St), Result, Session2, St).
+    PaymentInfo = construct_payment_info(St, get_opts(St)),
+    Session2 = hg_session:set_payment_info(PaymentInfo, Session1),
+    {Result, Session3} = hg_session:process(Session2),
+    finish_session_processing(get_activity(St), Result, Session3, St).
 
 -spec finish_session_processing(activity(), result(), hg_session:t(), st()) -> machine_result().
 finish_session_processing(Activity, {Events0, Action}, Session, St) ->
@@ -2483,7 +2492,10 @@ process_failure({payment, Step}, Events, Action, Failure, _St, _RefundSt) when
         Step =:= routing
 ->
     {done, {Events ++ [?payment_status_changed(?failed(Failure))], Action}};
-process_failure({payment, processing_session} = Activity, Events, Action, Failure, St, _RefundSt) ->
+process_failure({payment, Step} = Activity, Events, Action, Failure, St, _RefundSt) when
+    Step =:= processing_session orelse
+        Step =:= finalizing_session
+->
     Target = get_target(St),
     case check_retry_possibility(Target, Failure, St) of
         {retry, Timeout} ->
@@ -3080,7 +3092,7 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
             St
     end;
 merge_change(Change = ?rec_token_acquired(Token), #st{} = St, Opts) ->
-    _ = validate_transition([{payment, processing_session}], Change, St, Opts),
+    _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
     St#st{recurrent_token = Token};
 merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
     _ = validate_transition(
@@ -3277,7 +3289,8 @@ merge_change(
                 processing_session,
                 flow_waiting,
                 processing_capture,
-                updating_accounter
+                updating_accounter,
+                finalizing_session
             ]
         ],
         Change,
@@ -3288,20 +3301,26 @@ merge_change(
     St1 = add_session(Target, Session, St#st{target = Target}),
     St2 = save_retry_attempt(Target, St1),
     case Activity of
-        {payment, updating_accounter} ->
+        {payment, processing_session} ->
             %% session retrying
             St2#st{activity = {payment, processing_session}};
         {payment, PaymentActivity} when PaymentActivity == flow_waiting; PaymentActivity == processing_capture ->
             %% session flow
             St2#st{
-                activity = {payment, processing_session},
+                activity = {payment, finalizing_session},
                 timings = try_accrue_waiting_timing(Opts, St2)
             };
+        {payment, updating_accounter} ->
+            %% session flow
+            St2#st{activity = {payment, finalizing_session}};
+        {payment, finalizing_session} ->
+            %% session retrying
+            St2#st{activity = {payment, finalizing_session}};
         _ ->
             St2
     end;
 merge_change(Change = ?session_ev(Target, _Event), St = #st{activity = Activity}, Opts) ->
-    _ = validate_transition([{payment, S} || S <- [processing_session]], Change, St, Opts),
+    _ = validate_transition([{payment, S} || S <- [processing_session, finalizing_session]], Change, St, Opts),
     Session = hg_session:apply_event(
         Change,
         get_session(Target, St),
@@ -3316,6 +3335,8 @@ merge_change(Change = ?session_ev(Target, _Event), St = #st{activity = Activity}
                 case Activity of
                     {payment, processing_session} ->
                         {payment, processing_accounter};
+                    {payment, finalizing_session} ->
+                        {payment, finalizing_accounter};
                     _ ->
                         Activity
                 end,
@@ -3466,8 +3487,7 @@ create_session_event_context(St, Opts = #{invoice_id := InvoiceID}) ->
     #{
         timestamp => define_event_timestamp(Opts),
         context => TagContext,
-        route => get_route(St),
-        payment_info => construct_payment_info(St, get_opts(St))
+        route => get_route(St)
     }.
 
 get_refund_session(#refund_st{sessions = []}) ->

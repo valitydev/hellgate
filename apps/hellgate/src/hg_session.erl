@@ -23,8 +23,7 @@
 -type event_context() :: #{
     timestamp := integer(),
     context => tag_context(),
-    route => route(),
-    payment_info => payment_info()
+    route => route()
 }.
 
 -type process_result() :: {result(), t()}.
@@ -57,6 +56,7 @@
 %% API
 
 -export([set_repair_scenario/2]).
+-export([set_payment_info/2]).
 
 -export([create/1]).
 -export([deduce_activity/1]).
@@ -149,6 +149,10 @@ repair_scenario(T) ->
 -spec set_repair_scenario(repair_scenario(), t()) -> t().
 set_repair_scenario(Scenario, Session) ->
     Session#{repair_scenario => Scenario}.
+
+-spec set_payment_info(payment_info(), t()) -> t().
+set_payment_info(PaymentInfo, Session) ->
+    Session#{payment_info => PaymentInfo}.
 
 -spec create(target()) -> events().
 create(Target) ->
@@ -399,7 +403,11 @@ apply_event(?session_ev(Target, ?session_started()), undefined, Context) ->
     Session0 = create_session(Target, Context),
     mark_timing_event(started, Context, Session0);
 apply_event(?session_ev(_Target, Event), Session, Context) ->
-    apply_event_(Event, Session, Context).
+    apply_event_(Event, Session, Context);
+%% Ignore ?rec_token_acquired event cause it's easiest way to handle this
+%% TODO maybe add this token to session state and remove it from payment state?
+apply_event(_, Session, _Context) ->
+    Session.
 
 apply_event_(?session_finished(Result), Session, Context) ->
     Session2 = Session#{status => finished, result => Result},
@@ -419,7 +427,7 @@ apply_event_(?proxy_st_changed(ProxyState), Session, _Context) ->
 apply_event_(?interaction_requested(_), Session, _Context) ->
     Session.
 
-create_session(Target, #{context := Context, route := Route, payment_info := PaymentInfo}) ->
+create_session(Target, #{context := Context, route := Route}) ->
     #{
         target => Target,
         status => active,
@@ -427,8 +435,7 @@ create_session(Target, #{context := Context, route := Route, payment_info := Pay
         tags => [],
         timeout_behaviour => {operation_failure, ?operation_timeout()},
         context => Context,
-        route => Route,
-        payment_info => PaymentInfo
+        route => Route
     }.
 
 set_timeout_behaviour(undefined, Session) ->
