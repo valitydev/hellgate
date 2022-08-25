@@ -67,6 +67,7 @@
 -type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
 -type target_status() :: dmsl_payproc_thrift:'TargetInvoicePaymentStatus'().
 -type risk_score() :: dmsl_domain_thrift:'RiskScore'().
+-type timestamp() :: integer().
 
 -spec start_proxies(list()) -> ok.
 start_proxies(Proxies) ->
