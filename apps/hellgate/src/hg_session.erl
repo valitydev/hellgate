@@ -300,7 +300,7 @@ handle_proxy_callback_result(
 ) ->
     Events1 = hg_proxy_provider:bind_transaction(Trx, Session),
     Events2 = update_proxy_state(ProxyState, Session),
-    {wrap_session_events(Events1 ++ Events2, Session), undefined}.
+    {wrap_session_events(Events1 ++ Events2, Session), hg_machine_action:new()}.
 
 apply_result(Result = {Events, _Action}, T) ->
     {Result, update_state_with(Events, T)}.
