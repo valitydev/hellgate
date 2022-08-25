@@ -56,16 +56,17 @@
 -type shop_id() :: dmsl_domain_thrift:'ShopID'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
+-type amount() :: dmsl_domain_thrift:'Amount'().
 -type cart() :: dmsl_domain_thrift:'InvoiceCart'().
 -type cash_flow() :: dmsl_domain_thrift:'FinalCashFlow'().
 -type cash_flow_account() :: dmsl_domain_thrift:'CashFlowAccount'().
 -type transaction_account() :: dmsl_domain_thrift:'TransactionAccount'().
 -type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
 -type payment_session_id() :: dmsl_domain_thrift:'PaymentSessionID'().
--type invoice_payment_flow() :: dmsl_domain_thrift:'InvoicePaymentFlow'().
+-type invoice_payment_params_flow() :: instant | {hold, dmsl_domain_thrift:'OnHoldExpiration'()}.
 -type invoice_payment_params() :: dmsl_payproc_thrift:'InvoicePaymentParams'().
 -type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
--type target_status() :: dmsl_payproc_thrift:'TargetInvoicePaymentStatus'().
+-type target_status() :: dmsl_domain_thrift:'TargetInvoicePaymentStatus'().
 -type risk_score() :: dmsl_domain_thrift:'RiskScore'().
 -type timestamp() :: integer().
 
@@ -116,12 +117,12 @@ get_random_port() ->
 make_payment_params(PmtSys) ->
     make_payment_params(PmtSys, instant).
 
--spec make_payment_params(hg_dummy_provider:payment_system(), invoice_payment_flow()) -> invoice_payment_params().
+-spec make_payment_params(hg_dummy_provider:payment_system(), invoice_payment_params_flow()) -> invoice_payment_params().
 make_payment_params(PmtSys, FlowType) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
     make_payment_params(PaymentTool, Session, FlowType).
 
--spec make_payment_params(payment_tool(), payment_session_id(), invoice_payment_flow()) -> invoice_payment_params().
+-spec make_payment_params(payment_tool(), payment_session_id(), invoice_payment_params_flow()) -> invoice_payment_params().
 make_payment_params(PaymentTool, Session, FlowType) ->
     Flow =
         case FlowType of
@@ -148,17 +149,17 @@ make_wallet_payment_params(PmtSrv) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(digital_wallet, PmtSrv),
     make_payment_params(PaymentTool, Session, instant).
 
--spec start_invoice(binary(), timestamp(), cash(), ct_suite:ct_config()) -> invoice_id().
+-spec start_invoice(binary(), timestamp(), amount(), ct_suite:ct_config()) -> invoice_id().
 start_invoice(Product, Due, Amount, C) ->
     start_invoice(hg_ct_helper:cfg(shop_id, C), Product, Due, Amount, C).
 
--spec start_invoice(shop_id(), binary(), timestamp(), cash(), ct_suite:ct_config()) -> invoice_id().
+-spec start_invoice(shop_id(), binary(), timestamp(), amount(), ct_suite:ct_config()) -> invoice_id().
 start_invoice(ShopID, Product, Due, Amount, C) ->
     Client = hg_ct_helper:cfg(client, C),
     PartyID = hg_ct_helper:cfg(party_id, C),
     start_invoice(PartyID, ShopID, Product, Due, Amount, Client).
 
--spec start_invoice(party_id(), shop_id(), binary(), timestamp(), cash(), pid()) -> invoice_id().
+-spec start_invoice(party_id(), shop_id(), binary(), timestamp(), amount(), pid()) -> invoice_id().
 start_invoice(PartyID, ShopID, Product, Due, Amount, Client) ->
     InvoiceParams =
         hg_ct_helper:make_invoice_params(PartyID, ShopID, Product, Due, hg_ct_helper:make_cash(Amount, <<"RUB">>)),
@@ -171,12 +172,12 @@ create_invoice(InvoiceParams, Client) ->
     ?invoice_state(?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
     InvoiceID.
 
--spec next_event(invoice_id(), pid()) -> list().
+-spec next_event(invoice_id(), pid()) -> term().
 next_event(InvoiceID, Client) ->
     %% timeout should be at least as large as hold expiration in construct_domain_fixture/0
     next_event(InvoiceID, 12000, Client).
 
--spec next_event(invoice_id(), non_neg_integer(), pid()) -> list().
+-spec next_event(invoice_id(), non_neg_integer(), pid()) -> term().
 next_event(InvoiceID, Timeout, Client) ->
     case hg_client_invoicing:pull_event(InvoiceID, Timeout, Client) of
         {ok, ?invoice_ev(Changes)} ->
@@ -262,7 +263,7 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts) ->
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost) ->
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost, undefined).
 
--spec await_payment_capture_finish(invoice_id(), payment_id(), binary(), pid(), non_neg_integer(), cash(), cart()) ->
+-spec await_payment_capture_finish(invoice_id(), payment_id(), binary(), pid(), non_neg_integer(), cash(), cart() | undefined) ->
     payment_id().
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost, Cart) ->
     PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, Cart), InvoiceID, Client, Restarts),
