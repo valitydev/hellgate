@@ -154,6 +154,7 @@ end_per_suite(C) ->
 -define(refund_id(RefundID), #domain_InvoicePaymentRefund{id = RefundID}).
 -define(refund_id(RefundID, ExternalID), #domain_InvoicePaymentRefund{id = RefundID, external_id = ExternalID}).
 
+-define(CB_PROVIDER_LEVY, 50).
 -define(merchant_to_system_share_1, ?share(45, 1000, operation_amount)).
 -define(merchant_to_system_share_2, ?share(100, 1000, operation_amount)).
 -define(merchant_to_system_share_3, ?share(40, 1000, operation_amount)).
