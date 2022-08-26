@@ -117,12 +117,14 @@ get_random_port() ->
 make_payment_params(PmtSys) ->
     make_payment_params(PmtSys, instant).
 
--spec make_payment_params(hg_dummy_provider:payment_system(), invoice_payment_params_flow()) -> invoice_payment_params().
+-spec make_payment_params(hg_dummy_provider:payment_system(), invoice_payment_params_flow()) ->
+    invoice_payment_params().
 make_payment_params(PmtSys, FlowType) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
     make_payment_params(PaymentTool, Session, FlowType).
 
--spec make_payment_params(payment_tool(), payment_session_id(), invoice_payment_params_flow()) -> invoice_payment_params().
+-spec make_payment_params(payment_tool(), payment_session_id(), invoice_payment_params_flow()) ->
+    invoice_payment_params().
 make_payment_params(PaymentTool, Session, FlowType) ->
     Flow =
         case FlowType of
@@ -263,7 +265,9 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts) ->
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost) ->
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost, undefined).
 
--spec await_payment_capture_finish(invoice_id(), payment_id(), binary(), pid(), non_neg_integer(), cash(), cart() | undefined) ->
+-spec await_payment_capture_finish(
+    invoice_id(), payment_id(), binary(), pid(), non_neg_integer(), cash(), cart() | undefined
+) ->
     payment_id().
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost, Cart) ->
     PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, Cart), InvoiceID, Client, Restarts),
