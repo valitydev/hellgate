@@ -68,6 +68,7 @@
 -export([process_timeout/3]).
 -export([process_call/4]).
 -export([process_repair/4]).
+-export([process_notification/4]).
 
 %% Model callbacks
 
@@ -235,3 +236,7 @@ process_repair(Args, Machine, Mod, _) ->
         {error, _Reason} = Error ->
             Error
     end.
+
+-spec process_notification(_, machine(_), _, _) -> result(_) | no_return().
+process_notification(_Args, _Machine, _HandlerArgs, _Opts) ->
+    #{}.

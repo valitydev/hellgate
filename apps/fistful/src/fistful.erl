@@ -21,11 +21,13 @@
 -export([start/4]).
 -export([call/5]).
 -export([repair/5]).
+-export([notify/5]).
 
 -export([init/4]).
 -export([process_timeout/3]).
 -export([process_repair/4]).
 -export([process_call/4]).
+-export([process_notification/4]).
 
 %%
 
@@ -58,6 +60,10 @@ call(NS, ID, Range, Args, Backend) ->
     {ok, response(_)} | {error, notfound | working | {failed, machinery:error(_)}}.
 repair(NS, ID, Range, Args, Backend) ->
     machinery:repair(NS, ID, Range, Args, set_backend_context(Backend)).
+
+-spec notify(namespace(), id(), range(), args(_), machinery:backend(_)) -> ok | {error, notfound}.
+notify(NS, ID, Range, Args, Backend) ->
+    machinery:notify(NS, ID, Range, Args, set_backend_context(Backend)).
 
 %%
 
@@ -100,6 +106,16 @@ process_repair(Args, Machine, Options, MachineryOptions) ->
     ok = ff_context:save(create_context(Options, MachineryOptions)),
     try
         machinery:dispatch_repair(Args, Machine, machinery_utils:get_handler(Handler), #{})
+    after
+        ff_context:cleanup()
+    end.
+
+-spec process_notification(args(_), machine(E, A), options(), handler_opts()) -> result(E, A).
+process_notification(Args, Machine, Options, MachineryOptions) ->
+    #{handler := Handler} = Options,
+    ok = ff_context:save(create_context(Options, MachineryOptions)),
+    try
+        machinery:dispatch_signal({notification, Args}, Machine, machinery_utils:get_handler(Handler), #{})
     after
         ff_context:cleanup()
     end.

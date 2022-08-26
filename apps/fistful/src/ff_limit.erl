@@ -49,6 +49,7 @@
 -export([process_timeout/3]).
 -export([process_repair/4]).
 -export([process_call/4]).
+-export([process_notification/4]).
 
 %% Types
 
@@ -196,6 +197,10 @@ process_call({reject, Trx}, #{aux_state := St}, _, _Opts) ->
 
 process_repair(_RepairArgs, _Machine, _Args, _Opts) ->
     erlang:error({not_implemented, repair}).
+
+-spec process_notification(_, machine(_), handler_args(), handler_opts()) -> result(_) | no_return().
+process_notification(_Args, _Machine, _HandlerArgs, _Opts) ->
+    #{}.
 
 process_account(Trx, Range, St0) ->
     case lookup_trx(get_trx_id(Trx), St0) of

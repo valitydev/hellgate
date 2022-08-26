@@ -46,6 +46,7 @@ marshal(T, V, C) when
     T =:= {args, init} orelse
         T =:= {args, call} orelse
         T =:= {args, repair} orelse
+        T =:= {args, notification} orelse
         T =:= {aux_state, undefined} orelse
         T =:= {response, call} orelse
         T =:= {response, {repair, success}} orelse
@@ -63,6 +64,7 @@ unmarshal(T, V, C) when
     T =:= {args, init} orelse
         T =:= {args, call} orelse
         T =:= {args, repair} orelse
+        T =:= {args, notification} orelse
         T =:= {response, call} orelse
         T =:= {response, {repair, success}} orelse
         T =:= {response, {repair, failure}}

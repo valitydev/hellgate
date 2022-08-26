@@ -161,6 +161,9 @@
     | {invalid_cash_flow_change, {already_has_domain_revision, domain_revision()}}
     | ff_adjustment:create_error().
 
+-type finalize_session_error() ::
+    {wrong_session_id, session_id()}.
+
 -type unknown_adjustment_error() :: ff_adjustment_utils:unknown_adjustment_error().
 
 -type invalid_status_change_error() ::
@@ -220,6 +223,8 @@
 -export([gen/1]).
 -export([get_quote/1]).
 -export([is_finished/1]).
+
+-export([finalize_session/3]).
 
 -export([start_adjustment/2]).
 -export([find_adjustment/2]).
@@ -964,18 +969,19 @@ create_session(ID, TransferData, SessionParams) ->
             ok
     end.
 
--spec process_session_sleep(withdrawal_state()) -> process_result().
-process_session_sleep(Withdrawal) ->
-    SessionID = session_id(Withdrawal),
-    {ok, SessionMachine} = ff_withdrawal_session_machine:get(SessionID),
-    Session = ff_withdrawal_session_machine:session(SessionMachine),
-    case ff_withdrawal_session:status(Session) of
-        active ->
-            {sleep, []};
-        {finished, _} ->
-            Result = ff_withdrawal_session:result(Session),
-            {continue, [{session_finished, {SessionID, Result}}]}
+-spec finalize_session(session_id(), session_result(), withdrawal_state()) ->
+    {ok, process_result()} | {error, finalize_session_error()}.
+finalize_session(SessionID, Result, Withdrawal) ->
+    case session_id(Withdrawal) of
+        SessionID ->
+            {ok, {continue, [{session_finished, {SessionID, Result}}]}};
+        _OtherSessionID ->
+            {error, {wrong_session_id, SessionID}}
     end.
+
+-spec process_session_sleep(withdrawal_state()) -> process_result().
+process_session_sleep(_Withdrawal) ->
+    {sleep, []}.
 
 -spec process_transfer_finish(withdrawal_state()) -> process_result().
 process_transfer_finish(_Withdrawal) ->

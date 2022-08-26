@@ -38,6 +38,7 @@
 -export([call/5]).
 -export([repair/5]).
 -export([get/4]).
+-export([notify/5]).
 
 %% Gen Server
 
@@ -123,6 +124,10 @@ report_exists(NS, ID) ->
 report_notfound(NS, ID) ->
     _ = _ = logger:debug("[machinery/gensrv][client][~s:~s] not found", [NS, ID]),
     {error, notfound}.
+
+-spec notify(namespace(), id(), range(), args(_), backend_opts()) -> no_return().
+notify(_NS, _ID, _Range, _Args, _Opts) ->
+    erlang:error({not_implemented, notify}).
 
 %% Gen Server + Supervisor
 

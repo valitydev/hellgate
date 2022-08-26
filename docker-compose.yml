@@ -40,16 +40,16 @@ services:
       retries: 10
 
   machinegun:
-    image: docker.io/rbkmoney/machinegun:c05a8c18cd4f7966d70b6ad84cac9429cdfe37ae
+    image: ghcr.io/valitydev/machinegun:sha-00fe6d6
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
       - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
     healthcheck:
-      test: "curl http://localhost:8022/"
-      interval: 5s
-      timeout: 1s
-      retries: 20
+      test: "/opt/machinegun/bin/machinegun ping"
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   limiter:
     image: ghcr.io/valitydev/limiter:sha-40e4b22

@@ -32,6 +32,8 @@
 -type repair_error() :: ff_repair:repair_error().
 -type repair_response() :: ff_repair:repair_response().
 
+-type notify_args() :: {session_finished, session_id(), session_result()}.
+
 -export_type([id/0]).
 -export_type([st/0]).
 -export_type([action/0]).
@@ -53,9 +55,9 @@
 -export([get/2]).
 -export([events/2]).
 -export([repair/2]).
+-export([notify/2]).
 
 -export([start_adjustment/2]).
--export([notify_session_finished/3]).
 
 %% Accessors
 
@@ -68,6 +70,7 @@
 -export([process_timeout/3]).
 -export([process_repair/4]).
 -export([process_call/4]).
+-export([process_notification/4]).
 
 %% Pipeline
 
@@ -139,10 +142,10 @@ repair(ID, Scenario) ->
 start_adjustment(WithdrawalID, Params) ->
     call(WithdrawalID, {start_adjustment, Params}).
 
--spec notify_session_finished(id(), session_id(), session_result()) ->
-    ok | {error, session_not_found | old_session | result_mismatch}.
-notify_session_finished(WithdrawalID, SessionID, SessionResult) ->
-    call(WithdrawalID, {session_finished, SessionID, SessionResult}).
+-spec notify(id(), notify_args()) ->
+    ok | {error, notfound} | no_return().
+notify(ID, Args) ->
+    machinery:notify(?NS, ID, Args, backend()).
 
 %% Accessors
 
@@ -190,6 +193,16 @@ process_call(CallArgs, _Machine, _, _Opts) ->
     {ok, {repair_response(), result()}} | {error, repair_error()}.
 process_repair(Scenario, Machine, _Args, _Opts) ->
     ff_repair:apply_scenario(ff_withdrawal, Machine, Scenario).
+
+-spec process_notification(notify_args(), machine(), handler_args(), handler_opts()) -> result() | no_return().
+process_notification({session_finished, SessionID, SessionResult}, Machine, _HandlerArgs, _Opts) ->
+    St = ff_machine:collapse(ff_withdrawal, Machine),
+    case ff_withdrawal:finalize_session(SessionID, SessionResult, withdrawal(St)) of
+        {ok, Result} ->
+            process_result(Result, St);
+        {error, Reason} ->
+            erlang:error({unable_to_finalize_session, Reason})
+    end.
 
 -spec do_start_adjustment(adjustment_params(), machine()) -> {Response, result()} when
     Response :: ok | {error, ff_withdrawal:start_adjustment_error()}.

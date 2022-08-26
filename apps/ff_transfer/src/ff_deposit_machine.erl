@@ -77,6 +77,7 @@
 -export([process_timeout/3]).
 -export([process_repair/4]).
 -export([process_call/4]).
+-export([process_notification/4]).
 
 %% Pipeline
 
@@ -207,6 +208,10 @@ process_call(CallArgs, _Machine, _, _Opts) ->
     {ok, {repair_response(), result()}} | {error, repair_error()}.
 process_repair(Scenario, Machine, _Args, _Opts) ->
     ff_repair:apply_scenario(ff_deposit, Machine, Scenario).
+
+-spec process_notification(_, machine(), handler_args(), handler_opts()) -> result() | no_return().
+process_notification(_Args, _Machine, _HandlerArgs, _Opts) ->
+    #{}.
 
 %% Internals
 

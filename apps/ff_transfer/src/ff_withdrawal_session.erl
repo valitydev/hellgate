@@ -212,11 +212,9 @@ apply_event({callback, _Ev} = WrappedEvent, Session) ->
 process_session(#{status := {finished, _}, id := ID, result := Result, withdrawal := Withdrawal}) ->
     % Session has finished, it should notify the withdrawal machine about the fact
     WithdrawalID = ff_adapter_withdrawal:id(Withdrawal),
-    case ff_withdrawal_machine:notify_session_finished(WithdrawalID, ID, Result) of
+    case ff_withdrawal_machine:notify(WithdrawalID, {session_finished, ID, Result}) of
         ok ->
             {finish, []};
-        {error, session_not_found} ->
-            {retry, []};
         {error, _} = Error ->
             erlang:error({unable_to_finish_session, Error})
     end;
