@@ -972,9 +972,11 @@ create_session(ID, TransferData, SessionParams) ->
 -spec finalize_session(session_id(), session_result(), withdrawal_state()) ->
     {ok, process_result()} | {error, finalize_session_error()}.
 finalize_session(SessionID, Result, Withdrawal) ->
-    case session_id(Withdrawal) of
-        SessionID ->
+    case {session_id(Withdrawal), get_current_session_status(Withdrawal)} of
+        {SessionID, pending} ->
             {ok, {continue, [{session_finished, {SessionID, Result}}]}};
+        {SessionID, _} ->
+            {ok, {undefined, []}};
         _OtherSessionID ->
             {error, {wrong_session_id, SessionID}}
     end.
