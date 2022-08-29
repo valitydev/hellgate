@@ -806,8 +806,9 @@ handle_payment_result({next, {Changes, Action}}, PaymentID, _PaymentSession, St,
     };
 handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, Opts) ->
     Invoice = St#st.invoice,
+    InvoiceID = Invoice#domain_Invoice.id,
     #{timestamp := OccurredAt} = Opts,
-    PaymentSession1 = hg_invoice_payment:collapse_changes(Changes, PaymentSession),
+    PaymentSession1 = hg_invoice_payment:collapse_changes(Changes, PaymentSession, #{invoice_id => InvoiceID}),
     Payment = hg_invoice_payment:get_payment(PaymentSession1),
     case get_payment_status(Payment) of
         ?processed() ->
@@ -1096,9 +1097,9 @@ merge_change(?invoice_adjustment_ev(ID, Event), St, _Opts) ->
         _ ->
             St2
     end;
-merge_change(?payment_ev(PaymentID, Change), St, Opts) ->
+merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts) ->
     PaymentSession = try_get_payment_session(PaymentID, St),
-    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts),
+    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
     St1 = set_payment_session(PaymentID, PaymentSession1, St),
     case hg_invoice_payment:get_activity(PaymentSession1) of
         A when A =/= idle ->
