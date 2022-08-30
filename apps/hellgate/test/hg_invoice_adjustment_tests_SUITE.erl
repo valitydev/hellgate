@@ -12,13 +12,9 @@
 -export([end_per_testcase/2]).
 
 -export([invoice_adjustment_capture/1]).
--export([invoice_adjustment_cancel/1]).
 -export([invoice_adjustment_existing_invoice_status/1]).
 -export([invoice_adjustment_invalid_invoice_status/1]).
--export([invoice_adjustment_invalid_adjustment_status/1]).
 -export([invoice_adjustment_payment_pending/1]).
--export([invoice_adjustment_pending_blocks_payment/1]).
--export([invoice_adjustment_pending_no_invoice_expiration/1]).
 -export([invoice_adjustment_invoice_expiration_after_capture/1]).
 
 -behaviour(supervisor).
@@ -50,13 +46,9 @@ groups() ->
     [
         {all_tests, [parallel], [
             invoice_adjustment_capture,
-            invoice_adjustment_cancel,
             invoice_adjustment_existing_invoice_status,
             invoice_adjustment_invalid_invoice_status,
-            invoice_adjustment_invalid_adjustment_status,
             invoice_adjustment_payment_pending,
-            invoice_adjustment_pending_blocks_payment,
-            invoice_adjustment_pending_no_invoice_expiration,
             invoice_adjustment_invoice_expiration_after_capture
         ]}
     ].
@@ -161,41 +153,10 @@ invoice_adjustment_capture(C) ->
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
     ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:capture_invoice_adjustment(InvoiceID, ID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Captured))] = next_event(InvoiceID, Client),
     ?assertMatch({captured, #domain_InvoiceAdjustmentCaptured{}}, Captured),
     #payproc_Invoice{invoice = #domain_Invoice{status = FinalStatus}} = hg_client_invoicing:get(InvoiceID, Client),
     ?assertMatch(Unpaid, FinalStatus).
-
--spec invoice_adjustment_cancel(config()) -> test_return().
-invoice_adjustment_cancel(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    #payproc_Invoice{invoice = #domain_Invoice{status = InvoiceStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    TargetInvoiceStatus = {unpaid, #domain_InvoiceUnpaid{}},
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = TargetInvoiceStatus
-            }}
-    },
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    ?assertMatch({pending, #domain_InvoiceAdjustmentPending{}}, Adjustment#domain_InvoiceAdjustment.status),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
-    ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:cancel_invoice_adjustment(InvoiceID, ID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Cancelled))] = next_event(InvoiceID, Client),
-    ?assertMatch({cancelled, #domain_InvoiceAdjustmentCancelled{}}, Cancelled),
-    #payproc_Invoice{invoice = #domain_Invoice{status = FinalStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    ?assertMatch(InvoiceStatus, FinalStatus).
 
 -spec invoice_adjustment_invalid_invoice_status(config()) -> test_return().
 invoice_adjustment_invalid_invoice_status(C) ->
@@ -239,37 +200,6 @@ invoice_adjustment_existing_invoice_status(C) ->
     {exception, E} = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
     ?assertMatch(#payproc_InvoiceAlreadyHasStatus{status = Paid}, E).
 
--spec invoice_adjustment_invalid_adjustment_status(config()) -> test_return().
-invoice_adjustment_invalid_adjustment_status(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    #payproc_Invoice{invoice = #domain_Invoice{status = InvoiceStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = {cancelled, #domain_InvoiceCancelled{details = <<"hulk smash">>}}
-            }}
-    },
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    ?assertMatch({pending, #domain_InvoiceAdjustmentPending{}}, Adjustment#domain_InvoiceAdjustment.status),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
-    ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:cancel_invoice_adjustment(InvoiceID, ID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Cancelled))] = next_event(InvoiceID, Client),
-    ?assertMatch({cancelled, #domain_InvoiceAdjustmentCancelled{}}, Cancelled),
-    #payproc_Invoice{invoice = #domain_Invoice{status = FinalStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    ?assertMatch(InvoiceStatus, FinalStatus),
-    {exception, E} = hg_client_invoicing:cancel_invoice_adjustment(InvoiceID, ID, Client),
-    ?assertMatch(#payproc_InvalidInvoiceAdjustmentStatus{status = Cancelled}, E).
-
 -spec invoice_adjustment_payment_pending(config()) -> test_return().
 invoice_adjustment_payment_pending(C) ->
     Client = cfg(client, C),
@@ -293,57 +223,6 @@ invoice_adjustment_payment_pending(C) ->
     _ = assert_success_interaction(UserInteraction),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
-
--spec invoice_adjustment_pending_blocks_payment(config()) -> test_return().
-invoice_adjustment_pending_blocks_payment(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_Invoice)] = next_event(InvoiceID, Client),
-    PaymentParams = make_payment_params({hold, capture}, ?pmt_sys(<<"visa-ref">>)),
-    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    Cash = ?cash(10, <<"RUB">>),
-    Reason = <<"ok">>,
-    TargetInvoiceStatus = {cancelled, #domain_InvoiceCancelled{details = <<"hulk smash">>}},
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = TargetInvoiceStatus
-            }}
-    },
-    ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, Cash, Client),
-    PaymentID = await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client),
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    ?assertMatch({pending, #domain_InvoiceAdjustmentPending{}}, Adjustment#domain_InvoiceAdjustment.status),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
-    ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    {exception, E} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?assertMatch(#payproc_InvoiceAdjustmentPending{id = ID}, E).
-
--spec invoice_adjustment_pending_no_invoice_expiration(config()) -> test_return().
-invoice_adjustment_pending_no_invoice_expiration(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(5), make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_)] = next_event(InvoiceID, Client),
-    Paid = {paid, #domain_InvoicePaid{}},
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = Paid
-            }}
-    },
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(_Processed))] = next_event(InvoiceID, Client),
-    timeout = next_event(InvoiceID, 6000, Client).
 
 -spec invoice_adjustment_invoice_expiration_after_capture(config()) -> test_return().
 invoice_adjustment_invoice_expiration_after_capture(C) ->
@@ -373,7 +252,6 @@ invoice_adjustment_invoice_expiration_after_capture(C) ->
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
     ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:capture_invoice_adjustment(InvoiceID, ID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Captured))] = next_event(InvoiceID, Client),
     ?assertMatch({captured, #domain_InvoiceAdjustmentCaptured{}}, Captured),
     #payproc_Invoice{invoice = #domain_Invoice{status = Unpaid}} = hg_client_invoicing:get(InvoiceID, Client),
@@ -955,19 +833,6 @@ await_payment_capture(InvoiceID, PaymentID, Reason, Client, Restarts) ->
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
     ] = next_event(InvoiceID, Client),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts).
-
-await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client) ->
-    await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client, 0).
-
-await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client, Restarts) ->
-    [
-        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
-        ?payment_ev(PaymentID, ?cash_flow_changed(_))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
-    ] = next_event(InvoiceID, Client),
-    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cash).
 
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts) ->
     Cost = get_payment_cost(InvoiceID, PaymentID, Client),
