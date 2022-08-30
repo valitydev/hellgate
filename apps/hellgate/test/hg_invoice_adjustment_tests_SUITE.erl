@@ -753,9 +753,7 @@ make_payment_params(PaymentTool, Session, FlowType) ->
     Flow =
         case FlowType of
             instant ->
-                {instant, #payproc_InvoicePaymentParamsFlowInstant{}};
-            {hold, OnHoldExpiration} ->
-                {hold, #payproc_InvoicePaymentParamsFlowHold{on_hold_expiration = OnHoldExpiration}}
+                {instant, #payproc_InvoicePaymentParamsFlowInstant{}}
         end,
     #payproc_InvoicePaymentParams{
         payer =

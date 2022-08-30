@@ -249,7 +249,10 @@ get_party_revision(#st{activity = {_, ID} = Activity} = St) when
 ->
     #domain_InvoicePaymentRefund{party_revision = Revision, created_at = Timestamp} = get_refund(ID, St),
     {Revision, Timestamp};
-get_party_revision(#st{activity = {adjustment_new, ID}} = St) ->
+get_party_revision(#st{activity = {Activity, ID}} = St) when
+    Activity =:= adjustment_new orelse
+        Activity =:= adjustment_pending
+->
     #domain_InvoicePaymentAdjustment{party_revision = Revision, created_at = Timestamp} = get_adjustment(ID, St),
     {Revision, Timestamp};
 get_party_revision(#st{activity = Activity}) ->
