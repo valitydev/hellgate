@@ -14,7 +14,6 @@
         cowboy,
         woody,
         scoper,  % should be before any scoper event handler usage
-        gproc,
         dmt_client,
         party_client,
         bender_client,
