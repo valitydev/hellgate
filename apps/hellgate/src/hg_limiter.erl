@@ -72,37 +72,43 @@ check_limits_([T | TurnoverLimits], Context, Acc) ->
 
 -spec hold_payment_limits([turnover_limit()], route(), invoice(), payment()) -> ok.
 hold_payment_limits(TurnoverLimits, Route, Invoice, Payment) ->
-    LimitChanges = gen_limit_payment_changes(TurnoverLimits, Route, Invoice, Payment),
+    ChangeID = construct_payment_change_id(Route, Invoice, Payment),
+    LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_context(Invoice, Payment),
     hold(LimitChanges, get_latest_clock(), Context).
 
 -spec hold_refund_limits([turnover_limit()], invoice(), payment(), refund()) -> ok.
 hold_refund_limits(TurnoverLimits, Invoice, Payment, Refund) ->
-    LimitChanges = gen_limit_refund_changes(TurnoverLimits, Invoice, Payment, Refund),
+    ChangeID = construct_refund_change_id(Invoice, Payment, Refund),
+    LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_refund_context(Invoice, Payment, Refund),
     hold(LimitChanges, get_latest_clock(), Context).
 
 -spec commit_payment_limits([turnover_limit()], route(), invoice(), payment(), cash() | undefined) -> ok.
 commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, CapturedCash) ->
-    LimitChanges = gen_limit_payment_changes(TurnoverLimits, Route, Invoice, Payment),
+    ChangeID = construct_payment_change_id(Route, Invoice, Payment),
+    LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_context(Invoice, Payment, CapturedCash),
     commit(LimitChanges, get_latest_clock(), Context).
 
 -spec commit_refund_limits([turnover_limit()], invoice(), payment(), refund()) -> ok.
 commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund) ->
-    LimitChanges = gen_limit_refund_changes(TurnoverLimits, Invoice, Payment, Refund),
+    ChangeID = construct_refund_change_id(Invoice, Payment, Refund),
+    LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_refund_context(Invoice, Payment, Refund),
     commit(LimitChanges, get_latest_clock(), Context).
 
 -spec rollback_payment_limits([turnover_limit()], route(), invoice(), payment()) -> ok.
 rollback_payment_limits(TurnoverLimits, Route, Invoice, Payment) ->
-    LimitChanges = gen_limit_payment_changes(TurnoverLimits, Route, Invoice, Payment),
+    ChangeID = construct_payment_change_id(Route, Invoice, Payment),
+    LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_context(Invoice, Payment),
     rollback(LimitChanges, get_latest_clock(), Context).
 
 -spec rollback_refund_limits([turnover_limit()], invoice(), payment(), refund()) -> ok.
 rollback_refund_limits(TurnoverLimits, Invoice, Payment, Refund) ->
-    LimitChanges = gen_limit_refund_changes(TurnoverLimits, Invoice, Payment, Refund),
+    ChangeID = construct_refund_change_id(Invoice, Payment, Refund),
+    LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_refund_context(Invoice, Payment, Refund),
     rollback(LimitChanges, get_latest_clock(), Context).
 
@@ -158,43 +164,29 @@ gen_limit_refund_context(Invoice, Payment, Refund) ->
         }
     }.
 
-gen_limit_payment_changes(Limits, Route, Invoice, Payment) ->
+gen_limit_changes(Limits, ChangeID) ->
     [
         #limiter_LimitChange{
             id = ID,
-            change_id = construct_limit_change_id(ID, Route, Invoice, Payment)
+            change_id = hg_utils:construct_complex_id([<<"limiter">>, ID, ChangeID])
         }
      || #domain_TurnoverLimit{id = ID} <- Limits
     ].
 
-gen_limit_refund_changes(Limits, Invoice, Payment, Refund) ->
-    [
-        #limiter_LimitChange{
-            id = ID,
-            change_id = construct_limit_refund_change_id(ID, Invoice, Payment, Refund)
-        }
-     || #domain_TurnoverLimit{id = ID} <- Limits
-    ].
-
-construct_limit_change_id(LimitID, Route, Invoice, Payment) ->
-    ?route(ProviderRef, TerminalRef) = Route,
-    ComplexID = hg_utils:construct_complex_id([
-        LimitID,
+construct_payment_change_id(?route(ProviderRef, TerminalRef), Invoice, Payment) ->
+    hg_utils:construct_complex_id([
         genlib:to_binary(get_provider_id(ProviderRef)),
         genlib:to_binary(get_terminal_id(TerminalRef)),
         get_invoice_id(Invoice),
         get_payment_id(Payment)
-    ]),
-    genlib_string:join($., [<<"limiter">>, ComplexID]).
+    ]).
 
-construct_limit_refund_change_id(LimitID, Invoice, Payment, Refund) ->
-    ComplexID = hg_utils:construct_complex_id([
-        LimitID,
+construct_refund_change_id(Invoice, Payment, Refund) ->
+    hg_utils:construct_complex_id([
         get_invoice_id(Invoice),
         get_payment_id(Payment),
         {refund_session, get_refund_id(Refund)}
-    ]),
-    genlib_string:join($., [<<"limiter">>, ComplexID]).
+    ]).
 
 get_provider_id(#domain_ProviderRef{id = ID}) ->
     ID.
