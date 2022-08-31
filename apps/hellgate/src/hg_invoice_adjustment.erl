@@ -8,7 +8,6 @@
     [
         create/2,
         create/3,
-        process/0,
         process/1,
         capture/0,
         capture/1
@@ -63,10 +62,6 @@ create(ID, Params, Timestamp) ->
     Changes = [?invoice_adjustment_created(Adjustment)],
     Action = hg_machine_action:instant(),
     {Adjustment, {Changes, Action}}.
-
--spec process() -> {ok, result()}.
-process() ->
-    process(hg_datetime:format_now()).
 
 -spec process(hg_datetime:timestamp()) -> {ok, result()}.
 process(Timestamp) ->
