@@ -1,7 +1,6 @@
 -module(hg_limiter_helper).
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
--include_lib("limiter_proto/include/limproto_context_limiter_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_config_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_configurator_thrift.hrl").
@@ -40,7 +39,7 @@ assert_payment_limit_amount(AssertAmount, Payment, Invoice) ->
 
 -spec get_payment_limit_amount(_, _, _) -> _.
 get_payment_limit_amount(LimitId, Payment, Invoice) ->
-    Context = #context_limiter_LimitContext{
+    Context = #limiter_LimitContext{
         payment_processing = #context_payproc_Context{
             op = {invoice_payment, #context_payproc_OperationInvoicePayment{}},
             invoice = #context_payproc_Invoice{
