@@ -2083,6 +2083,8 @@ process_timeout({chargeback, ID, Type}, Action, St) ->
 process_timeout({refund_new, ID}, Action, St) ->
     process_refund_cashflow(ID, Action, St);
 process_timeout({refund_session, _ID}, _Action, St) ->
+    PaymentInfo = construct_payment_info(St, get_opts(St)),
+    hg_container:bind_or_update({proc_ctx, payment_info}, PaymentInfo),
     process_session(St);
 process_timeout({refund_failure, _ID}, Action, St) ->
     process_result(Action, St);
@@ -3035,6 +3037,8 @@ merge_change(Change, undefined, Opts) ->
     merge_change(Change, #st{activity = {payment, new}}, Opts);
 merge_change(Change = ?payment_started(Payment), #st{} = St, Opts) ->
     _ = validate_transition({payment, new}, Change, St, Opts),
+    #domain_InvoicePayment{id = PaymentID} = Payment,
+    hg_container:bind_or_update({ev_ctx, payment_id}, PaymentID),
     St#st{
         target = ?processed(),
         payment = Payment,
@@ -3049,6 +3053,7 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
     };
 merge_change(Change = ?route_changed(Route, Candidates), St, Opts) ->
     _ = validate_transition({payment, routing}, Change, St, Opts),
+    hg_container:bind_or_update({ev_ctx, route}, Route),
     St#st{
         route = Route,
         candidate_routes = ordsets:to_list(Candidates),
@@ -3215,6 +3220,8 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
         case Event of
             ?refund_created(_, _, _) ->
                 _ = validate_transition(idle, Change, St, Opts),
+                RemainingPaymentAmount = get_remaining_payment_balance(St),
+                hg_container:bind_or_update({ev_ctx, remaining_payment_amount}, RemainingPaymentAmount),
                 St#st{activity = {refund_new, ID}};
             ?session_ev(?refunded(), ?session_started()) ->
                 _ = validate_transition([{refund_new, ID}, {refund_session, ID}], Change, St, Opts),
@@ -3297,7 +3304,7 @@ merge_change(
         St,
         Opts
     ),
-    Session0 = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
+    Session0 = hg_session:apply_event(Change, undefined, create_session_event_context(Opts)),
     %% Set trx to deduplicate trx bound events
     Session1 = hg_session:set_trx_info(get_trx(St), Session0),
     St1 = add_session(Target, Session1, St#st{target = Target}),
@@ -3326,7 +3333,7 @@ merge_change(Change = ?session_ev(Target, _Event), St = #st{activity = Activity}
     Session = hg_session:apply_event(
         Change,
         get_session(Target, St),
-        create_session_event_context(St, Opts)
+        create_session_event_context(Opts)
     ),
     St1 = update_session(Target, Session, St),
     % FIXME leaky transactions
@@ -3359,11 +3366,11 @@ merge_refund_change(?refund_status_changed(Status), RefundSt, _St, _Opts) ->
     set_refund(set_refund_status(Status, get_refund(RefundSt)), RefundSt);
 merge_refund_change(?refund_rollback_started(Failure), RefundSt, _St, _Opts) ->
     RefundSt#refund_st{failure = Failure};
-merge_refund_change(Change = ?session_ev(?refunded(), ?session_started()), RefundSt, St, Opts) ->
-    Session = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
+merge_refund_change(Change = ?session_ev(?refunded(), ?session_started()), RefundSt, _St, Opts) ->
+    Session = hg_session:apply_event(Change, undefined, create_session_event_context(Opts)),
     add_refund_session(Session, RefundSt);
-merge_refund_change(Change = ?session_ev(?refunded(), _), RefundSt, St, Opts) ->
-    Session = hg_session:apply_event(Change, get_refund_session(RefundSt), create_session_event_context(St, Opts)),
+merge_refund_change(Change = ?session_ev(?refunded(), _), RefundSt, _St, Opts) ->
+    Session = hg_session:apply_event(Change, get_refund_session(RefundSt), create_session_event_context(Opts)),
     update_refund_session(Session, RefundSt).
 
 merge_adjustment_change(?adjustment_created(Adjustment), undefined) ->
@@ -3482,16 +3489,10 @@ get_captured_cost(_, #domain_InvoicePayment{cost = Cost}) ->
 get_captured_allocation(#domain_InvoicePaymentCaptured{allocation = Allocation}) ->
     Allocation.
 
--spec create_session_event_context(st(), change_opts()) -> hg_session:event_context().
-create_session_event_context(St, Opts = #{invoice_id := InvoiceID}) ->
-    TagContext = #{
-        invoice_id => InvoiceID,
-        payment_id => get_payment_id(get_payment(St))
-    },
+-spec create_session_event_context(change_opts()) -> hg_session:event_context().
+create_session_event_context(Opts) ->
     #{
-        timestamp => define_event_timestamp(Opts),
-        context => TagContext,
-        route => get_route(St)
+        timestamp => define_event_timestamp(Opts)
     }.
 
 get_refund_session(#refund_st{sessions = []}) ->

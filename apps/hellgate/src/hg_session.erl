@@ -21,9 +21,7 @@
 }.
 
 -type event_context() :: #{
-    timestamp := integer(),
-    context => tag_context(),
-    route => route()
+    timestamp := integer()
 }.
 
 -type process_result() :: {result(), t()}.
@@ -405,7 +403,7 @@ update_state_with(Events, T) ->
 
 -spec apply_event(event(), t() | undefined, event_context()) -> t().
 apply_event(?session_ev(Target, ?session_started()), undefined, Context) ->
-    Session0 = create_session(Target, Context),
+    Session0 = create_session(Target),
     mark_timing_event(started, Context, Session0);
 apply_event(?session_ev(_Target, Event), Session, Context) ->
     apply_event_(Event, Session, Context);
@@ -432,15 +430,18 @@ apply_event_(?proxy_st_changed(ProxyState), Session, _Context) ->
 apply_event_(?interaction_requested(_), Session, _Context) ->
     Session.
 
-create_session(Target, #{context := Context, route := Route}) ->
+create_session(Target) ->
     #{
         target => Target,
         status => active,
         trx => undefined,
         tags => [],
         timeout_behaviour => {operation_failure, ?operation_timeout()},
-        context => Context,
-        route => Route
+        context => #{
+            invoice_id => hg_container:inject({ev_ctx, invoice_id}),
+            payment_id => hg_container:inject({ev_ctx, payment_id})
+        },
+        route => hg_container:inject({ev_ctx, route})
     }.
 
 set_timeout_behaviour(undefined, Session) ->

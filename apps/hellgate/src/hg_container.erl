@@ -8,6 +8,9 @@
 
 %% API
 
+-export([bind_or_update_many/2]).
+-export([bind_or_update/2]).
+
 -export([bind/2]).
 -export([maybe_bind/2]).
 -export([update/2]).
@@ -25,6 +28,19 @@
 }.
 
 %% API
+
+-spec bind_or_update_many([key()], value()) -> ok.
+bind_or_update_many(Keys, Value) ->
+    lists:foreach(fun(Key) -> bind_or_update(Key, Value) end, Keys).
+
+-spec bind_or_update(key(), value()) -> ok.
+bind_or_update(Key, Value) ->
+    case maybe_inject(Key) of
+        undefined ->
+            bind(Key, Value);
+        _OldValue ->
+            update(Key, Value)
+    end.
 
 -spec bind(key(), value()) -> ok.
 bind(Key, Value) ->

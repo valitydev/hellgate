@@ -103,12 +103,17 @@ get_payment(PaymentID, St) ->
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
+    Party = hg_party:get_party(get_party_id(St)),
+    hg_container:bind_or_update({proc_ctx, party}, Party),
+    hg_container:bind_or_update({proc_ctx, invoice}, Invoice),
     #{
-        party => hg_party:get_party(get_party_id(St)),
+        party => Party,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     };
 get_payment_opts(#st{invoice = Invoice, party = Party}) ->
+    hg_container:bind_or_update({proc_ctx, party}, Party),
+    hg_container:bind_or_update({proc_ctx, invoice}, Invoice),
     #{
         party => Party,
         invoice => Invoice,
@@ -118,14 +123,20 @@ get_payment_opts(#st{invoice = Invoice, party = Party}) ->
 -spec get_payment_opts(hg_party:party_revision() | undefined, hg_datetime:timestamp(), st()) ->
     hg_invoice_payment:opts().
 get_payment_opts(undefined, Timestamp, St = #st{invoice = Invoice}) ->
+    Party = hg_party:checkout(get_party_id(St), {timestamp, Timestamp}),
+    hg_container:bind_or_update({proc_ctx, party}, Party),
+    hg_container:bind_or_update({proc_ctx, invoice}, Invoice),
     #{
-        party => hg_party:checkout(get_party_id(St), {timestamp, Timestamp}),
+        party => Party,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     };
 get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
+    Party = hg_party:checkout(get_party_id(St), {revision, Revision}),
+    hg_container:bind_or_update({proc_ctx, party}, Party),
+    hg_container:bind_or_update({proc_ctx, invoice}, Invoice),
     #{
-        party => hg_party:checkout(get_party_id(St), {revision, Revision}),
+        party => Party,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     }.
@@ -517,6 +528,7 @@ process_signal(Signal, #{history := History}) ->
 handle_signal(timeout, St = #st{activity = {payment, PaymentID}}) ->
     % there's a payment pending
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     process_payment_signal(timeout, PaymentID, PaymentSession, St);
 handle_signal(timeout, St = #st{activity = {adjustment_new, ID}}) ->
     Status = {processed, #domain_InvoiceAdjustmentProcessed{}},
@@ -593,6 +605,7 @@ handle_call({{'Invoicing', 'CapturePayment'}, {_InvoiceID, PaymentID, Params}}, 
         allocation = AllocationPrototype
     } = Params,
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     {ok, {Changes, Action}} = capture_payment(PaymentSession, Reason, Cash, Cart, AllocationPrototype, Opts),
     #{
@@ -605,6 +618,7 @@ handle_call({{'Invoicing', 'CancelPayment'}, {_InvoiceID, PaymentID, Reason}}, S
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
     _ = assert_invoice(operable, St),
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     {ok, {Changes, Action}} = hg_invoice_payment:cancel(PaymentSession, Reason),
     #{
         response => ok,
@@ -665,34 +679,41 @@ handle_call({{'Invoicing', 'RefundPayment'}, {_InvoiceID, PaymentID, Params}}, S
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
     _ = assert_invoice(operable, St),
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     start_refund(refund, Params, PaymentID, PaymentSession, St);
 handle_call({{'Invoicing', 'CreateManualRefund'}, {_InvoiceID, PaymentID, Params}}, St0) ->
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
     _ = assert_invoice(operable, St),
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     start_refund(manual_refund, Params, PaymentID, PaymentSession, St);
 handle_call({{'Invoicing', 'CreateChargeback'}, {_InvoiceID, PaymentID, Params}}, St) ->
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     PaymentOpts = get_payment_opts(St),
     start_chargeback(Params, PaymentID, PaymentSession, PaymentOpts, St);
 handle_call({{'Invoicing', 'CancelChargeback'}, {_InvoiceID, PaymentID, ChargebackID, Params}}, St) ->
     #payproc_InvoicePaymentChargebackCancelParams{occurred_at = OccurredAt} = Params,
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     CancelResult = hg_invoice_payment:cancel_chargeback(ChargebackID, PaymentSession, Params),
     wrap_payment_impact(PaymentID, CancelResult, St, OccurredAt);
 handle_call({{'Invoicing', 'RejectChargeback'}, {_InvoiceID, PaymentID, ChargebackID, Params}}, St) ->
     #payproc_InvoicePaymentChargebackRejectParams{occurred_at = OccurredAt} = Params,
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     RejectResult = hg_invoice_payment:reject_chargeback(ChargebackID, PaymentSession, Params),
     wrap_payment_impact(PaymentID, RejectResult, St, OccurredAt);
 handle_call({{'Invoicing', 'AcceptChargeback'}, {_InvoiceID, PaymentID, ChargebackID, Params}}, St) ->
     #payproc_InvoicePaymentChargebackAcceptParams{occurred_at = OccurredAt} = Params,
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     AcceptResult = hg_invoice_payment:accept_chargeback(ChargebackID, PaymentSession, Params),
     wrap_payment_impact(PaymentID, AcceptResult, St, OccurredAt);
 handle_call({{'Invoicing', 'ReopenChargeback'}, {_InvoiceID, PaymentID, ChargebackID, Params}}, St) ->
     #payproc_InvoicePaymentChargebackReopenParams{occurred_at = OccurredAt} = Params,
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     ReopenResult = hg_invoice_payment:reopen_chargeback(ChargebackID, PaymentSession, Params),
     wrap_payment_impact(PaymentID, ReopenResult, St, OccurredAt);
 handle_call({{'Invoicing', 'CreatePaymentAdjustment'}, {_InvoiceID, PaymentID, Params}}, St) ->
@@ -705,6 +726,7 @@ handle_call({{'Invoicing', 'CreatePaymentAdjustment'}, {_InvoiceID, PaymentID, P
     );
 handle_call({{'Invoicing', 'CapturePaymentAdjustment'}, {_InvoiceID, PaymentID, ID}}, St) ->
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     Adjustment = hg_invoice_payment:get_adjustment(ID, PaymentSession),
     PaymentOpts = get_payment_opts(
         Adjustment#domain_InvoicePaymentAdjustment.party_revision,
@@ -715,6 +737,7 @@ handle_call({{'Invoicing', 'CapturePaymentAdjustment'}, {_InvoiceID, PaymentID, 
     wrap_payment_impact(PaymentID, Impact, St);
 handle_call({{'Invoicing', 'CancelPaymentAdjustment'}, {_InvoiceID, PaymentID, ID}}, St) ->
     PaymentSession = get_payment_session(PaymentID, St),
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     Adjustment = hg_invoice_payment:get_adjustment(ID, PaymentSession),
     PaymentOpts = get_payment_opts(
         Adjustment#domain_InvoicePaymentAdjustment.party_revision,
@@ -791,6 +814,7 @@ process_payment_signal(Signal, PaymentID, PaymentSession, St) ->
     handle_payment_result(PaymentResult, PaymentID, PaymentSession, St, Opts).
 
 process_payment_call(Call, PaymentID, PaymentSession, St) ->
+    hg_container:bind_or_update({proc_ctx, payment}, PaymentSession),
     {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
     Opts = get_payment_opts(Revision, Timestamp, St),
     {Response, PaymentResult0} = hg_invoice_payment:process_call(Call, PaymentSession, Opts),
@@ -1076,6 +1100,8 @@ collapse_changes(Changes, St0, Opts) ->
     lists:foldl(fun(C, St) -> merge_change(C, St, Opts) end, St0, Changes).
 
 merge_change(?invoice_created(Invoice), St, _Opts) ->
+    #domain_Invoice{id = InvoiceID} = Invoice,
+    hg_container:bind_or_update_many([{ev_ctx, invoice_id}, {proc_ctx, invoice_id}], InvoiceID),
     St#st{activity = invoice, invoice = Invoice};
 merge_change(?invoice_status_changed(Status), St = #st{invoice = I}, _Opts) ->
     St#st{invoice = I#domain_Invoice{status = Status}};
