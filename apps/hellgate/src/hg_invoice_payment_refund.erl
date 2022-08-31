@@ -11,14 +11,15 @@
     remaining_payment_amount := cash(),
     retry_attempts := non_neg_integer(),
     route := route(),
+    status := status(),
     transaction_info => trx_info(),
-    failure => failure(),
-    status => status()
+    failure => failure()
 }.
 
 -type params() :: #{
     refund := domain_refund(),
-    cash_flow := final_cash_flow()
+    cash_flow := final_cash_flow(),
+    transaction_info => trx_info()
 }.
 -type process_result() :: {result(), t()}.
 -type event_context() :: #{
@@ -33,6 +34,7 @@
     | failed.
 
 -export_type([id/0]).
+-export_type([status/0]).
 -export_type([t/0]).
 -export_type([params/0]).
 -export_type([process_result/0]).
@@ -49,9 +51,11 @@
 -export([failure/1]).
 -export([revision/1]).
 -export([cash/1]).
+-export([created_at/1]).
 -export([remaining_payment_amount/1]).
 -export([retry_attempts/1]).
 -export([route/1]).
+-export([status/1]).
 
 %% API
 
@@ -60,6 +64,7 @@
 -export([apply_event/3]).
 
 -export([process/1]).
+-export([process_callback/2]).
 
 %% Internal types
 
@@ -70,7 +75,11 @@
 -type failure() :: dmsl_domain_thrift:'OperationFailure'().
 -type revision() :: dmt_client:version().
 -type cash() :: dmsl_domain_thrift:'Cash'().
+-type timestamp() :: dmsl_base_thrift:'Timestamp'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
+
+-type callback() :: dmsl_proxy_provider_thrift:'Callback'().
+-type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 
 -type event() :: dmsl_payproc_thrift:'InvoicePaymentChangePayload'().
 -type event_payload() :: dmsl_payproc_thrift:'InvoicePaymentRefundChangePayload'().
@@ -118,9 +127,9 @@ transaction_info(T) ->
 failure(T) ->
     maps:get(failure, T, undefined).
 
--spec status(t()) -> hg_maybe:maybe(status()).
-status(T) ->
-    maps:get(status, T, undefined).
+-spec status(t()) -> status().
+status(#{status := V}) ->
+    V.
 
 -spec revision(t()) -> revision().
 revision(T) ->
@@ -131,6 +140,11 @@ revision(T) ->
 cash(T) ->
     Refund = refund(T),
     Refund#domain_InvoicePaymentRefund.cash.
+
+-spec created_at(t()) -> timestamp().
+created_at(T) ->
+    Refund = refund(T),
+    Refund#domain_InvoicePaymentRefund.created_at.
 
 -spec remaining_payment_amount(t()) -> cash().
 remaining_payment_amount(#{remaining_payment_amount := V}) ->
@@ -147,14 +161,23 @@ route(#{route := V}) ->
 %% API
 
 -spec create(params()) -> events().
-create(#{refund := Refund, cash_flow := Cashflow}) ->
+create(Params = #{refund := Refund, cash_flow := Cashflow}) ->
+    TransactionInfo = maps:get(transaction_info, Params, undefined),
     ID = Refund#domain_InvoicePaymentRefund.id,
-    [?refund_ev(ID, ?refund_created(Refund, Cashflow))].
+    [?refund_ev(ID, ?refund_created(Refund, Cashflow, TransactionInfo))].
 
 -spec process(t()) -> machine_result().
-process(Session) ->
-    Activity = deduce_activity(Session),
-    do_process(Activity, Session).
+process(Refund) ->
+    Activity = deduce_activity(Refund),
+    do_process(Activity, Refund).
+
+-spec process_callback(callback(), t()) -> {callback_response(), machine_result()}.
+process_callback(Payload, Refund) ->
+    Session0 = session(Refund),
+    PaymentInfo = hg_container:inject({proc_ctx, payment_info}),
+    Session1 = hg_session:set_payment_info(PaymentInfo, Session0),
+    {Response, {Result, Session2}} = hg_session:process_callback(Payload, Session1),
+    {Response, finish_session_processing(Result, Session2, Refund)}.
 
 -spec deduce_activity(t()) -> activity().
 deduce_activity(Refund) ->
@@ -209,6 +232,7 @@ process_refund_cashflow(Refund) ->
     end.
 
 process_session(Refund) ->
+    %% TODO add repair scenario check or bind
     PaymentInfo = hg_container:inject({proc_ctx, payment_info}),
     Session0 = hg_session:set_payment_info(PaymentInfo, session(Refund)),
     {Result, Session1} = hg_session:process(Session0),
@@ -439,7 +463,7 @@ apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)),
 apply_event(?refund_ev(_ID, Event), Refund, Context) ->
     apply_event_(Event, Refund, Context).
 
-apply_event_(?refund_status_changed(Status), Refund, _Context) ->
+apply_event_(?refund_status_changed({Status, _}), Refund, _Context) ->
     Refund#{status := Status};
 apply_event_(?refund_rollback_started(Failure), Refund, _Context) ->
     Refund#{status := failed, failure => Failure};
