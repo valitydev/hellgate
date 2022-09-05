@@ -335,15 +335,15 @@ construct_domain_fixture() ->
                         ?cat(1)
                     ])},
             payment_methods =
-                            {value,
-                                ?ordset([
-                                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                                    ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>)),
-                                    ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>)),
-                                    ?pmt(bank_card, ?bank_card_no_cvv(<<"visa-ref">>)),
-                                    ?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
-                                    ?pmt(mobile, ?mob(<<"mts-ref">>))
-                                ])},
+                {value,
+                    ?ordset([
+                        ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
+                        ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>)),
+                        ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>)),
+                        ?pmt(bank_card, ?bank_card_no_cvv(<<"visa-ref">>)),
+                        ?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
+                        ?pmt(mobile, ?mob(<<"mts-ref">>))
+                    ])},
             cash_limit =
                 {decisions, [
                     #domain_CashLimitDecision{
@@ -536,7 +536,7 @@ construct_domain_fixture() ->
                             {value,
                                 ?ordset([
                                     ?cat(1)
-%%                                    ?cat(2)
+                                    %%                                    ?cat(2)
                                 ])},
                         payment_methods =
                             {value,
