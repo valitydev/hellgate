@@ -76,7 +76,12 @@ maybe_update(Key, Value) ->
 
 -spec maybe_inject(key()) -> value().
 maybe_inject(Key) ->
-    get(Key).
+    case get(Key) of
+        undefined ->
+            undefined;
+        Value ->
+            unwrap(Value)
+    end.
 
 -spec inject(key()) -> value().
 inject(Key) ->
@@ -85,7 +90,7 @@ inject(Key) ->
             %% TODO log error cause we try to inject unbinded value
             undefined;
         Value ->
-            unwrap(Value)
+            Value
     end.
 
 -spec unbind(key()) -> ok.

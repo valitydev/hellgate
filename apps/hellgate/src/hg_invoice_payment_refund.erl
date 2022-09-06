@@ -92,7 +92,8 @@
     new
     | session
     | failure
-    | accounter.
+    | accounter
+    | finished.
 
 %% Accessors
 
@@ -181,20 +182,36 @@ process_callback(Payload, Refund) ->
 
 -spec deduce_activity(t()) -> activity().
 deduce_activity(Refund) ->
-    Params = #{
+    {SessionStatus, SessionResult} =
+        case session(Refund) of
+            undefined ->
+                {undefined, undefined};
+            Session ->
+                {hg_session:status(Session), hg_session:result(Session)}
+        end,
+    Params = genlib_map:compact(#{
         status => status(Refund),
-        sessions => sessions(Refund)
-    },
+        sessions => sessions(Refund),
+        session_status => SessionStatus,
+        session_result => SessionResult,
+        failure => failure(Refund)
+    }),
     do_deduce_activity(Params).
 
+do_deduce_activity(#{status := pending, failure := _Failure}) ->
+    failure;
 do_deduce_activity(#{status := pending, sessions := []}) ->
     new;
+do_deduce_activity(#{status := pending, session_status := finished, session_result := {succeeded, _}}) ->
+    accounter;
+do_deduce_activity(#{status := pending, session_status := finished, session_result := {failed, _}}) ->
+    failure;
 do_deduce_activity(#{status := pending}) ->
     session;
 do_deduce_activity(#{status := succeeded}) ->
-    accounter;
+    finished;
 do_deduce_activity(#{status := failed}) ->
-    failure.
+    finished.
 
 do_process(new, Refund) ->
     process_refund_cashflow(Refund);
@@ -203,7 +220,9 @@ do_process(session, Refund) ->
 do_process(accounter, Refund) ->
     process_accounter(Refund);
 do_process(failure, Refund) ->
-    process_failure(Refund).
+    process_failure(Refund);
+do_process(finished, _Refund) ->
+    {done, {[], hg_machine_action:new()}}.
 
 process_refund_cashflow(Refund) ->
     Action = hg_machine_action:set_timeout(0, hg_machine_action:new()),
@@ -232,11 +251,10 @@ process_refund_cashflow(Refund) ->
     end.
 
 process_session(Refund) ->
-    %% TODO add repair scenario check or bind
-    PaymentInfo = hg_container:inject({proc_ctx, payment_info}),
-    Session0 = hg_session:set_payment_info(PaymentInfo, session(Refund)),
-    {Result, Session1} = hg_session:process(Session0),
-    finish_session_processing(Result, Session1, Refund).
+    Session0 = hg_session:set_payment_info(hg_container:inject({proc_ctx, payment_info}), session(Refund)),
+    Session1 = hg_session:set_repair_scenario(hg_container:maybe_inject({proc_ctx, repair_scenario}), Session0),
+    {Result, Session2} = hg_session:process(Session1),
+    finish_session_processing(Result, Session2, Refund).
 
 -spec finish_session_processing(result(), hg_session:t(), t()) -> machine_result().
 finish_session_processing({Events0, Action}, Session, Refund) ->
@@ -463,10 +481,11 @@ apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)),
 apply_event(?refund_ev(_ID, Event), Refund, Context) ->
     apply_event_(Event, Refund, Context).
 
-apply_event_(?refund_status_changed({Status, _}), Refund, _Context) ->
-    Refund#{status := Status};
+apply_event_(?refund_status_changed(Status = {StatusTag, _}), Refund, _Context) ->
+    DomainRefund = refund(Refund),
+    Refund#{status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}};
 apply_event_(?refund_rollback_started(Failure), Refund, _Context) ->
-    Refund#{status := failed, failure => Failure};
+    Refund#{failure => Failure};
 apply_event_(Change = ?session_ev(?refunded(), ?session_started()), Refund, Context) ->
     Session = hg_session:apply_event(Change, undefined, Context),
     add_refund_session(Session, Refund);

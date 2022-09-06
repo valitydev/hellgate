@@ -2053,7 +2053,14 @@ process_timeout({chargeback, ID, Type}, Action, St) ->
     process_chargeback(Type, ID, Action, St);
 process_timeout({refund_new, ID}, _Action, St) ->
     hg_invoice_payment_refund:process(try_get_refund_state(ID, St));
-process_timeout({refund_session, ID}, _Action, St) ->
+process_timeout({refund_session, ID}, _Action, St = #st{repair_scenario = Scenario}) ->
+    _ =
+        case hg_invoice_repair:check_for_action(repair_session, Scenario) of
+            RepairScenario = {result, _} ->
+                hg_container:bind_or_update({proc_ctx, repair_scenario}, RepairScenario);
+            call ->
+                ok
+        end,
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     hg_container:bind_or_update({proc_ctx, payment_info}, PaymentInfo),
     hg_invoice_payment_refund:process(try_get_refund_state(ID, St));
@@ -2422,20 +2429,6 @@ process_failure({payment, Step} = Activity, Events, Action, Failure, St, _Refund
             OperationStatus = choose_fd_operation_status_for_failure(Failure),
             _ = maybe_notify_fault_detector(Activity, TargetType, OperationStatus, St),
             process_fatal_payment_failure(Target, Events, Action, Failure, St)
-    end;
-process_failure({refund_new, ID}, [], Action, Failure, _St, _RefundSt) ->
-    {next, {[?refund_ev(ID, ?refund_rollback_started(Failure))], hg_machine_action:set_timeout(0, Action)}};
-process_failure({refund_session, ID}, Events, Action, Failure, St, _RefundSt) ->
-    Target = ?refunded(),
-    case check_retry_possibility(Target, Failure, St) of
-        {retry, Timeout} ->
-            _ = logger:info("Retry session after transient failure, wait ~p", [Timeout]),
-            {SessionEvents, SessionAction} = retry_session(Action, Target, Timeout),
-            Events1 = [?refund_ev(ID, E) || E <- SessionEvents],
-            {next, {Events ++ Events1, SessionAction}};
-        fatal ->
-            RollbackStarted = [?refund_ev(ID, ?refund_rollback_started(Failure))],
-            {next, {Events ++ RollbackStarted, hg_machine_action:set_timeout(0, Action)}}
     end.
 
 check_recurrent_token(#st{
@@ -3103,6 +3096,7 @@ merge_change(Change = ?chargeback_ev(ID, Event), St, Opts) ->
     ChargebackSt = merge_chargeback_change(Event, try_get_chargeback_state(ID, St1)),
     set_chargeback_state(ID, ChargebackSt, St1);
 merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
+    _ = logger:warning("merge_change refund_ev: ~tp", [Change]),
     St1 =
         case Event of
             ?refund_created(_, _, _) ->
