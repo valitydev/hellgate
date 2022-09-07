@@ -2051,20 +2051,9 @@ process_timeout({payment, updating_accounter}, Action, St) ->
     process_accounter_update(Action, St);
 process_timeout({chargeback, ID, Type}, Action, St) ->
     process_chargeback(Type, ID, Action, St);
-process_timeout({refund_new, ID}, _Action, St) ->
-    process_refund(ID, St);
-process_timeout({refund_session, ID}, _Action, St) ->
-    process_refund(ID, St);
-process_timeout({refund_failure, ID}, _Action, St) ->
-    process_refund(ID, St);
-process_timeout({refund_accounter, ID}, _Action, St) ->
-    process_refund(ID, St);
-process_timeout({adjustment_new, ID}, Action, St) ->
-    process_adjustment_cashflow(ID, Action, St);
-process_timeout({payment, flow_waiting}, Action, St) ->
-    finalize_payment(Action, St).
-
-process_refund(ID, St = #st{payment = Payment, repair_scenario = Scenario}) ->
+process_timeout({refund_new, ID}, _Action, St = #st{payment = Payment}) ->
+    hg_invoice_payment_refund:process(Payment, try_get_refund_state(ID, St));
+process_timeout({refund_session, ID}, _Action, St = #st{payment = Payment, repair_scenario = Scenario}) ->
     ok =
         case hg_invoice_repair:check_for_action(repair_session, Scenario) of
             RepairScenario = {result, _} ->
@@ -2079,7 +2068,15 @@ process_refund(ID, St = #st{payment = Payment, repair_scenario = Scenario}) ->
         hg_container:make_complex_key(hg_invoice_payment_refund, process_session, payment_info),
         construct_payment_info(St, get_opts(St))
     ),
-    hg_invoice_payment_refund:process(Payment, try_get_refund_state(ID, St)).
+    hg_invoice_payment_refund:process(Payment, try_get_refund_state(ID, St));
+process_timeout({refund_failure, ID}, _Action, St = #st{payment = Payment}) ->
+    hg_invoice_payment_refund:process(Payment, try_get_refund_state(ID, St));
+process_timeout({refund_accounter, ID}, _Action, St = #st{payment = Payment}) ->
+    hg_invoice_payment_refund:process(Payment, try_get_refund_state(ID, St));
+process_timeout({adjustment_new, ID}, Action, St) ->
+    process_adjustment_cashflow(ID, Action, St);
+process_timeout({payment, flow_waiting}, Action, St) ->
+    finalize_payment(Action, St).
 
 repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
     case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
