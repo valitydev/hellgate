@@ -213,25 +213,25 @@
 
 %%
 
--spec get_party_revision(st()) -> {hg_party:party_revision(), hg_datetime:timestamp()}.
+-spec get_party_revision(st()) -> hg_party:party_revision().
 get_party_revision(#st{activity = {payment, _}} = St) ->
-    #domain_InvoicePayment{party_revision = Revision, created_at = Timestamp} = get_payment(St),
-    {Revision, Timestamp};
+    #domain_InvoicePayment{party_revision = Revision} = get_payment(St),
+    Revision;
 get_party_revision(#st{activity = {chargeback, ID, _Type}} = St) ->
     CB = hg_invoice_payment_chargeback:get(get_chargeback_state(ID, St)),
-    #domain_InvoicePaymentChargeback{party_revision = Revision, created_at = Timestamp} = CB,
-    {Revision, Timestamp};
+    #domain_InvoicePaymentChargeback{party_revision = Revision} = CB,
+    Revision;
 get_party_revision(#st{activity = {_, ID} = Activity} = St) when
     Activity =:= {refund_new, ID} orelse
         Activity =:= {refund_failure, ID} orelse
         Activity =:= {refund_session, ID} orelse
         Activity =:= {refund_accounter, ID}
 ->
-    #domain_InvoicePaymentRefund{party_revision = Revision, created_at = Timestamp} = get_refund(ID, St),
-    {Revision, Timestamp};
+    #domain_InvoicePaymentRefund{party_revision = Revision} = get_refund(ID, St),
+    Revision;
 get_party_revision(#st{activity = {adjustment_new, ID}} = St) ->
-    #domain_InvoicePaymentAdjustment{party_revision = Revision, created_at = Timestamp} = get_adjustment(ID, St),
-    {Revision, Timestamp};
+    #domain_InvoicePaymentAdjustment{party_revision = Revision} = get_adjustment(ID, St),
+    Revision;
 get_party_revision(#st{activity = Activity}) ->
     erlang:error({no_revision_for_activity, Activity}).
 
@@ -2052,26 +2052,34 @@ process_timeout({payment, updating_accounter}, Action, St) ->
 process_timeout({chargeback, ID, Type}, Action, St) ->
     process_chargeback(Type, ID, Action, St);
 process_timeout({refund_new, ID}, _Action, St) ->
-    hg_invoice_payment_refund:process(try_get_refund_state(ID, St));
-process_timeout({refund_session, ID}, _Action, St = #st{repair_scenario = Scenario}) ->
-    _ =
-        case hg_invoice_repair:check_for_action(repair_session, Scenario) of
-            RepairScenario = {result, _} ->
-                hg_container:bind_or_update({proc_ctx, repair_scenario}, RepairScenario);
-            call ->
-                ok
-        end,
-    PaymentInfo = construct_payment_info(St, get_opts(St)),
-    hg_container:bind_or_update({proc_ctx, payment_info}, PaymentInfo),
-    hg_invoice_payment_refund:process(try_get_refund_state(ID, St));
+    process_refund(ID, St);
+process_timeout({refund_session, ID}, _Action, St) ->
+    process_refund(ID, St);
 process_timeout({refund_failure, ID}, _Action, St) ->
-    hg_invoice_payment_refund:process(try_get_refund_state(ID, St));
+    process_refund(ID, St);
 process_timeout({refund_accounter, ID}, _Action, St) ->
-    hg_invoice_payment_refund:process(try_get_refund_state(ID, St));
+    process_refund(ID, St);
 process_timeout({adjustment_new, ID}, Action, St) ->
     process_adjustment_cashflow(ID, Action, St);
 process_timeout({payment, flow_waiting}, Action, St) ->
     finalize_payment(Action, St).
+
+process_refund(ID, St = #st{payment = Payment, repair_scenario = Scenario}) ->
+    ok =
+        case hg_invoice_repair:check_for_action(repair_session, Scenario) of
+            RepairScenario = {result, _} ->
+                hg_container:bind(
+                    hg_container:make_complex_key(hg_invoice_payment_refund, process_session, repair_scenario),
+                    RepairScenario
+                );
+            call ->
+                ok
+        end,
+    hg_container:bind(
+        hg_container:make_complex_key(hg_invoice_payment_refund, process_session, payment_info),
+        construct_payment_info(St, get_opts(St))
+    ),
+    hg_invoice_payment_refund:process(Payment, try_get_refund_state(ID, St)).
 
 repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
     case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
@@ -2091,18 +2099,17 @@ process_call({callback, Tag, Payload}, St, Options) ->
 
 -spec process_callback(tag(), callback(), st()) -> {callback_response(), machine_result()}.
 process_callback(Tag, Payload, St) ->
-    Action = hg_machine_action:new(),
     Session = get_activity_session(St),
-    process_callback(Tag, Payload, Action, Session, St).
+    process_callback(Tag, Payload, Session, St).
 
-process_callback(Tag, Payload, Action, Session, St) when Session /= undefined ->
+process_callback(Tag, Payload, Session, St) when Session /= undefined ->
     case {hg_session:status(Session), hg_session:tags(Session)} of
         {suspended, [Tag | _]} ->
-            handle_callback(get_activity(St), Payload, Action, St);
+            handle_callback(get_activity(St), Payload, St);
         _ ->
             throw(invalid_callback)
     end;
-process_callback(_Tag, _Payload, _Action, undefined, _St) ->
+process_callback(_Tag, _Payload, undefined, _St) ->
     throw(invalid_callback).
 
 %%
@@ -2282,12 +2289,11 @@ process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, cap
 
 %%
 
--spec handle_callback(activity(), callback(), action(), st()) -> {callback_response(), machine_result()}.
-handle_callback({refund_session, ID}, Payload, _Action, St) ->
+-spec handle_callback(activity(), callback(), st()) -> {callback_response(), machine_result()}.
+handle_callback({refund_session, ID}, Payload, St) ->
     PaymentInfo = construct_payment_info(St, get_opts(St)),
-    hg_container:bind_or_update({proc_ctx, payment_info}, PaymentInfo),
-    hg_invoice_payment_refund:process_callback(Payload, try_get_refund_state(ID, St));
-handle_callback({payment, _Step}, Payload, _Action, St) ->
+    hg_invoice_payment_refund:process_callback(Payload, PaymentInfo, try_get_refund_state(ID, St));
+handle_callback({payment, _Step}, Payload, St) ->
     Session0 = get_activity_session(St),
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     Session1 = hg_session:set_payment_info(PaymentInfo, Session0),
@@ -2528,8 +2534,6 @@ check_failure_type(_Target, _Other) ->
 
 get_error_class({Target, _}) when Target =:= processed; Target =:= captured; Target =:= cancelled ->
     'PaymentFailure';
-get_error_class({refunded, _}) ->
-    'RefundFailure';
 get_error_class(Target) ->
     error({unsupported_target, Target}).
 
@@ -2918,7 +2922,10 @@ merge_change(Change, undefined, Opts) ->
 merge_change(Change = ?payment_started(Payment), #st{} = St, Opts) ->
     _ = validate_transition({payment, new}, Change, St, Opts),
     #domain_InvoicePayment{id = PaymentID} = Payment,
-    hg_container:bind_or_update({ev_ctx, payment_id}, PaymentID),
+    hg_container:bind_or_update(
+        hg_container:make_complex_key(hg_session, create_session, payment_id),
+        PaymentID
+    ),
     St#st{
         target = ?processed(),
         payment = Payment,
@@ -2933,7 +2940,13 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
     };
 merge_change(Change = ?route_changed(Route, Candidates), St, Opts) ->
     _ = validate_transition({payment, routing}, Change, St, Opts),
-    hg_container:bind_or_update({ev_ctx, route}, Route),
+    hg_container:bind_or_update_many(
+        [
+            hg_container:make_complex_key(hg_session, create_session, route),
+            hg_container:make_complex_key(hg_invoice_payment_refund, apply_event, route)
+        ],
+        Route
+    ),
     St#st{
         route = Route,
         candidate_routes = ordsets:to_list(Candidates),
@@ -3096,13 +3109,15 @@ merge_change(Change = ?chargeback_ev(ID, Event), St, Opts) ->
     ChargebackSt = merge_chargeback_change(Event, try_get_chargeback_state(ID, St1)),
     set_chargeback_state(ID, ChargebackSt, St1);
 merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
-    _ = logger:warning("merge_change refund_ev: ~tp", [Change]),
     St1 =
         case Event of
             ?refund_created(_, _, _) ->
                 _ = validate_transition(idle, Change, St, Opts),
                 RemainingPaymentAmount = get_remaining_payment_balance(St),
-                hg_container:bind_or_update({ev_ctx, remaining_payment_amount}, RemainingPaymentAmount),
+                hg_container:bind_or_update(
+                    hg_container:make_complex_key(hg_invoice_payment_refund, apply_event, remaining_payment_amount),
+                    RemainingPaymentAmount
+                ),
                 St#st{activity = {refund_new, ID}};
             ?session_ev(?refunded(), ?session_started()) ->
                 _ = validate_transition([{refund_new, ID}, {refund_session, ID}], Change, St, Opts),

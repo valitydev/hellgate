@@ -438,10 +438,10 @@ create_session(Target) ->
         tags => [],
         timeout_behaviour => {operation_failure, ?operation_timeout()},
         context => #{
-            invoice_id => hg_container:inject({ev_ctx, invoice_id}),
-            payment_id => hg_container:inject({ev_ctx, payment_id})
+            invoice_id => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, invoice_id)),
+            payment_id => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, payment_id))
         },
-        route => hg_container:inject({ev_ctx, route})
+        route => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, route))
     }.
 
 set_timeout_behaviour(undefined, Session) ->

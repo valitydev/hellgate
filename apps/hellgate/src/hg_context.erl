@@ -49,20 +49,15 @@ create(Options0) ->
 
 -spec save(context()) -> ok.
 save(Context) ->
-    case hg_container:maybe_inject(?REGISTRY_KEY) of
-        undefined ->
-            hg_container:bind(?REGISTRY_KEY, Context);
-        _OldContext ->
-            hg_container:update(?REGISTRY_KEY, Context)
-    end.
+    hg_container:global_bind_or_update(?REGISTRY_KEY, Context).
 
 -spec load() -> context().
 load() ->
-    hg_container:inject(?REGISTRY_KEY).
+    hg_container:global_inject(?REGISTRY_KEY).
 
 -spec cleanup() -> ok.
 cleanup() ->
-    hg_container:unbind(?REGISTRY_KEY).
+    hg_container:global_unbind(?REGISTRY_KEY).
 
 -spec get_woody_context(context()) -> woody_context().
 get_woody_context(#{woody_context := WoodyContext}) ->

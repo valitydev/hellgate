@@ -13,7 +13,8 @@
     route := route(),
     status := status(),
     transaction_info => trx_info(),
-    failure => failure()
+    failure => failure(),
+    injected_context => injected_context()
 }.
 
 -type params() :: #{
@@ -63,11 +64,17 @@
 -export([deduce_activity/1]).
 -export([apply_event/3]).
 
--export([process/1]).
--export([process_callback/2]).
+-export([process/2]).
+-export([process_callback/3]).
 
 %% Internal types
 
+-type party() :: dmsl_domain_thrift:'Party'().
+-type invoice() :: dmsl_domain_thrift:'Invoice'().
+-type payment() :: dmsl_domain_thrift:'InvoicePayment'().
+-type shop() :: dmsl_domain_thrift:'Shop'().
+-type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
+-type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type domain_refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
 -type final_cash_flow() :: dmsl_domain_thrift:'FinalCashFlow'().
 -type session() :: hg_session:t().
@@ -77,6 +84,7 @@
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type timestamp() :: dmsl_base_thrift:'Timestamp'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
+-type payment_info() :: dmsl_proxy_provider_thrift:'PaymentInfo'().
 
 -type callback() :: dmsl_proxy_provider_thrift:'Callback'().
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
@@ -94,6 +102,15 @@
     | failure
     | accounter
     | finished.
+
+-type injected_context() :: #{
+    party := party(),
+    invoice := invoice(),
+    payment := payment(),
+    shop := shop(),
+    invoice_id := invoice_id(),
+    payment_id := payment_id()
+}.
 
 %% Accessors
 
@@ -167,18 +184,17 @@ create(Params = #{refund := Refund, cash_flow := Cashflow}) ->
     ID = Refund#domain_InvoicePaymentRefund.id,
     [?refund_ev(ID, ?refund_created(Refund, Cashflow, TransactionInfo))].
 
--spec process(t()) -> machine_result().
-process(Refund) ->
-    Activity = deduce_activity(Refund),
-    do_process(Activity, Refund).
+-spec process(payment(), t()) -> machine_result().
+process(Payment, Refund0) ->
+    Refund1 = inject_context(Payment, Refund0),
+    Activity = deduce_activity(Refund1),
+    do_process(Activity, Refund1).
 
--spec process_callback(callback(), t()) -> {callback_response(), machine_result()}.
-process_callback(Payload, Refund) ->
-    Session0 = session(Refund),
-    PaymentInfo = hg_container:inject({proc_ctx, payment_info}),
-    Session1 = hg_session:set_payment_info(PaymentInfo, Session0),
-    {Response, {Result, Session2}} = hg_session:process_callback(Payload, Session1),
-    {Response, finish_session_processing(Result, Session2, Refund)}.
+-spec process_callback(callback(), payment_info(), t()) -> {callback_response(), machine_result()}.
+process_callback(Payload, PaymentInfo, Refund) ->
+    Session0 = hg_session:set_payment_info(PaymentInfo, session(Refund)),
+    {Response, {Result, Session1}} = hg_session:process_callback(Payload, Session0),
+    {Response, finish_session_processing(Result, Session1, Refund)}.
 
 -spec deduce_activity(t()) -> activity().
 deduce_activity(Refund) ->
@@ -226,9 +242,8 @@ do_process(finished, _Refund) ->
 
 process_refund_cashflow(Refund) ->
     Action = hg_machine_action:set_timeout(0, hg_machine_action:new()),
-    Party = hg_container:inject({proc_ctx, party}),
-    #domain_Invoice{shop_id = ShopID} = hg_container:inject({proc_ctx, invoice}),
-    Shop = hg_party:get_shop(ShopID, Party),
+    Party = inject_party(Refund),
+    Shop = inject_shop(Refund),
     hold_refund_limits(Refund),
 
     #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Party, Shop, #{}),
@@ -251,8 +266,18 @@ process_refund_cashflow(Refund) ->
     end.
 
 process_session(Refund) ->
-    Session0 = hg_session:set_payment_info(hg_container:inject({proc_ctx, payment_info}), session(Refund)),
-    Session1 = hg_session:set_repair_scenario(hg_container:maybe_inject({proc_ctx, repair_scenario}), Session0),
+    Session0 = hg_session:set_payment_info(
+        hg_container:inject(
+            hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, payment_info)
+        ),
+        session(Refund)
+    ),
+    Session1 = hg_session:set_repair_scenario(
+        hg_container:maybe_inject(
+            hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, repair_scenario)
+        ),
+        Session0
+    ),
     {Result, Session2} = hg_session:process(Session1),
     finish_session_processing(Result, Session2, Refund).
 
@@ -300,37 +325,30 @@ process_failure(Refund) ->
     {done, {Events, hg_machine_action:new()}}.
 
 hold_refund_limits(Refund) ->
-    Revision = revision(Refund),
-    Invoice = hg_container:inject({proc_ctx, invoice}),
     DomainRefund = refund(Refund),
-    Payment = hg_container:inject({proc_ctx, payment}),
-    ProviderTerms = get_provider_terms(Revision, Refund),
-    TurnoverLimits = get_turnover_limits(ProviderTerms),
-    hg_limiter:hold_refund_limits(TurnoverLimits, Invoice, Payment, DomainRefund).
+    TurnoverLimits = get_limits(Refund),
+    hg_limiter:hold_refund_limits(TurnoverLimits, inject_invoice(Refund), inject_payment(Refund), DomainRefund).
 
 commit_refund_limits(Refund) ->
-    Revision = revision(Refund),
-    Invoice = hg_container:inject({proc_ctx, invoice}),
     DomainRefund = refund(Refund),
-    Payment = hg_container:inject({proc_ctx, payment}),
-    ProviderTerms = get_provider_terms(Revision, Refund),
-    TurnoverLimits = get_turnover_limits(ProviderTerms),
-    hg_limiter:commit_refund_limits(TurnoverLimits, Invoice, Payment, DomainRefund).
+    TurnoverLimits = get_limits(Refund),
+    hg_limiter:commit_refund_limits(TurnoverLimits, inject_invoice(Refund), inject_payment(Refund), DomainRefund).
 
 rollback_refund_limits(Refund) ->
-    Revision = revision(Refund),
-    Invoice = hg_container:inject({proc_ctx, invoice}),
     DomainRefund = refund(Refund),
-    Payment = hg_container:inject({proc_ctx, payment}),
-    ProviderTerms = get_provider_terms(Revision, Refund),
-    TurnoverLimits = get_turnover_limits(ProviderTerms),
-    hg_limiter:rollback_refund_limits(TurnoverLimits, Invoice, Payment, DomainRefund).
+    TurnoverLimits = get_limits(Refund),
+    hg_limiter:rollback_refund_limits(TurnoverLimits, inject_invoice(Refund), inject_payment(Refund), DomainRefund).
 
-get_provider_terms(Revision, Refund) ->
-    Party = hg_container:inject({proc_ctx, party}),
+get_limits(Refund) ->
+    Revision = revision(Refund),
+    ProviderTerms = get_provider_terms(
+        Revision, inject_payment(Refund), inject_invoice(Refund), inject_party(Refund), Refund
+    ),
+    get_turnover_limits(ProviderTerms).
+
+get_provider_terms(Revision, Payment, Invoice, Party, Refund) ->
     Route = route(Refund),
-    Payment = hg_container:inject({proc_ctx, payment}),
-    #domain_Invoice{shop_id = ShopID} = hg_container:inject({proc_ctx, invoice}),
+    #domain_Invoice{shop_id = ShopID} = Invoice,
     Shop = hg_party:get_shop(ShopID, Party),
     VS0 = construct_payment_flow(Payment),
     VS1 = collect_validation_varset(Party, Shop, Payment, VS0),
@@ -393,11 +411,9 @@ make_batch(Refund) ->
     {1, cash_flow(Refund)}.
 
 construct_refund_plan_id(Refund) ->
-    #domain_Invoice{id = InvoiceID} = hg_container:inject({proc_ctx, invoice}),
-    #domain_InvoicePayment{id = PaymentID} = hg_container:inject({proc_ctx, payment}),
     hg_utils:construct_complex_id([
-        InvoiceID,
-        PaymentID,
+        inject_invoice_id(Refund),
+        inject_payment_id(Refund),
         {refund_session, id(Refund)}
     ]).
 
@@ -447,6 +463,29 @@ get_initial_retry_strategy() ->
     PolicyConfig = genlib_app:env(hellgate, payment_retry_policy, #{}),
     hg_retry:new_strategy(maps:get(refunded, PolicyConfig, no_retry)).
 
+inject_context(Payment, Refund) ->
+    Party = hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, party)),
+    Invoice = hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, invoice)),
+    #domain_Invoice{id = InvoiceID, shop_id = ShopID} = Invoice,
+    #domain_InvoicePayment{id = PaymentID} = Payment,
+    Shop = hg_party:get_shop(ShopID, Party),
+    Context = #{
+        party => Party,
+        invoice => Invoice,
+        payment => Payment,
+        shop => Shop,
+        invoice_id => InvoiceID,
+        payment_id => PaymentID
+    },
+    Refund#{injected_context => Context}.
+
+inject_party(#{injected_context := #{party := V}}) -> V.
+inject_invoice(#{injected_context := #{invoice := V}}) -> V.
+inject_payment(#{injected_context := #{payment := V}}) -> V.
+inject_shop(#{injected_context := #{shop := V}}) -> V.
+inject_invoice_id(#{injected_context := #{invoice_id := V}}) -> V.
+inject_payment_id(#{injected_context := #{payment_id := V}}) -> V.
+
 %% Event utils
 
 -spec wrap_events([event_payload()], t()) -> events().
@@ -474,9 +513,11 @@ apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)),
         sessions => [],
         transaction_info => TransactionInfo,
         status => pending,
-        remaining_payment_amount => hg_container:inject({ev_ctx, remaining_payment_amount}),
+        remaining_payment_amount => hg_container:inject(
+            hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, remaining_payment_amount)
+        ),
         retry_attempts => 0,
-        route => hg_container:inject({ev_ctx, route})
+        route => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, route))
     });
 apply_event(?refund_ev(_ID, Event), Refund, Context) ->
     apply_event_(Event, Refund, Context).
