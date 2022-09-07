@@ -431,6 +431,12 @@ apply_event_(?interaction_requested(_), Session, _Context) ->
     Session.
 
 create_session(Target) ->
+    InvoiceIDKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, invoice_id),
+    PaymentIDKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, payment_id),
+    RouteKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, route),
+    ok = hg_container:assert(InvoiceIDKey),
+    ok = hg_container:assert(PaymentIDKey),
+    ok = hg_container:assert(RouteKey),
     #{
         target => Target,
         status => active,
@@ -438,10 +444,10 @@ create_session(Target) ->
         tags => [],
         timeout_behaviour => {operation_failure, ?operation_timeout()},
         context => #{
-            invoice_id => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, invoice_id)),
-            payment_id => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, payment_id))
+            invoice_id => hg_container:inject(InvoiceIDKey),
+            payment_id => hg_container:inject(PaymentIDKey)
         },
-        route => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, route))
+        route => hg_container:inject(RouteKey)
     }.
 
 set_timeout_behaviour(undefined, Session) ->

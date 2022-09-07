@@ -266,18 +266,11 @@ process_refund_cashflow(Refund) ->
     end.
 
 process_session(Refund) ->
-    Session0 = hg_session:set_payment_info(
-        hg_container:inject(
-            hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, payment_info)
-        ),
-        session(Refund)
-    ),
-    Session1 = hg_session:set_repair_scenario(
-        hg_container:maybe_inject(
-            hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, repair_scenario)
-        ),
-        Session0
-    ),
+    PaymentInfoKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, payment_info),
+    RepairScenarioKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, repair_scenario),
+    ok = hg_container:assert(PaymentInfoKey),
+    Session0 = hg_session:set_payment_info(hg_container:inject(PaymentInfoKey), session(Refund)),
+    Session1 = hg_session:set_repair_scenario(hg_container:maybe_inject(RepairScenarioKey), Session0),
     {Result, Session2} = hg_session:process(Session1),
     finish_session_processing(Result, Session2, Refund).
 
@@ -464,8 +457,12 @@ get_initial_retry_strategy() ->
     hg_retry:new_strategy(maps:get(refunded, PolicyConfig, no_retry)).
 
 inject_context(Payment, Refund) ->
-    Party = hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, party)),
-    Invoice = hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, invoice)),
+    PartyKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, party),
+    InvoiceKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, invoice),
+    ok = hg_container:assert(PartyKey),
+    ok = hg_container:assert(InvoiceKey),
+    Party = hg_container:inject(PartyKey),
+    Invoice = hg_container:inject(InvoiceKey),
     #domain_Invoice{id = InvoiceID, shop_id = ShopID} = Invoice,
     #domain_InvoicePayment{id = PaymentID} = Payment,
     Shop = hg_party:get_shop(ShopID, Party),
@@ -507,17 +504,19 @@ wrap_event(Event, T) ->
 
 -spec apply_event(event(), t() | undefined, event_context()) -> t().
 apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)), undefined, _Context) ->
+    RemainingPaymentAmountKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, remaining_payment_amount),
+    RouteKey = hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, route),
+    ok = hg_container:assert(RemainingPaymentAmountKey),
+    ok = hg_container:assert(RouteKey),
     genlib_map:compact(#{
         refund => Refund,
         cash_flow => Cashflow,
         sessions => [],
         transaction_info => TransactionInfo,
         status => pending,
-        remaining_payment_amount => hg_container:inject(
-            hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, remaining_payment_amount)
-        ),
+        remaining_payment_amount => hg_container:inject(RemainingPaymentAmountKey),
         retry_attempts => 0,
-        route => hg_container:inject(hg_container:make_complex_key(?MODULE, ?FUNCTION_NAME, route))
+        route => hg_container:inject(RouteKey)
     });
 apply_event(?refund_ev(_ID, Event), Refund, Context) ->
     apply_event_(Event, Refund, Context).

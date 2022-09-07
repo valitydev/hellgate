@@ -14,6 +14,10 @@
 -export_type([key/0]).
 -export_type([value/0]).
 
+%% Assert API
+
+-export([assert/1]).
+
 %% Global API
 
 -export([global_bind_or_update/2]).
@@ -42,6 +46,17 @@
 -type wrapped_value() :: #{
     value := value()
 }.
+
+%% Assert API
+
+-spec assert(complex_key()) -> ok | no_return().
+assert(Key) ->
+    case maybe_inject(Key) of
+        undefined ->
+            erlang:error({inject_assertion_failed, Key, get()});
+        _Value ->
+            ok
+    end.
 
 %% Global API
 
