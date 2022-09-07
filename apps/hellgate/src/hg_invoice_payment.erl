@@ -2328,24 +2328,17 @@ process_session(Session0, St = #st{repair_scenario = Scenario}) ->
     finish_session_processing(get_activity(St), Result, Session3, St).
 
 -spec finish_session_processing(activity(), result(), hg_session:t(), st()) -> machine_result().
-finish_session_processing(Activity, {Events0, Action}, Session, St) ->
-    Events1 =
-        case Activity of
-            {refund_session, ID} ->
-                [?refund_ev(ID, Ev) || Ev <- Events0];
-            _ ->
-                Events0
-        end,
+finish_session_processing(Activity, {Events, Action}, Session, St) ->
     case {hg_session:status(Session), hg_session:result(Session)} of
         {finished, ?session_succeeded()} ->
             TargetType = get_target_type(hg_session:target(Session)),
             _ = maybe_notify_fault_detector(Activity, TargetType, finish, St),
             NewAction = hg_machine_action:set_timeout(0, Action),
-            {next, {Events1, NewAction}};
+            {next, {Events, NewAction}};
         {finished, ?session_failed(Failure)} ->
-            process_failure(Activity, Events1, Action, Failure, St);
+            process_failure(Activity, Events, Action, Failure, St);
         _ ->
-            {next, {Events1, Action}}
+            {next, {Events, Action}}
     end.
 
 -spec finalize_payment(action(), st()) -> machine_result().
