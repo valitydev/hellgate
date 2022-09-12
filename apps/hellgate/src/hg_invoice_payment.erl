@@ -954,7 +954,7 @@ get_selector_value(Name, Selector) ->
 
 -spec start_session(target()) -> events().
 start_session(Target) ->
-    hg_session:create(Target).
+    [hg_session:wrap_event(Target, hg_session:create())].
 
 start_capture(Reason, Cost, Cart, Allocation) ->
     [?payment_capture_started(Reason, Cost, Cart, Allocation)] ++
@@ -2368,7 +2368,8 @@ process_session(Session0, St = #st{repair_scenario = Scenario}) ->
     finish_session_processing(get_activity(St), Result, Session3, St).
 
 -spec finish_session_processing(activity(), result(), hg_session:t(), st()) -> machine_result().
-finish_session_processing(Activity, {Events0, Action}, Session, St) ->
+finish_session_processing(Activity, {Events, Action}, Session, St) ->
+    Events0 = hg_session:wrap_events(Events, Session),
     Events1 =
         case Activity of
             {refund_session, ID} ->
@@ -3269,7 +3270,7 @@ merge_change(Change = ?adjustment_ev(ID, Event), St, Opts) ->
             St2
     end;
 merge_change(
-    Change = ?session_ev(Target, ?session_started()),
+    Change = ?session_ev(Target, Event = ?session_started()),
     #st{activity = Activity} = St,
     Opts
 ) ->
@@ -3289,7 +3290,7 @@ merge_change(
         Opts
     ),
     % FIXME why the hell dedicated handling
-    Session0 = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
+    Session0 = hg_session:apply_event(Event, undefined, create_session_event_context(Target, St, Opts)),
     %% We need to pass processed trx_info to captured/cancelled session due to provider requirements
     Session1 = hg_session:set_trx_info(get_trx(St), Session0),
     St1 = add_session(Target, Session1, St#st{target = Target}),
@@ -3313,12 +3314,12 @@ merge_change(
         _ ->
             St2
     end;
-merge_change(Change = ?session_ev(Target, _Event), St = #st{activity = Activity}, Opts) ->
+merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity}, Opts) ->
     _ = validate_transition([{payment, S} || S <- [processing_session, finalizing_session]], Change, St, Opts),
     Session = hg_session:apply_event(
-        Change,
+        Event,
         get_session(Target, St),
-        create_session_event_context(St, Opts)
+        create_session_event_context(Target, St, Opts)
     ),
     St1 = update_session(Target, Session, St),
     % FIXME leaky transactions
@@ -3351,11 +3352,13 @@ merge_refund_change(?refund_status_changed(Status), RefundSt, _St, _Opts) ->
     set_refund(set_refund_status(Status, get_refund(RefundSt)), RefundSt);
 merge_refund_change(?refund_rollback_started(Failure), RefundSt, _St, _Opts) ->
     RefundSt#refund_st{failure = Failure};
-merge_refund_change(Change = ?session_ev(?refunded(), ?session_started()), RefundSt, St, Opts) ->
-    Session = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
+merge_refund_change(?session_ev(?refunded(), Event = ?session_started()), RefundSt, St, Opts) ->
+    Session = hg_session:apply_event(Event, undefined, create_session_event_context(?refunded(), St, Opts)),
     add_refund_session(Session, RefundSt);
-merge_refund_change(Change = ?session_ev(?refunded(), _), RefundSt, St, Opts) ->
-    Session = hg_session:apply_event(Change, get_refund_session(RefundSt), create_session_event_context(St, Opts)),
+merge_refund_change(?session_ev(?refunded(), Event), RefundSt, St, Opts) ->
+    Session = hg_session:apply_event(
+        Event, get_refund_session(RefundSt), create_session_event_context(?refunded(), St, Opts)
+    ),
     update_refund_session(Session, RefundSt).
 
 merge_adjustment_change(?adjustment_created(Adjustment), undefined) ->
@@ -3474,10 +3477,11 @@ get_captured_cost(_, #domain_InvoicePayment{cost = Cost}) ->
 get_captured_allocation(#domain_InvoicePaymentCaptured{allocation = Allocation}) ->
     Allocation.
 
--spec create_session_event_context(st(), change_opts()) -> hg_session:event_context().
-create_session_event_context(St, Opts = #{invoice_id := InvoiceID}) ->
+-spec create_session_event_context(target(), st(), change_opts()) -> hg_session:event_context().
+create_session_event_context(Target, St, Opts = #{invoice_id := InvoiceID}) ->
     #{
         timestamp => define_event_timestamp(Opts),
+        target => Target,
         route => get_route(St),
         invoice_id => InvoiceID,
         payment_id => get_payment_id(get_payment(St))
