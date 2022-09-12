@@ -19,7 +19,7 @@
 -define(state_error(TimeStamp), #fault_detector_Error{time_end = TimeStamp}).
 -define(state_finish(TimeStamp), #fault_detector_Finish{time_end = TimeStamp}).
 
--export([notify/4]).
+-export([register_transaction/3]).
 
 -export([build_config/0]).
 -export([build_config/2]).
@@ -53,15 +53,9 @@
 
 %% API
 
--spec notify(operation_status(), id(), id(), id()) ->
+-spec register_transaction(operation_status(), id(), id()) ->
     {ok, registered} | {error, not_found} | {error, any()} | disabled.
-notify(Status, InvoiceID, PaymentID, ProviderID) ->
-    ServiceType = provider_conversion,
-    OperationID = build_operation_id(ServiceType, [InvoiceID, PaymentID]),
-    ServiceID = build_service_id(ServiceType, ProviderID),
-    register(Status, ServiceID, OperationID).
-
-register(Status, ServiceID, OperationID) ->
+register_transaction(Status, ServiceID, OperationID) ->
     FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
     Config = genlib_map:get(conversion, FDConfig, #{}),
     SlidingWindow = genlib_map:get(sliding_window, Config, 60000),

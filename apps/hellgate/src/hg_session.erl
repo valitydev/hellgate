@@ -22,8 +22,9 @@
 
 -type event_context() :: #{
     timestamp := integer(),
-    context => tag_context(),
-    route => route()
+    route => route(),
+    invoice_id => binary(),
+    payment_id => binary()
 }.
 
 -type process_result() :: {result(), t()}.
@@ -175,20 +176,13 @@ process_callback(Payload, Session) ->
     {Response, apply_result(Result, Session)}.
 
 -spec deduce_activity(t()) -> activity().
-deduce_activity(Session) ->
-    Params = #{
-        status => status(Session),
-        repair_scenario => repair_scenario(Session)
-    },
-    do_deduce_activity(Params).
-
-do_deduce_activity(#{repair_scenario := Scenario}) when Scenario =/= undefined ->
+deduce_activity(#{repair_scenario := Scenario}) when Scenario =/= undefined ->
     repair;
-do_deduce_activity(#{status := active}) ->
+deduce_activity(#{status := active}) ->
     active;
-do_deduce_activity(#{status := suspended}) ->
+deduce_activity(#{status := suspended}) ->
     suspended;
-do_deduce_activity(#{status := finished}) ->
+deduce_activity(#{status := finished}) ->
     finished.
 
 do_process(repair, Session) ->
@@ -266,7 +260,10 @@ maybe_notify_fault_detector({processed, _}, Status, Session) ->
     #domain_PaymentRoute{provider = ProviderRef} = route(Session),
     ProviderID = ProviderRef#domain_ProviderRef.id,
     #{payment_id := PaymentID, invoice_id := InvoiceID} = tag_context(Session),
-    hg_fault_detector_client:notify(Status, InvoiceID, PaymentID, ProviderID);
+    ServiceType = provider_conversion,
+    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [InvoiceID, PaymentID]),
+    ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
+    hg_fault_detector_client:register_transaction(Status, ServiceID, OperationID);
 maybe_notify_fault_detector(_TargetType, _Status, _St) ->
     ok.
 
@@ -326,18 +323,6 @@ handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, A
                 [?rec_token_acquired(Token) | Events0]
         end,
     {Events1, Action};
-handle_proxy_intent(
-    #proxy_provider_FinishIntent{status = {failure, Failure}},
-    Action,
-    Session = #{target := {captured, _}}
-) ->
-    case check_failure_type(target(Session), {failure, Failure}) of
-        transient ->
-            Events = [wrap_session_event(?session_finished(?session_failed({failure, Failure})), Session)],
-            {Events, Action};
-        _ ->
-            error({invalid_capture_failure, Failure})
-    end;
 handle_proxy_intent(#proxy_provider_FinishIntent{status = {failure, Failure}}, Action, Session) ->
     Events = [wrap_session_event(?session_finished(?session_failed({failure, Failure})), Session)],
     {Events, Action};
@@ -364,20 +349,6 @@ handle_proxy_intent(
     Action1 = hg_machine_action:set_timer(Timer, Action0),
     Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
     {wrap_session_events(Events, Session), Action1}.
-
--spec check_failure_type(target(), dmsl_domain_thrift:'OperationFailure'()) -> transient | fatal.
-check_failure_type(Target, {failure, Failure}) ->
-    payproc_errors:match(get_error_class(Target), Failure, fun do_check_failure_type/1).
-
-get_error_class({Target, _}) when Target =:= processed; Target =:= captured; Target =:= cancelled ->
-    'PaymentFailure';
-get_error_class({refunded, _}) ->
-    'RefundFailure'.
-
-do_check_failure_type({authorization_failed, {temporarily_unavailable, _}}) ->
-    transient;
-do_check_failure_type(_Failure) ->
-    fatal.
 
 try_request_interaction(undefined) ->
     [];
@@ -411,7 +382,7 @@ apply_event(?session_ev(_Target, Event), Session, Context) ->
     apply_event_(Event, Session, Context);
 %% Ignore ?rec_token_acquired event cause it's easiest way to handle this
 %% TODO maybe add this token to session state and remove it from payment state?
-apply_event(_, Session, _Context) ->
+apply_event(?rec_token_acquired(_Token), Session, _Context) ->
     Session.
 
 apply_event_(?session_finished(Result), Session, Context) ->
@@ -432,14 +403,17 @@ apply_event_(?proxy_st_changed(ProxyState), Session, _Context) ->
 apply_event_(?interaction_requested(_), Session, _Context) ->
     Session.
 
-create_session(Target, #{context := Context, route := Route}) ->
+create_session(Target, #{route := Route, invoice_id := InvoiceID, payment_id := PaymentID}) ->
     #{
         target => Target,
         status => active,
         trx => undefined,
         tags => [],
         timeout_behaviour => {operation_failure, ?operation_timeout()},
-        context => Context,
+        context => #{
+            invoice_id => InvoiceID,
+            payment_id => PaymentID
+        },
         route => Route
     }.
 

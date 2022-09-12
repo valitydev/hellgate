@@ -69,7 +69,6 @@ handle_recurrent_token_callback(Payload, ProxyContext, Route) ->
 -spec issue_call(woody:func(), woody:args(), route()) -> term().
 issue_call(Func, Args, Route) ->
     CallID = hg_utils:unique_id(),
-    _ = notify_fault_detector(start, Route, CallID),
     try hg_woody_wrapper:call(proxy_provider, Func, Args, get_call_options(Route)) of
         Result ->
             _ = notify_fault_detector(finish, Route, CallID),
@@ -84,29 +83,9 @@ notify_fault_detector(Status, Route, CallID) ->
     ServiceType = adapter_availability,
     ProviderRef = get_route_provider(Route),
     ProviderID = ProviderRef#domain_ProviderRef.id,
-    FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
-    Config = genlib_map:get(availability, FDConfig, #{}),
-    SlidingWindow = genlib_map:get(sliding_window, Config, 60000),
-    OpTimeLimit = genlib_map:get(operation_time_limit, Config, 10000),
-    PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
-    ServiceConfig = hg_fault_detector_client:build_config(SlidingWindow, OpTimeLimit, PreAggrSize),
     ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
     OperationID = hg_fault_detector_client:build_operation_id(ServiceType, CallID),
-    fd_register(Status, ServiceID, OperationID, ServiceConfig).
-
-fd_register(start, ServiceID, OperationID, ServiceConfig) ->
-    _ = fd_maybe_init_service_and_start(ServiceID, OperationID, ServiceConfig);
-fd_register(Status, ServiceID, OperationID, ServiceConfig) ->
-    _ = hg_fault_detector_client:register_operation(Status, ServiceID, OperationID, ServiceConfig).
-
-fd_maybe_init_service_and_start(ServiceID, OperationID, ServiceConfig) ->
-    case hg_fault_detector_client:register_operation(start, ServiceID, OperationID, ServiceConfig) of
-        {error, not_found} ->
-            _ = hg_fault_detector_client:init_service(ServiceID, ServiceConfig),
-            _ = hg_fault_detector_client:register_operation(start, ServiceID, OperationID, ServiceConfig);
-        Result ->
-            Result
-    end.
+    hg_fault_detector_client:register_transaction(Status, ServiceID, OperationID).
 
 get_call_options(Route) ->
     Revision = hg_domain:head(),

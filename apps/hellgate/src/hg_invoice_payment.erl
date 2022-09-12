@@ -45,7 +45,6 @@
 -export([get_party_revision/1]).
 -export([get_remaining_payment_balance/1]).
 -export([get_activity/1]).
--export([get_tags/1]).
 
 -export([construct_payment_info/2]).
 -export([set_repair_scenario/2]).
@@ -354,15 +353,6 @@ get_refund(ID, St = #st{payment = Payment}) ->
 -spec get_activity(st()) -> activity().
 get_activity(#st{activity = Activity}) ->
     Activity.
-
--spec get_tags(st()) -> [tag()].
-get_tags(#st{sessions = Sessions, refunds = Refunds}) ->
-    lists:usort(
-        lists:flatten(
-            [hg_session:tags(S) || S <- lists:flatten(maps:values(Sessions))] ++
-                [hg_session:tags(get_refund_session(R)) || R <- maps:values(Refunds)]
-        )
-    ).
 
 -spec get_opts(st()) -> opts().
 get_opts(#st{opts = Opts}) ->
@@ -2111,18 +2101,17 @@ process_call({callback, Tag, Payload}, St, Options) ->
 
 -spec process_callback(tag(), callback(), st()) -> {callback_response(), machine_result()}.
 process_callback(Tag, Payload, St) ->
-    Action = hg_machine_action:new(),
     Session = get_activity_session(St),
-    process_callback(Tag, Payload, Action, Session, St).
+    process_callback(Tag, Payload, Session, St).
 
-process_callback(Tag, Payload, Action, Session, St) when Session /= undefined ->
+process_callback(Tag, Payload, Session, St) when Session /= undefined ->
     case {hg_session:status(Session), hg_session:tags(Session)} of
         {suspended, [Tag | _]} ->
-            handle_callback(Payload, Action, St);
+            handle_callback(Payload, Session, St);
         _ ->
             throw(invalid_callback)
     end;
-process_callback(_Tag, _Payload, _Action, undefined, _St) ->
+process_callback(_Tag, _Payload, undefined, _St) ->
     throw(invalid_callback).
 
 %%
@@ -2341,9 +2330,8 @@ process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, cap
 
 %%
 
--spec handle_callback(callback(), action(), st()) -> {callback_response(), machine_result()}.
-handle_callback(Payload, _Action, St) ->
-    Session0 = get_activity_session(St),
+-spec handle_callback(callback(), hg_session:t(), st()) -> {callback_response(), machine_result()}.
+handle_callback(Payload, Session0, St) ->
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     Session1 = hg_session:set_payment_info(PaymentInfo, Session0),
     {Response, {Result, Session2}} = hg_session:process_callback(Payload, Session1),
@@ -2565,7 +2553,10 @@ maybe_notify_fault_detector({payment, processing_session}, processed, Status, St
     ProviderID = ProviderRef#domain_ProviderRef.id,
     PaymentID = get_payment_id(get_payment(St)),
     InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
-    hg_fault_detector_client:notify(Status, InvoiceID, PaymentID, ProviderID);
+    ServiceType = provider_conversion,
+    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [InvoiceID, PaymentID]),
+    ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
+    hg_fault_detector_client:register_transaction(Status, ServiceID, OperationID);
 maybe_notify_fault_detector(_Activity, _TargetType, _Status, _St) ->
     ok.
 
@@ -3297,8 +3288,9 @@ merge_change(
         St,
         Opts
     ),
+    % FIXME why the hell dedicated handling
     Session0 = hg_session:apply_event(Change, undefined, create_session_event_context(St, Opts)),
-    %% Set trx to deduplicate trx bound events
+    %% We need to pass processed trx_info to captured/cancelled session due to provider requirements
     Session1 = hg_session:set_trx_info(get_trx(St), Session0),
     St1 = add_session(Target, Session1, St#st{target = Target}),
     St2 = save_retry_attempt(Target, St1),
@@ -3484,14 +3476,11 @@ get_captured_allocation(#domain_InvoicePaymentCaptured{allocation = Allocation})
 
 -spec create_session_event_context(st(), change_opts()) -> hg_session:event_context().
 create_session_event_context(St, Opts = #{invoice_id := InvoiceID}) ->
-    TagContext = #{
-        invoice_id => InvoiceID,
-        payment_id => get_payment_id(get_payment(St))
-    },
     #{
         timestamp => define_event_timestamp(Opts),
-        context => TagContext,
-        route => get_route(St)
+        route => get_route(St),
+        invoice_id => InvoiceID,
+        payment_id => get_payment_id(get_payment(St))
     }.
 
 get_refund_session(#refund_st{sessions = []}) ->
