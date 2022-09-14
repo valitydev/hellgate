@@ -19,7 +19,7 @@
 -define(state_error(TimeStamp), #fault_detector_Error{time_end = TimeStamp}).
 -define(state_finish(TimeStamp), #fault_detector_Finish{time_end = TimeStamp}).
 
--export([register_transaction/3]).
+-export([register_transaction/4]).
 
 -export([build_config/0]).
 -export([build_config/2]).
@@ -53,11 +53,11 @@
 
 %% API
 
--spec register_transaction(operation_status(), id(), id()) ->
+-spec register_transaction(fd_service_type(), operation_status(), id(), id()) ->
     {ok, registered} | {error, not_found} | {error, any()} | disabled.
-register_transaction(Status, ServiceID, OperationID) ->
+register_transaction(ServiceType, Status, ServiceID, OperationID) ->
     FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
-    Config = genlib_map:get(conversion, FDConfig, #{}),
+    Config = genlib_map:get(map_service_type_to_cfg_key(ServiceType), FDConfig, #{}),
     SlidingWindow = genlib_map:get(sliding_window, Config, 60000),
     OpTimeLimit = genlib_map:get(operation_time_limit, Config, 1200000),
     PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
@@ -71,6 +71,9 @@ register_transaction(Status, ServiceID, OperationID) ->
                 Result
         end,
     register_operation(Status, ServiceID, OperationID, ServiceConfig).
+
+map_service_type_to_cfg_key(provider_conversion) -> conversion;
+map_service_type_to_cfg_key(adapter_availability) -> availability.
 
 %%------------------------------------------------------------------------------
 %% @doc

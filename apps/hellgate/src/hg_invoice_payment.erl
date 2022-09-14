@@ -2557,7 +2557,7 @@ maybe_notify_fault_detector({payment, processing_session}, processed, Status, St
     ServiceType = provider_conversion,
     OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [InvoiceID, PaymentID]),
     ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
-    hg_fault_detector_client:register_transaction(Status, ServiceID, OperationID);
+    hg_fault_detector_client:register_transaction(ServiceType, Status, ServiceID, OperationID);
 maybe_notify_fault_detector(_Activity, _TargetType, _Status, _St) ->
     ok.
 

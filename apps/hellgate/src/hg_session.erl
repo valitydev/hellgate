@@ -86,7 +86,9 @@
 
 -type wrapped_event() :: dmsl_payproc_thrift:'InvoicePaymentChangePayload'().
 -type wrapped_events() :: [wrapped_event()].
--type event() :: dmsl_payproc_thrift:'SessionChangePayload'().
+-type event() ::
+    dmsl_payproc_thrift:'SessionChangePayload'()
+    | {invoice_payment_rec_token_acquired, dmsl_payproc_thrift:'InvoicePaymentRecTokenAcquired'()}.
 -type events() :: [event()].
 -type action() :: hg_machine_action:t().
 -type result() :: {events(), action()}.
@@ -267,7 +269,7 @@ maybe_notify_fault_detector({processed, _}, Status, Session) ->
     ServiceType = provider_conversion,
     OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [InvoiceID, PaymentID]),
     ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
-    hg_fault_detector_client:register_transaction(Status, ServiceID, OperationID);
+    hg_fault_detector_client:register_transaction(ServiceType, Status, ServiceID, OperationID);
 maybe_notify_fault_detector(_TargetType, _Status, _St) ->
     ok.
 
@@ -361,12 +363,12 @@ try_request_interaction(UserInteraction) ->
 
 %% Event utils
 
--spec wrap_events([event() | wrapped_event()], t()) -> wrapped_events().
+-spec wrap_events([event()], t()) -> wrapped_events().
 wrap_events(SessionEvents, Session) ->
     Target = target(Session),
     [wrap_event(Target, Ev) || Ev <- SessionEvents].
 
--spec wrap_event(target(), event() | wrapped_event()) -> wrapped_event().
+-spec wrap_event(target(), event()) -> wrapped_event().
 wrap_event(_Target, Event = ?rec_token_acquired(_Token)) ->
     Event;
 wrap_event(Target, SessionEvent) ->
@@ -384,9 +386,9 @@ update_state_with(Events, T) ->
         Events
     ).
 
--spec apply_event(event() | wrapped_event(), t() | undefined, event_context()) -> t().
-apply_event(?session_started(), undefined, Context = #{target := Target}) ->
-    Session0 = create_session(Target, Context),
+-spec apply_event(event(), t() | undefined, event_context()) -> t().
+apply_event(?session_started(), undefined, Context) ->
+    Session0 = create_session(Context),
     mark_timing_event(started, Context, Session0);
 apply_event(?session_finished(Result), Session, Context) ->
     Session2 = Session#{status => finished, result => Result},
@@ -410,7 +412,7 @@ apply_event(?interaction_requested(_), Session, _Context) ->
 apply_event(?rec_token_acquired(_Token), Session, _Context) ->
     Session.
 
-create_session(Target, #{route := Route, invoice_id := InvoiceID, payment_id := PaymentID}) ->
+create_session(#{target := Target, route := Route, invoice_id := InvoiceID, payment_id := PaymentID}) ->
     #{
         target => Target,
         status => active,
