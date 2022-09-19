@@ -21,12 +21,11 @@
 
 -export([register_transaction/4]).
 
--export([build_config/0]).
--export([build_config/2]).
+-export([build_default_config/0]).
+-export([build_config/1]).
 -export([build_config/3]).
 
 -export([build_service_id/2]).
--export([build_operation_id/1]).
 -export([build_operation_id/2]).
 
 -export([init_service/1]).
@@ -51,17 +50,15 @@
     adapter_availability
     | provider_conversion.
 
+map_service_type_to_cfg_key(provider_conversion) -> conversion;
+map_service_type_to_cfg_key(adapter_availability) -> availability.
+
 %% API
 
 -spec register_transaction(fd_service_type(), operation_status(), id(), id()) ->
     {ok, registered} | {error, not_found} | {error, any()} | disabled.
 register_transaction(ServiceType, Status, ServiceID, OperationID) ->
-    FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
-    Config = genlib_map:get(map_service_type_to_cfg_key(ServiceType), FDConfig, #{}),
-    SlidingWindow = genlib_map:get(sliding_window, Config, 60000),
-    OpTimeLimit = genlib_map:get(operation_time_limit, Config, 1200000),
-    PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
-    ServiceConfig = build_config(SlidingWindow, OpTimeLimit, PreAggrSize),
+    ServiceConfig = build_config(ServiceType),
     _ =
         case register_operation(start, ServiceID, OperationID, ServiceConfig) of
             {error, not_found} ->
@@ -72,145 +69,53 @@ register_transaction(ServiceType, Status, ServiceID, OperationID) ->
         end,
     register_operation(Status, ServiceID, OperationID, ServiceConfig).
 
-map_service_type_to_cfg_key(provider_conversion) -> conversion;
-map_service_type_to_cfg_key(adapter_availability) -> availability.
-
-%%------------------------------------------------------------------------------
-%% @doc
-%% `build_config/0` creates a default config that can be used  with
-%% `init_service/2` and `register_operation/4`.
-%%
-%% The default values can be adjusted via sys.config.
-%%
-%% Config
-%% `SlidingWindow`: pick operations from SlidingWindow milliseconds.
-%%      Default: 60000
-%% `OpTimeLimit`: expected operation execution time, in milliseconds.
-%%      Default: 10000
-%% `PreAggrSize`: time interval for data preaggregation, in seconds.
-%%      Default: 2
-%% @end
-%%------------------------------------------------------------------------------
--spec build_config() -> service_config().
-build_config() ->
+-spec build_default_config() -> service_config().
+build_default_config() ->
     EnvFDConfig = genlib_app:env(hellgate, fault_detector, #{}),
     SlidingWindow = genlib_map:get(sliding_window, EnvFDConfig, 60000),
     OpTimeLimit = genlib_map:get(operation_time_limit, EnvFDConfig, 10000),
     PreAggrSize = genlib_map:get(pre_aggregation_size, EnvFDConfig, 2),
-    ?service_config(SlidingWindow, OpTimeLimit, PreAggrSize).
+    build_config(SlidingWindow, OpTimeLimit, PreAggrSize).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `build_config/2` receives the length of the sliding windown and the operation
-%% time limit as arguments. The config can then be used with `init_service/2`
-%% and `register_operation/4`.
-%% @end
-%%------------------------------------------------------------------------------
--spec build_config(sliding_window(), operation_time_limit()) -> service_config().
-build_config(SlidingWindow, OpTimeLimit) ->
-    ?service_config(SlidingWindow, OpTimeLimit, undefined).
+-spec build_config(fd_service_type()) -> service_config().
+build_config(ServiceType) ->
+    FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
+    Config = genlib_map:get(map_service_type_to_cfg_key(ServiceType), FDConfig, #{}),
+    SlidingWindow = genlib_map:get(sliding_window, Config, 60000),
+    OpTimeLimit = genlib_map:get(operation_time_limit, Config, 1200000),
+    PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
+    build_config(SlidingWindow, OpTimeLimit, PreAggrSize).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `build_config/3` is analogous to `build_config/2` but also receives
-%% the optional pre-aggregation size argument.
-%% @end
-%%------------------------------------------------------------------------------
 -spec build_config(sliding_window(), operation_time_limit(), pre_aggregation_size()) -> service_config().
 build_config(SlidingWindow, OpTimeLimit, PreAggrSize) ->
     ?service_config(SlidingWindow, OpTimeLimit, PreAggrSize).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `build_service_id/2` is a helper function for building service IDs
-%% @end
-%%------------------------------------------------------------------------------
 -spec build_service_id(fd_service_type(), id()) -> binary().
 build_service_id(ServiceType, ID) ->
-    do_build_id(service, ServiceType, genlib:to_binary(ID)).
+    hg_utils:construct_complex_id([<<"hellgate_service">>, genlib:to_binary(ServiceType), genlib:to_binary(ID)]).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `build_operation_id_id/3` is a helper function for building operation IDs
-%% The final part of the id is generated randomly.
-%% @end
-%%------------------------------------------------------------------------------
--spec build_operation_id(fd_service_type()) -> binary().
-build_operation_id(ServiceType) ->
-    build_operation_id(ServiceType, hg_utils:unique_id()).
+-spec build_operation_id(fd_service_type(), [id()]) -> binary().
+build_operation_id(ServiceType, IDs) ->
+    MappedIDs = [genlib:to_binary(ID) || ID <- IDs],
+    hg_utils:construct_complex_id(lists:flatten([<<"hellgate_operation">>, genlib:to_binary(ServiceType), MappedIDs])).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `build_operation_id_id/4` is a deterministic version of
-%% `build_operation_id/3`, with the `ID` argument being the final part
-%% of the operation id, instead of it being randomly generated.
-%% One can also build a complex id by passing a list of terms.
-%% @end
-%%------------------------------------------------------------------------------
--spec build_operation_id(fd_service_type(), id() | [id()]) -> binary().
-build_operation_id(ServiceType, ComplexID) when is_list(ComplexID) ->
-    do_build_id(operation, ServiceType, [genlib:to_binary(ID) || ID <- ComplexID]);
-build_operation_id(ServiceType, ID) ->
-    do_build_id(operation, ServiceType, genlib:to_binary(ID)).
-
-%%------------------------------------------------------------------------------
-%% @doc
-%% `init_service/1` receives a service id and initialises a fault detector
-%% service for it, allowing you to aggregate availability statistics via
-%% `register_operation/3` and `register_operation/4` and fetch it using the
-%% `get_statistics/1` function.
-%% @end
-%%------------------------------------------------------------------------------
 -spec init_service(service_id()) -> {ok, initialised} | {error, any()} | disabled.
 init_service(ServiceId) ->
-    ServiceConfig = build_config(),
-    call('InitService', {ServiceId, ServiceConfig}).
+    init_service(ServiceId, build_default_config()).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `init_service/2` is analogous to `init_service/1` but also receives
-%% configuration for the fault detector service created by `build_config/3`.
-%% @end
-%%------------------------------------------------------------------------------
 -spec init_service(service_id(), service_config()) -> {ok, initialised} | {error, any()} | disabled.
 init_service(ServiceId, ServiceConfig) ->
     call('InitService', {ServiceId, ServiceConfig}).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `get_statistics/1` receives a list of service ids and returns a
-%% list of statistics on the services' reliability.
-%%
-%% Returns an empty list if the fault detector itself is unavailable. Services
-%% not initialised in the fault detector will not be in the list.
-%% @end
-%%------------------------------------------------------------------------------
 -spec get_statistics([service_id()]) -> [service_stats()].
 get_statistics(ServiceIds) when is_list(ServiceIds) ->
     call('GetStatistics', {ServiceIds}).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `register_operation/3` receives a service id, an operation id and an
-%% operation status which is one of the following atoms: `start`, `finish`, `error`,
-%% respectively for registering a start and either a successful or an erroneous
-%% end of an operation. The data is then used to aggregate statistics on a
-%% service's availability that is accessible via `get_statistics/1`.
-%% @end
-%%------------------------------------------------------------------------------
 -spec register_operation(operation_status(), service_id(), operation_id()) ->
     {ok, registered} | {error, not_found} | {error, any()} | disabled.
 register_operation(Status, ServiceId, OperationId) ->
-    ServiceConfig = build_config(),
-    register_operation(Status, ServiceId, OperationId, ServiceConfig).
+    register_operation(Status, ServiceId, OperationId, build_default_config()).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% `register_operation/4` is analogous to `register_operation/3` but also
-%% receives configuration for the fault detector service created
-%% by `build_config/3`.
-%% @end
-%%------------------------------------------------------------------------------
 -spec register_operation(operation_status(), service_id(), operation_id(), service_config()) ->
     {ok, registered} | {error, not_found} | {error, any()} | disabled.
 register_operation(Status, ServiceId, OperationId, ServiceConfig) ->
@@ -291,12 +196,3 @@ do_call('RegisterOperation', {ServiceId, OperationId, _ServiceConfig} = Args, Op
             _ = logger:error(ErrorText, [OperationId, ServiceId, error, Reason]),
             {error, Reason}
     end.
-
-do_build_id(IDType, ServiceType, ID) ->
-    Prefix =
-        case IDType of
-            service -> <<"hellgate_service">>;
-            operation -> <<"hellgate_operation">>
-        end,
-    BinServiceType = genlib:to_binary(ServiceType),
-    hg_utils:construct_complex_id(lists:flatten([Prefix, BinServiceType, ID])).

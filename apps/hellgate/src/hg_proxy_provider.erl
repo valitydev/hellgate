@@ -84,7 +84,7 @@ notify_fault_detector(Status, Route, CallID) ->
     ProviderRef = get_route_provider(Route),
     ProviderID = ProviderRef#domain_ProviderRef.id,
     ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
-    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, CallID),
+    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [CallID]),
     hg_fault_detector_client:register_transaction(ServiceType, Status, ServiceID, OperationID).
 
 get_call_options(Route) ->
