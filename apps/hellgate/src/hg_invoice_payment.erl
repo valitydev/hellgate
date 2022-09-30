@@ -70,7 +70,7 @@
 
 %% Machine like
 
--export([init/3]).
+-export([init/4]).
 
 -export([process_signal/3]).
 -export([process_call/3]).
@@ -393,15 +393,23 @@ get_chargeback_opts(#st{opts = Opts} = St) ->
 -type events() :: [event()].
 -type result() :: {events(), action()}.
 -type machine_result() :: {next | done, result()}.
+-type payment_type() :: regular | register.
 
--spec init(payment_id(), _, opts()) -> {st(), result()}.
-init(PaymentID, PaymentParams, Opts) ->
+-spec init(payment_type(), payment_id(), _, opts()) -> {st(), result()}.
+init(Type, PaymentID, PaymentParams, Opts) ->
     scoper:scope(
         payment,
         #{
             id => PaymentID
         },
-        fun() -> init_(PaymentID, PaymentParams, Opts) end
+        fun() ->
+            case Type of
+                regular ->
+                    init_(PaymentID, PaymentParams, Opts);
+                register ->
+                    hg_invoice_registered_payment:init(PaymentID, PaymentParams, Opts)
+            end
+        end
     ).
 
 -spec init_(payment_id(), _, opts()) -> {st(), result()}.

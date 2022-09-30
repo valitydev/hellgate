@@ -222,6 +222,7 @@ handle_function_('ComputeTerms', {InvoiceID, PartyRevision0}, _Opts) ->
     );
 handle_function_(Fun, Args, _Opts) when
     Fun =:= 'StartPayment' orelse
+        Fun =:= 'RegisterPayment' orelse
         Fun =:= 'CapturePayment' orelse
         Fun =:= 'CancelPayment' orelse
         Fun =:= 'RefundPayment' orelse
@@ -583,6 +584,11 @@ handle_call({{'Invoicing', 'StartPayment'}, {_InvoiceID, PaymentParams}}, St0) -
     _ = assert_invoice(operable, St),
     _ = assert_all_adjustments_finalised(St),
     start_payment(PaymentParams, St);
+handle_call({{'Invoicing', 'RegisterPayment'}, {_InvoiceID, PaymentParams}}, St0) ->
+    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    _ = assert_invoice(operable, St),
+    _ = assert_all_adjustments_finalised(St),
+    register_payment(PaymentParams, St);
 handle_call({{'Invoicing', 'CapturePayment'}, {_InvoiceID, PaymentID, Params}}, St0) ->
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
     _ = assert_invoice(operable, St),
@@ -771,12 +777,37 @@ start_payment(#payproc_InvoicePaymentParams{id = PaymentID} = PaymentParams, St)
             }
     end.
 
+register_payment(#payproc_RegisterInvoicePaymentParams{id = undefined} = PaymentParams, St) ->
+    PaymentID = create_payment_id(St),
+    do_register_payment(PaymentID, PaymentParams, St);
+register_payment(#payproc_RegisterInvoicePaymentParams{id = PaymentID} = PaymentParams, St) ->
+    case try_get_payment_session(PaymentID, St) of
+        undefined ->
+            do_register_payment(PaymentID, PaymentParams, St);
+        PaymentSession ->
+            #{
+                response => get_payment_state(PaymentSession),
+                state => St
+            }
+    end.
+
+do_register_payment(PaymentID, PaymentParams, St) ->
+    _ = assert_invoice({status, unpaid}, St),
+    _ = assert_no_pending_payment(St),
+    Opts = get_payment_opts(St),
+    % TODO make timer reset explicit here
+    {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(register, PaymentID, PaymentParams, Opts),
+    Result = handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, Opts),
+    Result#{
+        response => get_payment_state(PaymentSession)
+    }.
+
 do_start_payment(PaymentID, PaymentParams, St) ->
     _ = assert_invoice({status, unpaid}, St),
     _ = assert_no_pending_payment(St),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
-    {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(PaymentID, PaymentParams, Opts),
+    {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(regular, PaymentID, PaymentParams, Opts),
     #{
         response => get_payment_state(PaymentSession),
         changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),

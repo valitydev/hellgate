@@ -36,6 +36,7 @@
 
 -export([payment_start_idempotency/1]).
 -export([payment_success/1]).
+-export([register_payment_success/1]).
 
 -export([payment_limit_success/1]).
 -export([payment_limit_other_shop_success/1]).
@@ -283,6 +284,7 @@ groups() ->
 
             payment_start_idempotency,
             payment_success,
+            register_payment_success,
             payment_success_ruleset,
             processing_deadline_reached_test,
             payment_success_empty_cvv,
@@ -1036,6 +1038,52 @@ payment_success(C) ->
                 <<"payment.payer_session_info.redirect_url">> := RedirectURL
             }
         },
+        Trx
+    ).
+
+-spec register_payment_success(config()) -> test_return().
+register_payment_success(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Context = #base_Content{
+        type = <<"application/x-erlang-binary">>,
+        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
+    },
+    PayerSessionInfo = #domain_PayerSessionInfo{},
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    Route = ?route(?prv(1), ?trm(1)),
+    PaymentParams = #payproc_RegisterInvoicePaymentParams{
+        payer_params =
+        {payment_resource, #payproc_PaymentResourcePayerParams{
+            resource = #domain_DisposablePaymentResource{
+            payment_tool = PaymentTool,
+            payment_session_id = Session,
+            client_info = #domain_ClientInfo{}
+        },
+            contact_info = #domain_ClientInfo{}
+        }},
+        route = Route,
+        payer_session_info = PayerSessionInfo,
+        context = Context
+    },
+    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [PaymentSt = ?payment_state(Payment)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = Payment,
+    ?payment_last_trx(Trx) = PaymentSt,
+    ?assertMatch(
+        #domain_InvoicePayment{
+            payer_session_info = PayerSessionInfo,
+            context = Context
+        },
+        Payment
+    ),
+    ?assertMatch(
+        #domain_TransactionInfo{extra = #{}},
         Trx
     ).
 
