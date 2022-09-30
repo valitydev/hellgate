@@ -6036,7 +6036,8 @@ start_payment(InvoiceID, PaymentParams, Client) ->
     PaymentID.
 
 register_payment(InvoiceID, RegisterPaymentParams, Client) ->
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:register_payment(InvoiceID, RegisterPaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) =
+        hg_client_invoicing:register_payment(InvoiceID, RegisterPaymentParams, Client),
     _ = start_payment_ev(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?cash_flow_changed(_))
@@ -6786,15 +6787,6 @@ construct_domain_fixture() ->
                         ])},
                 lifetime =
                     {decisions, [
-                        #domain_HoldLifetimeDecision{
-                            if_ =
-                                {condition,
-                                    {payment_tool,
-                                        {bank_card, #domain_BankCardCondition{
-                                            definition = {payment_system_is, mastercard}
-                                        }}}},
-                            then_ = {value, ?hold_lifetime(120)}
-                        },
                         #domain_HoldLifetimeDecision{
                             if_ =
                                 {condition,
