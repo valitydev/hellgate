@@ -4,6 +4,8 @@
 
 -export([compare_risk_score/2]).
 
+-export_type([risk_score/0]).
+
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_inspector_thrift.hrl").
 

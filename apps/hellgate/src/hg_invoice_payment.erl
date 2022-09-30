@@ -24,6 +24,8 @@
 -include_lib("hellgate/include/domain.hrl").
 -include_lib("hellgate/include/allocation.hrl").
 
+-include("hg_invoice_payment.hrl").
+
 %% API
 
 %% St accessors
@@ -82,11 +84,23 @@
 
 %%
 
+-export_type([payment_id/0]).
 -export_type([st/0]).
 -export_type([activity/0]).
 -export_type([machine_result/0]).
 -export_type([opts/0]).
 -export_type([payment/0]).
+-export_type([refund_id/0]).
+-export_type([refund_state/0]).
+-export_type([trx_info/0]).
+-export_type([target/0]).
+-export_type([session_target_type/0]).
+-export_type([session/0]).
+-export_type([adjustment/0]).
+-export_type([capture_data/0]).
+-export_type([failure/0]).
+-export_type([domain_refund/0]).
+-export_type([result/0]).
 
 -type activity() ::
     payment_activity()
@@ -126,39 +140,6 @@
     | finalizing_session
     | finalizing_accounter.
 
--record(st, {
-    activity :: activity(),
-    payment :: undefined | payment(),
-    risk_score :: undefined | risk_score(),
-    route :: undefined | route(),
-    candidate_routes :: undefined | [route()],
-    cash_flow :: undefined | final_cash_flow(),
-    partial_cash_flow :: undefined | final_cash_flow(),
-    final_cash_flow :: undefined | final_cash_flow(),
-    trx :: undefined | trx_info(),
-    target :: undefined | target(),
-    sessions = #{} :: #{target_type() => [session()]},
-    retry_attempts = #{} :: #{target_type() => non_neg_integer()},
-    refunds = #{} :: #{refund_id() => refund_state()},
-    chargebacks = #{} :: #{chargeback_id() => chargeback_state()},
-    adjustments = [] :: [adjustment()],
-    recurrent_token :: undefined | recurrent_token(),
-    opts :: undefined | opts(),
-    repair_scenario :: undefined | hg_invoice_repair:scenario(),
-    capture_data :: undefined | capture_data(),
-    failure :: undefined | failure(),
-    timings :: undefined | hg_timings:t(),
-    allocation :: undefined | hg_allocation:allocation()
-}).
-
--record(refund_st, {
-    refund :: undefined | domain_refund(),
-    cash_flow :: undefined | final_cash_flow(),
-    sessions = [] :: [session()],
-    transaction_info :: undefined | trx_info(),
-    failure :: undefined | failure()
-}).
-
 -type chargeback_state() :: hg_invoice_payment_chargeback:state().
 
 -type refund_state() :: #refund_st{}.
@@ -179,17 +160,17 @@
 -type refund_params() :: dmsl_payproc_thrift:'InvoicePaymentRefundParams'().
 -type payment_chargeback() :: dmsl_payproc_thrift:'InvoicePaymentChargeback'().
 -type chargeback() :: dmsl_domain_thrift:'InvoicePaymentChargeback'().
--type chargeback_id() :: dmsl_domain_thrift:'InvoicePaymentChargebackID'().
+-type chargeback_id() :: hg_invoice_payment_chargeback:id().
 -type adjustment() :: dmsl_domain_thrift:'InvoicePaymentAdjustment'().
 -type adjustment_id() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentID'().
 -type adjustment_params() :: dmsl_payproc_thrift:'InvoicePaymentAdjustmentParams'().
 -type adjustment_state() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentState'().
 -type adjustment_status_change() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentStatusChange'().
 -type target() :: dmsl_domain_thrift:'TargetInvoicePaymentStatus'().
--type target_type() :: 'processed' | 'captured' | 'cancelled' | 'refunded'.
--type risk_score() :: dmsl_domain_thrift:'RiskScore'().
--type route() :: dmsl_domain_thrift:'PaymentRoute'().
--type final_cash_flow() :: dmsl_domain_thrift:'FinalCashFlow'().
+-type session_target_type() :: 'processed' | 'captured' | 'cancelled' | 'refunded'.
+-type risk_score() :: hg_inspector:risk_score().
+-type route() :: hg_routing:payment_route().
+-type final_cash_flow() :: hg_cashflow:final_cash_flow().
 -type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
 -type session_result() :: dmsl_payproc_thrift:'SessionResult'().
 -type proxy_state() :: dmsl_proxy_provider_thrift:'ProxyState'().
@@ -198,7 +179,6 @@
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 -type timeout_behaviour() :: dmsl_timeout_behaviour_thrift:'TimeoutBehaviour'().
 -type make_recurrent() :: true | false.
--type recurrent_token() :: dmsl_domain_thrift:'Token'().
 -type retry_strategy() :: hg_retry:strategy().
 -type capture_data() :: dmsl_payproc_thrift:'InvoicePaymentCaptureData'().
 -type payment_session() :: dmsl_payproc_thrift:'InvoicePaymentSession'().
@@ -2721,13 +2701,13 @@ get_actual_retry_strategy(Target, #st{retry_attempts = Attempts}) ->
     AttemptNum = maps:get(get_target_type(Target), Attempts, 0),
     hg_retry:skip_steps(get_initial_retry_strategy(get_target_type(Target)), AttemptNum).
 
--spec get_initial_retry_strategy(target_type()) -> retry_strategy().
+-spec get_initial_retry_strategy(session_target_type()) -> retry_strategy().
 get_initial_retry_strategy(TargetType) ->
     PolicyConfig = genlib_app:env(hellgate, payment_retry_policy, #{}),
     hg_retry:new_strategy(maps:get(TargetType, PolicyConfig, no_retry)).
 
 -spec check_retry_possibility(Target, Failure, St) -> {retry, Timeout} | fatal when
-    Failure :: dmsl_domain_thrift:'OperationFailure'(),
+    Failure :: failure(),
     Target :: target(),
     St :: st(),
     Timeout :: non_neg_integer().
@@ -2747,7 +2727,7 @@ check_retry_possibility(Target, Failure, St) ->
             fatal
     end.
 
--spec check_failure_type(target(), dmsl_domain_thrift:'OperationFailure'()) -> transient | fatal.
+-spec check_failure_type(target(), failure()) -> transient | fatal.
 check_failure_type(Target, {failure, Failure}) ->
     payproc_errors:match(get_error_class(Target), Failure, fun do_check_failure_type/1);
 check_failure_type(_Target, _Other) ->

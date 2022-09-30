@@ -15,7 +15,7 @@
     payment_tool => dmsl_domain_thrift:'PaymentTool'(),
     party_id => dmsl_domain_thrift:'PartyID'(),
     shop_id => dmsl_domain_thrift:'ShopID'(),
-    risk_score => dmsl_domain_thrift:'RiskScore'(),
+    risk_score => hg_inspector:risk_score(),
     flow => instant | {hold, dmsl_domain_thrift:'HoldLifetime'()},
     payout_method => dmsl_domain_thrift:'PayoutMethodRef'(),
     wallet_id => dmsl_domain_thrift:'WalletID'(),

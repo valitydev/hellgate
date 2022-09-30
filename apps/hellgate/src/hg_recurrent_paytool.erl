@@ -44,14 +44,15 @@
 -type st() :: #st{}.
 
 -export_type([st/0]).
+-export_type([token/0]).
 
 -type rec_payment_tool() :: dmsl_payproc_thrift:'RecurrentPaymentTool'().
 -type rec_payment_tool_id() :: dmsl_payproc_thrift:'RecurrentPaymentToolID'().
 -type rec_payment_tool_change() :: dmsl_payproc_thrift:'RecurrentPaymentToolChange'().
 -type rec_payment_tool_params() :: dmsl_payproc_thrift:'RecurrentPaymentToolParams'().
 
--type route() :: dmsl_domain_thrift:'PaymentRoute'().
--type risk_score() :: dmsl_domain_thrift:'RiskScore'().
+-type route() :: hg_routing:payment_route().
+-type risk_score() :: hg_inspector:risk_score().
 -type shop() :: dmsl_domain_thrift:'Shop'().
 -type party() :: dmsl_domain_thrift:'Party'().
 -type merchant_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
@@ -69,7 +70,7 @@
 }.
 
 -type proxy_state() :: dmsl_proxy_provider_thrift:'ProxyState'().
--type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
+-type trx_info() :: hg_invoice_payment:trx_info().
 -type session_result() :: dmsl_payproc_thrift:'SessionResult'().
 
 -type tag() :: dmsl_base_thrift:'Tag'().

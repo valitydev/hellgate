@@ -1,14 +1,19 @@
 -module(hg_invoice_registered_payment).
 
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("hellgate/include/domain.hrl").
+
+-include("hg_invoice_payment.hrl").
+-include("payment_events.hrl").
+
 %% Machine like
 
 -export([init/3]).
 
 %%
 
--include_lib("hellgate/src/hg_invoice_payment.erl").
-
--spec init(payment_id(), _, opts()) -> {st(), result()}.
+-spec init(hg_invoice_payment:payment_id(), _, hg_invoice_payment:opts()) ->
+    {hg_invoice_payment:st(), hg_invoice_payment:result()}.
 init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     #payproc_RegisterInvoicePaymentParams{
         payer_params = PayerParams,
@@ -50,7 +55,14 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     RiskScore1 = maybe_get_risk_score(RiskScore0, PaymentInstitution, Revision, Shop, Invoice, Payment2),
     FinalCashflow = build_final_cashflow(
         Invoice,
-        Payment2, Route, Party, Shop, PaymentInstitution, CreatedAt, VS1, Revision
+        Payment2,
+        Route,
+        Party,
+        Shop,
+        PaymentInstitution,
+        CreatedAt,
+        VS1,
+        Revision
     ),
     CaptureReason = <<"Timeout">>,
     Events = [
@@ -69,7 +81,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         ?session_ev(?captured(CaptureReason, Cost), ?session_started()),
         ?session_ev(?captured(CaptureReason, Cost), ?session_finished(?session_succeeded())),
         ?payment_status_changed(?captured(CaptureReason, Cost))
-        ],
+    ],
     {hg_invoice_payment:collapse_changes(Events, undefined), {Events, hg_machine_action:instant()}}.
 
 maybe_get_risk_score(undefined, PaymentInstitution, Revision, Shop, Invoice, Payment) ->
@@ -79,7 +91,7 @@ maybe_get_risk_score(undefined, PaymentInstitution, Revision, Shop, Invoice, Pay
 maybe_get_risk_score(RiskScore, _PaymentInstitution, _Revision, _Shop, _Invoice, _Payment) ->
     RiskScore.
 
-build_final_cashflow(Payment, Invoice, Route, Party, Shop, PaymentInstitution, Timestamp, VS, Revision) ->
+build_final_cashflow(Invoice, Payment, Route, Party, Shop, PaymentInstitution, Timestamp, VS, Revision) ->
     Provider = get_route_provider(Route, Revision),
     TermSet = get_merchant_terms(Party, Shop, Revision, Timestamp, VS),
     Amount = Payment#domain_InvoicePayment.cost,
@@ -142,7 +154,7 @@ get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
     ),
     Terms.
 
--spec get_provider_terminal_terms(route(), hg_varset:varset(), hg_domain:revision()) ->
+-spec get_provider_terminal_terms(hg_routing:payment_route(), hg_varset:varset(), hg_domain:revision()) ->
     dmsl_domain_thrift:'PaymentsProvisionTerms'() | undefined.
 get_provider_terminal_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
     PreparedVS = hg_varset:prepare_varset(VS),
@@ -169,19 +181,18 @@ construct_payer(
     }},
     _
 ) ->
-    {ok, ?payment_resource_payer(Resource, ContactInfo)};
+    ?payment_resource_payer(Resource, ContactInfo);
 construct_payer({customer, #payproc_CustomerPayerParams{customer_id = CustomerID}}, Shop) ->
     Customer = get_customer(CustomerID),
     ok = validate_customer_shop(Customer, Shop),
     ActiveBinding = get_active_binding(Customer),
-    Payer = ?customer_payer(
+    ?customer_payer(
         CustomerID,
         ActiveBinding#payproc_CustomerBinding.id,
         ActiveBinding#payproc_CustomerBinding.rec_payment_tool_id,
         get_resource_payment_tool(ActiveBinding#payproc_CustomerBinding.payment_resource),
         get_customer_contact_info(Customer)
-    ),
-    {ok, Payer};
+    );
 construct_payer(_UnsupportedPayer, _Shop) ->
     throw_invalid_request(<<"Invalid payer">>).
 

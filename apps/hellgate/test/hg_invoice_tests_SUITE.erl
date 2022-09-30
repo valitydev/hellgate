@@ -1054,20 +1054,21 @@ register_payment_success(C) ->
     Route = ?route(?prv(1), ?trm(1)),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
-        {payment_resource, #payproc_PaymentResourcePayerParams{
-            resource = #domain_DisposablePaymentResource{
-            payment_tool = PaymentTool,
-            payment_session_id = Session,
-            client_info = #domain_ClientInfo{}
-        },
-            contact_info = #domain_ClientInfo{}
-        }},
+            {payment_resource, #payproc_PaymentResourcePayerParams{
+                resource = #domain_DisposablePaymentResource{
+                    payment_tool = PaymentTool,
+                    payment_session_id = Session,
+                    client_info = #domain_ClientInfo{}
+                },
+                contact_info = #domain_ContactInfo{}
+            }},
         route = Route,
         payer_session_info = PayerSessionInfo,
         context = Context
     },
-    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = register_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client, 0),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
@@ -6028,6 +6029,14 @@ start_invoice(PartyID, ShopID, Product, Due, Amount, Client) ->
 
 start_payment(InvoiceID, PaymentParams, Client) ->
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    _ = start_payment_ev(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?cash_flow_changed(_))
+    ] = next_event(InvoiceID, Client),
+    PaymentID.
+
+register_payment(InvoiceID, RegisterPaymentParams, Client) ->
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:register_payment(InvoiceID, RegisterPaymentParams, Client),
     _ = start_payment_ev(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?cash_flow_changed(_))

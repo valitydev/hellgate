@@ -41,7 +41,7 @@
 -type currency() :: dmsl_domain_thrift:'CurrencyRef'().
 -type proxy() :: dmsl_domain_thrift:'ProxyRef'().
 -type inspector() :: dmsl_domain_thrift:'InspectorRef'().
--type risk_score() :: dmsl_domain_thrift:'RiskScore'().
+-type risk_score() :: hg_inspector:risk_score().
 -type template() :: dmsl_domain_thrift:'ContractTemplateRef'().
 -type terms() :: dmsl_domain_thrift:'TermSetHierarchyRef'().
 -type lifetime() :: dmsl_domain_thrift:'Lifetime'() | undefined.

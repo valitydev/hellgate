@@ -18,8 +18,8 @@
 
 %%
 
--type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
--type route() :: dmsl_domain_thrift:'PaymentRoute'().
+-type trx_info() :: hg_invoice_payment:trx_info().
+-type route() :: hg_routing:payment_route().
 
 -type change() :: dmsl_payproc_thrift:'SessionChangePayload'().
 -type proxy_state() :: dmsl_base_thrift:'Opaque'().

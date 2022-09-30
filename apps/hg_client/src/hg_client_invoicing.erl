@@ -21,6 +21,7 @@
 -export([get_invoice_adjustment/3]).
 
 -export([start_payment/3]).
+-export([register_payment/3]).
 -export([get_payment/3]).
 -export([cancel_payment/4]).
 -export([capture_payment/4]).
@@ -74,6 +75,7 @@
 -type invoice_adjustment_params() :: dmsl_payproc_thrift:'InvoiceAdjustmentParams'().
 
 -type payment_params() :: dmsl_payproc_thrift:'InvoicePaymentParams'().
+-type register_payment_params() :: dmsl_payproc_thrift:'RegisterInvoicePaymentParams'().
 
 -type payment_adjustment() :: dmsl_domain_thrift:'InvoicePaymentAdjustment'().
 -type payment_adjustment_id() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentID'().
@@ -177,6 +179,10 @@ get_invoice_adjustment(InvoiceID, ID, Client) ->
 -spec start_payment(invoice_id(), payment_params(), pid()) -> payment() | woody_error:business_error().
 start_payment(InvoiceID, PaymentParams, Client) ->
     map_result_error(gen_server:call(Client, {call, 'StartPayment', [InvoiceID, PaymentParams]})).
+
+-spec register_payment(invoice_id(), register_payment_params(), pid()) -> payment() | woody_error:business_error().
+register_payment(InvoiceID, RegisterPaymentParams, Client) ->
+    map_result_error(gen_server:call(Client, {call, 'RegisterPayment', [InvoiceID, RegisterPaymentParams]})).
 
 -spec get_payment(invoice_id(), payment_id(), pid()) -> payment() | woody_error:business_error().
 get_payment(InvoiceID, PaymentID, Client) ->

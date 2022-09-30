@@ -112,6 +112,7 @@
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
 
 -export_type([route/0]).
+-export_type([payment_route/0]).
 -export_type([route_predestination/0]).
 
 %% Route accessors
