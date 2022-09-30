@@ -18,7 +18,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     #payproc_RegisterInvoicePaymentParams{
         payer_params = PayerParams,
         route = Route,
-        cost = Cost,
+        cost = Cost0,
         payer_session_info = PayerSessionInfo,
         external_id = ExternalID,
         context = Context,
@@ -35,12 +35,12 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
 
     %% Similar to how capture in regular payment works
-    Cost = genlib:define(Cost, get_invoice_cost(Invoice)),
+    Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
     Payer = construct_payer(PayerParams, Shop),
     Payment1 = construct_payment(
         PaymentID,
         CreatedAt,
-        Cost,
+        Cost1,
         Payer,
         Party,
         Shop,
