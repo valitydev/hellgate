@@ -76,11 +76,11 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         ?payment_status_changed(?processed()),
         ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
             reason = CaptureReason,
-            cash = Cost
+            cash = Cost1
         }),
-        ?session_ev(?captured(CaptureReason, Cost), ?session_started()),
-        ?session_ev(?captured(CaptureReason, Cost), ?session_finished(?session_succeeded())),
-        ?payment_status_changed(?captured(CaptureReason, Cost))
+        ?session_ev(?captured(CaptureReason, Cost1), ?session_started()),
+        ?session_ev(?captured(CaptureReason, Cost1), ?session_finished(?session_succeeded())),
+        ?payment_status_changed(?captured(CaptureReason, Cost1))
     ],
     {hg_invoice_payment:collapse_changes(Events, undefined), {Events, hg_machine_action:instant()}}.
 
