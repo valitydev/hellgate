@@ -356,7 +356,7 @@ validate_turnover_limits(undefined, _VS, _Route, _RoutingContext) ->
     {ok, valid};
 validate_turnover_limits({value, TurnoverLimits}, _VS, Route, #{withdrawal := Withdrawal}) ->
     ok = ff_limiter:hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal),
-    case ff_limiter:check_limits(TurnoverLimits, Withdrawal) of
+    case ff_limiter:check_limits(TurnoverLimits, Route, Withdrawal) of
         {ok, _} ->
             {ok, valid};
         {error, Error} ->

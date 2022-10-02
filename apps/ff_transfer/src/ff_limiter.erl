@@ -3,6 +3,7 @@
 -include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_wthd_domain_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_base_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_withdrawal_thrift.hrl").
 
@@ -21,7 +22,7 @@
 -type clock() :: limproto_limiter_thrift:'Clock'().
 
 -export([get_turnover_limits/1]).
--export([check_limits/2]).
+-export([check_limits/3]).
 -export([marshal_withdrawal/1]).
 
 -export([hold_withdrawal_limits/3]).
@@ -36,11 +37,11 @@ get_turnover_limits({value, Limits}) ->
 get_turnover_limits(Ambiguous) ->
     error({misconfiguration, {'Could not reduce selector to a value', Ambiguous}}).
 
--spec check_limits([turnover_limit()], withdrawal()) ->
+-spec check_limits([turnover_limit()], route(), withdrawal()) ->
     {ok, [limit()]}
     | {error, {overflow, [{limit_id(), limit_amount(), turnover_limit_upper_boundary()}]}}.
-check_limits(TurnoverLimits, Withdrawal) ->
-    Context = gen_limit_context(Withdrawal),
+check_limits(TurnoverLimits, Route, Withdrawal) ->
+    Context = gen_limit_context(Route, Withdrawal),
     case lists:foldl(fun(Limit, Acc) -> check_limits_(Limit, Acc, Context) end, {[], []}, TurnoverLimits) of
         {Limits, ErrorList} when length(ErrorList) =:= 0 ->
             {ok, Limits};
@@ -67,21 +68,21 @@ check_limits_(T, {Limits, Errors}, Context) ->
 hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal) ->
     IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
     LimitChanges = gen_limit_changes(IDs, Route, Withdrawal),
-    Context = gen_limit_context(Withdrawal),
+    Context = gen_limit_context(Route, Withdrawal),
     hold(LimitChanges, get_latest_clock(), Context).
 
 -spec commit_withdrawal_limits([turnover_limit()], route(), withdrawal()) -> ok.
 commit_withdrawal_limits(TurnoverLimits, Route, Withdrawal) ->
     IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
     LimitChanges = gen_limit_changes(IDs, Route, Withdrawal),
-    Context = gen_limit_context(Withdrawal),
+    Context = gen_limit_context(Route, Withdrawal),
     commit(LimitChanges, get_latest_clock(), Context).
 
 -spec rollback_withdrawal_limits([turnover_limit()], route(), withdrawal()) -> ok.
 rollback_withdrawal_limits(TurnoverLimits, Route, Withdrawal) ->
     IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
     LimitChanges = gen_limit_changes(IDs, Route, Withdrawal),
-    Context = gen_limit_context(Withdrawal),
+    Context = gen_limit_context(Route, Withdrawal),
     rollback(LimitChanges, get_latest_clock(), Context).
 
 -spec hold([limit_change()], clock(), context()) -> ok.
@@ -111,12 +112,20 @@ rollback(LimitChanges, Clock, Context) ->
         LimitChanges
     ).
 
-gen_limit_context(Withdrawal) ->
+gen_limit_context(#{provider_id := ProviderID, terminal_id := TerminalID}, Withdrawal) ->
+    #{wallet_id := WalletID} = ff_withdrawal:params(Withdrawal),
     MarshaledWithdrawal = marshal_withdrawal(Withdrawal),
     #limiter_LimitContext{
         withdrawal_processing = #context_withdrawal_Context{
             op = {withdrawal, #context_withdrawal_OperationWithdrawal{}},
-            withdrawal = #context_withdrawal_Withdrawal{withdrawal = MarshaledWithdrawal}
+            withdrawal = #context_withdrawal_Withdrawal{
+                withdrawal = MarshaledWithdrawal,
+                route = #base_Route{
+                    provider = #domain_ProviderRef{id = ProviderID},
+                    terminal = #domain_TerminalRef{id = TerminalID}
+                },
+                wallet_id = WalletID
+            }
         }
     }.
 
