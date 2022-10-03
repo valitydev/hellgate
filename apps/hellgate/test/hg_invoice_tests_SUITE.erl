@@ -5685,17 +5685,44 @@ next_event(InvoiceID, Client) ->
     next_event(InvoiceID, 12000, Client).
 
 next_event(InvoiceID, Timeout, Client) ->
-    case hg_client_invoicing:pull_event(InvoiceID, Timeout, Client) of
-        {ok, ?invoice_ev(Changes)} ->
-            case filter_changes(Changes) of
-                L when length(L) > 0 ->
-                    L;
-                [] ->
-                    next_event(InvoiceID, Timeout, Client)
-            end;
-        Result ->
-            Result
+    next_event(InvoiceID, 1000, Timeout, Client).
+
+next_event(InvoiceID, Amount0, Timeout, Client) ->
+    case hg_kv_store:get({self(), events}) of
+        Events when is_list(Events) andalso length(Events) > 0 ->
+            Amount1 = erlang:min(Amount0, erlang:length(Events)),
+            {ResultEvents, RemainingEvents} = lists:split(Amount1, Events),
+            ok = hg_kv_store:put({self(), events}, RemainingEvents),
+            ResultEvents;
+        _ ->
+            case hg_client_invoicing:pull_event(InvoiceID, Timeout, Client) of
+                {ok, ?invoice_ev(Changes)} ->
+                    case filter_changes(Changes) of
+                        L when length(L) > 0 ->
+                            Amount1 = erlang:min(Amount0, erlang:length(L)),
+                            {ResultEvents, RemainingEvents} = lists:split(Amount1, L),
+                            ok = hg_kv_store:put({self(), events}, RemainingEvents),
+                            ResultEvents;
+                        [] ->
+                            next_event(InvoiceID, Timeout, Client)
+                    end;
+                Result ->
+                    Result
+            end
     end.
+
+%%next_event(InvoiceID, Timeout, Client) ->
+%%    case hg_client_invoicing:pull_event(InvoiceID, Timeout, Client) of
+%%        {ok, ?invoice_ev(Changes)} ->
+%%            case filter_changes(Changes) of
+%%                L when length(L) > 0 ->
+%%                    L;
+%%                [] ->
+%%                    next_event(InvoiceID, Timeout, Client)
+%%            end;
+%%        Result ->
+%%            Result
+%%    end.
 
 filter_changes(Changes) ->
     lists:filtermap(fun filter_change/1, Changes).
@@ -6041,19 +6068,19 @@ register_payment(InvoiceID, RegisterPaymentParams, Client) ->
     _ = start_payment_ev(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?cash_flow_changed(_))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 1, 12000, Client),
     PaymentID.
 
 start_payment_ev(InvoiceID, Client) ->
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 1, 12000, Client),
     [
         ?payment_ev(PaymentID, ?risk_score_changed(_))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 1, 12000, Client),
     [
         ?payment_ev(PaymentID, ?route_changed(Route))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 1, 12000, Client),
     Route.
 
 process_payment(InvoiceID, PaymentParams, Client) ->
@@ -6107,7 +6134,7 @@ await_payment_rollback(InvoiceID, PaymentID, Client) ->
 await_payment_session_started(InvoiceID, PaymentID, Client, Target) ->
     [
         ?payment_ev(PaymentID, ?session_ev(Target, ?session_started()))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 1, 12000, Client),
     PaymentID.
 
 await_payment_process_interaction(InvoiceID, PaymentID, Client) ->
@@ -6129,10 +6156,10 @@ await_payment_process_finish(InvoiceID, PaymentID, Client, Restarts) ->
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 2, 12000, Client),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 1, 12000, Client),
     PaymentID.
 
 await_payment_capture(InvoiceID, PaymentID, Client) ->
@@ -6146,7 +6173,7 @@ await_payment_capture(InvoiceID, PaymentID, Reason, Client, Restarts) ->
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 2, 12000, Client),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts).
 
 await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client) ->
@@ -6173,11 +6200,11 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cos
     PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, Cart), InvoiceID, Client, Restarts),
     [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded())))
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 1, 12000, Client),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?captured(Reason, Cost, Cart, _))),
         ?invoice_status_changed(?invoice_paid())
-    ] = next_event(InvoiceID, Client),
+    ] = next_event(InvoiceID, 2, 12000, Client),
     PaymentID.
 
 await_payment_cancel(InvoiceID, PaymentID, Reason, Client) ->

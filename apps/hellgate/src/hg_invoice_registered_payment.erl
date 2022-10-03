@@ -22,7 +22,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         payer_session_info = PayerSessionInfo,
         external_id = ExternalID,
         context = Context,
-        transaction_info = TransactionInfo,
+        transaction_info = TransactionInfo1,
         risk_score = RiskScore0,
         occurred_at = _OccurredAt
     } = Params,
@@ -30,21 +30,22 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     Party = get_party(Opts),
     Shop = get_shop(Opts),
     Invoice = get_invoice(Opts),
-    VS1 = collect_validation_varset(Party, Shop, #{flow => instant}),
-    PaymentInstitutionRef = get_payment_institution_ref(Opts),
-    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
-
-    %% Similar to how capture in regular payment works
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
     Payer = construct_payer(PayerParams, Shop),
+    PaymentTool = get_payer_payment_tool(Payer),
+    VS = collect_validation_varset(Party, Shop, Cost1, PaymentTool),
+    PaymentInstitutionRef = get_payment_institution_ref(Opts),
+    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
+
     Payment1 = construct_payment(
         PaymentID,
         CreatedAt,
         Cost1,
         Payer,
+        PaymentTool,
         Party,
         Shop,
-        VS1,
+        VS,
         Revision
     ),
     Payment2 = Payment1#domain_InvoicePayment{
@@ -61,9 +62,10 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         Shop,
         PaymentInstitution,
         CreatedAt,
-        VS1,
+        VS,
         Revision
     ),
+    TransactionInfo2 = maybe_transaction_info(TransactionInfo1),
     CaptureReason = <<"Timeout">>,
     Events = [
         ?payment_started(Payment2),
@@ -71,7 +73,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         ?route_changed(Route),
         ?cash_flow_changed(FinalCashflow),
         ?session_ev(?processed(), ?session_started()),
-        ?session_ev(?processed(), ?trx_bound(TransactionInfo)),
+        ?session_ev(?processed(), ?trx_bound(TransactionInfo2)),
         ?session_ev(?processed(), ?session_finished(?session_succeeded())),
         ?payment_status_changed(?processed()),
         ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
@@ -217,17 +219,13 @@ construct_payment(
     CreatedAt,
     Cost,
     Payer,
+    PaymentTool,
     Party,
     Shop,
-    VS0,
+    VS,
     Revision
 ) ->
-    PaymentTool = get_payer_payment_tool(Payer),
-    VS1 = VS0#{
-        payment_tool => PaymentTool,
-        cost => Cost
-    },
-    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS1),
+    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS),
     #domain_TermSet{payments = PaymentTerms} = Terms,
     ok = validate_payment_tool(
         PaymentTool,
@@ -258,18 +256,21 @@ validate_payment_tool(PaymentTool, PaymentMethodSelector) ->
         end,
     ok.
 
-collect_validation_varset(Party, Shop, VS) ->
+collect_validation_varset(Party, Shop, Cost, PaymentTool) ->
     #domain_Party{id = PartyID} = Party,
     #domain_Shop{
         id = ShopID,
         category = Category,
         account = #domain_ShopAccount{currency = Currency}
     } = Shop,
-    VS#{
+    #{
         party_id => PartyID,
         shop_id => ShopID,
         category => Category,
-        currency => Currency
+        currency => Currency,
+        cost => Cost,
+        payment_tool => PaymentTool,
+        flow => instant
     }.
 
 %%
@@ -379,6 +380,14 @@ get_route_provider(Route, Revision) ->
 
 issue_customer_call(Func, Args) ->
     hg_woody_wrapper:call(customer_management, Func, Args).
+
+maybe_transaction_info(undefined) ->
+    #domain_TransactionInfo{
+        id = <<"1">>,
+        extra = #{}
+    };
+maybe_transaction_info(#domain_TransactionInfo{} = TI) ->
+    TI.
 
 %% Business metrics logging
 
