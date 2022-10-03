@@ -794,12 +794,14 @@ register_payment(#payproc_RegisterInvoicePaymentParams{id = PaymentID} = Payment
 do_register_payment(PaymentID, PaymentParams, St) ->
     _ = assert_invoice({status, unpaid}, St),
     _ = assert_no_pending_payment(St),
-    Opts = get_payment_opts(St),
+    Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
     {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(register, PaymentID, PaymentParams, Opts),
-    Result = handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, Opts),
-    Result#{
-        response => get_payment_state(PaymentSession)
+    #{
+        response => get_payment_state(PaymentSession),
+        changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
+        action => Action,
+        state => St
     }.
 
 do_start_payment(PaymentID, PaymentParams, St) ->

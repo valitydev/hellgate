@@ -1064,7 +1064,8 @@ register_payment_success(C) ->
             }},
         route = Route,
         payer_session_info = PayerSessionInfo,
-        context = Context
+        context = Context,
+        cost = ?cash(41999, <<"RUB">>)
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -1079,12 +1080,13 @@ register_payment_success(C) ->
     ?assertMatch(
         #domain_InvoicePayment{
             payer_session_info = PayerSessionInfo,
-            context = Context
+            context = Context,
+            flow = ?invoice_payment_flow_instant()
         },
         Payment
     ),
     ?assertMatch(
-        #domain_TransactionInfo{extra = #{}},
+        #domain_TransactionInfo{id = <<"1">>, extra = #{}},
         Trx
     ).
 
@@ -5710,19 +5712,6 @@ next_event(InvoiceID, Amount0, Timeout, Client) ->
                     Result
             end
     end.
-
-%%next_event(InvoiceID, Timeout, Client) ->
-%%    case hg_client_invoicing:pull_event(InvoiceID, Timeout, Client) of
-%%        {ok, ?invoice_ev(Changes)} ->
-%%            case filter_changes(Changes) of
-%%                L when length(L) > 0 ->
-%%                    L;
-%%                [] ->
-%%                    next_event(InvoiceID, Timeout, Client)
-%%            end;
-%%        Result ->
-%%            Result
-%%    end.
 
 filter_changes(Changes) ->
     lists:filtermap(fun filter_change/1, Changes).

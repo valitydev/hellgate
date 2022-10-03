@@ -80,9 +80,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
             reason = CaptureReason,
             cash = Cost1
         }),
-        ?session_ev(?captured(CaptureReason, Cost1), ?session_started()),
-        ?session_ev(?captured(CaptureReason, Cost1), ?session_finished(?session_succeeded())),
-        ?payment_status_changed(?captured(CaptureReason, Cost1))
+        ?session_ev(?captured(CaptureReason, Cost1), ?session_started())
     ],
     {hg_invoice_payment:collapse_changes(Events, undefined), {Events, hg_machine_action:instant()}}.
 
