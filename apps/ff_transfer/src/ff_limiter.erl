@@ -25,9 +25,9 @@
 -export([check_limits/3]).
 -export([marshal_withdrawal/1]).
 
--export([hold_withdrawal_limits/3]).
--export([commit_withdrawal_limits/3]).
--export([rollback_withdrawal_limits/3]).
+-export([hold_withdrawal_limits/4]).
+-export([commit_withdrawal_limits/4]).
+-export([rollback_withdrawal_limits/4]).
 
 -spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
 get_turnover_limits(undefined) ->
@@ -64,24 +64,24 @@ check_limits_(T, {Limits, Errors}, Context) ->
             {Limits, [{LimitID, LimitAmount, UpperBoundary} | Errors]}
     end.
 
--spec hold_withdrawal_limits([turnover_limit()], route(), withdrawal()) -> ok.
-hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal) ->
+-spec hold_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
+hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
     IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal),
+    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
     hold(LimitChanges, get_latest_clock(), Context).
 
--spec commit_withdrawal_limits([turnover_limit()], route(), withdrawal()) -> ok.
-commit_withdrawal_limits(TurnoverLimits, Route, Withdrawal) ->
+-spec commit_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
+commit_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
     IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal),
+    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
     commit(LimitChanges, get_latest_clock(), Context).
 
--spec rollback_withdrawal_limits([turnover_limit()], route(), withdrawal()) -> ok.
-rollback_withdrawal_limits(TurnoverLimits, Route, Withdrawal) ->
+-spec rollback_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
+rollback_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
     IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal),
+    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
     rollback(LimitChanges, get_latest_clock(), Context).
 
@@ -129,21 +129,25 @@ gen_limit_context(#{provider_id := ProviderID, terminal_id := TerminalID}, Withd
         }
     }.
 
-gen_limit_changes(LimitIDs, Route, Withdrawal) ->
+gen_limit_changes(LimitIDs, Route, Withdrawal, Iter) ->
     [
         #limiter_LimitChange{
             id = ID,
-            change_id = construct_limit_change_id(ID, Route, Withdrawal)
+            change_id = construct_limit_change_id(ID, Route, Withdrawal, Iter)
         }
      || ID <- LimitIDs
     ].
 
-construct_limit_change_id(LimitID, #{terminal_id := TerminalID, provider_id := ProviderID}, Withdrawal) ->
+construct_limit_change_id(LimitID, #{terminal_id := TerminalID, provider_id := ProviderID}, Withdrawal, Iter) ->
     ComplexID = construct_complex_id([
         LimitID,
         genlib:to_binary(ProviderID),
         genlib:to_binary(TerminalID),
         ff_withdrawal:id(Withdrawal)
+        | case Iter of
+            1 -> [];
+            N when N > 1 -> [genlib:to_binary(Iter)]
+        end
     ]),
     genlib_string:join($., [<<"limiter">>, ComplexID]).
 

@@ -19,6 +19,7 @@
 -export([new/0]).
 -export([new_route/2]).
 -export([next_route/3]).
+-export([next_routes/3]).
 -export([get_current_session/1]).
 -export([get_current_p_transfer/1]).
 -export([get_current_limit_checks/1]).
@@ -73,24 +74,30 @@ new_route(Route, Existing) ->
 
 -spec next_route([route()], attempts(), attempt_limit()) ->
     {ok, route()} | {error, route_not_found | attempt_limit_exceeded}.
-next_route(_Routes, #{attempt := Attempt}, AttemptLimit) when
+next_route(Routes, Attempts, AttemptLimit) ->
+    case next_routes(Routes, Attempts, AttemptLimit) of
+        {ok, [Route | _]} ->
+            {ok, Route};
+        {ok, []} ->
+            {error, route_not_found};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+-spec next_routes([route()], attempts(), attempt_limit()) ->
+    {ok, [route()]} | {error, attempt_limit_exceeded}.
+next_routes(_Routes, #{attempt := Attempt}, AttemptLimit) when
     is_integer(AttemptLimit) andalso Attempt == AttemptLimit
 ->
     {error, attempt_limit_exceeded};
-next_route(Routes, #{attempts := Existing}, _AttemptLimit) ->
-    PendingRoutes =
+next_routes(Routes, #{attempts := Existing}, _AttemptLimit) ->
+    {ok,
         lists:filter(
             fun(R) ->
                 not maps:is_key(route_key(R), Existing)
             end,
             Routes
-        ),
-    case PendingRoutes of
-        [Route | _] ->
-            {ok, Route};
-        [] ->
-            {error, route_not_found}
-    end.
+        )}.
 
 -spec get_current_session(attempts()) -> undefined | session().
 get_current_session(Attempts) ->

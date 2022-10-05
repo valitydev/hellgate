@@ -18,6 +18,7 @@
     created_at => ff_time:timestamp_ms(),
     party_revision => party_revision(),
     domain_revision => domain_revision(),
+    iteration => non_neg_integer(),
     route => route(),
     attempts => attempts(),
     resource => destination_resource(),
@@ -784,7 +785,7 @@ process_rollback_routing(Withdrawal) ->
     {undefined, []}.
 
 -spec do_process_routing(withdrawal_state()) -> {ok, [route()]} | {error, Reason} when
-    Reason :: route_not_found | InconsistentQuote,
+    Reason :: route_not_found | attempt_limit_exceeded | InconsistentQuote,
     InconsistentQuote :: {inconsistent_quote_route, {provider_id, provider_id()} | {terminal_id, terminal_id()}}.
 do_process_routing(Withdrawal) ->
     do(fun() ->
@@ -802,6 +803,34 @@ do_process_routing(Withdrawal) ->
                 [Route]
         end
     end).
+
+% filter_attempts(#{routes := Routes} = Result, Withdrawal) ->
+%     NextRoutesResult = ff_withdrawal_route_attempt_utils:next_routes(
+%         [
+%             ff_withdrawal_routing:make_route(ProviderID, TerminalID)
+%          || #{
+%                 provider_ref := #domain_ProviderRef{id = ProviderID},
+%                 terminal_ref := #domain_TerminalRef{id = TerminalID}
+%             } <- Routes
+%         ],
+%         attempts(Withdrawal),
+%         get_attempt_limit(Withdrawal)
+%     ),
+%     case NextRoutesResult of
+%         {ok, Left} ->
+%             {ok, Result#{
+%                 routes => [
+%                     Route
+%                  || Route = #{
+%                         provider_ref := #domain_ProviderRef{id = ProviderID},
+%                         terminal_ref := #domain_TerminalRef{id = TerminalID}
+%                     } <- Routes,
+%                     lists:member(ff_withdrawal_routing:make_route(ProviderID, TerminalID), Left)
+%                 ]
+%             }};
+%         {error, Reason} ->
+%             {error, Reason}
+%     end.
 
 do_rollback_routing(ExcludeRoute, Withdrawal) ->
     do(fun() ->
@@ -846,7 +875,8 @@ make_routing_varset_and_context(Withdrawal) ->
     Context = #{
         domain_revision => DomainRevision,
         identity => Identity,
-        withdrawal => Withdrawal
+        withdrawal => Withdrawal,
+        iteration => maps:get(iteration, Withdrawal)
     },
     {build_party_varset(VarsetParams), Context}.
 
@@ -1861,9 +1891,15 @@ apply_event_({limit_check, Details}, T) ->
     add_limit_check(Details, T);
 apply_event_({p_transfer, Ev}, T) ->
     Tr = ff_postings_transfer:apply_event(Ev, p_transfer(T)),
+    Iteration =
+        case maps:get(status, Tr, undefined) of
+            committed -> maps:get(iteration, T) + 1;
+            cancelled -> maps:get(iteration, T) + 1;
+            _ -> maps:get(iteration, T)
+        end,
     Attempts = attempts(T),
     R = ff_withdrawal_route_attempt_utils:update_current_p_transfer(Tr, Attempts),
-    update_attempts(R, T);
+    update_attempts(R, T#{iteration => Iteration});
 apply_event_({session_started, SessionID}, T) ->
     Session = #{id => SessionID},
     Attempts = attempts(T),
@@ -1890,10 +1926,11 @@ apply_event_({adjustment, _Ev} = Event, T) ->
 make_state(#{route := Route} = T) ->
     Attempts = ff_withdrawal_route_attempt_utils:new(),
     T#{
+        iteration => 1,
         attempts => ff_withdrawal_route_attempt_utils:new_route(Route, Attempts)
     };
 make_state(T) when not is_map_key(route, T) ->
-    T.
+    T#{iteration => 1}.
 
 get_attempt_limit(Withdrawal) ->
     #{
