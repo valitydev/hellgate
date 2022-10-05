@@ -1721,8 +1721,14 @@ process_adjustment(Withdrawal) ->
 process_route_change(Withdrawal, Reason) ->
     case is_failure_transient(Reason, Withdrawal) of
         true ->
-            {ok, Providers} = do_process_routing(Withdrawal),
-            do_process_route_change(Providers, Withdrawal, Reason);
+            case do_process_routing(Withdrawal) of
+                {ok, Routes} ->
+                    do_process_route_change(Routes, Withdrawal, Reason);
+                {error, route_not_found} ->
+                    %% No more routes, return last error
+                    Events = process_transfer_fail(Reason, Withdrawal),
+                    {continue, Events}
+            end;
         false ->
             Events = process_transfer_fail(Reason, Withdrawal),
             {undefined, Events}
