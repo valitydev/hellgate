@@ -158,6 +158,9 @@
 -export([payment_error_in_cancel_session_does_not_cause_payment_failure/1]).
 -export([payment_error_in_capture_session_does_not_cause_payment_failure/1]).
 
+-export([registered_payment_refund_prohibited/1]).
+-export([registered_payment_manual_refund_success/1]).
+
 -export([adhoc_repair_working_failed/1]).
 -export([adhoc_repair_failed_succeeded/1]).
 -export([adhoc_repair_force_removal/1]).
@@ -383,7 +386,10 @@ groups() ->
             deadline_doesnt_affect_payment_refund,
             ineligible_payment_partial_refund,
             payment_manual_refund,
-            payment_refund_id_types
+            payment_refund_id_types,
+
+            registered_payment_refund_prohibited,
+            registered_payment_manual_refund_success
         ]},
 
         {holds_management, [], [
@@ -1052,6 +1058,11 @@ register_payment_success(C) ->
     PayerSessionInfo = #domain_PayerSessionInfo{},
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     Route = ?route(?prv(1), ?trm(1)),
+    Cost = ?cash(41999, <<"RUB">>),
+    ID = hg_utils:unique_id(),
+    ExternalID = hg_utils:unique_id(),
+    TransactionInfo = #domain_TransactionInfo{id = <<"1">>, extra = #{}},
+    OccurredAt = hg_datetime:format_now(),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
             {payment_resource, #payproc_PaymentResourcePayerParams{
@@ -1065,30 +1076,64 @@ register_payment_success(C) ->
         route = Route,
         payer_session_info = PayerSessionInfo,
         context = Context,
-        cost = ?cash(41999, <<"RUB">>)
+        cost = Cost,
+        id = ID,
+        external_id = ExternalID,
+        transaction_info = TransactionInfo,
+        risk_score = high,
+        occurred_at = OccurredAt
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client, 0),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    ?invoice_state(
-        ?invoice_w_status(?invoice_paid()),
-        [PaymentSt = ?payment_state(Payment)]
-    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?invoice_state(?invoice_w_status(?invoice_paid())) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    PaymentSt = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+
+    ?payment_route(Route) = PaymentSt,
+    ?payment_last_trx(TransactionInfo) = PaymentSt,
+    ?payment_state(Payment) = PaymentSt,
     ?payment_w_status(PaymentID, ?captured()) = Payment,
-    ?payment_last_trx(Trx) = PaymentSt,
     ?assertMatch(
         #domain_InvoicePayment{
+            id = ID,
             payer_session_info = PayerSessionInfo,
             context = Context,
-            flow = ?invoice_payment_flow_instant()
+            flow = ?invoice_payment_flow_instant(),
+            cost = Cost,
+            external_id = ExternalID
         },
         Payment
-    ),
-    ?assertMatch(
-        #domain_TransactionInfo{id = <<"1">>, extra = #{}},
-        Trx
     ).
+
+%%=============================================================================
+%% register_* cases helpers
+
+register_invoice_payment(Client, C) ->
+    register_invoice_payment(cfg(shop_id, C), Client, C).
+
+register_invoice_payment(ShopID, Client, C) ->
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    Route = ?route(?prv(1), ?trm(1)),
+    PaymentParams = #payproc_RegisterInvoicePaymentParams{
+        payer_params =
+        {payment_resource, #payproc_PaymentResourcePayerParams{
+            resource = #domain_DisposablePaymentResource{
+                payment_tool = PaymentTool,
+                payment_session_id = Session,
+                client_info = #domain_ClientInfo{}
+            },
+            contact_info = #domain_ContactInfo{}
+        }},
+        route = Route
+    },
+    PaymentID = register_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client, 0),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    {InvoiceID, PaymentID}.
 
 %%=============================================================================
 %% operation_limits group
@@ -4433,6 +4478,42 @@ payment_refund_id_types(C) ->
     ?assertEqual(<<"m2">>, RefundID2),
     ?assertEqual(<<"3">>, RefundID3).
 
+-spec registered_payment_refund_prohibited(config()) -> test_return().
+registered_payment_refund_prohibited(C) ->
+    Client = cfg(client, C),
+    {InvoiceID, PaymentID} = register_invoice_payment(Client, C),
+    RefundParams = make_refund_params(),
+    {exception, #payproc_ProhibitedPaymentRegistrationOrigin{}} =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client).
+
+-spec registered_payment_manual_refund_success(config()) -> test_return().
+registered_payment_manual_refund_success(C) ->
+    Client = cfg(client, C),
+
+    ShopID = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_id, C),
+        ?cat(2),
+        <<"RUB">>,
+        ?tmpl(2),
+        ?pinst(2),
+        cfg(party_client, C)
+    ),
+
+    %% create balance
+    InvoiceID1 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID1 = execute_payment(InvoiceID1, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    party_client_thrift:get_shop_account()
+    %% register_payment
+    {InvoiceID, PaymentID} = register_invoice_payment(ShopID, Client, C),
+%%    OriginalRevision = hg_domain:head(),
+%%    Fixture = payment_manual_refund_fixture(OriginalRevision),
+%%    _ = hg_domain:upsert(Fixture),
+    RefundParams = make_manual_refund_params(),
+    RefundID = execute_payment_manual_refund(InvoiceID, PaymentID, RefundParams, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
+%%    _ = hg_domain:reset(OriginalRevision).
+
 %%----------------- refunds group end
 
 -spec payment_hold_cancellation(config()) -> _ | no_return().
@@ -5946,6 +6027,15 @@ make_chargeback_params(Levy, Body) ->
         occurred_at = hg_datetime:format_now()
     }.
 
+make_manual_refund_params() ->
+    make_manual_refund_params(?trx_info(<<"test">>, #{})).
+
+make_manual_refund_params(TrxInfo) ->
+    #payproc_InvoicePaymentRefundParams{
+        reason = <<"manual">>,
+        transaction_info = TrxInfo
+    }.
+
 make_refund_params() ->
     #payproc_InvoicePaymentRefundParams{
         reason = <<"ZANOZED">>
@@ -6052,9 +6142,11 @@ start_payment(InvoiceID, PaymentParams, Client) ->
     PaymentID.
 
 register_payment(InvoiceID, RegisterPaymentParams, Client) ->
+    #payproc_RegisterInvoicePaymentParams{risk_score = RiskScore0} = RegisterPaymentParams,
+    RiskScore1 = genlib:define(RiskScore0, low),
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, RegisterPaymentParams, Client),
-    _ = start_payment_ev(InvoiceID, Client),
+    _ = start_payment_ev(InvoiceID, RiskScore1, Client),
     [
         ?payment_ev(PaymentID, ?cash_flow_changed(_))
     ] = next_event(InvoiceID, 1, 12000, Client),
@@ -6066,6 +6158,18 @@ start_payment_ev(InvoiceID, Client) ->
     ] = next_event(InvoiceID, 1, 12000, Client),
     [
         ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_event(InvoiceID, 1, 12000, Client),
+    [
+        ?payment_ev(PaymentID, ?route_changed(Route))
+    ] = next_event(InvoiceID, 1, 12000, Client),
+    Route.
+
+start_payment_ev(InvoiceID, RiskScore, Client) ->
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
+    ] = next_event(InvoiceID, 1, 12000, Client),
+    [
+        ?payment_ev(PaymentID, ?risk_score_changed(RiskScore))
     ] = next_event(InvoiceID, 1, 12000, Client),
     [
         ?payment_ev(PaymentID, ?route_changed(Route))
@@ -6418,6 +6522,19 @@ execute_payment_refund(InvoiceID, PaymentID, Params, Client) ->
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID, Client),
     PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
+    RefundID.
+
+execute_payment_manual_refund(InvoiceID, PaymentID, Params, Client) ->
+    ?refund_id(RefundID) = hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, Params, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo)))
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded()))))
+    ] = next_event(InvoiceID, Client),
+    _ = await_refund_succeeded(InvoiceID, PaymentID, Client),
     RefundID.
 
 execute_payment_refund_complete(InvoiceID, PaymentID, Params, Client) ->

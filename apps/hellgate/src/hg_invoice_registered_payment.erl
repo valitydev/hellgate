@@ -24,7 +24,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         context = Context,
         transaction_info = TransactionInfo1,
         risk_score = RiskScore0,
-        occurred_at = _OccurredAt
+        occurred_at = _OccurredAt %% Not sure what to do with it
     } = Params,
     Revision = hg_domain:head(),
     Party = get_party(Opts),
@@ -33,11 +33,11 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
     Payer = construct_payer(PayerParams, Shop),
     PaymentTool = get_payer_payment_tool(Payer),
-    VS = collect_validation_varset(Party, Shop, Cost1, PaymentTool),
+    VS0 = collect_validation_varset(Party, Shop, Cost1, PaymentTool),
     PaymentInstitutionRef = get_payment_institution_ref(Opts),
-    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
+    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS0, Revision),
 
-    Payment1 = construct_payment(
+    Payment = construct_payment(
         PaymentID,
         CreatedAt,
         Cost1,
@@ -45,30 +45,29 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         PaymentTool,
         Party,
         Shop,
-        VS,
+        PayerSessionInfo,
+        Context,
+        ExternalID,
+        VS0,
         Revision
     ),
-    Payment2 = Payment1#domain_InvoicePayment{
-        payer_session_info = PayerSessionInfo,
-        context = Context,
-        external_id = ExternalID
-    },
-    RiskScore1 = maybe_get_risk_score(RiskScore0, PaymentInstitution, Revision, Shop, Invoice, Payment2),
+    RiskScore1 = maybe_get_risk_score(RiskScore0, PaymentInstitution, Revision, Shop, Invoice, Payment),
+    VS1 = VS0#{risk_score => RiskScore1},
     FinalCashflow = build_final_cashflow(
         Invoice,
-        Payment2,
+        Payment,
         Route,
         Party,
         Shop,
         PaymentInstitution,
         CreatedAt,
-        VS,
+        VS1,
         Revision
     ),
     TransactionInfo2 = maybe_transaction_info(TransactionInfo1),
     CaptureReason = <<"Timeout">>,
     Events = [
-        ?payment_started(Payment2),
+        ?payment_started(Payment),
         ?risk_score_changed(RiskScore1),
         ?route_changed(Route),
         ?cash_flow_changed(FinalCashflow),
@@ -80,9 +79,11 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
             reason = CaptureReason,
             cash = Cost1
         }),
-        ?session_ev(?captured(CaptureReason, Cost1), ?session_started())
+        ?session_ev(?captured(CaptureReason, Cost1), ?session_started()),
+        ?session_ev(?captured(CaptureReason, Cost1), ?session_finished(?session_succeeded())),
+        ?payment_status_changed(?captured(CaptureReason, Cost1))
     ],
-    {hg_invoice_payment:collapse_changes(Events, undefined), {Events, hg_machine_action:instant()}}.
+    {hg_invoice_payment:collapse_changes(Events, undefined), {Events, hg_machine_action:new()}}.
 
 maybe_get_risk_score(undefined, PaymentInstitution, Revision, Shop, Invoice, Payment) ->
     InspectorRef = get_selector_value(inspector, PaymentInstitution#domain_PaymentInstitution.inspector),
@@ -220,6 +221,9 @@ construct_payment(
     PaymentTool,
     Party,
     Shop,
+    PayerSessionInfo,
+    Context,
+    ExternalID,
     VS,
     Revision
 ) ->
@@ -239,8 +243,12 @@ construct_payment(
         status = ?pending(),
         cost = Cost,
         payer = Payer,
+        payer_session_info = PayerSessionInfo,
+        context = Context,
+        external_id = ExternalID,
         flow = ?invoice_payment_flow_instant(),
-        make_recurrent = false
+        make_recurrent = false,
+        registration_origin = ?invoice_payment_reg_origin_external()
     }.
 
 validate_payment_tool(PaymentTool, PaymentMethodSelector) ->

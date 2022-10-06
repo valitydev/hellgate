@@ -66,6 +66,7 @@
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type invoice_state() :: dmsl_payproc_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
+-type payment_st() :: dmsl_payproc_thrift:'InvoicePayment'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
 -type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
@@ -184,7 +185,7 @@ start_payment(InvoiceID, PaymentParams, Client) ->
 register_payment(InvoiceID, RegisterPaymentParams, Client) ->
     map_result_error(gen_server:call(Client, {call, 'RegisterPayment', [InvoiceID, RegisterPaymentParams]})).
 
--spec get_payment(invoice_id(), payment_id(), pid()) -> payment() | woody_error:business_error().
+-spec get_payment(invoice_id(), payment_id(), pid()) -> payment_st() | woody_error:business_error().
 get_payment(InvoiceID, PaymentID, Client) ->
     map_result_error(gen_server:call(Client, {call, 'GetPayment', [InvoiceID, PaymentID]})).
 

@@ -25,6 +25,14 @@
     {operation_timeout, #domain_OperationTimeout{}}
 ).
 
+-define(invoice_payment_reg_origin_internal(),
+    {internal, #domain_InvoicePaymentInternallyRegistered{}}
+).
+
+-define(invoice_payment_reg_origin_external(),
+    {external, #domain_InvoicePaymentExternallyRegistered{}}
+).
+
 -define(invoice_payment_flow_instant(),
     {instant, #domain_InvoicePaymentFlowInstant{}}
 ).

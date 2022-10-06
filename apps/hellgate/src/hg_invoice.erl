@@ -796,11 +796,10 @@ do_register_payment(PaymentID, PaymentParams, St) ->
     _ = assert_no_pending_payment(St),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
-    {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(register, PaymentID, PaymentParams, Opts),
+    {PaymentSession, {Changes, _Action}} = hg_invoice_payment:init(register, PaymentID, PaymentParams, Opts),
     #{
         response => get_payment_state(PaymentSession),
-        changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
-        action => Action,
+        changes => wrap_payment_changes(PaymentID, Changes, OccurredAt) ++ [?invoice_status_changed(?invoice_paid())],
         state => St
     }.
 
