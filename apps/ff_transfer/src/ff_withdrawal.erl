@@ -553,7 +553,16 @@ is_finished(#{status := pending}) ->
 -spec process_transfer(withdrawal_state()) -> process_result().
 process_transfer(Withdrawal) ->
     Activity = deduce_activity(Withdrawal),
-    do_process_transfer(Activity, Withdrawal).
+    scoper:scope(
+        withdrawal,
+        #{activity => format_activity(Activity)},
+        fun() -> do_process_transfer(Activity, Withdrawal) end
+    ).
+
+format_activity(Activity) when is_atom(Activity) ->
+    Activity;
+format_activity(Activity) ->
+    genlib:format(Activity).
 
 %%
 
