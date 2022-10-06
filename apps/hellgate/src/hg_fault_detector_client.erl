@@ -21,19 +21,16 @@
 
 -export([register_transaction/4]).
 
--export([build_default_config/0]).
 -export([build_config/1]).
 -export([build_config/3]).
 
 -export([build_service_id/2]).
 -export([build_operation_id/2]).
 
--export([init_service/1]).
 -export([init_service/2]).
 
 -export([get_statistics/1]).
 
--export([register_operation/3]).
 -export([register_operation/4]).
 
 -type operation_status() :: start | finish | error.
@@ -69,14 +66,6 @@ register_transaction(ServiceType, Status, ServiceID, OperationID) ->
         end,
     register_operation(Status, ServiceID, OperationID, ServiceConfig).
 
--spec build_default_config() -> service_config().
-build_default_config() ->
-    EnvFDConfig = genlib_app:env(hellgate, fault_detector, #{}),
-    SlidingWindow = genlib_map:get(sliding_window, EnvFDConfig, 60000),
-    OpTimeLimit = genlib_map:get(operation_time_limit, EnvFDConfig, 10000),
-    PreAggrSize = genlib_map:get(pre_aggregation_size, EnvFDConfig, 2),
-    build_config(SlidingWindow, OpTimeLimit, PreAggrSize).
-
 -spec build_config(fd_service_type()) -> service_config().
 build_config(ServiceType) ->
     FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
@@ -99,10 +88,6 @@ build_operation_id(ServiceType, IDs) ->
     MappedIDs = [genlib:to_binary(ID) || ID <- IDs],
     hg_utils:construct_complex_id(lists:flatten([<<"hellgate_operation">>, genlib:to_binary(ServiceType), MappedIDs])).
 
--spec init_service(service_id()) -> {ok, initialised} | {error, any()} | disabled.
-init_service(ServiceId) ->
-    init_service(ServiceId, build_default_config()).
-
 -spec init_service(service_id(), service_config()) -> {ok, initialised} | {error, any()} | disabled.
 init_service(ServiceId, ServiceConfig) ->
     call('InitService', {ServiceId, ServiceConfig}).
@@ -110,11 +95,6 @@ init_service(ServiceId, ServiceConfig) ->
 -spec get_statistics([service_id()]) -> [service_stats()].
 get_statistics(ServiceIds) when is_list(ServiceIds) ->
     call('GetStatistics', {ServiceIds}).
-
--spec register_operation(operation_status(), service_id(), operation_id()) ->
-    {ok, registered} | {error, not_found} | {error, any()} | disabled.
-register_operation(Status, ServiceId, OperationId) ->
-    register_operation(Status, ServiceId, OperationId, build_default_config()).
 
 -spec register_operation(operation_status(), service_id(), operation_id(), service_config()) ->
     {ok, registered} | {error, not_found} | {error, any()} | disabled.
