@@ -77,6 +77,7 @@
 -export([payment_adjustment_captured_from_failed/1]).
 -export([payment_adjustment_failed_from_captured/1]).
 -export([status_adjustment_of_partial_refunded_payment/1]).
+-export([registered_payment_adjustment_success/1]).
 -export([invalid_payment_w_deprived_party/1]).
 -export([external_account_posting/1]).
 -export([terminal_cashflow_overrides_provider/1]).
@@ -325,7 +326,8 @@ groups() ->
             payment_adjustment_captured_partial,
             payment_adjustment_captured_from_failed,
             payment_adjustment_failed_from_captured,
-            status_adjustment_of_partial_refunded_payment
+            status_adjustment_of_partial_refunded_payment,
+            registered_payment_adjustment_success
         ]},
 
         {chargebacks, [], [
@@ -634,7 +636,8 @@ init_per_testcase(Name, C) when
     Name == payment_adjustment_chargeback_success;
     Name == payment_adjustment_captured_partial;
     Name == payment_adjustment_captured_from_failed;
-    Name == payment_adjustment_failed_from_captured
+    Name == payment_adjustment_failed_from_captured;
+    Name == registered_payment_adjustment_success
 ->
     Revision = hg_domain:head(),
     Fixture = get_payment_adjustment_fixture(Revision),
@@ -1119,14 +1122,14 @@ register_invoice_payment(ShopID, Client, C) ->
     Route = ?route(?prv(1), ?trm(1)),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
-        {payment_resource, #payproc_PaymentResourcePayerParams{
-            resource = #domain_DisposablePaymentResource{
-                payment_tool = PaymentTool,
-                payment_session_id = Session,
-                client_info = #domain_ClientInfo{}
-            },
-            contact_info = #domain_ContactInfo{}
-        }},
+            {payment_resource, #payproc_PaymentResourcePayerParams{
+                resource = #domain_DisposablePaymentResource{
+                    payment_tool = PaymentTool,
+                    payment_session_id = Session,
+                    client_info = #domain_ClientInfo{}
+                },
+                contact_info = #domain_ContactInfo{}
+            }},
         route = Route
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
@@ -2464,6 +2467,94 @@ status_adjustment_of_partial_refunded_payment(C) ->
     {exception, #base_InvalidRequest{
         errors = [<<"Cannot change status of payment with refunds.">>]
     }} = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, FailedAdjustmentParams, Client).
+
+-spec registered_payment_adjustment_success(config()) -> _.
+registered_payment_adjustment_success(C) ->
+    %% old cf :
+    %% merch - 4500   -> syst
+    %% prov  - 100000 -> merch
+    %% syst  - 2100   -> prov
+    %%
+    %% new cf :
+    %% merch - 4500   -> syst
+    %% prov  - 100000 -> merch
+    %% syst  - 1600   -> prov
+    %% syst  - 20     -> ext
+    Client = cfg(client, C),
+
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    Route = ?route(?prv(100), ?trm(1)),
+    PaymentParams = #payproc_RegisterInvoicePaymentParams{
+        payer_params =
+            {payment_resource, #payproc_PaymentResourcePayerParams{
+                resource = #domain_DisposablePaymentResource{
+                    payment_tool = PaymentTool,
+                    payment_session_id = Session,
+                    client_info = #domain_ClientInfo{}
+                },
+                contact_info = #domain_ContactInfo{}
+            }},
+        route = Route
+    },
+    ?payment_state(?payment(PaymentID)) =
+        hg_client_invoicing:register_payment(InvoiceID, PaymentParams, Client),
+    _ = start_payment_ev(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?cash_flow_changed(CF1))
+    ] = next_event(InvoiceID, 1, 12000, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client, 0),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
+    %% update terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
+    %% update merchant fees
+    {PartyClient, Context} = PartyPair = cfg(party_client, C),
+    PartyID = cfg(party_id, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyPair),
+    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, Context),
+    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(3), PartyPair),
+
+    %% make an adjustment
+    Params = make_adjustment_params(Reason = <<"imdrunk">>),
+    ?adjustment(AdjustmentID, ?adjustment_pending()) =
+        Adjustment =
+        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
+    Adjustment =
+        #domain_InvoicePaymentAdjustment{id = AdjustmentID, reason = Reason} =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment)))
+    ] = next_event(InvoiceID, Client),
+    %% no way to create another one yet
+    ?invalid_adjustment_pending(AdjustmentID) =
+        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed())))
+    ] = next_event(InvoiceID, Client),
+    ok =
+        hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
+    ?invalid_adjustment_status(?adjustment_captured(_)) =
+        hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
+    ?invalid_adjustment_status(?adjustment_captured(_)) =
+        hg_client_invoicing:cancel_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+    ] = next_event(InvoiceID, Client),
+    %% verify that cash deposited correctly everywhere
+    #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
+    0 = MrcDiff = maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1),
+    -500 = PrvDiff = maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1),
+    SysDiff = MrcDiff - PrvDiff - 20,
+    SysDiff = maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1).
 
 -spec payment_temporary_unavailability_retry_success(config()) -> test_return().
 payment_temporary_unavailability_retry_success(C) ->
@@ -4154,16 +4245,7 @@ payment_manual_refund(C) ->
     Fixture = payment_manual_refund_fixture(OriginalRevision),
     _ = hg_domain:upsert(Fixture),
     % create refund
-    ?refund_id(RefundID) = hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, RefundParams, Client),
-    [
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo)))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded()))))
-    ] = next_event(InvoiceID, Client),
-    _ = await_refund_succeeded(InvoiceID, PaymentID, Client),
+    RefundID = execute_payment_manual_refund(InvoiceID, PaymentID, RefundParams, Client),
     #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
         hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
     ?invalid_payment_status(?refunded()) =
@@ -4489,7 +4571,6 @@ registered_payment_refund_prohibited(C) ->
 -spec registered_payment_manual_refund_success(config()) -> test_return().
 registered_payment_manual_refund_success(C) ->
     Client = cfg(client, C),
-
     ShopID = hg_ct_helper:create_battle_ready_shop(
         cfg(party_id, C),
         ?cat(2),
@@ -4500,19 +4581,16 @@ registered_payment_manual_refund_success(C) ->
     ),
 
     %% create balance
-    InvoiceID1 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID1 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 50000, C),
     _PaymentID1 = execute_payment(InvoiceID1, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    party_client_thrift:get_shop_account()
+
     %% register_payment
     {InvoiceID, PaymentID} = register_invoice_payment(ShopID, Client, C),
-%%    OriginalRevision = hg_domain:head(),
-%%    Fixture = payment_manual_refund_fixture(OriginalRevision),
-%%    _ = hg_domain:upsert(Fixture),
+
     RefundParams = make_manual_refund_params(),
     RefundID = execute_payment_manual_refund(InvoiceID, PaymentID, RefundParams, Client),
     #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
         hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
-%%    _ = hg_domain:reset(OriginalRevision).
 
 %%----------------- refunds group end
 

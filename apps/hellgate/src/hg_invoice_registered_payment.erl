@@ -24,7 +24,8 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         context = Context,
         transaction_info = TransactionInfo1,
         risk_score = RiskScore0,
-        occurred_at = _OccurredAt %% Not sure what to do with it
+        %% Not sure what to do with it
+        occurred_at = _OccurredAt
     } = Params,
     Revision = hg_domain:head(),
     Party = get_party(Opts),
