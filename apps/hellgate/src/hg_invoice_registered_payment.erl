@@ -65,6 +65,9 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         VS1,
         Revision
     ),
+    ok = commit_payment_limits(Route, Invoice, Payment, Cost1, VS1, Revision),
+    _ = commit_payment_cashflow(Invoice, Payment, FinalCashflow),
+
     TransactionInfo2 = maybe_transaction_info(TransactionInfo1),
     CaptureReason = <<"Timeout">>,
     Events = [
@@ -170,6 +173,22 @@ get_provider_terminal_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
         Context
     ),
     TermsSet#domain_ProvisionTermSet.payments.
+
+commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
+    ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
+    TurnoverLimits = get_turnover_limits(ProviderTerms),
+    hg_limiter:commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, Cash).
+
+get_turnover_limits(ProviderTerms) ->
+    TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
+    hg_limiter:get_turnover_limits(TurnoverLimitSelector).
+
+commit_payment_cashflow(Invoice, Payment, CashFlow) ->
+    PlanID = hg_utils:construct_complex_id([
+        get_invoice_id(Invoice),
+        get_payment_id(Payment)
+    ]),
+    hg_accounting:commit(PlanID, CashFlow).
 
 assert_contract_active(#domain_Contract{status = {active, _}}) ->
     ok;
