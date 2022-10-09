@@ -66,7 +66,6 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         Revision
     ),
     ok = commit_payment_limits(Route, Invoice, Payment, Cost1, VS1, Revision),
-    _ = commit_payment_cashflow(Invoice, Payment, FinalCashflow),
 
     TransactionInfo2 = maybe_transaction_info(TransactionInfo1),
     CaptureReason = <<"Timeout">>,
@@ -135,10 +134,12 @@ build_final_cashflow(Invoice, Payment, Route, Party, Shop, PaymentInstitution, T
     FinalProviderCashflow = hg_cashflow:finalize(ProviderCashflow, CashflowContext, AccountMap),
 
     FinalCashflow = FinalTransactionCashflow ++ FinalProviderCashflow,
+    PlanID = construct_payment_plan_id(Invoice, Payment),
     _Clock = hg_accounting:hold(
-        construct_payment_plan_id(Invoice, Payment),
+        PlanID,
         {1, FinalCashflow}
     ),
+    _ = hg_accounting:commit(PlanID, [{1, FinalCashflow}]),
     FinalCashflow.
 
 get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
@@ -182,13 +183,6 @@ commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).
-
-commit_payment_cashflow(Invoice, Payment, CashFlow) ->
-    PlanID = hg_utils:construct_complex_id([
-        get_invoice_id(Invoice),
-        get_payment_id(Payment)
-    ]),
-    hg_accounting:commit(PlanID, CashFlow).
 
 assert_contract_active(#domain_Contract{status = {active, _}}) ->
     ok;
