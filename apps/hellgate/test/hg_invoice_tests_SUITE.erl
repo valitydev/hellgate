@@ -37,6 +37,7 @@
 -export([payment_start_idempotency/1]).
 -export([payment_success/1]).
 -export([register_payment_success/1]).
+-export([register_payment_customer_payer_success/1]).
 
 -export([payment_limit_success/1]).
 -export([payment_limit_other_shop_success/1]).
@@ -289,6 +290,7 @@ groups() ->
             payment_start_idempotency,
             payment_success,
             register_payment_success,
+            register_payment_customer_payer_success,
             payment_success_ruleset,
             processing_deadline_reached_test,
             payment_success_empty_cvv,
@@ -1109,6 +1111,25 @@ register_payment_success(C) ->
         },
         Payment
     ).
+
+-spec register_payment_customer_payer_success(config()) -> test_return().
+register_payment_customer_payer_success(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Route = ?route(?prv(1), ?trm(1)),
+    CustomerID = make_customer_w_rec_tool(cfg(party_id, C), cfg(shop_id, C), cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = #payproc_RegisterInvoicePaymentParams{
+        payer_params = {customer, #payproc_CustomerPayerParams{
+            customer_id = CustomerID
+        }},
+        route = Route
+    },
+    PaymentID = register_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client, 0),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(?invoice_w_status(?invoice_paid())) =
+        hg_client_invoicing:get(InvoiceID, Client).
 
 %%=============================================================================
 %% register_* cases helpers
