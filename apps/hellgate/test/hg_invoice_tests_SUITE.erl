@@ -1117,11 +1117,14 @@ register_payment_customer_payer_success(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     Route = ?route(?prv(1), ?trm(1)),
-    CustomerID = make_customer_w_rec_tool(cfg(party_id, C), cfg(shop_id, C), cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
+    CustomerID = make_customer_w_rec_tool(
+        cfg(party_id, C), cfg(shop_id, C), cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
-        payer_params = {customer, #payproc_CustomerPayerParams{
-            customer_id = CustomerID
-        }},
+        payer_params =
+            {customer, #payproc_CustomerPayerParams{
+                customer_id = CustomerID
+            }},
         route = Route
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
