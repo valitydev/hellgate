@@ -662,27 +662,6 @@ construct_domain_fixture() ->
                                                 ?share(18, 1000, operation_amount)
                                             )
                                         ]}
-                                },
-                                #domain_CashFlowDecision{
-                                    if_ =
-                                        {condition,
-                                            {payment_tool,
-                                                {bank_card, #domain_BankCardCondition{
-                                                    definition = {payment_system_is, visa}
-                                                }}}},
-                                    then_ =
-                                        {value, [
-                                            ?cfpost(
-                                                {provider, settlement},
-                                                {merchant, settlement},
-                                                ?share(1, 1, operation_amount)
-                                            ),
-                                            ?cfpost(
-                                                {system, settlement},
-                                                {provider, settlement},
-                                                ?share(18, 1000, operation_amount)
-                                            )
-                                        ]}
                                 }
                             ]},
                         holds = #domain_PaymentHoldsProvisionTerms{
@@ -697,15 +676,6 @@ construct_domain_fixture() ->
                                                             {payment_system, #domain_PaymentSystemCondition{
                                                                 payment_system_is = ?pmt_sys(<<"visa-ref">>)
                                                             }}
-                                                    }}}},
-                                        then_ = {value, ?hold_lifetime(12)}
-                                    },
-                                    #domain_HoldLifetimeDecision{
-                                        if_ =
-                                            {condition,
-                                                {payment_tool,
-                                                    {bank_card, #domain_BankCardCondition{
-                                                        definition = {payment_system_is, visa}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}
                                     }
