@@ -6,6 +6,7 @@
 -export([get/3]).
 -export([hold/3]).
 -export([commit/3]).
+-export([rollback/3]).
 
 -type limit() :: limproto_limiter_thrift:'Limit'().
 -type limit_id() :: limproto_limiter_thrift:'LimitID'().
@@ -34,17 +35,13 @@ get(LimitID, Clock, Context) ->
 
 -spec hold(limit_change(), clock(), context()) -> clock() | no_return().
 hold(LimitChange, Clock, Context) ->
-    LimitID = LimitChange#limiter_LimitChange.id,
     Opts = hg_woody_wrapper:get_service_options(limiter),
     Args = {LimitChange, Clock, Context},
-
     case hg_woody_wrapper:call(limiter, 'Hold', Args, Opts) of
         {ok, ClockUpdated} ->
             ClockUpdated;
-        {exception, #limiter_LimitNotFound{}} ->
-            error({not_found, LimitID});
-        {exception, #base_InvalidRequest{errors = Errors}} ->
-            error({invalid_request, Errors})
+        {exception, Exception} ->
+            error(Exception)
     end.
 
 -spec commit(limit_change(), clock(), context()) -> clock() | no_return().
@@ -54,14 +51,17 @@ commit(LimitChange, Clock, Context) ->
     case hg_woody_wrapper:call(limiter, 'Commit', Args, Opts) of
         {ok, ClockUpdated} ->
             ClockUpdated;
-        {exception, #limiter_LimitNotFound{}} ->
-            error({not_found, LimitChange#limiter_LimitChange.id});
-        {exception, #limiter_LimitChangeNotFound{}} ->
-            error({not_found, {limit_change, LimitChange#limiter_LimitChange.change_id}});
-        {exception, #base_InvalidRequest{errors = Errors}} ->
-            error({invalid_request, Errors});
-        {exception, #limiter_ForbiddenOperationAmount{} = Ex} ->
-            Amount = Ex#limiter_ForbiddenOperationAmount.amount,
-            CashRange = Ex#limiter_ForbiddenOperationAmount.allowed_range,
-            error({forbidden_op_amount, {Amount, CashRange}})
+        {exception, Exception} ->
+            error(Exception)
+    end.
+
+-spec rollback(limit_change(), clock(), context()) -> clock() | no_return().
+rollback(LimitChange, Clock, Context) ->
+    Opts = hg_woody_wrapper:get_service_options(limiter),
+    Args = {LimitChange, Clock, Context},
+    case hg_woody_wrapper:call(limiter, 'Rollback', Args, Opts) of
+        {ok, ClockUpdated} ->
+            ClockUpdated;
+        {exception, Exception} ->
+            error(Exception)
     end.
