@@ -23,6 +23,7 @@
 -export([terminate/3]).
 
 -export_type([payment_tool/0]).
+-export_type([payment_system/0]).
 
 %%
 
