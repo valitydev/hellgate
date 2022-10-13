@@ -1,4 +1,4 @@
--module(hg_invoice_tests_utils).
+-module(hg_ct_invoice_tests_utils).
 
 -include("hg_ct_domain.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
@@ -12,9 +12,9 @@
 -export([make_payment_params/3]).
 -export([make_wallet_payment_params/1]).
 
--export([start_invoice/4]).
--export([start_invoice/5]).
--export([start_invoice/6]).
+-export([start_and_check_invoice/4]).
+-export([start_and_check_invoice/5]).
+-export([start_and_check_invoice/6]).
 -export([create_invoice/2]).
 -export([next_event/2]).
 -export([next_event/3]).
@@ -151,18 +151,18 @@ make_wallet_payment_params(PmtSrv) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(digital_wallet, PmtSrv),
     make_payment_params(PaymentTool, Session, instant).
 
--spec start_invoice(binary(), timestamp(), amount(), ct_suite:ct_config()) -> invoice_id().
-start_invoice(Product, Due, Amount, C) ->
-    start_invoice(hg_ct_helper:cfg(shop_id, C), Product, Due, Amount, C).
+-spec start_and_check_invoice(binary(), timestamp(), amount(), ct_suite:ct_config()) -> invoice_id().
+start_and_check_invoice(Product, Due, Amount, C) ->
+    start_and_check_invoice(hg_ct_helper:cfg(shop_id, C), Product, Due, Amount, C).
 
--spec start_invoice(shop_id(), binary(), timestamp(), amount(), ct_suite:ct_config()) -> invoice_id().
-start_invoice(ShopID, Product, Due, Amount, C) ->
+-spec start_and_check_invoice(shop_id(), binary(), timestamp(), amount(), ct_suite:ct_config()) -> invoice_id().
+start_and_check_invoice(ShopID, Product, Due, Amount, C) ->
     Client = hg_ct_helper:cfg(client, C),
     PartyID = hg_ct_helper:cfg(party_id, C),
-    start_invoice(PartyID, ShopID, Product, Due, Amount, Client).
+    start_and_check_invoice(PartyID, ShopID, Product, Due, Amount, Client).
 
--spec start_invoice(party_id(), shop_id(), binary(), timestamp(), amount(), pid()) -> invoice_id().
-start_invoice(PartyID, ShopID, Product, Due, Amount, Client) ->
+-spec start_and_check_invoice(party_id(), shop_id(), binary(), timestamp(), amount(), pid()) -> invoice_id().
+start_and_check_invoice(PartyID, ShopID, Product, Due, Amount, Client) ->
     InvoiceParams =
         hg_ct_helper:make_invoice_params(PartyID, ShopID, Product, Due, hg_ct_helper:make_cash(Amount, <<"RUB">>)),
     InvoiceID = create_invoice(InvoiceParams, Client),

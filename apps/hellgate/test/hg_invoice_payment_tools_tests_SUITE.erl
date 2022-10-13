@@ -2,7 +2,7 @@
 %%%  - Do not share state between test cases
 %%%  - Run cases in parallel
 
--module(hg_invoice_parallel_tests_SUITE).
+-module(hg_invoice_payment_tools_tests_SUITE).
 
 -include("hg_ct_domain.hrl").
 
@@ -44,30 +44,18 @@ init([]) ->
 -type group_name() :: hg_ct_helper:group_name().
 -type test_return() :: _ | no_return().
 
--define(PARTY_ID_WITH_LIMIT, <<"bIg merch limit">>).
--define(PARTY_ID_WITH_SEVERAL_LIMITS, <<"bIg merch limit cascading">>).
--define(PARTYID_EXTERNAL, <<"DUBTV">>).
--define(LIMIT_ID, <<"ID">>).
--define(LIMIT_ID2, <<"ID2">>).
--define(LIMIT_ID3, <<"ID3">>).
--define(LIMIT_UPPER_BOUNDARY, 100000).
-
 cfg(Key, C) ->
     hg_ct_helper:cfg(Key, C).
 
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
     [
-        {group, all_non_destructive_tests}
+        {group, base_payments}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {all_non_destructive_tests, [], [
-            {group, base_payments}
-        ]},
-
         {base_payments, [parallel], [
             payment_success,
             payment_success_empty_cvv,
@@ -82,8 +70,6 @@ groups() ->
 
 -spec init_per_suite(config()) -> config().
 init_per_suite(C) ->
-    CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
-
     {Apps, Ret} = hg_ct_helper:start_apps([
         woody,
         scoper,
@@ -92,8 +78,7 @@ init_per_suite(C) ->
         party_client,
         hg_proto,
         hellgate,
-        snowflake,
-        {cowboy, CowboySpec}
+        snowflake
     ]),
 
     _ = hg_domain:insert(construct_domain_fixture()),
@@ -114,7 +99,7 @@ init_per_suite(C) ->
         | C
     ],
 
-    ok = hg_invoice_tests_utils:start_proxies([{hg_dummy_provider, 1, NewC}, {hg_dummy_inspector, 2, NewC}]),
+    ok = hg_ct_invoice_tests_utils:start_proxies([{hg_dummy_provider, 1, NewC}, {hg_dummy_inspector, 2, NewC}]),
     NewC.
 
 -spec end_per_suite(config()) -> _.
@@ -129,35 +114,16 @@ end_per_suite(C) ->
 -include("payment_events.hrl").
 -include("customer_events.hrl").
 
--define(invoice(ID), #domain_Invoice{id = ID}).
--define(payment(ID), #domain_InvoicePayment{id = ID}).
--define(payment(ID, Revision), #domain_InvoicePayment{id = ID, party_revision = Revision}).
--define(adjustment(ID), #domain_InvoicePaymentAdjustment{id = ID}).
--define(adjustment(ID, Status), #domain_InvoicePaymentAdjustment{id = ID, status = Status}).
--define(adjustment_revision(Revision), #domain_InvoicePaymentAdjustment{party_revision = Revision}).
--define(adjustment_reason(Reason), #domain_InvoicePaymentAdjustment{reason = Reason}).
 -define(invoice_state(Invoice), #payproc_Invoice{invoice = Invoice}).
 -define(invoice_state(Invoice, Payments), #payproc_Invoice{invoice = Invoice, payments = Payments}).
 -define(payment_state(Payment), #payproc_InvoicePayment{payment = Payment}).
 -define(payment_state(Payment, Refunds), #payproc_InvoicePayment{payment = Payment, refunds = Refunds}).
--define(payment_route(Route), #payproc_InvoicePayment{route = Route}).
--define(refund_state(Refund), #payproc_InvoicePaymentRefund{refund = Refund}).
--define(payment_cashflow(CashFlow), #payproc_InvoicePayment{cash_flow = CashFlow}).
 -define(payment_last_trx(Trx), #payproc_InvoicePayment{last_transaction_info = Trx}).
 -define(invoice_w_status(Status), #domain_Invoice{status = Status}).
--define(invoice_w_revision(Revision), #domain_Invoice{party_revision = Revision}).
 -define(payment_w_status(Status), #domain_InvoicePayment{status = Status}).
 -define(payment_w_status(ID, Status), #domain_InvoicePayment{id = ID, status = Status}).
--define(invoice_payment_refund(Cash, Status), #domain_InvoicePaymentRefund{cash = Cash, status = Status}).
--define(trx_info(ID), #domain_TransactionInfo{id = ID}).
--define(trx_info(ID, Extra), #domain_TransactionInfo{id = ID, extra = Extra}).
--define(refund_id(RefundID), #domain_InvoicePaymentRefund{id = RefundID}).
--define(refund_id(RefundID, ExternalID), #domain_InvoicePaymentRefund{id = RefundID, external_id = ExternalID}).
 
--define(CB_PROVIDER_LEVY, 50).
 -define(merchant_to_system_share_1, ?share(45, 1000, operation_amount)).
--define(merchant_to_system_share_2, ?share(100, 1000, operation_amount)).
--define(merchant_to_system_share_3, ?share(40, 1000, operation_amount)).
 
 -spec init_per_group(group_name(), config()) -> config().
 init_per_group(_, C) ->
@@ -186,7 +152,7 @@ end_per_testcase(_Name, _C) ->
 -spec payment_success(config()) -> test_return().
 payment_success(C) ->
     Client = cfg(client, C),
-    InvoiceID = hg_invoice_tests_utils:start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = hg_ct_invoice_tests_utils:start_and_check_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     Context = #base_Content{
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
@@ -194,12 +160,12 @@ payment_success(C) ->
     PayerSessionInfo = #domain_PayerSessionInfo{
         redirect_url = RedirectURL = <<"https://redirectly.io/merchant">>
     },
-    PaymentParams = (hg_invoice_tests_utils:make_payment_params(?pmt_sys(<<"visa-ref">>)))#payproc_InvoicePaymentParams{
+    PaymentParams = (hg_ct_invoice_tests_utils:make_payment_params(?pmt_sys(<<"visa-ref">>)))#payproc_InvoicePaymentParams{
         payer_session_info = PayerSessionInfo,
         context = Context
     },
-    PaymentID = hg_invoice_tests_utils:process_payment(InvoiceID, PaymentParams, Client),
-    PaymentID = hg_invoice_tests_utils:await_payment_capture(InvoiceID, PaymentID, Client),
+    PaymentID = hg_ct_invoice_tests_utils:process_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = hg_ct_invoice_tests_utils:await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [PaymentSt = ?payment_state(Payment)]
@@ -225,10 +191,17 @@ payment_success(C) ->
 -spec payment_success_empty_cvv(config()) -> test_return().
 payment_success_empty_cvv(C) ->
     Client = cfg(client, C),
-    InvoiceID = hg_invoice_tests_utils:start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(empty_cvv, ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = hg_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
-    PaymentID = hg_invoice_tests_utils:execute_payment(InvoiceID, PaymentParams, Client),
+    InvoiceID = hg_ct_invoice_tests_utils:start_and_check_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentTool = {bank_card, #domain_BankCard{
+        token = <<"empty_cvv">>,
+        bin = <<"424242">>,
+        last_digits = <<"4242">>,
+        payment_system = ?pmt_sys(<<"visa-ref">>),
+        is_cvv_empty = true
+    }},
+    Session = <<"Session42">>,
+    PaymentParams = hg_ct_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
+    PaymentID = hg_ct_invoice_tests_utils:execute_payment(InvoiceID, PaymentParams, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(?payment_w_status(PaymentID, ?captured()))]
@@ -237,23 +210,30 @@ payment_success_empty_cvv(C) ->
 -spec payment_success_additional_info(config()) -> test_return().
 payment_success_additional_info(C) ->
     Client = cfg(client, C),
-    InvoiceID = hg_invoice_tests_utils:start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(empty_cvv, ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = hg_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
-    PaymentID = hg_invoice_tests_utils:start_payment(InvoiceID, PaymentParams, Client),
-    PaymentID = hg_invoice_tests_utils:await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    InvoiceID = hg_ct_invoice_tests_utils:start_and_check_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentTool = {bank_card, #domain_BankCard{
+        token = <<"empty_cvv">>,
+        bin = <<"424242">>,
+        last_digits = <<"4242">>,
+        payment_system = ?pmt_sys(<<"visa-ref">>),
+        is_cvv_empty = true
+    }},
+    Session = <<"Session42">>,
+    PaymentParams = hg_ct_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
+    PaymentID = hg_ct_invoice_tests_utils:start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = hg_ct_invoice_tests_utils:await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
 
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(Trx))),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
-    ] = hg_invoice_tests_utils:next_event(InvoiceID, Client),
+    ] = hg_ct_invoice_tests_utils:next_event(InvoiceID, Client),
     #domain_TransactionInfo{additional_info = AdditionalInfo} = Trx,
     AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-    ] = hg_invoice_tests_utils:next_event(InvoiceID, Client),
+    ] = hg_ct_invoice_tests_utils:next_event(InvoiceID, Client),
 
-    PaymentID = hg_invoice_tests_utils:await_payment_capture(InvoiceID, PaymentID, Client),
+    PaymentID = hg_ct_invoice_tests_utils:await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(?payment_w_status(PaymentID, ?captured()))]
@@ -263,9 +243,10 @@ payment_success_additional_info(C) ->
 payment_w_crypto_currency_success(C) ->
     Client = cfg(client, C),
     PayCash = 2000,
-    InvoiceID = hg_invoice_tests_utils:start_invoice(<<"cryptoduck">>, make_due_date(10), PayCash, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
-    PaymentParams = hg_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
+    InvoiceID = hg_ct_invoice_tests_utils:start_and_check_invoice(<<"cryptoduck">>, make_due_date(10), PayCash, C),
+    PaymentTool = {crypto_currency, ?crypta(<<"bitcoin-ref">>)},
+    Session = <<"Session42">>,
+    PaymentParams = hg_ct_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
     ?payment_state(#domain_InvoicePayment{
         id = PaymentID,
         owner_id = PartyID,
@@ -273,16 +254,16 @@ payment_w_crypto_currency_success(C) ->
     }) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
-    ] = hg_invoice_tests_utils:next_event(InvoiceID, Client),
-    {CF, Route} = hg_invoice_tests_utils:await_payment_cash_flow(InvoiceID, PaymentID, Client),
-    CFContext = hg_invoice_tests_utils:construct_ta_context(PartyID, ShopID, Route),
-    ?cash(PayCash, <<"RUB">>) = hg_invoice_tests_utils:get_cashflow_volume(
+    ] = hg_ct_invoice_tests_utils:next_event(InvoiceID, Client),
+    {CF, Route} = hg_ct_invoice_tests_utils:await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    CFContext = hg_ct_invoice_tests_utils:construct_ta_context(PartyID, ShopID, Route),
+    ?cash(PayCash, <<"RUB">>) = hg_ct_invoice_tests_utils:get_cashflow_volume(
         {provider, settlement}, {merchant, settlement}, CF, CFContext
     ),
-    ?cash(40, <<"RUB">>) = hg_invoice_tests_utils:get_cashflow_volume(
+    ?cash(40, <<"RUB">>) = hg_ct_invoice_tests_utils:get_cashflow_volume(
         {system, settlement}, {provider, settlement}, CF, CFContext
     ),
-    ?cash(90, <<"RUB">>) = hg_invoice_tests_utils:get_cashflow_volume(
+    ?cash(90, <<"RUB">>) = hg_ct_invoice_tests_utils:get_cashflow_volume(
         {merchant, settlement}, {system, settlement}, CF, CFContext
     ).
 
@@ -290,28 +271,35 @@ payment_w_crypto_currency_success(C) ->
 payment_w_mobile_commerce(C) ->
     Client = cfg(client, C),
     PayCash = 1001,
-    InvoiceID = hg_invoice_tests_utils:start_invoice(<<"oatmeal">>, make_due_date(10), PayCash, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool({mobile_commerce, success}, ?mob(<<"mts-ref">>)),
-    PaymentParams = hg_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
+    InvoiceID = hg_ct_invoice_tests_utils:start_and_check_invoice(<<"oatmeal">>, make_due_date(10), PayCash, C),
+    PaymentTool = {mobile_commerce, #domain_MobileCommerce{
+        operator = ?mob(<<"mts-ref">>),
+        phone = #domain_MobilePhone{
+            cc = <<"7">>,
+            ctn = <<"9876543211">>
+        }
+    }},
+    Session = <<"Session42">>,
+    PaymentParams = hg_ct_invoice_tests_utils:make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
-    ] = hg_invoice_tests_utils:next_event(InvoiceID, Client),
-    _ = hg_invoice_tests_utils:await_payment_cash_flow(InvoiceID, PaymentID, Client),
-    PaymentID = hg_invoice_tests_utils:await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    ] = hg_ct_invoice_tests_utils:next_event(InvoiceID, Client),
+    _ = hg_ct_invoice_tests_utils:await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    PaymentID = hg_ct_invoice_tests_utils:await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
-    ] = hg_invoice_tests_utils:next_event(InvoiceID, Client),
+    ] = hg_ct_invoice_tests_utils:next_event(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-    ] = hg_invoice_tests_utils:next_event(InvoiceID, Client).
+    ] = hg_ct_invoice_tests_utils:next_event(InvoiceID, Client).
 %%
 -spec payment_w_wallet_success(config()) -> _ | no_return().
 payment_w_wallet_success(C) ->
     Client = cfg(client, C),
-    InvoiceID = hg_invoice_tests_utils:start_invoice(<<"bubbleblob">>, make_due_date(10), 42000, C),
-    PaymentParams = hg_invoice_tests_utils:make_wallet_payment_params(?pmt_srv(<<"qiwi-ref">>)),
-    PaymentID = hg_invoice_tests_utils:execute_payment(InvoiceID, PaymentParams, Client),
+    InvoiceID = hg_ct_invoice_tests_utils:start_and_check_invoice(<<"bubbleblob">>, make_due_date(10), 42000, C),
+    PaymentParams = hg_ct_invoice_tests_utils:make_wallet_payment_params(?pmt_srv(<<"qiwi-ref">>)),
+    PaymentID = hg_ct_invoice_tests_utils:execute_payment(InvoiceID, PaymentParams, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(?payment_w_status(PaymentID, ?captured()))]
