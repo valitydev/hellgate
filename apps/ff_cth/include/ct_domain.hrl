@@ -96,6 +96,13 @@
     }}
 ).
 
+-define(PAYMENT_METHOD_BANK_CARD_WITH_EMPTY_CVV(ID),
+    {bank_card, #'domain_BankCardPaymentMethod'{
+        payment_system = #domain_PaymentSystemRef{id = ID},
+        is_cvv_empty = true
+    }}
+).
+
 -define(PAYMENT_METHOD_DIGITAL_WALLET(ID),
     {digital_wallet, #domain_PaymentServiceRef{id = ID}}
 ).

@@ -111,6 +111,8 @@ get_withdrawal_methods_ok(_C) ->
     #identity_IdentityState{id = ID} = create_identity(EID, Name, PID, ProvID, Ctx, Metadata),
     {ok, [
         {bank_card, _},
+        {bank_card, _},
+        {bank_card, _},
         {crypto_currency, _},
         {crypto_currency, _},
         {crypto_currency, _},

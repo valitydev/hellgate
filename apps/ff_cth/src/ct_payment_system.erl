@@ -930,12 +930,16 @@ domain_config(Options) ->
         ct_domain:category(?cat(1), <<"Generic Store">>, live),
 
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_BANK_CARD(<<"VISA">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_BANK_CARD(<<"MASTERCARD">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_BANK_CARD_WITH_EMPTY_CVV(<<"MASTERCARD">>))),
+        ct_domain:payment_method(?pmt(?PAYMENT_METHOD_BANK_CARD(<<"NSPK MIR">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_GENERIC(<<"IND">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_DIGITAL_WALLET(<<"webmoney">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"Litecoin">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"bitcoin_cash">>))),
         ct_domain:payment_method(?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"ripple">>))),
 
+        ct_domain:payment_system(?pmtsys(<<"MASTERCARD">>), <<"MASTERCARD">>),
         ct_domain:payment_system(?pmtsys(<<"VISA">>), <<"VISA">>),
         ct_domain:payment_system(?pmtsys(<<"NSPK MIR">>), <<"NSPK MIR">>),
 
@@ -1009,7 +1013,10 @@ default_termset(Options) ->
                 methods =
                     {value,
                         ?ordset([
+                            ?pmt(?PAYMENT_METHOD_BANK_CARD(<<"MASTERCARD">>)),
+                            ?pmt(?PAYMENT_METHOD_BANK_CARD_WITH_EMPTY_CVV(<<"MASTERCARD">>)),
                             ?pmt(?PAYMENT_METHOD_BANK_CARD(<<"VISA">>)),
+                            ?pmt(?PAYMENT_METHOD_BANK_CARD(<<"NSPK MIR">>)),
                             ?pmt(?PAYMENT_METHOD_GENERIC(<<"IND">>)),
                             ?pmt(?PAYMENT_METHOD_DIGITAL_WALLET(<<"webmoney">>)),
                             ?pmt(?PAYMENT_METHOD_CRYPTO_CURRENCY(<<"Litecoin">>)),
