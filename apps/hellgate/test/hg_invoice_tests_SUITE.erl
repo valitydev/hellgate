@@ -160,7 +160,6 @@
 -export([payment_error_in_cancel_session_does_not_cause_payment_failure/1]).
 -export([payment_error_in_capture_session_does_not_cause_payment_failure/1]).
 
--export([registered_payment_refund_prohibited/1]).
 -export([registered_payment_manual_refund_success/1]).
 
 -export([adhoc_repair_working_failed/1]).
@@ -392,7 +391,6 @@ groups() ->
             payment_manual_refund,
             payment_refund_id_types,
 
-            registered_payment_refund_prohibited,
             registered_payment_manual_refund_success
         ]},
 
@@ -4583,14 +4581,6 @@ payment_refund_id_types(C) ->
     ?assertEqual(<<"2">>, RefundID1),
     ?assertEqual(<<"m2">>, RefundID2),
     ?assertEqual(<<"3">>, RefundID3).
-
--spec registered_payment_refund_prohibited(config()) -> test_return().
-registered_payment_refund_prohibited(C) ->
-    Client = cfg(client, C),
-    {InvoiceID, PaymentID} = register_invoice_payment(Client, C),
-    RefundParams = make_refund_params(),
-    {exception, #payproc_ProhibitedPaymentRegistrationOrigin{}} =
-        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client).
 
 -spec registered_payment_manual_refund_success(config()) -> test_return().
 registered_payment_manual_refund_success(C) ->

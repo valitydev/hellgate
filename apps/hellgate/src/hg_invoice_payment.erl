@@ -1177,7 +1177,6 @@ refund(Params, St0, Opts = #{timestamp := CreatedAt}) ->
     St = St0#st{opts = Opts},
     Revision = hg_domain:head(),
     Payment = get_payment(St),
-    _ = validate_payment_registration_not_external(Payment),
     VS = collect_validation_varset(St, Opts),
     MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS),
     Refund = make_refund(Params, Payment, Revision, CreatedAt, St, Opts),
@@ -1236,13 +1235,6 @@ make_refund(Params, Payment, Revision, CreatedAt, St, Opts) ->
     },
     ok = validate_refund(MerchantRefundTerms, Refund, Payment),
     Refund.
-
-validate_payment_registration_not_external(#domain_InvoicePayment{
-    registration_origin = ?invoice_payment_provider_reg_origin()
-}) ->
-    throw(#payproc_ProhibitedPaymentRegistrationOrigin{});
-validate_payment_registration_not_external(_) ->
-    ok.
 
 validate_allocation_refund(undefined, _St) ->
     ok;
