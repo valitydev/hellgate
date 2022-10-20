@@ -9,6 +9,10 @@
 %% Machine like
 
 -export([init/3]).
+-export([merge_change/3]).
+-export([process_finishing_registration/2]).
+
+-define(CAPTURE_REASON, <<"Timeout">>).
 
 %%
 
@@ -65,10 +69,8 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         VS1,
         Revision
     ),
-    ok = commit_payment_limits(Route, Invoice, Payment, Cost1, VS1, Revision),
 
     TransactionInfo2 = maybe_transaction_info(TransactionInfo1),
-    CaptureReason = <<"Timeout">>,
     Events = [
         ?payment_started(Payment),
         ?risk_score_changed(RiskScore1),
@@ -79,14 +81,45 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         ?session_ev(?processed(), ?session_finished(?session_succeeded())),
         ?payment_status_changed(?processed()),
         ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
-            reason = CaptureReason,
+            reason = ?CAPTURE_REASON,
             cash = Cost1
         }),
-        ?session_ev(?captured(CaptureReason, Cost1), ?session_started()),
-        ?session_ev(?captured(CaptureReason, Cost1), ?session_finished(?session_succeeded())),
-        ?payment_status_changed(?captured(CaptureReason, Cost1))
+        ?session_ev(?captured(?CAPTURE_REASON, Cost1), ?session_started()),
+        ?session_ev(?captured(?CAPTURE_REASON, Cost1), ?session_finished(?session_succeeded()))
     ],
     {hg_invoice_payment:collapse_changes(Events, undefined), {Events, hg_machine_action:new()}}.
+
+-spec merge_change(
+    hg_invoice_payment:change(),
+    hg_invoice_payment:st() | undefined,
+    hg_invoice_payment:change_opts()
+) -> hg_invoice_payment:st().
+merge_change(Change = ?session_ev(?captured(?CAPTURE_REASON, _Cost), ?session_started()), #st{} = St, Opts) ->
+    _ = hg_invoice_payment:validate_transition([{payment, processing_session}], Change, St, Opts),
+    St#st{
+        activity = {payment, finish_registration}
+    }.
+
+-spec process_finishing_registration(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
+    hg_invoice_payment:machine_result().
+process_finishing_registration(Action, St) ->
+    Route = hg_invoice_payment:get_route(St),
+    Invoice = hg_invoice_payment:get_invoice(St),
+    Opts = hg_invoice_payment:get_opts(St),
+    FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
+    #domain_InvoicePayment{
+        cost = Cost,
+        payer = Payer,
+        domain_revision = Revision
+    } = Payment = hg_invoice_payment:get_payment(St),
+    PaymentTool = get_payer_payment_tool(Payer),
+    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool),
+    ok = commit_payment_limits(Route, Invoice, Payment, Cost, VS, Revision),
+    PlanID = construct_payment_plan_id(Invoice, Payment),
+    _ = hg_accounting:commit(PlanID, [{1, FinalCashflow}]),
+    {done, {[?payment_status_changed(?captured(?CAPTURE_REASON, Cost))], Action}}.
 
 maybe_get_risk_score(undefined, PaymentInstitution, Revision, Shop, Invoice, Payment) ->
     InspectorRef = get_selector_value(inspector, PaymentInstitution#domain_PaymentInstitution.inspector),
@@ -139,7 +172,6 @@ build_final_cashflow(Invoice, Payment, Route, Party, Shop, PaymentInstitution, T
         PlanID,
         {1, FinalCashflow}
     ),
-    _ = hg_accounting:commit(PlanID, [{1, FinalCashflow}]),
     FinalCashflow.
 
 get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS) ->

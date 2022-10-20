@@ -799,7 +799,7 @@ do_register_payment(PaymentID, PaymentParams, St) ->
     {PaymentSession, {Changes, _Action}} = hg_invoice_payment:init(register, PaymentID, PaymentParams, Opts),
     #{
         response => get_payment_state(PaymentSession),
-        changes => wrap_payment_changes(PaymentID, Changes, OccurredAt) ++ [?invoice_status_changed(?invoice_paid())],
+        changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
         state => St
     }.
 

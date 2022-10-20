@@ -81,6 +81,7 @@
 -export([collapse_changes/2]).
 
 -export([get_log_params/2]).
+-export([validate_transition/4]).
 
 %%
 
@@ -2069,6 +2070,8 @@ process_timeout(St) ->
     repair_process_timeout(get_activity(St), Action, St).
 
 -spec process_timeout(activity(), action(), st()) -> machine_result().
+process_timeout({payment, finish_registration}, Action, St) ->
+    hg_invoice_registered_payment:process_finishing_registration(Action, St);
 process_timeout({payment, risk_scoring}, Action, St) ->
     process_risk_score(Action, St);
 process_timeout({payment, routing}, Action, St) ->
@@ -3599,6 +3602,12 @@ merge_change(
         _ ->
             St2
     end;
+merge_change(
+    Change = ?session_ev(?captured(), ?session_started()),
+    #st{payment = #domain_InvoicePayment{registration_origin = ?invoice_payment_reg_origin_external()}} = St,
+    Opts
+) ->
+    hg_invoice_registered_payment:merge_change(Change, St, Opts);
 merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity}, Opts) ->
     _ = validate_transition([{payment, S} || S <- [processing_session, finalizing_session]], Change, St, Opts),
     Session = merge_session_change(Event, get_session(Target, St), Opts),
@@ -3671,6 +3680,7 @@ apply_adjustment_effect(status, #domain_InvoicePaymentAdjustment{}, St) ->
 apply_adjustment_effect(cashflow, Adjustment, St) ->
     set_cashflow(get_adjustment_cashflow(Adjustment), St).
 
+-spec validate_transition(activity(), change(), st(), opts()) -> ok | no_return().
 validate_transition(Allowed, Change, St, Opts) ->
     case {Opts, is_transition_valid(Allowed, St)} of
         {#{}, true} ->
