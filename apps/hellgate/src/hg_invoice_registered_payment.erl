@@ -36,7 +36,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     Shop = get_shop(Opts),
     Invoice = get_invoice(Opts),
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
-    Payer = construct_payer(PayerParams, Shop),
+    {ok, Payer} = hg_invoice_payment:construct_payer(PayerParams, Shop),
     PaymentTool = get_payer_payment_tool(Payer),
     VS0 = collect_validation_varset(Party, Shop, Cost1, PaymentTool),
     PaymentInstitutionRef = get_payment_institution_ref(Opts),
@@ -221,44 +221,6 @@ assert_contract_active(#domain_Contract{status = {active, _}}) ->
 assert_contract_active(#domain_Contract{status = Status}) ->
     throw(#payproc_InvalidContractStatus{status = Status}).
 
-construct_payer(
-    {payment_resource, #payproc_PaymentResourcePayerParams{
-        resource = Resource,
-        contact_info = ContactInfo
-    }},
-    _
-) ->
-    ?payment_resource_payer(Resource, ContactInfo);
-construct_payer({customer, #payproc_CustomerPayerParams{customer_id = CustomerID}}, Shop) ->
-    Customer = get_customer(CustomerID),
-    ok = validate_customer_shop(Customer, Shop),
-    ActiveBinding = get_active_binding(Customer),
-    ?customer_payer(
-        CustomerID,
-        ActiveBinding#payproc_CustomerBinding.id,
-        ActiveBinding#payproc_CustomerBinding.rec_payment_tool_id,
-        get_resource_payment_tool(ActiveBinding#payproc_CustomerBinding.payment_resource),
-        get_customer_contact_info(Customer)
-    );
-construct_payer(_UnsupportedPayer, _Shop) ->
-    throw_invalid_request(<<"Invalid payer">>).
-
-validate_customer_shop(#payproc_Customer{shop_id = ShopID}, #domain_Shop{id = ShopID}) ->
-    ok;
-validate_customer_shop(_, _) ->
-    throw_invalid_request(<<"Invalid customer">>).
-
-get_active_binding(#payproc_Customer{bindings = Bindings, active_binding_id = BindingID}) ->
-    case lists:keysearch(BindingID, #payproc_CustomerBinding.id, Bindings) of
-        {value, ActiveBinding} ->
-            ActiveBinding;
-        false ->
-            throw_invalid_request(<<"Specified customer is not ready">>)
-    end.
-
-get_customer_contact_info(#payproc_Customer{contact_info = ContactInfo}) ->
-    ContactInfo.
-
 construct_payment(
     PaymentID,
     CreatedAt,
@@ -414,24 +376,11 @@ throw_invalid_request(Why) ->
 
 %%
 
-get_customer(CustomerID) ->
-    case issue_customer_call('Get', {CustomerID, #payproc_EventRange{}}) of
-        {ok, Customer} ->
-            Customer;
-        {exception, #payproc_CustomerNotFound{}} ->
-            throw_invalid_request(<<"Customer not found">>);
-        {exception, Error} ->
-            error({<<"Can't get customer">>, Error})
-    end.
-
 get_route_provider_ref(#domain_PaymentRoute{provider = ProviderRef}) ->
     ProviderRef.
 
 get_route_provider(Route, Revision) ->
     hg_domain:get(Revision, {provider, get_route_provider_ref(Route)}).
-
-issue_customer_call(Func, Args) ->
-    hg_woody_wrapper:call(customer_management, Func, Args).
 
 maybe_transaction_info(undefined) ->
     #domain_TransactionInfo{

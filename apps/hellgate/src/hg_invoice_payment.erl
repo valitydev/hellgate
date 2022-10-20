@@ -82,6 +82,7 @@
 
 -export([get_log_params/2]).
 -export([validate_transition/4]).
+-export([construct_payer/2]).
 
 %%
 
@@ -150,6 +151,7 @@
 -type cart() :: dmsl_domain_thrift:'InvoiceCart'().
 -type party() :: dmsl_domain_thrift:'Party'().
 -type payer() :: dmsl_domain_thrift:'Payer'().
+-type payer_params() :: dmsl_payproc_thrift:'PayerParams'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
@@ -476,6 +478,7 @@ assert_contract_active(#domain_Contract{status = {active, _}}) ->
 assert_contract_active(#domain_Contract{status = Status}) ->
     throw(#payproc_InvalidContractStatus{status = Status}).
 
+-spec construct_payer(payer_params(), shop()) -> {ok, payer()}.
 construct_payer(
     {payment_resource, #payproc_PaymentResourcePayerParams{
         resource = Resource,
