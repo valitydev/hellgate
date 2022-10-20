@@ -47,6 +47,8 @@
 -export([get_party_revision/1]).
 -export([get_remaining_payment_balance/1]).
 -export([get_activity/1]).
+-export([get_opts/1]).
+-export([get_invoice/1]).
 
 -export([construct_payment_info/2]).
 -export([set_repair_scenario/2]).
@@ -2941,6 +2943,7 @@ get_payment_institution_ref(Opts) ->
 get_opts_party_revision(#{party := Party}) ->
     Party#domain_Party.revision.
 
+-spec get_invoice(opts()) -> invoice().
 get_invoice(#{invoice := Invoice}) ->
     Invoice.
 
