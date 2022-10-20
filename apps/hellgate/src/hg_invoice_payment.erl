@@ -589,7 +589,7 @@ construct_payment(
         payer = Payer,
         flow = Flow,
         make_recurrent = MakeRecurrent,
-        registration_origin = ?invoice_payment_reg_origin_internal()
+        registration_origin = ?invoice_payment_merchant_reg_origin()
     }.
 
 construct_payment_flow({instant, _}, _CreatedAt, _Terms, _PaymentTool) ->
@@ -1262,7 +1262,7 @@ make_refund(Params, Payment, Revision, CreatedAt, St, Opts) ->
     Refund.
 
 validate_payment_registration_not_external(#domain_InvoicePayment{
-    registration_origin = ?invoice_payment_reg_origin_external()
+    registration_origin = ?invoice_payment_provider_reg_origin()
 }) ->
     throw(#payproc_ProhibitedPaymentRegistrationOrigin{});
 validate_payment_registration_not_external(_) ->
@@ -3607,7 +3607,7 @@ merge_change(
     end;
 merge_change(
     Change = ?session_ev(?captured(), ?session_started()),
-    #st{payment = #domain_InvoicePayment{registration_origin = ?invoice_payment_reg_origin_external()}} = St,
+    #st{payment = #domain_InvoicePayment{registration_origin = ?invoice_payment_provider_reg_origin()}} = St,
     Opts
 ) ->
     hg_invoice_registered_payment:merge_change(Change, St, Opts);

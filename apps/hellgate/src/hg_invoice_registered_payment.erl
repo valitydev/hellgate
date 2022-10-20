@@ -256,7 +256,7 @@ construct_payment(
         external_id = ExternalID,
         flow = ?invoice_payment_flow_instant(),
         make_recurrent = false,
-        registration_origin = ?invoice_payment_reg_origin_external()
+        registration_origin = ?invoice_payment_provider_reg_origin()
     }.
 
 validate_payment_tool(PaymentTool, PaymentMethodSelector) ->

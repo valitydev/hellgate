@@ -25,12 +25,12 @@
     {operation_timeout, #domain_OperationTimeout{}}
 ).
 
--define(invoice_payment_reg_origin_internal(),
-    {internal, #domain_InvoicePaymentInternallyRegistered{}}
+-define(invoice_payment_merchant_reg_origin(),
+    {internal, #domain_InvoicePaymentMerchantRegistration{}}
 ).
 
--define(invoice_payment_reg_origin_external(),
-    {external, #domain_InvoicePaymentExternallyRegistered{}}
+-define(invoice_payment_provider_reg_origin(),
+    {external, #domain_InvoicePaymentProviderRegistration{}}
 ).
 
 -define(invoice_payment_flow_instant(),
