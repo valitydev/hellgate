@@ -1135,9 +1135,6 @@ register_payment_customer_payer_success(C) ->
 %%=============================================================================
 %% register_* cases helpers
 
-register_invoice_payment(Client, C) ->
-    register_invoice_payment(cfg(shop_id, C), Client, C).
-
 register_invoice_payment(ShopID, Client, C) ->
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
