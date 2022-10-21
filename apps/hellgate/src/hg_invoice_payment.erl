@@ -456,7 +456,7 @@ assert_contract_active(#domain_Contract{status = {active, _}}) ->
 assert_contract_active(#domain_Contract{status = Status}) ->
     throw(#payproc_InvalidContractStatus{status = Status}).
 
--spec construct_payer(payer_params(), shop()) -> {ok, payer()}.
+-spec construct_payer(payer_params(), shop()) -> {ok, payer(), map()}.
 construct_payer(
     {payment_resource, #payproc_PaymentResourcePayerParams{
         resource = Resource,

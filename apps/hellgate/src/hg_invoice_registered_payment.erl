@@ -36,7 +36,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     Shop = get_shop(Opts),
     Invoice = get_invoice(Opts),
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
-    {ok, Payer} = hg_invoice_payment:construct_payer(PayerParams, Shop),
+    {ok, Payer, _} = hg_invoice_payment:construct_payer(PayerParams, Shop),
     PaymentTool = get_payer_payment_tool(Payer),
     VS0 = collect_validation_varset(Party, Shop, Cost1, PaymentTool),
     PaymentInstitutionRef = get_payment_institution_ref(Opts),
