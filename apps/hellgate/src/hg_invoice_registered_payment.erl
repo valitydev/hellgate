@@ -87,7 +87,10 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         ?session_ev(?captured(?CAPTURE_REASON, Cost1), ?session_started()),
         ?session_ev(?captured(?CAPTURE_REASON, Cost1), ?session_finished(?session_succeeded()))
     ],
-    {hg_invoice_payment:collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:new()}}.
+    ChangeOpts = #{
+        invoice_id => Invoice#domain_Invoice.id
+    },
+    {hg_invoice_payment:collapse_changes(Events, undefined, ChangeOpts), {Events, hg_machine_action:new()}}.
 
 -spec merge_change(
     hg_invoice_payment:change(),
