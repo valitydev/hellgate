@@ -104,6 +104,9 @@
 -export_type([failure/0]).
 -export_type([domain_refund/0]).
 -export_type([result/0]).
+-export_type([change/0]).
+-export_type([change_opts/0]).
+-export_type([action/0]).
 
 -type activity() ::
     payment_activity()
@@ -1128,6 +1131,8 @@ validate_provider_holds_terms(#domain_PaymentsProvisionTerms{holds = Terms}) whe
         #domain_PaymentHoldsProvisionTerms{} ->
             throw(#payproc_OperationNotPermitted{})
     end;
+validate_provider_holds_terms(undefined) ->
+    throw(#payproc_OperationNotPermitted{});
 %% Чтобы упростить интеграцию, по умолчанию разрешили частичные подтверждения
 validate_provider_holds_terms(#domain_PaymentsProvisionTerms{holds = undefined}) ->
     ok.
@@ -1375,6 +1380,8 @@ get_provider_refunds_terms(
         ?cash(Amount, _) when Amount > 0 ->
             get_provider_partial_refunds_terms(Terms, Refund, Payment)
     end;
+%%get_provider_refunds_terms(undefined, _Refund, Payment) ->
+%%    error({misconfiguration, {'No payments terms for a payment', Payment}});
 get_provider_refunds_terms(#domain_PaymentsProvisionTerms{refunds = undefined}, _Refund, Payment) ->
     error({misconfiguration, {'No refund terms for a payment', Payment}}).
 
