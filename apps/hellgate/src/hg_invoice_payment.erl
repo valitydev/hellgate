@@ -144,7 +144,8 @@
     | updating_accounter
     | flow_waiting
     | finalizing_session
-    | finalizing_accounter.
+    | finalizing_accounter
+    | finish_registration.
 
 -type chargeback_state() :: hg_invoice_payment_chargeback:state().
 
@@ -3408,7 +3409,7 @@ apply_adjustment_effect(status, #domain_InvoicePaymentAdjustment{}, St) ->
 apply_adjustment_effect(cashflow, Adjustment, St) ->
     set_cashflow(get_adjustment_cashflow(Adjustment), St).
 
--spec validate_transition(activity() | [activity()], change(), st(), opts()) -> ok | no_return().
+-spec validate_transition(activity() | [activity()], change(), st(), change_opts()) -> ok | no_return().
 validate_transition(Allowed, Change, St, Opts) ->
     case {Opts, is_transition_valid(Allowed, St)} of
         {#{}, true} ->
