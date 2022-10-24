@@ -98,7 +98,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     hg_invoice_payment:change_opts()
 ) -> hg_invoice_payment:st().
 merge_change(Change = ?session_ev(?captured(?CAPTURE_REASON, _Cost), ?session_started()), #st{} = St, Opts) ->
-    _ = hg_invoice_payment:validate_transition([{payment, processing_session}], Change, St, Opts),
+    _ = hg_invoice_payment:validate_transition({payment, processing_session}, Change, St, Opts),
     St#st{
         activity = {payment, finish_registration}
     }.
@@ -152,8 +152,7 @@ build_final_cashflow(Invoice, Payment, Route, Party, Shop, PaymentInstitution, T
     ),
 
     ProviderTerms = get_provider_terminal_terms(Route, VS, Revision),
-    ProviderCashflowSelector = ProviderTerms#domain_PaymentsProvisionTerms.cash_flow,
-    ProviderCashflow = get_selector_value(provider_payment_cash_flow, ProviderCashflowSelector),
+    ProviderCashflow = get_provider_cashflow(ProviderTerms, Provider),
     AccountMap = hg_accounting:collect_account_map(
         Payment,
         Party,
@@ -210,11 +209,20 @@ get_provider_terminal_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
     ),
     TermsSet#domain_ProvisionTermSet.payments.
 
+get_provider_cashflow(undefined, Provider) ->
+    error({misconfiguration, {no_provider_terms, Provider}});
+get_provider_cashflow(ProviderTerms, _Provider) ->
+    ProviderCashFlowSelector = ProviderTerms#domain_PaymentsProvisionTerms.cash_flow,
+    get_selector_value(provider_payment_cash_flow, ProviderCashFlowSelector).
+
 commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
     ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     TurnoverLimits = get_turnover_limits(ProviderTerms),
     hg_limiter:commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, Cash).
 
+get_turnover_limits(undefined) ->
+    logger:info("Provider terms haven't been set."),
+    [];
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).
