@@ -710,7 +710,7 @@ acceptable_recurrent_paytool_terms(undefined, _VS) ->
 
 try_accept_term(ParentName, Name, _Value, undefined) ->
     throw(?rejected({ParentName, Name}));
-try_accept_term(ParentName, Name, Value, Selector)->
+try_accept_term(ParentName, Name, Value, Selector) ->
     Values = get_selector_value(Name, Selector),
     test_term(Name, Value, Values) orelse throw(?rejected({ParentName, Name})).
 

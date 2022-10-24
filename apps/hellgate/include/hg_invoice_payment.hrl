@@ -12,7 +12,7 @@
     final_cash_flow :: undefined | hg_cashflow:final_cash_flow(),
     trx :: undefined | hg_invoice_payment:trx_info(),
     target :: undefined | hg_invoice_payment:target(),
-    sessions = #{} :: #{hg_invoice_payment:session_target_type() => [hg_invoice_payment:session()]},
+    sessions = #{} :: #{hg_invoice_payment:session_target_type() => [hg_session:t()]},
     retry_attempts = #{} :: #{hg_invoice_payment:session_target_type() => non_neg_integer()},
     refunds = #{} :: #{hg_invoice_payment:refund_id() => hg_invoice_payment:refund_state()},
     chargebacks = #{} :: #{hg_invoice_payment_chargeback:id() => hg_invoice_payment_chargeback:state()},

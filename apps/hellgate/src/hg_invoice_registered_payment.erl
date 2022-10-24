@@ -76,16 +76,16 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         ?risk_score_changed(RiskScore1),
         ?route_changed(Route),
         ?cash_flow_changed(FinalCashflow),
-        ?session_ev(?processed(), ?session_started()),
-        ?session_ev(?processed(), ?trx_bound(TransactionInfo2)),
-        ?session_ev(?processed(), ?session_finished(?session_succeeded())),
+        hg_session:wrap_event(?processed(), hg_session:create()),
+        hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo2)),
+        hg_session:wrap_event(?processed(), ?session_finished(?session_succeeded())),
         ?payment_status_changed(?processed()),
         ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
             reason = ?CAPTURE_REASON,
             cash = Cost1
         }),
-        ?session_ev(?captured(?CAPTURE_REASON, Cost1), ?session_started()),
-        ?session_ev(?captured(?CAPTURE_REASON, Cost1), ?session_finished(?session_succeeded()))
+        hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost1), hg_session:create()),
+        hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost1), ?session_finished(?session_succeeded()))
     ],
     ChangeOpts = #{
         invoice_id => Invoice#domain_Invoice.id
@@ -107,8 +107,8 @@ merge_change(Change = ?session_ev(?captured(?CAPTURE_REASON, _Cost), ?session_st
     hg_invoice_payment:machine_result().
 process_finishing_registration(Action, St) ->
     Route = hg_invoice_payment:get_route(St),
-    Invoice = hg_invoice_payment:get_invoice(St),
     Opts = hg_invoice_payment:get_opts(St),
+    Invoice = hg_invoice_payment:get_invoice(Opts),
     FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
     Party = get_party(Opts),
     Shop = get_shop(Opts),
