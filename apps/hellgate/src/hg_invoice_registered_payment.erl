@@ -10,6 +10,7 @@
 
 -export([init/3]).
 -export([merge_change/3]).
+-export([collapse_changes/3]).
 -export([process_finishing_registration/2]).
 
 -define(CAPTURE_REASON, <<"Timeout">>).
@@ -26,7 +27,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         payer_session_info = PayerSessionInfo,
         external_id = ExternalID,
         context = Context,
-        transaction_info = TransactionInfo1,
+        transaction_info = TransactionInfo,
         risk_score = RiskScore0,
         %% Not sure what to do with it
         occurred_at = _OccurredAt
@@ -56,26 +57,34 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     ),
     RiskScore1 = maybe_get_risk_score(RiskScore0, PaymentInstitution, Revision, Shop, Invoice, Payment),
     VS1 = VS0#{risk_score => RiskScore1},
-    FinalCashflow = build_final_cashflow(
-        Invoice,
-        Payment,
+
+    MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt, VS1),
+    ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS1, Revision),
+    FinalCashflow = hg_invoice_payment:calculate_cashflow(
         Route,
-        Party,
-        Shop,
+        Payment,
         PaymentInstitution,
-        CreatedAt,
+        ProviderTerms,
+        MerchantTerms,
         VS1,
-        Revision
+        Revision,
+        Opts,
+        CreatedAt,
+        undefined
+    ),
+    PlanID = construct_payment_plan_id(Invoice, Payment),
+    _Clock = hg_accounting:hold(
+        PlanID,
+        {1, FinalCashflow}
     ),
 
-    TransactionInfo2 = maybe_transaction_info(TransactionInfo1),
     Events = [
         ?payment_started(Payment),
         ?risk_score_changed(RiskScore1),
         ?route_changed(Route),
         ?cash_flow_changed(FinalCashflow),
         hg_session:wrap_event(?processed(), hg_session:create()),
-        hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo2)),
+        hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo)),
         hg_session:wrap_event(?processed(), ?session_finished(?session_succeeded())),
         ?payment_status_changed(?processed()),
         ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
@@ -99,7 +108,17 @@ merge_change(Change = ?session_ev(?captured(?CAPTURE_REASON, _Cost), ?session_st
     _ = hg_invoice_payment:validate_transition({payment, processing_session}, Change, St, Opts),
     St#st{
         activity = {payment, finish_registration}
-    }.
+    };
+merge_change(Change, St, Opts) ->
+    hg_invoice_payment:merge_change(Change, St, Opts).
+
+-spec collapse_changes(
+    [hg_invoice_payment:change()],
+    hg_invoice_payment:st() | undefined,
+    hg_invoice_payment:change_opts()
+) -> hg_invoice_payment:st().
+collapse_changes(Changes, St, Opts) ->
+    lists:foldl(fun(C, St1) -> merge_change(C, St1, Opts) end, St, Changes).
 
 -spec process_finishing_registration(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
     hg_invoice_payment:machine_result().
@@ -129,89 +148,9 @@ maybe_get_risk_score(undefined, PaymentInstitution, Revision, Shop, Invoice, Pay
 maybe_get_risk_score(RiskScore, _PaymentInstitution, _Revision, _Shop, _Invoice, _Payment) ->
     RiskScore.
 
-build_final_cashflow(Invoice, Payment, Route, Party, Shop, PaymentInstitution, Timestamp, VS, Revision) ->
-    Provider = get_route_provider(Route, Revision),
-    TermSet = get_merchant_terms(Party, Shop, Revision, Timestamp, VS),
-    Amount = Payment#domain_InvoicePayment.cost,
-
-    MerchantTerms = TermSet#domain_TermSet.payments,
-    MerchantCashflowSelector = MerchantTerms#domain_PaymentsServiceTerms.fees,
-    MerchantCashflow = get_selector_value(merchant_payment_fees, MerchantCashflowSelector),
-    FinalTransactionCashflow = construct_cashflow(
-        MerchantCashflow,
-        Party,
-        Shop,
-        Route,
-        Amount,
-        Revision,
-        Payment,
-        Provider,
-        VS
-    ),
-
-    ProviderTerms = get_provider_terminal_terms(Route, VS, Revision),
-    ProviderCashflow = get_provider_cashflow(ProviderTerms, Provider),
-    AccountMap = hg_accounting:collect_account_map(
-        Payment,
-        Party,
-        Shop,
-        Route,
-        PaymentInstitution,
-        Provider,
-        VS,
-        Revision
-    ),
-    CashflowContext = #{
-        operation_amount => Amount
-    },
-    FinalProviderCashflow = hg_cashflow:finalize(ProviderCashflow, CashflowContext, AccountMap),
-
-    FinalCashflow = FinalTransactionCashflow ++ FinalProviderCashflow,
-    PlanID = construct_payment_plan_id(Invoice, Payment),
-    _Clock = hg_accounting:hold(
-        PlanID,
-        {1, FinalCashflow}
-    ),
-    FinalCashflow.
-
-get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
-    ContractID = Shop#domain_Shop.contract_id,
-    Contract = hg_party:get_contract(ContractID, Party),
-    ok = assert_contract_active(Contract),
-    PreparedVS = hg_varset:prepare_contract_terms_varset(VS),
-    {Client, Context} = get_party_client(),
-    {ok, Terms} = party_client_thrift:compute_contract_terms(
-        Party#domain_Party.id,
-        ContractID,
-        Timestamp,
-        {revision, Party#domain_Party.revision},
-        DomainRevision,
-        PreparedVS,
-        Client,
-        Context
-    ),
-    Terms.
-
--spec get_provider_terminal_terms(hg_routing:payment_route(), hg_varset:varset(), hg_domain:revision()) ->
-    dmsl_domain_thrift:'PaymentsProvisionTerms'() | undefined.
-get_provider_terminal_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
-    PreparedVS = hg_varset:prepare_varset(VS),
-    {Client, Context} = get_party_client(),
-    {ok, TermsSet} = party_client_thrift:compute_provider_terminal_terms(
-        ProviderRef,
-        TerminalRef,
-        Revision,
-        PreparedVS,
-        Client,
-        Context
-    ),
-    TermsSet#domain_ProvisionTermSet.payments.
-
-get_provider_cashflow(undefined, Provider) ->
-    error({misconfiguration, {no_provider_terms, Provider}});
-get_provider_cashflow(ProviderTerms, _Provider) ->
-    ProviderCashFlowSelector = ProviderTerms#domain_PaymentsProvisionTerms.cash_flow,
-    get_selector_value(provider_payment_cash_flow, ProviderCashFlowSelector).
+get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
+    TermSet = hg_invoice_payment:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
+    TermSet#domain_TermSet.payments.
 
 commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
     ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
@@ -224,11 +163,6 @@ get_turnover_limits(undefined) ->
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).
-
-assert_contract_active(#domain_Contract{status = {active, _}}) ->
-    ok;
-assert_contract_active(#domain_Contract{status = Status}) ->
-    throw(#payproc_InvalidContractStatus{status = Status}).
 
 construct_payment(
     PaymentID,
@@ -279,9 +213,6 @@ collect_validation_varset(Party, Shop, Cost, PaymentTool) ->
 
 %%
 
-construct_final_cashflow(Cashflow, Context, AccountMap) ->
-    hg_cashflow:finalize(Cashflow, Context, AccountMap).
-
 construct_payment_plan_id(Invoice, Payment) ->
     hg_utils:construct_complex_id([
         get_invoice_id(Invoice),
@@ -295,31 +226,6 @@ get_selector_value(Name, Selector) ->
         Ambiguous ->
             error({misconfiguration, {'Could not reduce selector to a value', {Name, Ambiguous}}})
     end.
-
-%%
-
-construct_cashflow(MerchantCashflow, Party, Shop, Route, Amount, Revision, Payment, Provider, VS) ->
-    Contract = hg_party:get_contract(Shop#domain_Shop.contract_id, Party),
-    PaymentInstitutionRef = Contract#domain_Contract.payment_institution,
-    PaymentInstitution = hg_payment_institution:compute_payment_institution(
-        PaymentInstitutionRef,
-        VS,
-        Revision
-    ),
-    AccountMap = hg_accounting:collect_account_map(
-        Payment,
-        Party,
-        Shop,
-        Route,
-        PaymentInstitution,
-        Provider,
-        VS,
-        Revision
-    ),
-    Context = #{
-        operation_amount => Amount
-    },
-    construct_final_cashflow(MerchantCashflow, Context, AccountMap).
 
 %%
 
@@ -359,27 +265,3 @@ get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
 
 get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = PaymentTool}) ->
     PaymentTool.
-
-%%
-
-get_route_provider_ref(#domain_PaymentRoute{provider = ProviderRef}) ->
-    ProviderRef.
-
-get_route_provider(Route, Revision) ->
-    hg_domain:get(Revision, {provider, get_route_provider_ref(Route)}).
-
-maybe_transaction_info(undefined) ->
-    #domain_TransactionInfo{
-        id = <<"1">>,
-        extra = #{}
-    };
-maybe_transaction_info(#domain_TransactionInfo{} = TI) ->
-    TI.
-
-%% Business metrics logging
-
-get_party_client() ->
-    HgContext = hg_context:load(),
-    Client = hg_context:get_party_client(HgContext),
-    Context = hg_context:get_party_client_context(HgContext),
-    {Client, Context}.

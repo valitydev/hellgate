@@ -11,6 +11,8 @@
 -export([choose_provider_account/2]).
 -export([choose_external_account/3]).
 
+-export_type([payment_inst/0]).
+
 %%
 
 -type currency() :: dmsl_domain_thrift:'CurrencyRef'().

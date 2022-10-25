@@ -840,7 +840,7 @@ handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, 
     Invoice = St#st.invoice,
     InvoiceID = Invoice#domain_Invoice.id,
     #{timestamp := OccurredAt} = Opts,
-    PaymentSession1 = hg_invoice_payment:collapse_changes(Changes, PaymentSession, #{invoice_id => InvoiceID}),
+    PaymentSession1 = collapse_payment_changes(Changes, PaymentSession, #{invoice_id => InvoiceID}),
     Payment = hg_invoice_payment:get_payment(PaymentSession1),
     case get_payment_status(Payment) of
         ?processed() ->
@@ -884,6 +884,14 @@ handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, 
                 action => set_invoice_timer(Action, St),
                 state => St
             }
+    end.
+
+collapse_payment_changes(Changes, PaymentSession, ChangeOpts) ->
+    case hg_invoice_payment:get_origin(PaymentSession) of
+        ?invoice_payment_merchant_reg_origin() ->
+            hg_invoice_payment:collapse_changes(Changes, PaymentSession, ChangeOpts);
+        ?invoice_payment_provider_reg_origin() ->
+            hg_invoice_registered_payment:collapse_changes(Changes, PaymentSession, ChangeOpts)
     end.
 
 wrap_payment_changes(PaymentID, Changes, OccurredAt) ->
@@ -1131,7 +1139,7 @@ merge_change(?invoice_adjustment_ev(ID, Event), St, _Opts) ->
     end;
 merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts) ->
     PaymentSession = try_get_payment_session(PaymentID, St),
-    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
+    PaymentSession1 = merge_payment_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
     St1 = set_payment_session(PaymentID, PaymentSession1, St),
     case hg_invoice_payment:get_activity(PaymentSession1) of
         A when A =/= idle ->
@@ -1139,6 +1147,14 @@ merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{
             St1#st{activity = {payment, PaymentID}};
         idle ->
             check_non_idle_payments(St1)
+    end.
+
+merge_payment_change(Change, PaymentSession, Opts) ->
+    case hg_invoice_payment:get_origin(PaymentSession) of
+        ?invoice_payment_merchant_reg_origin() ->
+            hg_invoice_payment:merge_change(Change, PaymentSession, Opts);
+        ?invoice_payment_provider_reg_origin() ->
+            hg_invoice_registered_payment:merge_change(Change, PaymentSession, Opts)
     end.
 
 -spec check_non_idle_payments(st()) -> st().
