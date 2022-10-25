@@ -47,13 +47,11 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         CreatedAt,
         Cost1,
         Payer,
-        PaymentTool,
         Party,
         Shop,
         PayerSessionInfo,
         Context,
         ExternalID,
-        VS0,
         Revision
     ),
     RiskScore1 = maybe_get_risk_score(RiskScore0, PaymentInstitution, Revision, Shop, Invoice, Payment),
@@ -237,21 +235,13 @@ construct_payment(
     CreatedAt,
     Cost,
     Payer,
-    PaymentTool,
     Party,
     Shop,
     PayerSessionInfo,
     Context,
     ExternalID,
-    VS,
     Revision
 ) ->
-    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS),
-    #domain_TermSet{payments = PaymentTerms} = Terms,
-    ok = validate_payment_tool(
-        PaymentTool,
-        PaymentTerms#domain_PaymentsServiceTerms.payment_methods
-    ),
     #domain_InvoicePayment{
         id = PaymentID,
         created_at = CreatedAt,
@@ -269,17 +259,6 @@ construct_payment(
         make_recurrent = false,
         registration_origin = ?invoice_payment_provider_reg_origin()
     }.
-
-validate_payment_tool(PaymentTool, PaymentMethodSelector) ->
-    PMs = get_selector_value(payment_methods, PaymentMethodSelector),
-    _ =
-        case hg_payment_tool:has_any_payment_method(PaymentTool, PMs) of
-            false ->
-                throw_invalid_request(<<"Invalid payment method">>);
-            true ->
-                ok
-        end,
-    ok.
 
 collect_validation_varset(Party, Shop, Cost, PaymentTool) ->
     #domain_Party{id = PartyID} = Party,
@@ -380,10 +359,6 @@ get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
 
 get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = PaymentTool}) ->
     PaymentTool.
-
--spec throw_invalid_request(binary()) -> no_return().
-throw_invalid_request(Why) ->
-    throw(#base_InvalidRequest{errors = [Why]}).
 
 %%
 
