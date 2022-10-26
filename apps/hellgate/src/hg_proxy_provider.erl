@@ -12,6 +12,7 @@
 
 -export([bind_transaction/2]).
 -export([update_proxy_state/2]).
+-export([handle_interaction_intent/2]).
 -export([wrap_session_events/2]).
 
 -include("payment_events.hrl").
@@ -23,6 +24,9 @@
 
 -type change() :: dmsl_payproc_thrift:'SessionChangePayload'().
 -type proxy_state() :: dmsl_base_thrift:'Opaque'().
+-type proxy_intent() ::
+    dmsl_proxy_provider_thrift:'Intent'()
+    | dmsl_proxy_provider_thrift:'RecurrentTokenIntent'().
 
 %%
 
@@ -97,7 +101,7 @@ get_route_provider(#domain_PaymentRoute{provider = ProviderRef}) ->
 
 %%
 
--spec bind_transaction(trx_info(), term()) -> [change()].
+-spec bind_transaction(trx_info(), _Session) -> [change()].
 bind_transaction(undefined, _Session) ->
     % no transaction yet
     [];
@@ -133,6 +137,50 @@ update_proxy_state(ProxyState, Session) ->
 
 get_session_proxy_state(Session) ->
     maps:get(proxy_state, Session, undefined).
+
+%%
+
+-spec handle_interaction_intent(proxy_intent(), _Session) ->
+    [change()].
+handle_interaction_intent(
+    {sleep, #proxy_provider_SleepIntent{
+        user_interaction = UserInteraction,
+        user_interaction_completion = Completion
+    }},
+    Session
+) ->
+    handle_interaction_intent(UserInteraction, Completion, Session);
+handle_interaction_intent(
+    {suspend, #proxy_provider_SuspendIntent{
+        user_interaction = UserInteraction,
+        user_interaction_completion = Completion
+    }},
+    Session
+) ->
+    handle_interaction_intent(UserInteraction, Completion, Session);
+handle_interaction_intent(
+    {finish, _FinishIntent},
+    #{interaction := InteractionPrev}
+) ->
+    [?interaction_changed(InteractionPrev, ?interaction_completed)];
+handle_interaction_intent(_Intent, _Session) ->
+    [].
+
+handle_interaction_intent(UserInteraction, Completion, Session) ->
+    try_complete_interaction(Completion, Session) ++ try_request_interaction(UserInteraction).
+
+try_complete_interaction(undefined, _Session) ->
+    [];
+try_complete_interaction(#user_interaction_Completed{}, #{interaction := InteractionPrev}) ->
+    [?interaction_changed(InteractionPrev, ?interaction_completed)];
+try_complete_interaction(#user_interaction_Completed{}, Session) ->
+    _ = logger:warning("Received unexpected user interaction completion, session: ~p", [Session]),
+    [].
+
+try_request_interaction(undefined) ->
+    [];
+try_request_interaction(UserInteraction) ->
+    [?interaction_changed(UserInteraction, ?interaction_requested)].
 
 %%
 
