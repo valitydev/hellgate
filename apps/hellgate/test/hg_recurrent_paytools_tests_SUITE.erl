@@ -344,11 +344,16 @@ recurrent_paytool_w_tds_acquired(C) ->
         ?session_ev(?session_started())
     ] = next_event(RecurrentPaytoolID, Client),
     [
-        ?session_ev(?interaction_requested(UserInteraction))
+        ?session_ev(?interaction_changed(UserInteraction, ?interaction_requested))
     ] = next_event(RecurrentPaytoolID, Client),
 
     _ = assert_success_interaction(UserInteraction),
-    ok = await_acquirement_finish(RecurrentPaytoolID, Client).
+    [
+        ?session_ev(?trx_bound(?trx_info(_))),
+        ?session_ev(?interaction_changed(UserInteraction, ?interaction_completed)),
+        ?session_ev(?session_finished(?session_succeeded())),
+        ?recurrent_payment_tool_has_acquired(_)
+    ] = next_event(RecurrentPaytoolID, Client).
 
 recurrent_paytool_abandoned(C) ->
     Client = cfg(client, C),
