@@ -3554,12 +3554,12 @@ try_get_chargeback_state(ID, #st{chargebacks = CBs}) ->
 set_refund_state(ID, RefundSt, St = #st{refunds = Rs}) ->
     St#st{refunds = Rs#{ID => RefundSt}}.
 
--spec get_origin(st()) -> dmsl_domain_thrift:'InvoicePaymentRegistrationOrigin'().
+-spec get_origin(st() | undefined) -> dmsl_domain_thrift:'InvoicePaymentRegistrationOrigin'().
 get_origin(#st{payment = #domain_InvoicePayment{registration_origin = undefined}}) ->
     ?invoice_payment_merchant_reg_origin();
 get_origin(#st{payment = #domain_InvoicePayment{registration_origin = Origin}}) ->
     Origin;
-get_origin(#st{}) ->
+get_origin(_) ->
     ?invoice_payment_merchant_reg_origin().
 
 get_captured_cost(#domain_InvoicePaymentCaptured{cost = Cost}, _) when Cost /= undefined ->
