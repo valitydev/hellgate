@@ -4847,8 +4847,23 @@ payment_with_offsite_preauth_success(C) ->
     timer:sleep(2000),
     {URL, Form} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, Form}),
-    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
-    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?trx_bound(?trx_info(_)))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_completed))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_succeeded()))
+        )
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_event(InvoiceID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
