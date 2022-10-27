@@ -8,10 +8,9 @@
     [
         create/2,
         create/3,
+        process/1,
         capture/0,
-        capture/1,
-        cancel/0,
-        cancel/1
+        capture/1
     ]
 ).
 
@@ -32,8 +31,8 @@
 -type captured() ::
     {captured, dmsl_domain_thrift:'InvoiceAdjustmentCaptured'()}.
 
--type cancelled() ::
-    {cancelled, dmsl_domain_thrift:'InvoiceAdjustmentCancelled'()}.
+-type processed() ::
+    {processed, dmsl_domain_thrift:'InvoiceAdjustmentProcessed'()}.
 
 -type result() ::
     {[change()], action()}.
@@ -64,6 +63,13 @@ create(ID, Params, Timestamp) ->
     Action = hg_machine_action:instant(),
     {Adjustment, {Changes, Action}}.
 
+-spec process(hg_datetime:timestamp()) -> {ok, result()}.
+process(Timestamp) ->
+    AdjustmentTarget = build_adjustment_target(processed, Timestamp),
+    Changes = [?invoice_adjustment_status_changed(AdjustmentTarget)],
+    Action = hg_machine_action:instant(),
+    {ok, {Changes, Action}}.
+
 -spec capture() -> {ok, result()}.
 capture() ->
     capture(hg_datetime:format_now()).
@@ -71,17 +77,6 @@ capture() ->
 -spec capture(hg_datetime:timestamp()) -> {ok, result()}.
 capture(Timestamp) ->
     AdjustmentTarget = build_adjustment_target(captured, Timestamp),
-    Changes = [?invoice_adjustment_status_changed(AdjustmentTarget)],
-    Action = hg_machine_action:new(),
-    {ok, {Changes, Action}}.
-
--spec cancel() -> {ok, result()}.
-cancel() ->
-    cancel(hg_datetime:format_now()).
-
--spec cancel(hg_datetime:timestamp()) -> {ok, result()}.
-cancel(Timestamp) ->
-    AdjustmentTarget = build_adjustment_target(cancelled, Timestamp),
     Changes = [?invoice_adjustment_status_changed(AdjustmentTarget)],
     Action = hg_machine_action:new(),
     {ok, {Changes, Action}}.
@@ -111,12 +106,12 @@ build_adjustment_state(Params) ->
     end.
 
 -spec build_adjustment_target
-    (captured, hg_datetime:timestamp()) -> captured();
-    (cancelled, hg_datetime:timestamp()) -> cancelled().
+    (processed, hg_datetime:timestamp()) -> processed();
+    (captured, hg_datetime:timestamp()) -> captured().
+build_adjustment_target(processed, _Timestamp) ->
+    {processed, #domain_InvoiceAdjustmentProcessed{}};
 build_adjustment_target(captured, Timestamp) ->
-    {captured, #domain_InvoiceAdjustmentCaptured{at = Timestamp}};
-build_adjustment_target(cancelled, Timestamp) ->
-    {cancelled, #domain_InvoiceAdjustmentCancelled{at = Timestamp}}.
+    {captured, #domain_InvoiceAdjustmentCaptured{at = Timestamp}}.
 
 -spec do_get_log_params(change()) -> {ok, log_params()} | undefined.
 do_get_log_params(?invoice_adjustment_created(Adjustment)) ->

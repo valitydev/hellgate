@@ -2203,12 +2203,6 @@ payment_adjustment_success(C) ->
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed())))
     ] = next_change(InvoiceID, Client),
-    ok =
-        hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
-    ?invalid_adjustment_status(?adjustment_captured(_)) =
-        hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
-    ?invalid_adjustment_status(?adjustment_captured(_)) =
-        hg_client_invoicing:cancel_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
     ] = next_change(InvoiceID, Client),
@@ -6725,10 +6719,19 @@ execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed())))
     ] = next_change(InvoiceID, Client),
-    ok = hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
-    [
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
-    ] = next_change(InvoiceID, Client),
+    true = lists:any(
+        fun
+            (
+                ?payment_ev(
+                    PaymentID1, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_)))
+                )
+            ) ->
+                PaymentID =:= PaymentID1 andalso AdjustmentID =:= AdjustmentID1;
+            (_) ->
+                false
+        end,
+        next_change(InvoiceID, Client)
+    ),
     AdjustmentID.
 
 execute_payment_refund(InvoiceID, PaymentID, #payproc_InvoicePaymentRefundParams{cash = undefined} = Params, Client) ->
