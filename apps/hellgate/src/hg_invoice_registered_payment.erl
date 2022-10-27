@@ -107,6 +107,16 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     hg_invoice_payment:change_opts()
 ) -> hg_invoice_payment:st().
 merge_change(
+    Change = ?route_changed(_Route, _Candidates),
+    #st{} = St0,
+    Opts
+) ->
+    %% Skip risk scoring, if it isn't provided
+    St1 = St0#st{
+        activity = {payment, routing}
+    },
+    hg_invoice_payment:merge_change(Change, St1, Opts);
+merge_change(
     Change = ?session_ev(
         ?captured(?CAPTURE_REASON, _Cost),
         ?session_finished(?session_succeeded())

@@ -1123,7 +1123,8 @@ register_payment_customer_payer_success(C) ->
             {customer, #payproc_CustomerPayerParams{
                 customer_id = CustomerID
             }},
-        route = Route
+        route = Route,
+        transaction_info = #domain_TransactionInfo{id = <<"1">>, extra = #{}}
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -1149,7 +1150,8 @@ register_invoice_payment(ShopID, Client, C) ->
                 },
                 contact_info = #domain_ContactInfo{}
             }},
-        route = Route
+        route = Route,
+        transaction_info = #domain_TransactionInfo{id = <<"1">>, extra = #{}}
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -2528,7 +2530,8 @@ registered_payment_adjustment_success(C) ->
                 },
                 contact_info = #domain_ContactInfo{}
             }},
-        route = Route
+        route = Route,
+        transaction_info = #domain_TransactionInfo{id = <<"1">>, extra = #{}}
     },
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, PaymentParams, Client),
