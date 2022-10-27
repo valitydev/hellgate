@@ -887,12 +887,7 @@ handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, 
     end.
 
 collapse_payment_changes(Changes, PaymentSession, ChangeOpts) ->
-    case hg_invoice_payment:get_origin(PaymentSession) of
-        ?invoice_payment_merchant_reg_origin() ->
-            hg_invoice_payment:collapse_changes(Changes, PaymentSession, ChangeOpts);
-        ?invoice_payment_provider_reg_origin() ->
-            hg_invoice_registered_payment:collapse_changes(Changes, PaymentSession, ChangeOpts)
-    end.
+    lists:foldl(fun(C, St1) -> merge_payment_change(C, St1, ChangeOpts) end, PaymentSession, Changes).
 
 wrap_payment_changes(PaymentID, Changes, OccurredAt) ->
     [?payment_ev(PaymentID, C, OccurredAt) || C <- Changes].

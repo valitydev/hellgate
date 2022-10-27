@@ -99,7 +99,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     ChangeOpts = #{
         invoice_id => Invoice#domain_Invoice.id
     },
-    {hg_invoice_payment:collapse_changes(Events, undefined, ChangeOpts), {Events, hg_machine_action:new()}}.
+    {collapse_changes(Events, undefined, ChangeOpts), {Events, hg_machine_action:new()}}.
 
 -spec merge_change(
     hg_invoice_payment:change(),

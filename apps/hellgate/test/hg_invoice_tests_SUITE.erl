@@ -6331,9 +6331,14 @@ start_payment_ev(InvoiceID, Client) ->
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
     ] = next_change(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?risk_score_changed(_))
-    ] = next_change(InvoiceID, Client),
+    ok =
+        case get_next_change(InvoiceID, Client) of
+            [?payment_ev(PaymentID, ?risk_score_changed(_RiskScore))] = C ->
+                C = next_change(InvoiceID, Client),
+                ok;
+            _ ->
+                ok
+        end,
     [
         ?payment_ev(PaymentID, ?route_changed(Route))
     ] = next_change(InvoiceID, Client),
