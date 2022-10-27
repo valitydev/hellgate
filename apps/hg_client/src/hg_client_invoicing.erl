@@ -1,6 +1,7 @@
 -module(hg_client_invoicing).
 
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("hellgate/include/invoice_events.hrl").
 
 -export([start/1]).
 -export([start_link/1]).
@@ -49,6 +50,9 @@
 
 -export([pull_event/2]).
 -export([pull_event/3]).
+
+-export([pull_change/4]).
+-export([get_change/4]).
 
 %% GenServer
 
@@ -297,14 +301,63 @@ compute_terms(InvoiceID, PartyRevision, Client) ->
 
 -define(DEFAULT_NEXT_EVENT_TIMEOUT, 5000).
 
--spec pull_event(invoice_id(), pid()) -> tuple() | timeout | woody_error:business_error().
+-spec pull_event(invoice_id(), pid()) ->
+    tuple() | timeout | woody_error:business_error().
 pull_event(InvoiceID, Client) ->
     pull_event(InvoiceID, ?DEFAULT_NEXT_EVENT_TIMEOUT, Client).
 
--spec pull_event(invoice_id(), timeout(), pid()) -> tuple() | timeout | woody_error:business_error().
+-spec pull_event(invoice_id(), timeout(), pid()) ->
+    tuple() | timeout | woody_error:business_error().
 pull_event(InvoiceID, Timeout, Client) ->
-    % FIXME: infinity sounds dangerous
-    gen_server:call(Client, {pull_event, InvoiceID, Timeout}, infinity).
+    gen_server:call(Client, {pull_event, InvoiceID, Timeout}, Timeout + 1000).
+
+-spec pull_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
+    tuple() | timeout | woody_error:business_error().
+pull_change(InvoiceID, FilterMapFun, Timeout, Client) ->
+    case hg_kv_store:get({self(), events}) of
+        Changes when is_list(Changes) andalso length(Changes) > 0 ->
+            {ResultChange, RemainingChanges} = lists:split(1, Changes),
+            ok = hg_kv_store:put({self(), events}, RemainingChanges),
+            ResultChange;
+        _ ->
+            case pull_event(InvoiceID, Timeout, Client) of
+                {ok, ?invoice_ev(Changes)} ->
+                    case filter_changes(Changes, FilterMapFun) of
+                        L when length(L) > 0 ->
+                            {ResultChange, RemainingChanges} = lists:split(1, L),
+                            ok = hg_kv_store:put({self(), events}, RemainingChanges),
+                            ResultChange;
+                        [] ->
+                            pull_change(InvoiceID, FilterMapFun, Timeout, Client)
+                    end;
+                Result ->
+                    Result
+            end
+    end.
+
+-spec get_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
+    tuple() | timeout | woody_error:business_error().
+get_change(InvoiceID, FilterMapFun, Timeout, Client) ->
+    case hg_kv_store:get({self(), events}) of
+        [Change | _] ->
+            [Change];
+        _ ->
+            case pull_event(InvoiceID, Timeout, Client) of
+                {ok, ?invoice_ev(Changes)} ->
+                    case filter_changes(Changes, FilterMapFun) of
+                        [Change | _] = Changes ->
+                            ok = hg_kv_store:put({self(), events}, Changes),
+                            Change;
+                        [] ->
+                            get_change(InvoiceID, FilterMapFun, Timeout, Client)
+                    end;
+                Result ->
+                    Result
+            end
+    end.
+
+filter_changes(Changes, FilterMapFun) ->
+    lists:filtermap(FilterMapFun, Changes).
 
 map_result_error({ok, Result}) ->
     Result;

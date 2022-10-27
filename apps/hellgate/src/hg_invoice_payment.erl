@@ -50,6 +50,7 @@
 -export([get_opts/1]).
 -export([get_invoice/1]).
 -export([get_origin/1]).
+-export([get_risk_score/1]).
 
 -export([construct_payment_info/2]).
 -export([set_repair_scenario/2]).

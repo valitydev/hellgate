@@ -28,7 +28,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         external_id = ExternalID,
         context = Context,
         transaction_info = TransactionInfo,
-        risk_score = RiskScore0,
+        risk_score = RiskScore,
         %% Not sure what to do with it
         occurred_at = _OccurredAt
     } = Params,
@@ -39,9 +39,9 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
     {ok, Payer, _} = hg_invoice_payment:construct_payer(PayerParams, Shop),
     PaymentTool = get_payer_payment_tool(Payer),
-    VS0 = collect_validation_varset(Party, Shop, Cost1, PaymentTool),
+    VS = collect_validation_varset(Party, Shop, Cost1, PaymentTool, RiskScore),
     PaymentInstitutionRef = get_payment_institution_ref(Opts),
-    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS0, Revision),
+    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
 
     Payment = construct_payment(
         PaymentID,
@@ -55,18 +55,17 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         ExternalID,
         Revision
     ),
-    RiskScore1 = maybe_get_risk_score(RiskScore0, PaymentInstitution, Revision, Shop, Invoice, Payment),
-    VS1 = VS0#{risk_score => RiskScore1},
+    RiskScoreEventList = maybe_risk_score_event_list(RiskScore),
 
-    MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt, VS1),
-    ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS1, Revision),
+    MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt, VS),
+    ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS, Revision),
     FinalCashflow = hg_invoice_payment:calculate_cashflow(
         Route,
         Payment,
         PaymentInstitution,
         ProviderTerms,
         MerchantTerms,
-        VS1,
+        VS,
         Revision,
         Opts,
         CreatedAt,
@@ -78,22 +77,25 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         {1, FinalCashflow}
     ),
 
-    Events = [
-        ?payment_started(Payment),
-        ?risk_score_changed(RiskScore1),
-        ?route_changed(Route),
-        ?cash_flow_changed(FinalCashflow),
-        hg_session:wrap_event(?processed(), hg_session:create()),
-        hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo)),
-        hg_session:wrap_event(?processed(), ?session_finished(?session_succeeded())),
-        ?payment_status_changed(?processed()),
-        ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
-            reason = ?CAPTURE_REASON,
-            cash = Cost1
-        }),
-        hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost1), hg_session:create()),
-        hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost1), ?session_finished(?session_succeeded()))
-    ],
+    Events =
+        [
+            ?payment_started(Payment)
+        ] ++
+            RiskScoreEventList ++
+            [
+                ?route_changed(Route),
+                ?cash_flow_changed(FinalCashflow),
+                hg_session:wrap_event(?processed(), hg_session:create()),
+                hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo)),
+                hg_session:wrap_event(?processed(), ?session_finished(?session_succeeded())),
+                ?payment_status_changed(?processed()),
+                ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
+                    reason = ?CAPTURE_REASON,
+                    cash = Cost1
+                }),
+                hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost1), hg_session:create()),
+                hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost1), ?session_finished(?session_succeeded()))
+            ],
     ChangeOpts = #{
         invoice_id => Invoice#domain_Invoice.id
     },
@@ -104,11 +106,28 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     hg_invoice_payment:st() | undefined,
     hg_invoice_payment:change_opts()
 ) -> hg_invoice_payment:st().
-merge_change(Change = ?session_ev(?captured(?CAPTURE_REASON, _Cost), ?session_started()), #st{} = St, Opts) ->
-    _ = hg_invoice_payment:validate_transition({payment, processing_session}, Change, St, Opts),
-    St#st{
+merge_change(
+    Change = ?session_ev(
+        ?captured(?CAPTURE_REASON, _Cost),
+        ?session_finished(?session_succeeded())
+    ),
+    #st{} = St0,
+    Opts
+) ->
+    St1 = hg_invoice_payment:merge_change(Change, St0, Opts),
+    St1#st{
         activity = {payment, finish_registration}
     };
+merge_change(
+    Change = ?payment_status_changed(?captured(?CAPTURE_REASON, _Cost)),
+    #st{} = St0,
+    Opts
+) ->
+    _ = hg_invoice_payment:validate_transition({payment, finish_registration}, Change, St0, Opts),
+    St1 = St0#st{
+        activity = {payment, finalizing_accounter}
+    },
+    hg_invoice_payment:merge_change(Change, St1, Opts);
 merge_change(Change, St, Opts) ->
     hg_invoice_payment:merge_change(Change, St, Opts).
 
@@ -125,6 +144,7 @@ collapse_changes(Changes, St, Opts) ->
 process_finishing_registration(Action, St) ->
     Route = hg_invoice_payment:get_route(St),
     Opts = hg_invoice_payment:get_opts(St),
+    RiskScore = hg_invoice_payment:get_risk_score(St),
     Invoice = hg_invoice_payment:get_invoice(Opts),
     FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
     Party = get_party(Opts),
@@ -135,18 +155,16 @@ process_finishing_registration(Action, St) ->
         domain_revision = Revision
     } = Payment = hg_invoice_payment:get_payment(St),
     PaymentTool = get_payer_payment_tool(Payer),
-    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool),
+    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore),
     ok = commit_payment_limits(Route, Invoice, Payment, Cost, VS, Revision),
     PlanID = construct_payment_plan_id(Invoice, Payment),
     _ = hg_accounting:commit(PlanID, [{1, FinalCashflow}]),
     {done, {[?payment_status_changed(?captured(?CAPTURE_REASON, Cost))], Action}}.
 
-maybe_get_risk_score(undefined, PaymentInstitution, Revision, Shop, Invoice, Payment) ->
-    InspectorRef = get_selector_value(inspector, PaymentInstitution#domain_PaymentInstitution.inspector),
-    Inspector = hg_domain:get(Revision, {inspector, InspectorRef}),
-    hg_inspector:inspect(Shop, Invoice, Payment, Inspector);
-maybe_get_risk_score(RiskScore, _PaymentInstitution, _Revision, _Shop, _Invoice, _Payment) ->
-    RiskScore.
+maybe_risk_score_event_list(undefined) ->
+    [];
+maybe_risk_score_event_list(RiskScore) ->
+    [?risk_score_changed(RiskScore)].
 
 get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
     TermSet = hg_invoice_payment:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
@@ -158,7 +176,6 @@ commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
     hg_limiter:commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, Cash).
 
 get_turnover_limits(undefined) ->
-    logger:info("Provider terms haven't been set."),
     [];
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
@@ -194,7 +211,7 @@ construct_payment(
         registration_origin = ?invoice_payment_provider_reg_origin()
     }.
 
-collect_validation_varset(Party, Shop, Cost, PaymentTool) ->
+collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore) ->
     #domain_Party{id = PartyID} = Party,
     #domain_Shop{
         id = ShopID,
@@ -208,6 +225,7 @@ collect_validation_varset(Party, Shop, Cost, PaymentTool) ->
         currency => Currency,
         cost => Cost,
         payment_tool => PaymentTool,
+        risk_score => RiskScore,
         flow => instant
     }.
 
@@ -218,14 +236,6 @@ construct_payment_plan_id(Invoice, Payment) ->
         get_invoice_id(Invoice),
         get_payment_id(Payment)
     ]).
-
-get_selector_value(Name, Selector) ->
-    case Selector of
-        {value, V} ->
-            V;
-        Ambiguous ->
-            error({misconfiguration, {'Could not reduce selector to a value', {Name, Ambiguous}}})
-    end.
 
 %%
 
