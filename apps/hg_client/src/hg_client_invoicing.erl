@@ -314,47 +314,12 @@ pull_event(InvoiceID, Timeout, Client) ->
 -spec pull_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
     tuple() | timeout | woody_error:business_error().
 pull_change(InvoiceID, FilterMapFun, Timeout, Client) ->
-    case hg_kv_store:get({self(), events}) of
-        Changes when is_list(Changes) andalso length(Changes) > 0 ->
-            {ResultChange, RemainingChanges} = lists:split(1, Changes),
-            ok = hg_kv_store:put({self(), events}, RemainingChanges),
-            ResultChange;
-        _ ->
-            case pull_event(InvoiceID, Timeout, Client) of
-                {ok, ?invoice_ev(Changes)} ->
-                    case filter_changes(Changes, FilterMapFun) of
-                        L when length(L) > 0 ->
-                            {ResultChange, RemainingChanges} = lists:split(1, L),
-                            ok = hg_kv_store:put({self(), events}, RemainingChanges),
-                            ResultChange;
-                        [] ->
-                            pull_change(InvoiceID, FilterMapFun, Timeout, Client)
-                    end;
-                Result ->
-                    Result
-            end
-    end.
+    gen_server:call(Client, {pull_change, InvoiceID, FilterMapFun, Timeout}, Timeout + 1000).
 
 -spec get_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
     tuple() | timeout | woody_error:business_error().
 get_change(InvoiceID, FilterMapFun, Timeout, Client) ->
-    case hg_kv_store:get({self(), events}) of
-        [Change | _] ->
-            [Change];
-        _ ->
-            case pull_event(InvoiceID, Timeout, Client) of
-                {ok, ?invoice_ev(Changes)} ->
-                    case filter_changes(Changes, FilterMapFun) of
-                        [Change | _] = Changes ->
-                            ok = hg_kv_store:put({self(), events}, Changes),
-                            [Change];
-                        [] ->
-                            get_change(InvoiceID, FilterMapFun, Timeout, Client)
-                    end;
-                Result ->
-                    Result
-            end
-    end.
+    gen_server:call(Client, {get_change, InvoiceID, FilterMapFun, Timeout}, Timeout + 1000).
 
 filter_changes(Changes, FilterMapFun) ->
     lists:filtermap(FilterMapFun, Changes).
@@ -369,10 +334,17 @@ map_result_error({error, Error}) ->
 %%
 
 -type event() :: dmsl_payproc_thrift:'Event'().
+-type changes() :: [
+    dmsl_payproc_thrift:'InvoiceChange'()
+    | dmsl_payproc_thrift:'PartyChange'()
+    | dmsl_payproc_thrift:'InvoiceTemplateChange'()
+    | dmsl_payproc_thrift:'CustomerChange'()
+].
 
 -record(state, {
     pollers :: #{invoice_id() => hg_client_event_poller:st(event())},
-    client :: hg_client_api:t()
+    client :: hg_client_api:t(),
+    changes = #{} :: #{{callref(), invoice_id()} => [changes()]}
 }).
 
 -type state() :: #state{}.
@@ -386,18 +358,15 @@ init(ApiClient) ->
 handle_call({call, Function, Args}, _From, St = #state{client = Client}) ->
     {Result, ClientNext} = hg_client_api:call(invoicing, Function, Args, Client),
     {reply, Result, St#state{client = ClientNext}};
-handle_call({pull_event, InvoiceID, Timeout}, _From, St = #state{client = Client}) ->
-    Poller = get_poller(InvoiceID, St),
-    {Result, ClientNext, PollerNext} = hg_client_event_poller:poll(1, Timeout, Client, Poller),
-    StNext = set_poller(InvoiceID, PollerNext, St#state{client = ClientNext}),
-    case Result of
-        [] ->
-            {reply, timeout, StNext};
-        [#payproc_Event{payload = Payload}] ->
-            {reply, {ok, Payload}, StNext};
-        Error ->
-            {reply, Error, StNext}
-    end;
+handle_call({pull_event, InvoiceID, Timeout}, _From, St) ->
+    {Result, StNext} = handle_pull_event(InvoiceID, Timeout, St),
+    {reply, Result, StNext};
+handle_call({pull_change, InvoiceID, FilterMapFun, Timeout}, From, St) ->
+    {Result, StNext} = handle_pull_change(InvoiceID, FilterMapFun, Timeout, From, St),
+    {reply, Result, StNext};
+handle_call({get_change, InvoiceID, FilterMapFun, Timeout}, From, St) ->
+    {Result, StNext} = handle_get_change(InvoiceID, FilterMapFun, Timeout, From, St),
+    {reply, Result, StNext};
 handle_call(Call, _From, State) ->
     _ = logger:warning("unexpected call received: ~tp", [Call]),
     {noreply, State}.
@@ -421,6 +390,63 @@ code_change(_OldVsn, _State, _Extra) ->
     {error, noimpl}.
 
 %%
+
+handle_pull_event(InvoiceID, Timeout, St = #state{client = Client}) ->
+    Poller = get_poller(InvoiceID, St),
+    {Result, ClientNext, PollerNext} = hg_client_event_poller:poll(1, Timeout, Client, Poller),
+    StNext = set_poller(InvoiceID, PollerNext, St#state{client = ClientNext}),
+    case Result of
+        [] ->
+            {timeout, StNext};
+        [#payproc_Event{payload = Payload}] ->
+            {{ok, Payload}, StNext};
+        Error ->
+            {Error, StNext}
+    end.
+
+handle_pull_change(InvoiceID, FilterMapFun, Timeout, From, St = #state{changes = ChangesMap}) ->
+    case ChangesMap of
+        #{{From, InvoiceID} := Changes} when is_list(Changes) andalso length(Changes) > 0 ->
+            {ResultChange, RemainingChanges} = lists:split(1, Changes),
+            ChangesMapNext = ChangesMap#{{From, InvoiceID} => RemainingChanges},
+            StNext = St#state{changes = ChangesMapNext},
+            {ResultChange, StNext};
+        _ ->
+            case handle_pull_event(InvoiceID, Timeout, St) of
+                {{ok, ?invoice_ev(Changes)}, StNext0} ->
+                    case filter_changes(Changes, FilterMapFun) of
+                        L when length(L) > 0 ->
+                            {ResultChange, RemainingChanges} = lists:split(1, L),
+                            ChangesMapNext = ChangesMap#{{From, InvoiceID} => RemainingChanges},
+                            StNext1 = StNext0#state{changes = ChangesMapNext},
+                            {ResultChange, StNext1};
+                        [] ->
+                            handle_pull_change(InvoiceID, FilterMapFun, Timeout, From, St)
+                    end;
+                {Result, StNext0} ->
+                    {Result, StNext0}
+            end
+    end.
+
+handle_get_change(InvoiceID, FilterMapFun, Timeout, From, St = #state{changes = ChangesMap}) ->
+    case ChangesMap of
+        #{{From, InvoiceID} := [Change | _]} ->
+            {[Change], St};
+        _ ->
+            case handle_pull_event(InvoiceID, Timeout, St) of
+                {{ok, ?invoice_ev(Changes)}, StNext0} ->
+                    case filter_changes(Changes, FilterMapFun) of
+                        [Change | _] = Changes ->
+                            ChangesMapNext = ChangesMap#{{From, InvoiceID} => Changes},
+                            StNext1 = StNext0#state{changes = ChangesMapNext},
+                            {[Change], StNext1};
+                        [] ->
+                            handle_get_change(InvoiceID, FilterMapFun, Timeout, From, St)
+                    end;
+                {Result, StNext0} ->
+                    {Result, StNext0}
+            end
+    end.
 
 get_poller(InvoiceID, #state{pollers = Pollers}) ->
     maps:get(InvoiceID, Pollers, construct_poller(InvoiceID)).
