@@ -6737,15 +6737,6 @@ construct_domain_fixture() ->
                                 {condition,
                                     {payment_tool,
                                         {bank_card, #domain_BankCardCondition{
-                                            definition = {payment_system_is, mastercard}
-                                        }}}},
-                            then_ = {value, ?hold_lifetime(120)}
-                        },
-                        #domain_HoldLifetimeDecision{
-                            if_ =
-                                {condition,
-                                    {payment_tool,
-                                        {bank_card, #domain_BankCardCondition{
                                             definition =
                                                 {payment_system, #domain_PaymentSystemCondition{
                                                     payment_system_is = ?pmt_sys(<<"mastercard-ref">>)

@@ -702,15 +702,6 @@ construct_domain_fixture(TermSet) ->
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}
-                                    },
-                                    #domain_HoldLifetimeDecision{
-                                        if_ =
-                                            {condition,
-                                                {payment_tool,
-                                                    {bank_card, #domain_BankCardCondition{
-                                                        definition = {payment_system_is, visa}
-                                                    }}}},
-                                        then_ = {value, ?hold_lifetime(12)}
                                     }
                                 ]}
                         }
