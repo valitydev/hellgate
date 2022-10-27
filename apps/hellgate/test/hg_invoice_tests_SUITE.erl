@@ -213,6 +213,7 @@ init([]) ->
 -define(LIMIT_ID2, <<"ID2">>).
 -define(LIMIT_ID3, <<"ID3">>).
 -define(LIMIT_UPPER_BOUNDARY, 100000).
+-define(DEFAULT_NEXT_CHANGE_TIMEOUT, 12000).
 
 cfg(Key, C) ->
     hg_ct_helper:cfg(Key, C).
@@ -5963,11 +5964,11 @@ consistent_account_balances(C) ->
 
 get_next_change(InvoiceID, Client) ->
     %% timeout should be at least as large as hold expiration in construct_domain_fixture/0
-    hg_client_invoicing:get_change(InvoiceID, fun filter_change/1, 12000, Client).
+    hg_client_invoicing:get_change(InvoiceID, fun filter_change/1, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
 
 next_change(InvoiceID, Client) ->
     %% timeout should be at least as large as hold expiration in construct_domain_fixture/0
-    next_change(InvoiceID, 12000, Client).
+    next_change(InvoiceID, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
 
 next_change(InvoiceID, Timeout, Client) ->
     hg_client_invoicing:pull_change(InvoiceID, fun filter_change/1, Timeout, Client).
