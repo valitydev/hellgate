@@ -347,7 +347,7 @@ get_change(InvoiceID, FilterMapFun, Timeout, Client) ->
                     case filter_changes(Changes, FilterMapFun) of
                         [Change | _] = Changes ->
                             ok = hg_kv_store:put({self(), events}, Changes),
-                            Change;
+                            [Change];
                         [] ->
                             get_change(InvoiceID, FilterMapFun, Timeout, Client)
                     end;
