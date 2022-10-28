@@ -258,13 +258,13 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
             Uri = get_callback_url(),
-            suspend(Tag, Timeout, <<"suspended">>, ?redirect(Uri, #{<<"tag">> => Tag}));
+            result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
         no_preauth ->
             %% simple workflow without 3DS
-            sleep(1, <<"sleeping">>);
+            result(?sleep(1), <<"sleeping">>);
         empty_cvv ->
             %% simple workflow without 3DS
-            sleep(1, <<"sleeping">>);
+            result(?sleep(1), <<"sleeping">>);
         preauth_3ds_offsite ->
             %% user interaction in sleep intent
             Uri = get_callback_url(),
@@ -275,7 +275,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
                     <<"payment_id">> => get_payment_id(PaymentInfo)
                 }
             ),
-            sleep(1, <<"sleeping_with_user_interaction">>, UserInteraction);
+            result(?sleep(1, UserInteraction), <<"sleeping_with_user_interaction">>);
         terminal ->
             %% workflow for euroset terminal, similar to 3DS workflow
             SPID = get_short_payment_id(PaymentInfo),
@@ -284,13 +284,13 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
                     short_payment_id = SPID,
                     due = get_invoice_due_date(PaymentInfo)
                 }},
-            suspend(SPID, 2, <<"suspended">>, UserInteraction);
+            result(?suspend(SPID, 2, UserInteraction), <<"suspended">>);
         digital_wallet ->
             %% simple workflow
-            sleep(1, <<"sleeping">>);
+            result(?sleep(1), <<"sleeping">>);
         crypto_currency ->
             %% simple workflow
-            sleep(1, <<"sleeping">>);
+            result(?sleep(1), <<"sleeping">>);
         mobile_commerce ->
             InvoiceID = get_invoice_id(PaymentInfo),
             PaymentID = get_payment_id(PaymentInfo),
@@ -299,7 +299,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
             result(Intent, <<"suspended">>);
         recurrent ->
             %% simple workflow without 3DS
-            sleep(1, <<"sleeping">>);
+            result(?sleep(1), <<"sleeping">>);
         unexpected_failure ->
             sleep(1, <<"sleeping">>, undefined, get_payment_id(PaymentInfo));
         unexpected_failure_when_suspended ->
@@ -308,7 +308,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         unexpected_failure_no_trx ->
             error(unexpected_failure);
         {temporary_unavailability, _Scenario} ->
-            sleep(0, <<"sleeping">>)
+            result(?sleep(0), <<"sleeping">>)
     end;
 process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
     case get_payment_info_scenario(PaymentInfo) of
@@ -328,7 +328,7 @@ process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo,
             finish(failure(authorization_failed));
         {pending, Count} ->
             set_transaction_state(Key, {pending, Count + 1}),
-            sleep(1, <<"sleeping_with_user_interaction">>);
+            result(?sleep(1), <<"sleeping_with_user_interaction">>);
         undefined ->
             set_transaction_state(Key, {pending, 1}),
             result(?sleep(1), <<"sleeping_with_user_interaction">>)
@@ -497,19 +497,10 @@ finish(Status, TrxID, Extra) ->
     Trx = #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo},
     result(?finish(Status), undefined, Trx).
 
-sleep(Timeout, State) ->
-    sleep(Timeout, State, undefined).
-
-sleep(Timeout, State, UserInteraction) ->
-    result(?sleep(Timeout, UserInteraction), State).
-
 sleep(Timeout, State, UserInteraction, TrxID) ->
     AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
     Trx = #domain_TransactionInfo{id = TrxID, extra = #{}, additional_info = AdditionalInfo},
     result(?sleep(Timeout, UserInteraction), State, Trx).
-
-suspend(Tag, Timeout, State, UserInteraction) ->
-    result(?suspend(Tag, Timeout, UserInteraction), State).
 
 respond(Response, CallbackResult) ->
     #proxy_provider_PaymentCallbackResult{
