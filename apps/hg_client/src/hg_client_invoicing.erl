@@ -407,8 +407,8 @@ handle_get_change(InvoiceID, FilterMapFun, Timeout, From, St = #state{changes = 
             case handle_pull_event(InvoiceID, Timeout, St) of
                 {{ok, ?invoice_ev(Changes)}, StNext0} ->
                     case filter_changes(Changes, FilterMapFun) of
-                        [Change | _] = Changes ->
-                            ChangesMapNext = ChangesMap#{{From, InvoiceID} => Changes},
+                        [Change | _] = FilteredChanges ->
+                            ChangesMapNext = ChangesMap#{{From, InvoiceID} => FilteredChanges},
                             StNext1 = StNext0#state{changes = ChangesMapNext},
                             {[Change], StNext1};
                         [] ->
