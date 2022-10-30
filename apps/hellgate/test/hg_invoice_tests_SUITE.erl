@@ -6348,8 +6348,8 @@ start_payment_ev_optional_risk_score(InvoiceID, Client, RiskScore) ->
     ] = next_change(InvoiceID, Client),
     case next_change(InvoiceID, Client) of
         [
-            ?payment_ev(PaymentID, ?risk_score_changed(RiskScore))
-        ] ->
+            ?payment_ev(PaymentID, ?risk_score_changed(EventRiskScore))
+        ] when RiskScore =:= EventRiskScore ->
             [
                 ?payment_ev(PaymentID, ?route_changed(Route))
             ] = next_change(InvoiceID, Client),
@@ -6519,10 +6519,7 @@ await_payment_process_failure(InvoiceID, PaymentID, Client, Restarts) ->
 await_payment_process_failure(InvoiceID, PaymentID, Client, Restarts, Target) ->
     PaymentID = await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts),
     [
-        ?payment_ev(
-            PaymentID,
-            ?session_ev(Target, ?session_finished(?session_failed(Failure)))
-        )
+        ?payment_ev(PaymentID, ?session_ev(Target, ?session_finished(?session_failed(Failure))))
     ] = next_change(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?payment_rollback_started(Failure))
