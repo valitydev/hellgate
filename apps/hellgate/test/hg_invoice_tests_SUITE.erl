@@ -2530,7 +2530,7 @@ registered_payment_adjustment_success(C) ->
     },
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, PaymentParams, Client),
-    _ = start_payment_ev(InvoiceID, Client),
+    _ = start_payment_ev_optional_risk_score(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?cash_flow_changed(CF1))
     ] = next_change(InvoiceID, Client),
@@ -5950,10 +5950,6 @@ consistent_account_balances(C) ->
 
 %%
 
-get_next_change(InvoiceID, Client) ->
-    %% timeout should be at least as large as hold expiration in construct_domain_fixture/0
-    hg_client_invoicing:get_change(InvoiceID, fun filter_change/1, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
-
 next_change(InvoiceID, Client) ->
     %% timeout should be at least as large as hold expiration in construct_domain_fixture/0
     next_change(InvoiceID, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
@@ -6310,7 +6306,7 @@ register_payment(InvoiceID, RegisterPaymentParams, Client) ->
     RiskScore1 = genlib:define(RiskScore0, low),
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, RegisterPaymentParams, Client),
-    _ = start_payment_ev(InvoiceID, RiskScore1, Client),
+    _ = start_payment_ev_optional_risk_score(InvoiceID, RiskScore1, Client),
     [
         ?payment_ev(PaymentID, ?cash_flow_changed(_))
     ] = next_change(InvoiceID, Client),
@@ -6320,35 +6316,49 @@ start_payment_ev(InvoiceID, Client) ->
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
     ] = next_change(InvoiceID, Client),
-    ok =
-        case get_next_change(InvoiceID, Client) of
-            [?payment_ev(PaymentID, ?risk_score_changed(_RiskScore))] = C ->
-                C = next_change(InvoiceID, Client),
-                ok;
-            _ ->
-                ok
-        end,
+    [
+        ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore))
+    ] = next_change(InvoiceID, Client),
     [
         ?payment_ev(PaymentID, ?route_changed(Route))
     ] = next_change(InvoiceID, Client),
     Route.
 
-start_payment_ev(InvoiceID, RiskScore, Client) ->
+start_payment_ev_optional_risk_score(InvoiceID, Client) ->
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
     ] = next_change(InvoiceID, Client),
-    ok =
-        case get_next_change(InvoiceID, Client) of
-            [?payment_ev(PaymentID, ?risk_score_changed(RiskScore))] = C ->
-                C = next_change(InvoiceID, Client),
-                ok;
-            _ ->
-                ok
-        end,
+    case next_change(InvoiceID, Client) of
+        [
+            ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore))
+        ] ->
+            [
+                ?payment_ev(PaymentID, ?route_changed(Route))
+            ] = next_change(InvoiceID, Client),
+            Route;
+        [
+            ?payment_ev(PaymentID, ?route_changed(Route))
+        ] ->
+            Route
+    end.
+
+start_payment_ev_optional_risk_score(InvoiceID, Client, RiskScore) ->
     [
-        ?payment_ev(PaymentID, ?route_changed(Route))
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
     ] = next_change(InvoiceID, Client),
-    Route.
+    case next_change(InvoiceID, Client) of
+        [
+            ?payment_ev(PaymentID, ?risk_score_changed(RiskScore))
+        ] ->
+            [
+                ?payment_ev(PaymentID, ?route_changed(Route))
+            ] = next_change(InvoiceID, Client),
+            Route;
+        [
+            ?payment_ev(PaymentID, ?route_changed(Route))
+        ] ->
+            Route
+    end.
 
 process_payment(InvoiceID, PaymentParams, Client) ->
     process_payment(InvoiceID, PaymentParams, Client, 0).
