@@ -6342,7 +6342,7 @@ start_payment_ev_optional_risk_score(InvoiceID, Client) ->
             Route
     end.
 
-start_payment_ev_optional_risk_score(InvoiceID, Client, RiskScore) ->
+start_payment_ev_optional_risk_score(InvoiceID, RiskScore, Client) ->
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending())))
     ] = next_change(InvoiceID, Client),
