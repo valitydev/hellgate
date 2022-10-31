@@ -4754,11 +4754,9 @@ adhoc_repair_failed_succeeded(C) ->
         next_change(InvoiceID, Client),
     % assume no more events here since machine is FUBAR already
     timeout = next_change(InvoiceID, 2000, Client),
-    Changes = [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
-    ],
-    ok = repair_invoice(InvoiceID, Changes, ?repair_set_timer({timeout, 0}), undefined, Client),
-    Changes = next_change(InvoiceID, Client),
+    Change = ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+    ok = repair_invoice(InvoiceID, [Change], ?repair_set_timer({timeout, 0}), undefined, Client),
+    Change = next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
         next_change(InvoiceID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
@@ -4808,14 +4806,12 @@ adhoc_repair_invalid_changes_failed(C) ->
         {{woody_error, {external, result_unexpected, _}}, _},
         repair_invoice(InvoiceID, InvalidChanges2, Client)
     ),
-    Changes = [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
-    ],
+    Change = ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
     ?assertEqual(
         ok,
-        repair_invoice(InvoiceID, Changes, Client)
+        repair_invoice(InvoiceID, [Change], Client)
     ),
-    Changes = next_change(InvoiceID, Client),
+    Change = next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
         next_change(InvoiceID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
@@ -6308,7 +6304,7 @@ wait_for_binding_success(_, _, _, _) ->
 invoice_create_and_get_revision(PartyID, Client, ShopID) ->
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"somePlace">>, make_due_date(10), make_cash(5000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(?invoice_w_status(?invoice_unpaid()) = ?invoice_w_revision(InvoiceRev))] =
+    ?invoice_created(?invoice_w_status(?invoice_unpaid()) = ?invoice_w_revision(InvoiceRev)) =
         next_change(InvoiceID, Client),
     {InvoiceRev, InvoiceID}.
 
@@ -6324,19 +6320,15 @@ execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
         next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))) =
         next_change(InvoiceID, Client),
-    true = lists:any(
-        fun
-            (
-                ?payment_ev(
-                    PaymentID1, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_)))
-                )
+    true =
+        case next_change(InvoiceID, Client) of
+            ?payment_ev(
+                PaymentID1, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_)))
             ) ->
                 PaymentID =:= PaymentID1 andalso AdjustmentID =:= AdjustmentID1;
-            (_) ->
+            _ ->
                 false
         end,
-        next_change(InvoiceID, Client)
-    ),
     AdjustmentID.
 
 execute_payment_refund(InvoiceID, PaymentID, #payproc_InvoicePaymentRefundParams{cash = undefined} = Params, Client) ->
