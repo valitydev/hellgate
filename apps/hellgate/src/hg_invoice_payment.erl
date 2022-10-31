@@ -1905,7 +1905,7 @@ calculate_cashflow(Route, Payment, ProviderTerms, MerchantTerms, VS, Revision, O
 -spec calculate_cashflow(
     route(),
     payment(),
-    hg_payment_institution:payment_inst(),
+    hg_payment_institution:t(),
     dmsl_domain_thrift:'PaymentsProvisionTerms'() | undefined,
     dmsl_domain_thrift:'PaymentsServiceTerms'() | undefined,
     hg_varset:varset(),

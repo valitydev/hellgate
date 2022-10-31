@@ -11,14 +11,14 @@
 -export([choose_provider_account/2]).
 -export([choose_external_account/3]).
 
--export_type([payment_inst/0]).
+-export_type([t/0]).
 
 %%
 
 -type currency() :: dmsl_domain_thrift:'CurrencyRef'().
 -type varset() :: hg_varset:varset().
 -type revision() :: hg_domain:revision().
--type payment_inst() :: dmsl_domain_thrift:'PaymentInstitution'().
+-type t() :: dmsl_domain_thrift:'PaymentInstitution'().
 -type payment_inst_ref() :: dmsl_domain_thrift:'PaymentInstitutionRef'().
 -type realm() :: dmsl_domain_thrift:'PaymentInstitutionRealm'().
 -type accounts() :: dmsl_domain_thrift:'ProviderAccountSet'().
@@ -27,7 +27,7 @@
 
 %%
 
--spec compute_payment_institution(payment_inst_ref(), varset(), revision()) -> payment_inst().
+-spec compute_payment_institution(payment_inst_ref(), varset(), revision()) -> t().
 compute_payment_institution(PaymentInstitutionRef, VS, Revision) ->
     {Client, Context} = get_party_client(),
     VS0 = hg_varset:prepare_varset(VS),
@@ -35,7 +35,7 @@ compute_payment_institution(PaymentInstitutionRef, VS, Revision) ->
         party_client_thrift:compute_payment_institution(PaymentInstitutionRef, Revision, VS0, Client, Context),
     PaymentInstitution.
 
--spec get_system_account(currency(), revision(), payment_inst()) -> dmsl_domain_thrift:'SystemAccount'() | no_return().
+-spec get_system_account(currency(), revision(), t()) -> dmsl_domain_thrift:'SystemAccount'() | no_return().
 get_system_account(Currency, Revision, #domain_PaymentInstitution{system_account_set = S}) ->
     {value, SystemAccountSetRef} = S,
     SystemAccountSet = hg_domain:get(Revision, {system_account_set, SystemAccountSetRef}),
@@ -46,11 +46,11 @@ get_system_account(Currency, Revision, #domain_PaymentInstitution{system_account
             error({misconfiguration, {'No system account for a given currency', Currency}})
     end.
 
--spec get_realm(payment_inst()) -> realm().
+-spec get_realm(t()) -> realm().
 get_realm(#domain_PaymentInstitution{realm = Realm}) ->
     Realm.
 
--spec is_live(payment_inst()) -> boolean().
+-spec is_live(t()) -> boolean().
 is_live(#domain_PaymentInstitution{realm = Realm}) ->
     Realm =:= live.
 

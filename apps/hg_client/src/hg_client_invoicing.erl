@@ -283,10 +283,19 @@ pull_event(InvoiceID, Timeout, Client) ->
 -spec pull_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
     tuple() | timeout | woody_error:business_error().
 pull_change(InvoiceID, FilterMapFun, Timeout, Client) ->
-    gen_server:call(Client, {pull_change, InvoiceID, FilterMapFun, Timeout}, infinity).
-
-filter_changes(Changes, FilterMapFun) ->
-    lists:filtermap(FilterMapFun, Changes).
+    case gen_server:call(Client, {pull_change, InvoiceID, Timeout}, infinity) of
+        {ok, Change} ->
+            case FilterMapFun(Change) of
+                true ->
+                    Change;
+                {true, NewChange} ->
+                    NewChange;
+                false ->
+                    pull_change(InvoiceID, FilterMapFun, Timeout, Client)
+            end;
+        Result ->
+            Result
+    end.
 
 map_result_error({ok, Result}) ->
     Result;
@@ -325,8 +334,8 @@ handle_call({call, Function, Args}, _From, St = #state{client = Client}) ->
 handle_call({pull_event, InvoiceID, Timeout}, _From, St) ->
     {Result, StNext} = handle_pull_event(InvoiceID, Timeout, St),
     {reply, Result, StNext};
-handle_call({pull_change, InvoiceID, FilterMapFun, Timeout}, From, St) ->
-    {Result, StNext} = handle_pull_change(InvoiceID, FilterMapFun, Timeout, From, St),
+handle_call({pull_change, InvoiceID, Timeout}, _From, St) ->
+    {Result, StNext} = handle_pull_change(InvoiceID, Timeout, St),
     {reply, Result, StNext};
 handle_call(Call, _From, State) ->
     _ = logger:warning("unexpected call received: ~tp", [Call]),
@@ -365,24 +374,18 @@ handle_pull_event(InvoiceID, Timeout, St = #state{client = Client}) ->
             {Error, StNext}
     end.
 
-handle_pull_change(InvoiceID, FilterMapFun, Timeout, From, St = #state{changes = ChangesMap}) ->
+handle_pull_change(InvoiceID, Timeout, St = #state{changes = ChangesMap}) ->
     case ChangesMap of
         #{InvoiceID := [ResultChange | RemainingChanges]} ->
             ChangesMapNext = ChangesMap#{InvoiceID => RemainingChanges},
             StNext = St#state{changes = ChangesMapNext},
-            {ResultChange, StNext};
+            {{ok, ResultChange}, StNext};
         _ ->
             case handle_pull_event(InvoiceID, Timeout, St) of
-                {{ok, ?invoice_ev(Changes)}, StNext0} ->
-                    case filter_changes(Changes, FilterMapFun) of
-                        L when length(L) > 0 ->
-                            {ResultChange, RemainingChanges} = lists:split(1, L),
-                            ChangesMapNext = ChangesMap#{InvoiceID => RemainingChanges},
-                            StNext1 = StNext0#state{changes = ChangesMapNext},
-                            {ResultChange, StNext1};
-                        [] ->
-                            handle_pull_change(InvoiceID, FilterMapFun, Timeout, From, St)
-                    end;
+                {{ok, ?invoice_ev([ResultChange | RemainingChanges])}, StNext0} ->
+                    ChangesMapNext = ChangesMap#{InvoiceID => RemainingChanges},
+                    StNext1 = StNext0#state{changes = ChangesMapNext},
+                    {{ok, ResultChange}, StNext1};
                 {Result, StNext0} ->
                     {Result, StNext0}
             end
