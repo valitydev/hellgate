@@ -158,17 +158,6 @@ handle_interaction_intent(
     Session
 ) ->
     handle_interaction_intent(UserInteraction, Completion, Session);
-handle_interaction_intent(
-    {finish, _FinishIntent},
-    #{interaction := InteractionPrev}
-) ->
-    % DISCUSS
-    % Any requested user interaction is implicitly considered completed when adapter finishes
-    % a session, no matter if this session succeeds or fails.
-    % See `payment_with_offsite_preauth_failed` testcase for a counterintuitive effect of this:
-    % the user interaction requested through sleep intent becomes _completed_ when there was no
-    % user involvement.
-    [?interaction_changed(InteractionPrev, ?interaction_completed)];
 handle_interaction_intent(_Intent, _Session) ->
     [].
 

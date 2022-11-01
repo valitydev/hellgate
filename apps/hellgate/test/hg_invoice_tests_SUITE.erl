@@ -4854,10 +4854,6 @@ payment_with_offsite_preauth_success(C) ->
         ),
         ?payment_ev(
             PaymentID,
-            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_completed))
-        ),
-        ?payment_ev(
-            PaymentID,
             ?session_ev(?processed(), ?session_finished(?session_succeeded()))
         )
     ] = next_event(InvoiceID, Client),
@@ -4877,12 +4873,8 @@ payment_with_offsite_preauth_failed(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(preauth_3ds_offsite, ?pmt_sys(<<"jcb-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
+    _UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     [
-        ?payment_ev(
-            PaymentID,
-            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_completed))
-        ),
         ?payment_ev(
             PaymentID,
             ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
