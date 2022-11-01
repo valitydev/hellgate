@@ -217,19 +217,15 @@ generate_token(<<"sleeping">>, #proxy_provider_RecurrentTokenInfo{payment_tool =
         no_preauth ->
             token_result(?sleep(0), <<"finishing">>)
     end;
-generate_token(?REC_TOKEN = Token, TokenInfo, _Opts) ->
-    token_finish(TokenInfo, Token);
 generate_token(<<"finishing">>, TokenInfo, _Opts) ->
     Token = ?REC_TOKEN,
     token_finish(TokenInfo, Token).
 
-handle_token_callback(<<"recurrent-sleep-", _/binary>>, <<"suspended">>, _TokenInfo, _Opts) ->
-    Token = ?REC_TOKEN,
+handle_token_callback(<<"recurrent-sleep-", _/binary>>, <<"suspended">>, TokenInfo, _Opts) ->
+    token_respond(<<"sure">>, token_finish(TokenInfo, ?REC_TOKEN));
+handle_token_callback(_Tag, <<"suspended">>, _TokenInfo, _Opts) ->
     Intent = ?sleep(0, undefined, ?completed),
-    token_respond(<<"sure">>, token_result(Intent, Token));
-handle_token_callback(_Tag, <<"suspended">>, TokenInfo, _Opts) ->
-    Token = ?REC_TOKEN,
-    token_respond(<<"sure">>, token_finish(TokenInfo, Token)).
+    token_respond(<<"sure">>, token_result(Intent, <<"finishing">>)).
 
 token_finish(#proxy_provider_RecurrentTokenInfo{payment_tool = PaymentTool}, Token) ->
     #proxy_provider_RecurrentTokenProxyResult{
