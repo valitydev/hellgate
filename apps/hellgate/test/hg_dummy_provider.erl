@@ -189,7 +189,7 @@ generate_token(undefined, #proxy_provider_RecurrentTokenInfo{payment_tool = Recu
         unexpected_failure ->
             error(unexpected_failure);
         _ ->
-            token_result(?sleep(1), <<"sleeping">>)
+            token_result(?sleep(0), <<"sleeping">>)
     end;
 generate_token(<<"sleeping">>, #proxy_provider_RecurrentTokenInfo{payment_tool = RecurrentPaytool}, _Opts) ->
     case get_recurrent_paytool_scenario(RecurrentPaytool) of
@@ -257,10 +257,10 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
             result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
         no_preauth ->
             %% simple workflow without 3DS
-            result(?sleep(1), <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         empty_cvv ->
             %% simple workflow without 3DS
-            result(?sleep(1), <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         preauth_3ds_offsite ->
             %% user interaction in sleep intent
             Uri = get_callback_url(),
@@ -283,10 +283,10 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
             result(?suspend(SPID, 2, UserInteraction), <<"suspended">>);
         digital_wallet ->
             %% simple workflow
-            result(?sleep(1), <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         crypto_currency ->
             %% simple workflow
-            result(?sleep(1), <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         mobile_commerce ->
             InvoiceID = get_invoice_id(PaymentInfo),
             PaymentID = get_payment_id(PaymentInfo),
@@ -295,7 +295,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
             result(Intent, <<"suspended">>);
         recurrent ->
             %% simple workflow without 3DS
-            result(?sleep(1), <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         unexpected_failure ->
             sleep(1, <<"sleeping">>, undefined, get_payment_id(PaymentInfo));
         unexpected_failure_when_suspended ->
