@@ -297,7 +297,7 @@ start_binding_w_suspend(C) ->
         )
     ] = next_event(CustomerID, Client),
     [
-        ?customer_binding_changed(ID, ?customer_binding_interaction_requested(UserInteraction))
+        ?customer_binding_changed(ID, ?customer_binding_interaction_changed(UserInteraction, {requested, _}))
     ] = next_event(CustomerID, Client),
     _ = assert_success_interaction(UserInteraction),
     SuccessChanges = [
@@ -404,7 +404,8 @@ start_binding_w_suspend_failure(C) ->
     ] = next_event(CustomerID, Client),
     OperationFailure =
         {failure, #domain_Failure{
-            code = <<"preauthorization_failed">>
+            code = <<"preauthorization_failed">>,
+            sub = ?'_'
         }},
     SuccessChanges = [
         ?customer_binding_changed(ID, ?customer_binding_status_changed(?customer_binding_failed(OperationFailure)))
@@ -467,10 +468,11 @@ start_binding_w_tds(C) ->
         ?customer_binding_changed(_, ?customer_binding_started(CustomerBinding, _))
     ] = next_event(CustomerID, Client),
     [
-        ?customer_binding_changed(_, ?customer_binding_interaction_requested(UserInteraction))
+        ?customer_binding_changed(_, ?customer_binding_interaction_changed(UserInteraction, {requested, _}))
     ] = next_event(CustomerID, Client),
     _ = assert_success_interaction(UserInteraction),
     [
+        ?customer_binding_changed(_, ?customer_binding_interaction_changed(UserInteraction, {completed, _})),
         ?customer_binding_changed(_, ?customer_binding_status_changed(?customer_binding_succeeded())),
         ?customer_status_changed(?customer_ready())
     ] = next_event(CustomerID, Client).
@@ -506,8 +508,8 @@ start_two_bindings(C) ->
         ?customer_created(_, _, _, _, _, _)
     ] = next_event(CustomerID, Client),
     StartChanges = [
-        ?customer_binding_changed(CustomerBindingID1, ?customer_binding_started(CustomerBinding1, ?match('_'))),
-        ?customer_binding_changed(CustomerBindingID2, ?customer_binding_started(CustomerBinding2, ?match('_'))),
+        ?customer_binding_changed(CustomerBindingID1, ?customer_binding_started(CustomerBinding1, ?'_')),
+        ?customer_binding_changed(CustomerBindingID2, ?customer_binding_started(CustomerBinding2, ?'_')),
         ?customer_binding_changed(CustomerBindingID2, ?customer_binding_status_changed(?customer_binding_succeeded())),
         ?customer_binding_changed(CustomerBindingID1, ?customer_binding_status_changed(?customer_binding_succeeded())),
         ?customer_status_changed(?customer_ready())
@@ -545,24 +547,38 @@ start_two_bindings_w_tds(C) ->
         ?customer_created(_, _, _, _, _, _)
     ] = next_event(CustomerID, Client),
     StartChanges = [
-        ?customer_binding_changed(CustomerBindingID1, ?customer_binding_started(CustomerBinding1, ?match('_'))),
-        ?customer_binding_changed(CustomerBindingID1, ?customer_binding_interaction_requested(?match('_'))),
-        ?customer_binding_changed(CustomerBindingID2, ?customer_binding_started(CustomerBinding2, ?match('_'))),
-        ?customer_binding_changed(CustomerBindingID2, ?customer_binding_interaction_requested(?match('_')))
+        ?customer_binding_changed(CustomerBindingID1, ?customer_binding_started(CustomerBinding1, ?'_')),
+        ?customer_binding_changed(
+            CustomerBindingID1,
+            ?customer_binding_interaction_changed(?'_', {requested, ?'_'})
+        ),
+        ?customer_binding_changed(CustomerBindingID2, ?customer_binding_started(CustomerBinding2, ?'_')),
+        ?customer_binding_changed(
+            CustomerBindingID2,
+            ?customer_binding_interaction_changed(?'_', {requested, ?'_'})
+        )
     ],
     [
         ?customer_binding_changed(CustomerBindingID1, ?customer_binding_started(CustomerBinding1, _)),
-        ?customer_binding_changed(CustomerBindingID1, ?customer_binding_interaction_requested(UserInteraction1)),
+        ?customer_binding_changed(CustomerBindingID1, ?customer_binding_interaction_changed(UserInteraction1, _)),
         ?customer_binding_changed(CustomerBindingID2, ?customer_binding_started(CustomerBinding2, _)),
-        ?customer_binding_changed(CustomerBindingID2, ?customer_binding_interaction_requested(UserInteraction2))
+        ?customer_binding_changed(CustomerBindingID2, ?customer_binding_interaction_changed(UserInteraction2, _))
     ] = await_for_changes(StartChanges, CustomerID, Client),
     _ = assert_success_interaction(UserInteraction1),
     [
+        ?customer_binding_changed(
+            CustomerBindingID1,
+            ?customer_binding_interaction_changed(UserInteraction1, {completed, _})
+        ),
         ?customer_binding_changed(CustomerBindingID1, ?customer_binding_status_changed(?customer_binding_succeeded())),
         ?customer_status_changed(?customer_ready())
     ] = next_event(CustomerID, Client),
     _ = assert_success_interaction(UserInteraction2),
     [
+        ?customer_binding_changed(
+            CustomerBindingID2,
+            ?customer_binding_interaction_changed(UserInteraction2, {completed, _})
+        ),
         ?customer_binding_changed(CustomerBindingID2, ?customer_binding_status_changed(?customer_binding_succeeded()))
     ] = next_event(CustomerID, Client).
 
@@ -618,21 +634,21 @@ start_binding_not_permitted(C) ->
 %%
 
 -define(INTERVAL, 100).
--define(DEFAULT_TIMEOUT, 5000).
+-define(DEFAULT_TIMEOUT, 10000).
 
 await_for_changes(ChangeMatchPatterns, CustomerID, Client) ->
     await_for_changes(ChangeMatchPatterns, CustomerID, Client, ?DEFAULT_TIMEOUT).
 
 await_for_changes(ChangeMatchPatterns, CustomerID, Client, Timeout) ->
     MatchSpecs = [ets:match_spec_compile([{MP, [], ['$_']}]) || MP <- ChangeMatchPatterns],
-    MatchSpecs1 = lists:zip(lists:seq(1, length(MatchSpecs)), MatchSpecs),
+    MatchSpecs1 = lists:zip3(lists:seq(1, length(MatchSpecs)), ChangeMatchPatterns, MatchSpecs),
     Matched = await_for_changes(MatchSpecs1, CustomerID, Client, [], Timeout),
     {_, Result} = lists:unzip(lists:keysort(1, Matched)),
     Result.
 
 await_for_changes(MatchSpecs, CustomerID, Client, Acc, TimeLeftWas) when TimeLeftWas > 0 ->
     Started = genlib_time:ticks(),
-    Changes = next_event(CustomerID, Client),
+    Changes = next_event(CustomerID, Client, TimeLeftWas),
     case run_match_specs(MatchSpecs, Changes) of
         {Matched, []} ->
             Acc ++ Matched;
@@ -641,14 +657,14 @@ await_for_changes(MatchSpecs, CustomerID, Client, Acc, TimeLeftWas) when TimeLef
             TimeLeft = TimeLeftWas - (genlib_time:ticks() - Started) div 1000,
             await_for_changes(MatchSpecsLeft, CustomerID, Client, Acc ++ Matched, TimeLeft)
     end;
-await_for_changes(MatchSpecs, CustomerID, _Client, _Acc, _TimeLeft) ->
-    error({event_limit_exceeded, {CustomerID, MatchSpecs}}).
+await_for_changes(MatchSpecs, CustomerID, _Client, Acc, _TimeLeft) ->
+    error({event_limit_exceeded, {CustomerID, MatchSpecs, Acc}}).
 
-run_match_specs(MatchSpecs0, Changes) ->
+run_match_specs(MatchSpecs0, Changes) when is_list(Changes) ->
     lists:foldl(
         fun(Change, {Acc, MatchSpecs}) ->
             case run_match_specs_(MatchSpecs, Change) of
-                [{N, _} | _] ->
+                [{N, _, _} | _] ->
                     {[{N, Change} | Acc], lists:keydelete(N, 1, MatchSpecs)};
                 [] ->
                     {Acc, MatchSpecs}
@@ -656,11 +672,13 @@ run_match_specs(MatchSpecs0, Changes) ->
         end,
         {[], MatchSpecs0},
         Changes
-    ).
+    );
+run_match_specs(MatchSpecs, timeout) ->
+    {[], MatchSpecs}.
 
 run_match_specs_(MatchSpecs, Change) ->
     lists:dropwhile(
-        fun({_N, MS}) ->
+        fun({_N, _Pat, MS}) ->
             length(ets:match_spec_run([Change], MS)) == 0
         end,
         MatchSpecs
@@ -713,7 +731,10 @@ construct_proxy(ID, Url, Options) ->
 %%
 
 next_event(CustomerID, Client) ->
-    case hg_client_customer:pull_event(CustomerID, 30000, Client) of
+    next_event(CustomerID, Client, 30000).
+
+next_event(CustomerID, Client, Timeout) ->
+    case hg_client_customer:pull_event(CustomerID, Timeout, Client) of
         {ok, ?customer_event(Changes)} ->
             Changes;
         Result ->

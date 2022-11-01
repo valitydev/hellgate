@@ -16,6 +16,7 @@
     payment_info := payment_info(),
     result => session_result(),
     proxy_state => proxy_state(),
+    interaction => interaction(),
     timings => timings(),
     repair_scenario => repair_scenario()
 }.
@@ -81,6 +82,7 @@
 -type proxy_state() :: dmsl_proxy_provider_thrift:'ProxyState'().
 -type proxy_result() :: dmsl_proxy_provider_thrift:'PaymentProxyResult'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
+-type interaction() :: dmsl_user_interaction_thrift:'UserInteraction'().
 -type payment_info() :: dmsl_proxy_provider_thrift:'PaymentInfo'().
 -type timings() :: hg_timings:t().
 
@@ -274,13 +276,14 @@ maybe_notify_fault_detector(_TargetType, _Status, _St) ->
     ok.
 
 handle_proxy_result(
-    #proxy_provider_PaymentProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
+    #proxy_provider_PaymentProxyResult{intent = {Type, Intent}, trx = Trx, next_state = ProxyState},
     Session
 ) ->
     Events1 = hg_proxy_provider:bind_transaction(Trx, Session),
-    Events2 = update_proxy_state(ProxyState, Session),
-    {Events3, Action} = handle_proxy_intent(Intent, hg_machine_action:new(), Session),
-    {lists:flatten([Events1, Events2, Events3]), Action}.
+    Events2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
+    Events3 = hg_proxy_provider:handle_interaction_intent({Type, Intent}, Session),
+    {Events4, Action} = handle_proxy_intent(Intent, hg_machine_action:new(), Session),
+    {lists:flatten([Events1, Events2, Events3, Events4]), Action}.
 
 handle_callback_result(
     #proxy_provider_PaymentCallbackResult{result = ProxyResult, response = Response},
@@ -289,35 +292,25 @@ handle_callback_result(
     {Response, handle_proxy_callback_result(ProxyResult, Session)}.
 
 handle_proxy_callback_result(
-    #proxy_provider_PaymentCallbackProxyResult{intent = {_Type, Intent}, trx = Trx, next_state = ProxyState},
+    #proxy_provider_PaymentCallbackProxyResult{intent = {Type, Intent}, trx = Trx, next_state = ProxyState},
     Session
 ) ->
     Events0 = [?session_activated()],
     Events1 = hg_proxy_provider:bind_transaction(Trx, Session),
-    Events2 = update_proxy_state(ProxyState, Session),
-    {Events3, Action} = handle_proxy_intent(Intent, hg_machine_action:unset_timer(hg_machine_action:new()), Session),
-    {lists:flatten([Events0, Events1, Events2, Events3]), Action};
+    Events2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
+    Events3 = hg_proxy_provider:handle_interaction_intent({Type, Intent}, Session),
+    {Events4, Action} = handle_proxy_intent(Intent, hg_machine_action:unset_timer(hg_machine_action:new()), Session),
+    {lists:flatten([Events0, Events1, Events2, Events3, Events4]), Action};
 handle_proxy_callback_result(
     #proxy_provider_PaymentCallbackProxyResult{intent = undefined, trx = Trx, next_state = ProxyState},
     Session
 ) ->
     Events1 = hg_proxy_provider:bind_transaction(Trx, Session),
-    Events2 = update_proxy_state(ProxyState, Session),
+    Events2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
     {Events1 ++ Events2, hg_machine_action:new()}.
 
 apply_result(Result = {Events, _Action}, T) ->
     {Result, update_state_with(Events, T)}.
-
-update_proxy_state(undefined, _Session) ->
-    [];
-update_proxy_state(ProxyState, Session) ->
-    case proxy_state(Session) of
-        ProxyState ->
-            % proxy state did not change, no need to publish an event
-            [];
-        _WasState ->
-            [?proxy_st_changed(ProxyState)]
-    end.
 
 handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, _Session) ->
     Events0 = [?session_finished(?session_succeeded())],
@@ -332,34 +325,19 @@ handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, A
 handle_proxy_intent(#proxy_provider_FinishIntent{status = {failure, Failure}}, Action, _Session) ->
     Events = [?session_finished(?session_failed({failure, Failure}))],
     {Events, Action};
-handle_proxy_intent(
-    #proxy_provider_SleepIntent{timer = Timer, user_interaction = UserInteraction},
-    Action0,
-    _Session
-) ->
+handle_proxy_intent(#proxy_provider_SleepIntent{timer = Timer}, Action0, _Session) ->
     Action1 = hg_machine_action:set_timer(Timer, Action0),
-    Events = try_request_interaction(UserInteraction),
-    {Events, Action1};
+    {[], Action1};
 handle_proxy_intent(
-    #proxy_provider_SuspendIntent{
-        tag = Tag,
-        timeout = Timer,
-        user_interaction = UserInteraction,
-        timeout_behaviour = TimeoutBehaviour
-    },
+    #proxy_provider_SuspendIntent{tag = Tag, timeout = Timer, timeout_behaviour = TimeoutBehaviour},
     Action0,
     Session
 ) ->
     #{payment_id := PaymentID, invoice_id := InvoiceID} = tag_context(Session),
     ok = hg_machine_tag:create_binding(hg_invoice:namespace(), Tag, PaymentID, InvoiceID),
     Action1 = hg_machine_action:set_timer(Timer, Action0),
-    Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
+    Events = [?session_suspended(Tag, TimeoutBehaviour)],
     {Events, Action1}.
-
-try_request_interaction(undefined) ->
-    [];
-try_request_interaction(UserInteraction) ->
-    [?interaction_requested(UserInteraction)].
 
 %% Event utils
 
@@ -405,8 +383,18 @@ apply_event(?trx_bound(Trx), Session, _Context) ->
     Session#{trx => Trx};
 apply_event(?proxy_st_changed(ProxyState), Session, _Context) ->
     Session#{proxy_state => ProxyState};
-apply_event(?interaction_requested(_), Session, _Context) ->
-    Session;
+apply_event(
+    ?interaction_changed(UserInteraction, ?interaction_requested),
+    Session,
+    _Context
+) ->
+    Session#{interaction => UserInteraction};
+apply_event(
+    ?interaction_changed(UserInteraction, ?interaction_completed),
+    Session = #{interaction := UserInteraction},
+    _Context
+) ->
+    maps:remove(interaction, Session);
 %% Ignore ?rec_token_acquired event cause it's easiest way to handle this
 %% TODO maybe add this token to session state and remove it from payment state?
 apply_event(?rec_token_acquired(_Token), Session, _Context) ->

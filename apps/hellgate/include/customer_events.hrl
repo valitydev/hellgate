@@ -42,8 +42,11 @@
     {status_changed, #payproc_CustomerBindingStatusChanged{status = CustomerBindingStatus}}
 ).
 
--define(customer_binding_interaction_requested(UserInteraction),
-    {interaction_requested, #payproc_CustomerBindingInteractionRequested{interaction = UserInteraction}}
+-define(customer_binding_interaction_changed(UserInteraction, Status),
+    {interaction_changed, #payproc_CustomerBindingInteractionChanged{
+        interaction = UserInteraction,
+        status = Status
+    }}
 ).
 
 % Statuses

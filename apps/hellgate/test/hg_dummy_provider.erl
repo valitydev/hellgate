@@ -32,16 +32,30 @@
     {redirect, {post_request, #user_interaction_BrowserPostRequest{uri = Uri, form = Form}}}
 ).
 
+-define(completed, #user_interaction_Completed{}).
+
+-define(sleep(To),
+    ?sleep(To, undefined)
+).
+
 -define(sleep(To, UI),
-    {sleep, #proxy_provider_SleepIntent{timer = {timeout, To}, user_interaction = UI}}
+    ?sleep(To, UI, undefined)
+).
+
+-define(sleep(To, UI, UICompleted),
+    {sleep, #proxy_provider_SleepIntent{
+        timer = {timeout, To},
+        user_interaction = UI,
+        user_interaction_completion = UICompleted
+    }}
+).
+
+-define(suspend(Tag, To),
+    ?suspend(Tag, To, undefined)
 ).
 
 -define(suspend(Tag, To, UI),
-    {suspend, #proxy_provider_SuspendIntent{
-        tag = Tag,
-        timeout = {timeout, To},
-        user_interaction = UI
-    }}
+    ?suspend(Tag, To, UI, undefined)
 ).
 
 -define(suspend(Tag, To, UI, TimeoutBehaviour),
@@ -59,10 +73,6 @@
 
 -define(success(Token),
     {success, #proxy_provider_Success{token = Token}}
-).
-
--define(failure(Failure),
-    {failure, Failure}
 ).
 
 -define(recurrent_token_finish(Token),
@@ -179,42 +189,43 @@ generate_token(undefined, #proxy_provider_RecurrentTokenInfo{payment_tool = Recu
         unexpected_failure ->
             error(unexpected_failure);
         _ ->
-            token_sleep(1, <<"sleeping">>)
+            token_result(?sleep(0), <<"sleeping">>)
     end;
 generate_token(<<"sleeping">>, #proxy_provider_RecurrentTokenInfo{payment_tool = RecurrentPaytool}, _Opts) ->
     case get_recurrent_paytool_scenario(RecurrentPaytool) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"recurrent">>),
             Uri = get_callback_url(),
-            token_suspend(Tag, Timeout, <<"suspended">>, ?redirect(Uri, #{<<"tag">> => Tag}));
+            UserInteraction = ?redirect(Uri, #{<<"tag">> => Tag}),
+            token_result(?suspend(Tag, Timeout, UserInteraction), <<"suspended">>);
         {preauth_3ds_sleep, Timeout} ->
             Tag = generate_tag(<<"recurrent-sleep">>),
             Uri = get_callback_url(),
-            token_suspend(Tag, Timeout, <<"suspended">>, ?redirect(Uri, #{<<"tag">> => Tag}));
+            UserInteraction = ?redirect(Uri, #{<<"tag">> => Tag}),
+            token_result(?suspend(Tag, Timeout, UserInteraction), <<"suspended">>);
         no_preauth_timeout ->
             Tag = generate_tag(<<"recurrent-suspend-timeout">>),
-            token_suspend(Tag, 1, <<"suspended">>, undefined);
+            Callback = {callback, Tag},
+            token_result(?suspend(Tag, 1, undefined, Callback), <<"suspended">>);
         no_preauth_timeout_failure ->
             Tag = generate_tag(<<"recurrent-suspend-timeout-failure">>),
-            token_suspend(Tag, 1, <<"suspended">>, undefined);
+            Failure = {operation_failure, failure(preauthorization_failed)},
+            token_result(?suspend(Tag, 1, undefined, Failure), <<"suspended">>);
         no_preauth_suspend_default ->
             Tag = generate_tag(<<"recurrent-suspend-timeout-default">>),
-            token_suspend(Tag, 1, <<"suspended">>, undefined);
+            token_result(?suspend(Tag, 1), <<"suspended">>);
         no_preauth ->
-            token_sleep(1, <<"finishing">>)
+            token_result(?sleep(0), <<"finishing">>)
     end;
-generate_token(<<"rec_token">> = Token, TokenInfo, _Opts) ->
-    token_finish(TokenInfo, Token);
 generate_token(<<"finishing">>, TokenInfo, _Opts) ->
     Token = ?REC_TOKEN,
     token_finish(TokenInfo, Token).
 
-handle_token_callback(<<"recurrent-sleep-", _/binary>>, <<"suspended">>, _TokenInfo, _Opts) ->
-    Token = ?REC_TOKEN,
-    token_respond(<<"sure">>, token_sleep(1, Token));
-handle_token_callback(_Tag, <<"suspended">>, TokenInfo, _Opts) ->
-    Token = ?REC_TOKEN,
-    token_respond(<<"sure">>, token_finish(TokenInfo, Token)).
+handle_token_callback(<<"recurrent-sleep-", _/binary>>, <<"suspended">>, TokenInfo, _Opts) ->
+    token_respond(<<"sure">>, token_finish(TokenInfo, ?REC_TOKEN));
+handle_token_callback(_Tag, <<"suspended">>, _TokenInfo, _Opts) ->
+    Intent = ?sleep(0, undefined, ?completed),
+    token_respond(<<"sure">>, token_result(Intent, <<"finishing">>)).
 
 token_finish(#proxy_provider_RecurrentTokenInfo{payment_tool = PaymentTool}, Token) ->
     #proxy_provider_RecurrentTokenProxyResult{
@@ -222,35 +233,9 @@ token_finish(#proxy_provider_RecurrentTokenInfo{payment_tool = PaymentTool}, Tok
         trx = #domain_TransactionInfo{id = PaymentTool#proxy_provider_RecurrentPaymentTool.id, extra = #{}}
     }.
 
-token_sleep(Timeout, State) ->
+token_result(Intent, State) ->
     #proxy_provider_RecurrentTokenProxyResult{
-        intent = ?sleep(Timeout, undefined),
-        next_state = State
-    }.
-
-token_suspend(<<"recurrent-suspend-timeout-failure-", _/binary>> = Tag, Timeout, State, UserInteraction) ->
-    Failure = #domain_Failure{
-        code = <<"preauthorization_failed">>
-    },
-    OperationFailure = {operation_failure, {failure, Failure}},
-    #proxy_provider_RecurrentTokenProxyResult{
-        intent = ?suspend(Tag, Timeout, UserInteraction, OperationFailure),
-        next_state = State
-    };
-token_suspend(<<"recurrent-suspend-timeout-default-", _/binary>> = Tag, Timeout, State, UserInteraction) ->
-    #proxy_provider_RecurrentTokenProxyResult{
-        intent = ?suspend(Tag, Timeout, UserInteraction, undefined),
-        next_state = State
-    };
-token_suspend(<<"recurrent-suspend-timeout-", _/binary>> = Tag, Timeout, State, UserInteraction) ->
-    Callback = {callback, Tag},
-    #proxy_provider_RecurrentTokenProxyResult{
-        intent = ?suspend(Tag, Timeout, UserInteraction, Callback),
-        next_state = State
-    };
-token_suspend(Tag, Timeout, State, UserInteraction) ->
-    #proxy_provider_RecurrentTokenProxyResult{
-        intent = ?suspend(Tag, Timeout, UserInteraction),
+        intent = Intent,
         next_state = State
     }.
 
@@ -269,13 +254,13 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
             Uri = get_callback_url(),
-            suspend(Tag, Timeout, <<"suspended">>, ?redirect(Uri, #{<<"tag">> => Tag}));
+            result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
         no_preauth ->
             %% simple workflow without 3DS
-            sleep(1, <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         empty_cvv ->
             %% simple workflow without 3DS
-            sleep(1, <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         preauth_3ds_offsite ->
             %% user interaction in sleep intent
             Uri = get_callback_url(),
@@ -286,7 +271,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
                     <<"payment_id">> => get_payment_id(PaymentInfo)
                 }
             ),
-            sleep(1, <<"sleeping_with_user_interaction">>, UserInteraction);
+            result(?sleep(1, UserInteraction), <<"sleeping_with_user_interaction">>);
         terminal ->
             %% workflow for euroset terminal, similar to 3DS workflow
             SPID = get_short_payment_id(PaymentInfo),
@@ -295,29 +280,31 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
                     short_payment_id = SPID,
                     due = get_invoice_due_date(PaymentInfo)
                 }},
-            suspend(SPID, 2, <<"suspended">>, UserInteraction);
+            result(?suspend(SPID, 2, UserInteraction), <<"suspended">>);
         digital_wallet ->
             %% simple workflow
-            sleep(1, <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         crypto_currency ->
             %% simple workflow
-            sleep(1, <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         mobile_commerce ->
             InvoiceID = get_invoice_id(PaymentInfo),
             PaymentID = get_payment_id(PaymentInfo),
             TimeoutBehaviour = {callback, <<"mobile_commerce">>},
-            suspend(<<InvoiceID/binary, "/", PaymentID/binary>>, 0, <<"suspended">>, undefined, TimeoutBehaviour);
+            Intent = ?suspend(<<InvoiceID/binary, "/", PaymentID/binary>>, 0, undefined, TimeoutBehaviour),
+            result(Intent, <<"suspended">>);
         recurrent ->
             %% simple workflow without 3DS
-            sleep(1, <<"sleeping">>);
+            result(?sleep(0), <<"sleeping">>);
         unexpected_failure ->
             sleep(1, <<"sleeping">>, undefined, get_payment_id(PaymentInfo));
         unexpected_failure_when_suspended ->
-            suspend(generate_tag(<<"payment">>), 0, <<"suspended">>, undefined, {callback, <<"failure">>});
+            Intent = ?suspend(generate_tag(<<"payment">>), 0, undefined, {callback, <<"failure">>}),
+            result(Intent, <<"suspended">>);
         unexpected_failure_no_trx ->
             error(unexpected_failure);
         {temporary_unavailability, _Scenario} ->
-            sleep(0, <<"sleeping">>)
+            result(?sleep(0), <<"sleeping">>)
     end;
 process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
     case get_payment_info_scenario(PaymentInfo) of
@@ -334,17 +321,13 @@ process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo,
         processed ->
             finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo));
         {pending, Count} when Count > 2 ->
-            Failure = payproc_errors:construct(
-                'PaymentFailure',
-                {authorization_failed, {unknown, #payproc_error_GeneralFailure{}}}
-            ),
-            finish(?failure(Failure));
+            finish(failure(authorization_failed));
         {pending, Count} ->
             set_transaction_state(Key, {pending, Count + 1}),
-            sleep(1, <<"sleeping_with_user_interaction">>);
+            result(?sleep(1), <<"sleeping_with_user_interaction">>);
         undefined ->
             set_transaction_state(Key, {pending, 1}),
-            sleep(1, <<"sleeping_with_user_interaction">>)
+            result(?sleep(1), <<"sleeping_with_user_interaction">>)
     end;
 process_payment(
     ?captured(),
@@ -410,7 +393,7 @@ handle_payment_callback(Tag, ?processed(), <<"suspended">>, PaymentInfo, _Opts) 
             error(unexpected_failure_when_suspended);
         _ ->
             respond(<<"sure">>, #proxy_provider_PaymentCallbackProxyResult{
-                intent = ?sleep(1, undefined),
+                intent = ?sleep(1, undefined, ?completed),
                 next_state = <<"sleeping">>
             })
     end.
@@ -479,64 +462,41 @@ process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
         good ->
             finish(success(PaymentInfo), PaymentId);
         temp ->
-            Failure = payproc_errors:construct(
-                'PaymentFailure',
-                {authorization_failed, {temporarily_unavailable, #payproc_error_GeneralFailure{}}}
-            ),
-            finish(?failure(Failure));
+            finish(failure(authorization_failed, temporarily_unavailable));
         fail ->
-            Failure = payproc_errors:construct(
-                'PaymentFailure',
-                {authorization_failed, {unknown, #payproc_error_GeneralFailure{}}}
-            ),
-            finish(?failure(Failure));
+            finish(failure(authorization_failed));
         error ->
             error(planned_scenario_error)
     end.
 
-finish(Status) ->
+result(Intent) ->
+    result(Intent, undefined).
+
+result(Intent, NextState) ->
+    result(Intent, NextState, undefined).
+
+result(Intent, NextState, Trx) ->
     #proxy_provider_PaymentProxyResult{
-        intent = ?finish(Status)
+        intent = Intent,
+        next_state = NextState,
+        trx = Trx
     }.
+
+finish(Status) ->
+    result(?finish(Status)).
 
 finish(Status, TrxID) ->
     finish(Status, TrxID, #{}).
 
 finish(Status, TrxID, Extra) ->
     AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
-    #proxy_provider_PaymentProxyResult{
-        intent = ?finish(Status),
-        trx = #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo}
-    }.
-
-sleep(Timeout, State) ->
-    sleep(Timeout, State, undefined).
-
-sleep(Timeout, State, UserInteraction) ->
-    #proxy_provider_PaymentProxyResult{
-        intent = ?sleep(Timeout, UserInteraction),
-        next_state = State
-    }.
+    Trx = #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo},
+    result(?finish(Status), undefined, Trx).
 
 sleep(Timeout, State, UserInteraction, TrxID) ->
     AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
-    #proxy_provider_PaymentProxyResult{
-        intent = ?sleep(Timeout, UserInteraction),
-        trx = #domain_TransactionInfo{id = TrxID, extra = #{}, additional_info = AdditionalInfo},
-        next_state = State
-    }.
-
-suspend(Tag, Timeout, State, UserInteraction) ->
-    #proxy_provider_PaymentProxyResult{
-        intent = ?suspend(Tag, Timeout, UserInteraction),
-        next_state = State
-    }.
-
-suspend(Tag, Timeout, State, UserInteraction, TimeoutBehaviour) ->
-    #proxy_provider_PaymentProxyResult{
-        intent = ?suspend(Tag, Timeout, UserInteraction, TimeoutBehaviour),
-        next_state = State
-    }.
+    Trx = #domain_TransactionInfo{id = TrxID, extra = #{}, additional_info = AdditionalInfo},
+    result(?sleep(Timeout, UserInteraction), State, Trx).
 
 respond(Response, CallbackResult) ->
     #proxy_provider_PaymentCallbackResult{
@@ -554,6 +514,16 @@ success(PaymentInfo) ->
                 undefined
         end,
     ?success(Token).
+
+failure(Code) when is_atom(Code) ->
+    failure(Code, unknown).
+
+failure(Code, Sub) when is_atom(Code), is_atom(Sub) ->
+    {failure,
+        payproc_errors:construct(
+            'PaymentFailure',
+            {Code, {Sub, #payproc_error_GeneralFailure{}}}
+        )}.
 
 get_payment_id(#proxy_provider_PaymentInfo{payment = Payment}) ->
     Payment#proxy_provider_InvoicePayment.id.
