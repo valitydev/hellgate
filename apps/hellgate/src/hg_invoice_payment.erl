@@ -58,8 +58,6 @@
 -export([manual_refund/3]).
 
 -export([create_adjustment/4]).
--export([capture_adjustment/3]).
--export([cancel_adjustment/3]).
 
 -export([create_chargeback/3]).
 -export([cancel_chargeback/3]).
@@ -236,7 +234,10 @@ get_party_revision(#st{activity = {_, ID} = Activity} = St) when
 ->
     #domain_InvoicePaymentRefund{party_revision = Revision, created_at = Timestamp} = get_refund(ID, St),
     {Revision, Timestamp};
-get_party_revision(#st{activity = {adjustment_new, ID}} = St) ->
+get_party_revision(#st{activity = {Activity, ID}} = St) when
+    Activity =:= adjustment_new orelse
+        Activity =:= adjustment_pending
+->
     #domain_InvoicePaymentAdjustment{party_revision = Revision, created_at = Timestamp} = get_adjustment(ID, St),
     {Revision, Timestamp};
 get_party_revision(#st{activity = Activity}) ->
@@ -1936,43 +1937,25 @@ assert_payment_flow(hold, #domain_InvoicePayment{flow = ?invoice_payment_flow_ho
 assert_payment_flow(_, _) ->
     throw(#payproc_OperationNotPermitted{}).
 
--spec capture_adjustment(adjustment_id(), st(), opts()) -> {ok, result()}.
-capture_adjustment(ID, St, Options) ->
-    finalize_adjustment(ID, capture, St, Options).
-
--spec cancel_adjustment(adjustment_id(), st(), opts()) -> {ok, result()}.
-cancel_adjustment(ID, St, Options) ->
-    finalize_adjustment(ID, cancel, St, Options).
-
--spec finalize_adjustment(adjustment_id(), capture | cancel, st(), opts()) -> {ok, result()}.
-finalize_adjustment(ID, Intent, St, Options = #{timestamp := Timestamp}) ->
+-spec process_adjustment_capture(adjustment_id(), action(), st()) -> machine_result().
+process_adjustment_capture(ID, _Action, St) ->
+    Opts = get_opts(St),
     Adjustment = get_adjustment(ID, St),
     ok = assert_adjustment_status(processed, Adjustment),
-    ok = finalize_adjustment_cashflow(Intent, Adjustment, St, Options),
-    Status =
-        case Intent of
-            capture ->
-                ?adjustment_captured(Timestamp);
-            cancel ->
-                ?adjustment_cancelled(Timestamp)
-        end,
+    ok = finalize_adjustment_cashflow(Adjustment, St, Opts),
+    Status = ?adjustment_captured(maps:get(timestamp, Opts)),
     Event = ?adjustment_ev(ID, ?adjustment_status_changed(Status)),
-    {ok, {[Event], hg_machine_action:new()}}.
+    {done, {[Event], hg_machine_action:new()}}.
 
 prepare_adjustment_cashflow(Adjustment, St, Options) ->
     PlanID = construct_adjustment_plan_id(Adjustment, St, Options),
     Plan = get_adjustment_cashflow_plan(Adjustment),
     plan(PlanID, Plan).
 
-finalize_adjustment_cashflow(Intent, Adjustment, St, Options) ->
+finalize_adjustment_cashflow(Adjustment, St, Options) ->
     PlanID = construct_adjustment_plan_id(Adjustment, St, Options),
     Plan = get_adjustment_cashflow_plan(Adjustment),
-    case Intent of
-        capture ->
-            commit(PlanID, Plan);
-        cancel ->
-            rollback(PlanID, Plan)
-    end.
+    commit(PlanID, Plan).
 
 get_adjustment_cashflow_plan(#domain_InvoicePaymentAdjustment{
     old_cash_flow_inverse = CashflowInverse,
@@ -1997,12 +1980,6 @@ commit(_PlanID, []) ->
     ok;
 commit(PlanID, Plan) ->
     _ = hg_accounting:commit(PlanID, Plan),
-    ok.
-
-rollback(_PlanID, []) ->
-    ok;
-rollback(PlanID, Plan) ->
-    _ = hg_accounting:rollback(PlanID, Plan),
     ok.
 
 assert_adjustment_status(Status, #domain_InvoicePaymentAdjustment{status = {Status, _}}) ->
@@ -2080,6 +2057,8 @@ process_timeout({refund_accounter, _ID}, Action, St) ->
     process_result(Action, St);
 process_timeout({adjustment_new, ID}, Action, St) ->
     process_adjustment_cashflow(ID, Action, St);
+process_timeout({adjustment_pending, ID}, Action, St) ->
+    process_adjustment_capture(ID, Action, St);
 process_timeout({payment, flow_waiting}, Action, St) ->
     finalize_payment(Action, St).
 
@@ -2305,7 +2284,7 @@ process_adjustment_cashflow(ID, _Action, St) ->
     Adjustment = get_adjustment(ID, St),
     ok = prepare_adjustment_cashflow(Adjustment, St, Opts),
     Events = [?adjustment_ev(ID, ?adjustment_status_changed(?adjustment_processed()))],
-    {done, {Events, hg_machine_action:new()}}.
+    {next, {Events, hg_machine_action:instant()}}.
 
 process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, capture_data = CaptureData}) ->
     Opts = get_opts(St),
