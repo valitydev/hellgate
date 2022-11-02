@@ -383,18 +383,14 @@ apply_event(?trx_bound(Trx), Session, _Context) ->
     Session#{trx => Trx};
 apply_event(?proxy_st_changed(ProxyState), Session, _Context) ->
     Session#{proxy_state => ProxyState};
-apply_event(
-    ?interaction_changed(UserInteraction, ?interaction_requested),
-    Session,
-    _Context
-) ->
-    Session#{interaction => UserInteraction};
-apply_event(
-    ?interaction_changed(UserInteraction, ?interaction_completed),
-    Session = #{interaction := UserInteraction},
-    _Context
-) ->
-    maps:remove(interaction, Session);
+apply_event(?interaction_changed(UserInteraction, Status), Session, _Context) ->
+    case genlib:define(Status, ?interaction_requested) of
+        ?interaction_requested ->
+            Session#{interaction => UserInteraction};
+        ?interaction_completed ->
+            {UserInteraction, Session1} = maps:take(interaction, Session),
+            Session1
+    end;
 %% Ignore ?rec_token_acquired event cause it's easiest way to handle this
 %% TODO maybe add this token to session state and remove it from payment state?
 apply_event(?rec_token_acquired(_Token), Session, _Context) ->
