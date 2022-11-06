@@ -282,19 +282,28 @@ pull_event(InvoiceID, Timeout, Client) ->
 
 -spec pull_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
     tuple() | timeout | woody_error:business_error().
-pull_change(InvoiceID, FilterMapFun, Timeout, Client) ->
-    case gen_server:call(Client, {pull_change, InvoiceID, Timeout}, infinity) of
-        {ok, Change} ->
-            case FilterMapFun(Change) of
-                true ->
-                    Change;
-                {true, NewChange} ->
-                    NewChange;
-                false ->
-                    pull_change(InvoiceID, FilterMapFun, Timeout, Client)
+pull_change(InvoiceID, FilterMapFun, PullTimeout, Client) ->
+    Timeout = os:system_time(millisecond) + PullTimeout,
+    pull_change_(InvoiceID, FilterMapFun, PullTimeout, Timeout, Client).
+
+pull_change_(InvoiceID, FilterMapFun, PullTimeout, Timeout, Client) ->
+    case os:system_time(millisecond) of
+        Time when Time < Timeout ->
+            case gen_server:call(Client, {pull_change, InvoiceID, PullTimeout}, infinity) of
+                {ok, Change} ->
+                    case FilterMapFun(Change) of
+                        true ->
+                            Change;
+                        {true, NewChange} ->
+                            NewChange;
+                        false ->
+                            pull_change_(InvoiceID, FilterMapFun, PullTimeout, Timeout, Client)
+                    end;
+                Result ->
+                    Result
             end;
-        Result ->
-            Result
+        _ ->
+            timeout
     end.
 
 map_result_error({ok, Result}) ->
@@ -307,17 +316,12 @@ map_result_error({error, Error}) ->
 %%
 
 -type event() :: dmsl_payproc_thrift:'Event'().
--type changes() :: [
-    dmsl_payproc_thrift:'InvoiceChange'()
-    | dmsl_payproc_thrift:'PartyChange'()
-    | dmsl_payproc_thrift:'InvoiceTemplateChange'()
-    | dmsl_payproc_thrift:'CustomerChange'()
-].
+-type changes() :: [dmsl_payproc_thrift:'InvoiceChange'()].
 
 -record(state, {
     pollers :: #{invoice_id() => hg_client_event_poller:st(event())},
     client :: hg_client_api:t(),
-    changes = #{} :: #{{callref(), invoice_id()} => [changes()]}
+    changes = #{} :: #{invoice_id() => [changes()]}
 }).
 
 -type state() :: #state{}.
@@ -382,10 +386,9 @@ handle_pull_change(InvoiceID, Timeout, St = #state{changes = ChangesMap}) ->
             {{ok, ResultChange}, StNext};
         _ ->
             case handle_pull_event(InvoiceID, Timeout, St) of
-                {{ok, ?invoice_ev([ResultChange | RemainingChanges])}, StNext0} ->
-                    ChangesMapNext = ChangesMap#{InvoiceID => RemainingChanges},
-                    StNext1 = StNext0#state{changes = ChangesMapNext},
-                    {{ok, ResultChange}, StNext1};
+                {{ok, ?invoice_ev(Changes)}, StNext0} ->
+                    StNext1 = StNext0#state{changes = ChangesMap#{InvoiceID => Changes}},
+                    handle_pull_change(InvoiceID, 0, StNext1);
                 {Result, StNext0} ->
                     {Result, StNext0}
             end

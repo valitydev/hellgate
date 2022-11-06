@@ -2549,10 +2549,10 @@ payment_temporary_unavailability_retry_success(C) ->
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_sessions_restarts(PaymentID, ?processed(), InvoiceID, Client, 2),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
-        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _))
-            = next_change(InvoiceID, Client),
-        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
-     = next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started())) =
+        next_change(InvoiceID, Client),
     PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, undefined), InvoiceID, Client, 2),
     PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client),
     ?invoice_state(
@@ -4867,18 +4867,18 @@ payment_with_offsite_preauth_success(C) ->
     timer:sleep(2000),
     {URL, Form} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, Form}),
-        ?payment_ev(
-            PaymentID,
-            ?session_ev(?processed(), ?trx_bound(?trx_info(_)))
-        )
-     = next_change(InvoiceID, Client),
-        ?payment_ev(
-            PaymentID,
-            ?session_ev(?processed(), ?session_finished(?session_succeeded()))
-        )
-     = next_change(InvoiceID, Client),
-        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
-     = next_change(InvoiceID, Client),
+    ?payment_ev(
+        PaymentID,
+        ?session_ev(?processed(), ?trx_bound(?trx_info(_)))
+    ) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(
+        PaymentID,
+        ?session_ev(?processed(), ?session_finished(?session_succeeded()))
+    ) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
+        next_change(InvoiceID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
@@ -6099,13 +6099,13 @@ await_payment_process_finish(InvoiceID, PaymentID, Client) ->
     PaymentID.
 
 await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client) ->
-        ?payment_ev(
-            PaymentID,
-            ?session_ev(
-                ?processed(),
-                ?interaction_changed(UserInteraction, ?interaction_completed)
-            )
-        ) = next_change(InvoiceID, Client),
+    ?payment_ev(
+        PaymentID,
+        ?session_ev(
+            ?processed(),
+            ?interaction_changed(UserInteraction, ?interaction_completed)
+        )
+    ) = next_change(InvoiceID, Client),
     ok.
 
 await_payment_capture(InvoiceID, PaymentID, Client) ->
