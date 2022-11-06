@@ -66,10 +66,12 @@
     result => session_result(),
     trx => undefined | trx_info(),
     proxy_state => proxy_state(),
+    interaction => interaction(),
     timeout_behaviour => timeout_behaviour()
 }.
 
 -type proxy_state() :: dmsl_proxy_provider_thrift:'ProxyState'().
+-type interaction() :: dmsl_user_interaction_thrift:'UserInteraction'().
 -type trx_info() :: hg_invoice_payment:trx_info().
 -type session_result() :: dmsl_payproc_thrift:'SessionResult'().
 
@@ -549,7 +551,7 @@ construct_proxy_cash(#domain_PaymentRoute{provider = ProviderRef}, VS, DomainRev
 
 handle_proxy_result(
     #proxy_provider_RecurrentTokenProxyResult{
-        intent = {_Type, Intent},
+        intent = {Type, Intent},
         trx = Trx,
         next_state = ProxyState
     },
@@ -558,8 +560,9 @@ handle_proxy_result(
 ) ->
     Changes1 = hg_proxy_provider:bind_transaction(Trx, Session),
     Changes2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
-    {Changes3, Action} = handle_proxy_intent(Intent, Session, Action0),
-    Changes = Changes1 ++ Changes2 ++ Changes3,
+    Changes3 = hg_proxy_provider:handle_interaction_intent({Type, Intent}, Session),
+    {Changes4, Action} = handle_proxy_intent(Intent, Session, Action0),
+    Changes = Changes1 ++ Changes2 ++ Changes3 ++ Changes4,
     case Intent of
         #proxy_provider_RecurrentTokenFinishIntent{
             status = {'success', #proxy_provider_RecurrentTokenSuccess{token = Token}}
@@ -587,33 +590,22 @@ handle_proxy_intent(
     Events = [?session_finished(?session_failed({failure, Failure}))],
     {Events, Action};
 handle_proxy_intent(
-    #proxy_provider_SleepIntent{timer = Timer, user_interaction = UserInteraction},
+    #proxy_provider_SleepIntent{timer = Timer},
     _Session,
     Action0
 ) ->
     Action = hg_machine_action:set_timer(Timer, Action0),
-    Events = [?session_activated() | try_request_interaction(UserInteraction)],
+    Events = [?session_activated()],
     {Events, Action};
 handle_proxy_intent(
-    #proxy_provider_SuspendIntent{} = Intent,
+    #proxy_provider_SuspendIntent{tag = Tag, timeout = Timer, timeout_behaviour = TimeoutBehaviour},
     #{rec_payment_tool_id := ToolID},
     Action0
 ) ->
-    #proxy_provider_SuspendIntent{
-        tag = Tag,
-        timeout = Timer,
-        user_interaction = UserInteraction,
-        timeout_behaviour = TimeoutBehaviour
-    } = Intent,
     ok = hg_machine_tag:create_binding(namespace(), Tag, ToolID),
     Action = hg_machine_action:set_timer(Timer, Action0),
-    Events = [?session_suspended(Tag, TimeoutBehaviour) | try_request_interaction(UserInteraction)],
+    Events = [?session_suspended(Tag, TimeoutBehaviour)],
     {Events, Action}.
-
-try_request_interaction(undefined) ->
-    [];
-try_request_interaction(UserInteraction) ->
-    [?interaction_requested(UserInteraction)].
 
 %%
 
@@ -723,8 +715,16 @@ merge_session_change(?trx_bound(Trx), Session) ->
     Session#{trx := Trx};
 merge_session_change(?proxy_st_changed(ProxyState), Session) ->
     Session#{proxy_state => ProxyState};
-merge_session_change(?interaction_requested(_), Session) ->
-    Session.
+merge_session_change(
+    ?interaction_changed(UserInteraction, ?interaction_requested),
+    Session
+) ->
+    Session#{interaction => UserInteraction};
+merge_session_change(
+    ?interaction_changed(UserInteraction, ?interaction_completed),
+    Session = #{interaction := UserInteraction}
+) ->
+    maps:remove(interaction, Session).
 
 %%
 

@@ -221,6 +221,7 @@ invoice_adjustment_payment_pending(C) ->
     ?assertMatch(#payproc_InvoicePaymentPending{id = PaymentID}, E),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     _ = assert_success_interaction(UserInteraction),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
@@ -828,9 +829,21 @@ await_payment_process_interaction(InvoiceID, PaymentID, Client) ->
     ] = Events0,
     Events1 = next_event(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?interaction_requested(UserInteraction)))
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_requested))
+        )
     ] = Events1,
     UserInteraction.
+
+await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client) ->
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_completed))
+        )
+    ] = next_event(InvoiceID, Client),
+    ok.
 
 -dialyzer({no_match, await_sessions_restarts/5}).
 
