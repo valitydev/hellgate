@@ -19,7 +19,7 @@
 
 -spec init(hg_invoice_payment:payment_id(), _, hg_invoice_payment:opts()) ->
     {hg_invoice_payment:st(), hg_invoice_payment:result()}.
-init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
+init(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     #payproc_RegisterInvoicePaymentParams{
         payer_params = PayerParams,
         route = Route,
@@ -30,8 +30,9 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         transaction_info = TransactionInfo,
         risk_score = RiskScore,
         %% Not sure what to do with it
-        occurred_at = _OccurredAt
+        occurred_at = OccurredAt
     } = Params,
+    CreatedAt1 = genlib:define(OccurredAt, CreatedAt0),
     Revision = hg_domain:head(),
     Party = get_party(Opts),
     Shop = get_shop(Opts),
@@ -45,7 +46,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
 
     Payment = construct_payment(
         PaymentID,
-        CreatedAt,
+        CreatedAt1,
         Cost1,
         Payer,
         Party,
@@ -57,7 +58,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     ),
     RiskScoreEventList = maybe_risk_score_event_list(RiskScore),
 
-    MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt, VS),
+    MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt1, VS),
     ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS, Revision),
     FinalCashflow = hg_invoice_payment:calculate_cashflow(
         Route,
@@ -68,7 +69,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         VS,
         Revision,
         Opts,
-        CreatedAt,
+        CreatedAt1,
         undefined
     ),
     PlanID = construct_payment_plan_id(Invoice, Payment),
