@@ -1043,11 +1043,9 @@ payment_success(C) ->
         Payment
     ),
     ?assertMatch(
-        #domain_TransactionInfo{
-            extra = #{
-                <<"payment.payer_session_info.redirect_url">> := RedirectURL
-            }
-        },
+        ?trx_info(_ID, #{
+            <<"payment.payer_session_info.redirect_url">> := RedirectURL
+        }),
         Trx
     ).
 
@@ -1065,7 +1063,7 @@ register_payment_success(C) ->
     Cost = ?cash(41999, <<"RUB">>),
     ID = hg_utils:unique_id(),
     ExternalID = hg_utils:unique_id(),
-    TransactionInfo = #domain_TransactionInfo{id = <<"1">>, extra = #{}},
+    TransactionInfo = ?trx_info(<<"1">>),
     OccurredAt = hg_datetime:format_now(),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
@@ -1125,7 +1123,7 @@ register_payment_customer_payer_success(C) ->
                 customer_id = CustomerID
             }},
         route = Route,
-        transaction_info = #domain_TransactionInfo{id = <<"1">>, extra = #{}}
+        transaction_info = ?trx_info(<<"1">>)
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -1152,7 +1150,7 @@ register_invoice_payment(ShopID, Client, C) ->
                 contact_info = #domain_ContactInfo{}
             }},
         route = Route,
-        transaction_info = #domain_TransactionInfo{id = <<"1">>, extra = #{}}
+        transaction_info = ?trx_info(<<"1">>)
     },
     PaymentID = register_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -1697,12 +1695,12 @@ payment_w_terminal_w_payment_service_success(C) ->
         [PaymentSt = ?payment_state(?payment_w_status(PaymentID, ?captured()))]
     ) = hg_client_invoicing:get(InvoiceID, Client),
     ?assertMatch(
-        ?payment_last_trx(#domain_TransactionInfo{
-            extra = #{
+        ?payment_last_trx(
+            ?trx_info(_ID, #{
                 <<"payment.payment_service.name">> := PmtSrvName,
                 <<"payment.payment_service.brand_name">> := PmtSrvBrandName
-            }
-        }),
+            })
+        ),
         PaymentSt
     ).
 
@@ -2487,7 +2485,7 @@ registered_payment_adjustment_success(C) ->
                 contact_info = #domain_ContactInfo{}
             }},
         route = Route,
-        transaction_info = #domain_TransactionInfo{id = <<"1">>, extra = #{}}
+        transaction_info = ?trx_info(<<"1">>)
     },
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, PaymentParams, Client),
