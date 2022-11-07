@@ -29,7 +29,6 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
         context = Context,
         transaction_info = TransactionInfo,
         risk_score = RiskScore,
-        %% Not sure what to do with it
         occurred_at = OccurredAt
     } = Params,
     CreatedAt1 = genlib:define(OccurredAt, CreatedAt0),

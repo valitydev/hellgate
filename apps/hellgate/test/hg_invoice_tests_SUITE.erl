@@ -1402,8 +1402,10 @@ processing_deadline_reached_test(C) ->
     PaymentParams = PaymentParams0#payproc_InvoicePaymentParams{processing_deadline = Deadline},
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_sessions_restarts(PaymentID, ?processed(), InvoiceID, Client, 0),
-    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) = next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) = next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_changes(InvoiceID, 2, Client),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -1431,10 +1433,10 @@ payment_success_additional_info(C) ->
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
 
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(Trx))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(Trx))),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
+    ] = next_changes(InvoiceID, 2, Client),
     #domain_TransactionInfo{additional_info = AdditionalInfo} = Trx,
     AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
     ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
@@ -1470,12 +1472,11 @@ payment_last_trx_correct(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = start_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(TrxInfo0))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(TrxInfo0))),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?payment_last_trx(TrxInfo0) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
 
@@ -1487,12 +1488,11 @@ payment_w_misconfigured_routing_failed(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?risk_score_changed(_)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_changes(InvoiceID, 3, Client),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -1530,10 +1530,10 @@ payment_capture_failed(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
     PaymentParams = make_scenario_payment_params([good, fail], ?pmt_sys(<<"visa-ref">>)),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(_)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
     timeout = next_change(InvoiceID, 5000, Client),
     ?assertException(
         error,
@@ -1552,10 +1552,10 @@ payment_capture_retries_exceeded(C) ->
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     Reason = ?timeout_reason(),
     Target = ?captured(Reason, Cost),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _Allocation)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _Allocation)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
     PaymentID = await_sessions_restarts(PaymentID, Target, InvoiceID, Client, 3),
     timeout = next_change(InvoiceID, 5000, Client),
     ?assertException(
@@ -1638,10 +1638,10 @@ payment_error_in_capture_session_does_not_cause_payment_failure(C) ->
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     ?assertMatch(#{min_available_amount := 0, max_available_amount := 40110}, hg_accounting:get_balance(SettlementID)),
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"capture">>, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _Allocation)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _Allocation)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
     timeout = next_change(InvoiceID, Client),
     ?assertMatch(#{min_available_amount := 0, max_available_amount := 40110}, hg_accounting:get_balance(SettlementID)),
     ?assertException(
@@ -1665,10 +1665,10 @@ repair_failed_cancel(InvoiceID, PaymentID, Reason, Client) ->
         ?payment_ev(PaymentID, ?session_ev(Target, ?session_finished(?session_succeeded())))
     ],
     ok = repair_invoice(InvoiceID, Changes, Client),
-    ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?cancelled_with_reason(Reason))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?cancelled_with_reason(Reason)))
+    ] = next_changes(InvoiceID, 2, Client),
     PaymentID.
 
 -spec payment_w_terminal_w_payment_service_success(config()) -> _ | no_return().
@@ -1765,20 +1765,21 @@ payment_w_mobile_commerce(C, Expectation) ->
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     case Expectation of
         success ->
-            ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))) =
-                next_change(InvoiceID, Client),
-            ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
-                next_change(InvoiceID, Client);
+            [
+                ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+                ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+            ] =
+                next_changes(InvoiceID, 2, Client);
         failure ->
-            ?payment_ev(
-                PaymentID,
-                ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
-            ) =
-                next_change(InvoiceID, Client),
-            ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
-                next_change(InvoiceID, Client),
-            ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
-                next_change(InvoiceID, Client)
+            [
+                ?payment_ev(
+                    PaymentID,
+                    ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
+                ),
+                ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
+                ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+            ] =
+                next_changes(InvoiceID, 3, Client)
     end.
 
 -spec payment_w_wallet_success(config()) -> _ | no_return().
@@ -2041,13 +2042,12 @@ payment_risk_score_check(C) ->
     % Invoice w/ 100000000 =< cost
     InvoiceID3 = start_invoice(<<"rubbersocks">>, make_due_date(10), 100000000, C),
     ?payment_state(?payment(PaymentID3)) = hg_client_invoicing:start_payment(InvoiceID3, PaymentParams, Client),
-    ?payment_ev(PaymentID3, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID3, Client),
-    % fatal risk score is not going to be covered
-    ?payment_ev(PaymentID3, ?risk_score_changed(fatal)) =
-        next_change(InvoiceID3, Client),
-    ?payment_ev(PaymentID3, ?payment_status_changed(?failed({failure, Failure}))) =
-        next_change(InvoiceID3, Client),
+    [
+        ?payment_ev(PaymentID3, ?payment_started(?payment_w_status(?pending()))),
+        % fatal risk score is not going to be covered
+        ?payment_ev(PaymentID3, ?risk_score_changed(fatal)),
+        ?payment_ev(PaymentID3, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_changes(InvoiceID3, 3, Client),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -2163,10 +2163,10 @@ payment_adjustment_success(C) ->
     %% no way to create another one yet
     ?invalid_adjustment_pending(AdjustmentID) =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client),
-    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+    ] = next_changes(InvoiceID, 2, Client),
     %% verify that cash deposited correctly everywhere
     #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
@@ -2524,10 +2524,10 @@ registered_payment_adjustment_success(C) ->
     %% no way to create another one yet
     ?invalid_adjustment_pending(AdjustmentID) =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client),
-    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+    ] = next_changes(InvoiceID, 2, Client),
     %% verify that cash deposited correctly everywhere
     #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
@@ -2549,10 +2549,10 @@ payment_temporary_unavailability_retry_success(C) ->
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_sessions_restarts(PaymentID, ?processed(), InvoiceID, Client, 2),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
     PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, undefined), InvoiceID, Client, 2),
     PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client),
     ?invoice_state(
@@ -2765,22 +2765,21 @@ create_chargeback_idempotency(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     ?assertMatch(CB, hg_client_invoicing:create_chargeback(IID, PID, CBParams, Client)),
     NewCBParams = make_chargeback_params(Levy),
     ?assertMatch(?chargeback_pending(), hg_client_invoicing:create_chargeback(IID, PID, NewCBParams, Client)),
     Settlement0 = hg_accounting:get_balance(SID),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -2798,19 +2797,18 @@ cancel_payment_chargeback(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -2829,19 +2827,18 @@ cancel_partial_payment_chargeback(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback_partial_capture(C, Cost, Partial, CBParams, ?pmt_sys(<<"mastercard-ref">>)),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Partial - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -2870,20 +2867,19 @@ cancel_payment_chargeback_refund(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     RefundParams = make_refund_params(),
     RefundError = hg_client_invoicing:refund_payment(IID, PID, RefundParams, Client),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     RefundOk = hg_client_invoicing:refund_payment(IID, PID, RefundParams, Client),
     ?assertMatch(?chargeback_pending(), RefundError),
     ?assertMatch(#domain_InvoicePaymentRefund{}, RefundOk).
@@ -2897,20 +2893,19 @@ reject_payment_chargeback_inconsistent(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     InconsistentParams = make_chargeback_reject_params(?cash(10, <<"USD">>)),
     Inconsistent = hg_client_invoicing:reject_chargeback(IID, PID, CBID, InconsistentParams, Client),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     ?assertMatch(?inconsistent_chargeback_currency(_), Inconsistent).
 
 -spec reject_payment_chargeback(config()) -> _ | no_return().
@@ -2924,19 +2919,18 @@ reject_payment_chargeback(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -2954,19 +2948,18 @@ reject_payment_chargeback_no_fees(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_wallet_payment_params(?pmt_srv(<<"qiwi-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -2984,23 +2977,21 @@ reject_payment_chargeback_new_levy(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(CF0))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(CF0)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectAmount = 5000,
     RejectLevy = ?cash(RejectAmount, <<"RUB">>),
     RejectParams = make_chargeback_reject_params(RejectLevy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(RejectLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(CF1))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(RejectLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(CF1))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 4, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertNotEqual(CF0, CF1),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3017,22 +3008,21 @@ accept_payment_chargeback_inconsistent(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     InconsistentLevyParams = make_chargeback_accept_params(?cash(10, <<"USD">>), undefined),
     InconsistentBodyParams = make_chargeback_accept_params(undefined, ?cash(10, <<"USD">>)),
     InconsistentLevy = hg_client_invoicing:accept_chargeback(IID, PID, CBID, InconsistentLevyParams, Client),
     InconsistentBody = hg_client_invoicing:accept_chargeback(IID, PID, CBID, InconsistentBodyParams, Client),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     ?assertMatch(?inconsistent_chargeback_currency(_), InconsistentLevy),
     ?assertMatch(?inconsistent_chargeback_currency(_), InconsistentBody).
 
@@ -3045,21 +3035,20 @@ accept_payment_chargeback_exceeded(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     ExceedBody = 200000,
     ExceedParams = make_chargeback_accept_params(?cash(LevyAmount, <<"RUB">>), ?cash(ExceedBody, <<"RUB">>)),
     Exceeded = hg_client_invoicing:accept_chargeback(IID, PID, CBID, ExceedParams, Client),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     ?assertMatch(?invoice_payment_amount_exceeded(_), Exceeded).
 
 -spec accept_payment_chargeback_empty_params(config()) -> _ | no_return().
@@ -3073,19 +3062,18 @@ accept_payment_chargeback_empty_params(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3105,34 +3093,33 @@ accept_payment_chargeback_twice(C) ->
     CBParams1 = make_chargeback_params(Levy, Body),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams1, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted())))
+    ] = next_changes(IID, 2, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     CBParams2 = make_chargeback_params(Levy),
     Chargeback = hg_client_invoicing:create_chargeback(IID, PID, CBParams2, Client),
     CBID2 = Chargeback#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_created(Chargeback))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_created(Chargeback))),
+        ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID2, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - BodyAmount - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3154,22 +3141,20 @@ accept_payment_chargeback_new_body(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     Body = 40000,
     AcceptParams = make_chargeback_accept_params(undefined, ?cash(Body, <<"RUB">>)),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_body_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_body_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted())))
+    ] = next_changes(IID, 4, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3188,23 +3173,20 @@ accept_payment_chargeback_new_levy(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(?cash(NewLevyAmount, <<"RUB">>), undefined),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(?cash(NewLevyAmount, <<"RUB">>)))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(?cash(NewLevyAmount, <<"RUB">>)))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 5, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3220,18 +3202,17 @@ reopen_accepted_payment_chargeback_fails(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 3, Client),
     ReopenParams = make_chargeback_reopen_params(Levy),
     Error = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
     ?assertMatch(?invalid_chargeback_status(_), Error).
@@ -3245,18 +3226,17 @@ reopen_payment_chargeback_inconsistent(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     InconsistentLevyParams = make_chargeback_reopen_params(?cash(10, <<"USD">>), undefined),
     InconsistentBodyParams = make_chargeback_reopen_params(Levy, ?cash(10, <<"USD">>)),
     InconsistentLevy = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, InconsistentLevyParams, Client),
@@ -3273,18 +3253,17 @@ reopen_payment_chargeback_exceeded(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     ExceededParams = make_chargeback_reopen_params(Levy, ?cash(50000, <<"RUB">>)),
     Exceeded = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ExceededParams, Client),
     ?assertMatch(?invoice_payment_amount_exceeded(_), Exceeded).
@@ -3302,41 +3281,36 @@ reopen_payment_chargeback_cancel(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+    ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3360,42 +3334,36 @@ reopen_payment_chargeback_reject(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(Levy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(Levy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 4, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3419,41 +3387,36 @@ reopen_payment_chargeback_accept(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3477,42 +3440,37 @@ reopen_payment_chargeback_skip_stage_accept(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     NextStage = ?chargeback_stage_arbitration(),
     ReopenParams = make_chargeback_reopen_params_move_to_stage(ReopenLevy, NextStage),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(NextStage))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(NextStage))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3539,45 +3497,38 @@ reopen_payment_chargeback_accept_new_levy(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(AcceptLevy, Body),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 5, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3603,64 +3554,54 @@ reopen_payment_chargeback_arbitration(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 4, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ReopenArbParams = make_chargeback_reopen_params(ReopenArbLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenArbParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement4 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?payment_status_changed(?charged_back())) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(IID, 3, Client),
     Settlement5 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
@@ -3690,65 +3631,54 @@ reopen_payment_chargeback_arbitration_reopen_fails(C) ->
     CBParams = make_chargeback_params(Levy),
     {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
     CBID = CB#domain_InvoicePaymentChargeback.id,
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(IID, 2, Client),
     Settlement0 = hg_accounting:get_balance(SID),
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 4, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ReopenArbParams = make_chargeback_reopen_params(ReopenArbLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenArbParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+    ] = next_changes(IID, 5, Client),
     Settlement4 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))) =
-        next_change(IID, Client),
-    ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))) =
-        next_change(IID, Client),
+    [
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+    ] = next_changes(IID, 4, Client),
     Settlement5 = hg_accounting:get_balance(SID),
     Error = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenArbParams, Client),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3805,12 +3735,11 @@ start_chargeback_partial_capture(C, Cost, Partial, CBParams, PmtSys) ->
     PaymentParams = make_payment_params(PaymentTool, Session, {hold, cancel}),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Cash, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Client),
     % Settlement1  = hg_accounting:get_balance(SettlementID),
     % ?assertEqual(Partial - Fee, maps:get(min_available_amount, Settlement1)),
@@ -3929,10 +3858,10 @@ payment_refund_success(C) ->
     ?refund_id(RefundID0) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID0, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(Failure))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(Failure)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(Failure))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(Failure))))
+    ] = next_changes(InvoiceID, 2, Client),
     % top up merchant account
     InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
@@ -3974,10 +3903,10 @@ payment_refund_failure(C) ->
     ?refund_id(RefundID0) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID0, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds))))
+    ] = next_changes(InvoiceID, 2, Client),
     % top up merchant account
     InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
@@ -3986,12 +3915,11 @@ payment_refund_failure(C) ->
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))),
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure))),
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure))))
+    ] = next_changes(InvoiceID, 3, Client),
     #domain_InvoicePaymentRefund{status = ?refund_failed(Failure)} =
         hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
 
@@ -4030,10 +3958,10 @@ deadline_doesnt_affect_payment_refund(C) ->
     ?refund_id(RefundID0) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID0, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds))))
+    ] = next_changes(InvoiceID, 2, Client),
     % top up merchant account
     InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
@@ -4072,12 +4000,11 @@ payment_manual_refund(C) ->
     Refund0 =
         ?refund_id(RefundID0) =
         hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, RefundParams, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_created(Refund0, _, TrxInfo))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_created(Refund0, _, TrxInfo))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds))))
+    ] = next_changes(InvoiceID, 3, Client),
     % top up merchant account
     InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
@@ -4522,12 +4449,11 @@ payment_hold_partial_capturing(C) ->
     Cash = ?cash(10000, <<"RUB">>),
     Reason = <<"ok">>,
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, Cash, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Client).
 
 -spec payment_hold_partial_capturing_with_cart(config()) -> _ | no_return().
@@ -4540,12 +4466,11 @@ payment_hold_partial_capturing_with_cart(C) ->
     Cart = ?cart(Cash, #{}),
     Reason = <<"ok">>,
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, Cash, Cart, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash, Cart), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash, Cart), ?session_started()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Cart, Client).
 
 -spec payment_hold_partial_capturing_with_cart_missing_cash(config()) -> _ | no_return().
@@ -4558,12 +4483,11 @@ payment_hold_partial_capturing_with_cart_missing_cash(C) ->
     Cart = ?cart(Cash, #{}),
     Reason = <<"ok">>,
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, undefined, Cart, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash, Cart), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash, Cart), ?session_started()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Cart, Client).
 
 -spec invalid_currency_partial_capture(config()) -> _ | no_return().
@@ -4758,10 +4682,10 @@ adhoc_repair_failed_succeeded(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
+    ] = next_changes(InvoiceID, 2, Client),
     % assume no more events here since machine is FUBAR already
     timeout = next_change(InvoiceID, 2000, Client),
     Change = ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
@@ -4794,10 +4718,10 @@ adhoc_repair_invalid_changes_failed(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
+    ] = next_changes(InvoiceID, 2, Client),
     timeout = next_change(InvoiceID, 5000, Client),
     InvalidChanges1 = [
         ?payment_ev(PaymentID, ?refund_ev(<<"42">>, ?refund_status_changed(?refund_succeeded())))
@@ -4867,18 +4791,17 @@ payment_with_offsite_preauth_success(C) ->
     timer:sleep(2000),
     {URL, Form} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, Form}),
-    ?payment_ev(
-        PaymentID,
-        ?session_ev(?processed(), ?trx_bound(?trx_info(_)))
-    ) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(
-        PaymentID,
-        ?session_ev(?processed(), ?session_finished(?session_succeeded()))
-    ) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?trx_bound(?trx_info(_)))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_succeeded()))
+        ),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
@@ -4978,10 +4901,10 @@ repair_fail_session_on_processed_succeeded(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
+    ] = next_changes(InvoiceID, 2, Client),
 
     timeout = next_change(InvoiceID, 2000, Client),
 
@@ -4992,12 +4915,11 @@ repair_fail_session_on_processed_succeeded(C) ->
     ),
     ok = repair_invoice_with_scenario(InvoiceID, {fail_session, Failure}, Client),
 
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
-        next_change(InvoiceID, Client).
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_changes(InvoiceID, 3, Client).
 
 -spec repair_fail_suspended_session_succeeded(config()) -> test_return().
 repair_fail_suspended_session_succeeded(C) ->
@@ -5016,12 +4938,11 @@ repair_fail_suspended_session_succeeded(C) ->
     Failure = construct_authorization_failure(),
     ok = repair_invoice_with_scenario(InvoiceID, {fail_session, Failure}, Client),
 
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
-        next_change(InvoiceID, Client).
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_changes(InvoiceID, 3, Client).
 
 -spec repair_fail_session_on_pre_processing(config()) -> test_return().
 repair_fail_session_on_pre_processing(C) ->
@@ -5091,10 +5012,10 @@ repair_complex_second_scenario_succeeded(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
+    ] = next_changes(InvoiceID, 2, Client),
 
     timeout = next_change(InvoiceID, 2000, Client),
     Scenarios = [
@@ -5103,12 +5024,11 @@ repair_complex_second_scenario_succeeded(C) ->
     ],
     ok = repair_invoice_with_scenario(InvoiceID, Scenarios, Client),
 
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
-        next_change(InvoiceID, Client).
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] = next_changes(InvoiceID, 3, Client).
 
 -spec repair_fulfill_session_on_refund_succeeded(config()) -> _ | no_return().
 repair_fulfill_session_on_refund_succeeded(C) ->
@@ -5140,12 +5060,11 @@ repair_fail_session_on_refund_succeeded(C) ->
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID1, Client),
     timeout = next_change(InvoiceID, 2000, Client),
     ok = repair_invoice_with_scenario(InvoiceID, {fail_session, construct_authorization_failure()}, Client),
-    ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure)))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))),
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure))),
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure))))
+    ] = next_changes(InvoiceID, 3, Client),
     ?payment_state(
         ?payment_w_status(?captured()),
         [?refund_state(?invoice_payment_refund(_, ?refund_failed(Failure)))]
@@ -5164,10 +5083,10 @@ repair_fulfill_session_on_processed_succeeded(C) ->
     timeout = next_change(InvoiceID, 2000, Client),
     ok = repair_invoice_with_scenario(InvoiceID, fulfill_session, Client),
 
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 2, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
 -spec repair_fulfill_suspended_session_succeeded(config()) -> test_return().
@@ -5186,10 +5105,10 @@ repair_fulfill_suspended_session_succeeded(C) ->
     timeout = next_change(InvoiceID, 2000, Client),
     ok = repair_invoice_with_scenario(InvoiceID, fulfill_session, Client),
 
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 2, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
 -spec repair_fulfill_session_on_captured_succeeded(config()) -> test_return().
@@ -5198,10 +5117,10 @@ repair_fulfill_session_on_captured_succeeded(C) ->
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
     PaymentParams = make_scenario_payment_params([good, error], ?pmt_sys(<<"visa-ref">>)),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, _, _, _)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, _, _, _)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(), ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
 
     timeout = next_change(InvoiceID, 2000, Client),
     ok = repair_invoice_with_scenario(InvoiceID, fulfill_session, Client),
@@ -5249,12 +5168,11 @@ repair_fulfill_session_with_trx_succeeded(C) ->
     timeout = next_change(InvoiceID, 2000, Client),
     ok = repair_invoice_with_scenario(InvoiceID, {fulfill_session, ?trx_info(PaymentID, #{})}, Client),
 
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
 construct_authorization_failure() ->
@@ -5644,6 +5562,28 @@ consistent_account_balances(C) ->
 
 %%
 
+next_changes(InvoiceID, Amount, Client) ->
+    next_changes(InvoiceID, Amount, ?DEFAULT_NEXT_CHANGE_TIMEOUT * Amount, Client).
+
+next_changes(InvoiceID, Amount, Timeout, Client) ->
+    TimeoutTime = os:system_time(millisecond) + Timeout,
+    next_changes_(InvoiceID, Amount, TimeoutTime, Client).
+
+next_changes_(InvoiceID, Amount, Timeout, Client) ->
+    Result = lists:foldl(
+        fun(_N, Acc) ->
+            case os:system_time(millisecond) of
+                Time when Time < Timeout ->
+                    [next_change(InvoiceID, Client) | Acc];
+                _ ->
+                    Acc
+            end
+        end,
+        [],
+        lists:seq(1, Amount)
+    ),
+    lists:reverse(Result).
+
 next_change(InvoiceID, Client) ->
     %% timeout should be at least as large as hold expiration in construct_domain_fixture/0
     next_change(InvoiceID, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
@@ -6005,12 +5945,11 @@ register_payment(InvoiceID, RegisterPaymentParams, Client) ->
     PaymentID.
 
 start_payment_ev(InvoiceID, Client) ->
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?route_changed(Route)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)),
+        ?payment_ev(PaymentID, ?route_changed(Route))
+    ] = next_changes(InvoiceID, 3, Client),
     Route.
 
 start_payment_ev_optional_risk_score(InvoiceID, Client) ->
@@ -6048,30 +5987,27 @@ await_payment_started(InvoiceID, PaymentID, Client) ->
     PaymentID.
 
 await_payment_cash_flow(InvoiceID, PaymentID, Client) ->
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?route_changed(Route)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?risk_score_changed(_)),
+        ?payment_ev(PaymentID, ?route_changed(Route)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow))
+    ] = next_changes(InvoiceID, 3, Client),
     {CashFlow, Route}.
 
 await_payment_cash_flow(RS, Route, InvoiceID, PaymentID, Client) ->
-    ?payment_ev(PaymentID, ?risk_score_changed(RS)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?route_changed(Route)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?risk_score_changed(RS)),
+        ?payment_ev(PaymentID, ?route_changed(Route)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow))
+    ] = next_changes(InvoiceID, 3, Client),
     CashFlow.
 
 await_payment_rollback(InvoiceID, PaymentID, Client) ->
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?route_changed(_, _)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?risk_score_changed(_)),
+        ?payment_ev(PaymentID, ?route_changed(_, _)),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
+    ] = next_changes(InvoiceID, 3, Client),
     Failure.
 
 await_payment_session_started(InvoiceID, PaymentID, Client, Target) ->
@@ -6090,12 +6026,11 @@ await_payment_process_interaction(InvoiceID, PaymentID, Client) ->
     UserInteraction.
 
 await_payment_process_finish(InvoiceID, PaymentID, Client) ->
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
 
 await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client) ->
@@ -6113,19 +6048,18 @@ await_payment_capture(InvoiceID, PaymentID, Client) ->
 
 await_payment_capture(InvoiceID, PaymentID, Reason, Client) ->
     Cost = get_payment_cost(InvoiceID, PaymentID, Client),
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
 await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client) ->
-    ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
+    ] = next_changes(InvoiceID, 3, Client),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Client).
 
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client) ->
@@ -6136,21 +6070,19 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client) ->
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, undefined, Client).
 
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Cart, Client) ->
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?captured(Reason, Cost, Cart, _))) =
-        next_change(InvoiceID, Client),
-    ?invoice_status_changed(?invoice_paid()) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?captured(Reason, Cost, Cart, _))),
+        ?invoice_status_changed(?invoice_paid())
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
 
 await_payment_cancel(InvoiceID, PaymentID, Reason, Client) ->
-    ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_started())) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?cancelled_with_reason(Reason))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_started())),
+        ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?cancelled_with_reason(Reason)))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
 
 await_payment_process_timeout(InvoiceID, PaymentID, Client) ->
@@ -6165,12 +6097,11 @@ await_payment_process_failure(InvoiceID, PaymentID, Client, Restarts) ->
 
 await_payment_process_failure(InvoiceID, PaymentID, Client, Restarts, Target) ->
     PaymentID = await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts),
-    ?payment_ev(PaymentID, ?session_ev(Target, ?session_finished(?session_failed(Failure)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_rollback_started(Failure)) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed(Failure))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(Target, ?session_finished(?session_failed(Failure)))),
+        ?payment_ev(PaymentID, ?payment_rollback_started(Failure)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed(Failure)))
+    ] = next_changes(InvoiceID, 3, Client),
     {failed, PaymentID, Failure}.
 
 await_refund_created(InvoiceID, PaymentID, RefundID, Client) ->
@@ -6179,16 +6110,13 @@ await_refund_created(InvoiceID, PaymentID, RefundID, Client) ->
     PaymentID.
 
 await_partial_manual_refund_succeeded(InvoiceID, PaymentID, RefundID, TrxInfo, Client) ->
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_status_changed(?refund_succeeded()))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_status_changed(?refund_succeeded())))
+    ] = next_changes(InvoiceID, 5, Client),
     PaymentID.
 
 await_refund_session_started(InvoiceID, PaymentID, RefundID, Client) ->
@@ -6197,10 +6125,10 @@ await_refund_session_started(InvoiceID, PaymentID, RefundID, Client) ->
     PaymentID.
 
 await_refund_succeeded(InvoiceID, PaymentID, Client) ->
-    ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?refunded())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?refunded()))
+    ] = next_changes(InvoiceID, 2, Client),
     PaymentID.
 
 await_refund_payment_process_finish(InvoiceID, PaymentID, Client) ->
@@ -6208,33 +6136,30 @@ await_refund_payment_process_finish(InvoiceID, PaymentID, Client) ->
 
 await_refund_payment_process_finish(InvoiceID, PaymentID, Client, Restarts) ->
     PaymentID = await_sessions_restarts(PaymentID, ?refunded(), InvoiceID, Client, Restarts),
-    ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded()))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded())))
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
 
 await_refund_payment_complete(InvoiceID, PaymentID, Client) ->
     PaymentID = await_sessions_restarts(PaymentID, ?refunded(), InvoiceID, Client, 0),
-    ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?refunded())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?refunded()))
+    ] = next_changes(InvoiceID, 4, Client),
     PaymentID.
 
 await_sessions_restarts(PaymentID, _Target, _InvoiceID, _Client, 0) ->
     PaymentID;
 await_sessions_restarts(PaymentID, ?refunded() = Target, InvoiceID, Client, Restarts) when Restarts > 0 ->
-    ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(Target, ?session_finished(?session_failed(_))))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(Target, ?session_started()))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(Target, ?session_finished(?session_failed(_))))),
+        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(Target, ?session_started())))
+    ] = next_changes(InvoiceID, 2, Client),
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1);
 await_sessions_restarts(
     PaymentID,
@@ -6258,10 +6183,10 @@ await_sessions_restarts(
         next_change(InvoiceID, Client),
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1);
 await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts) when Restarts > 0 ->
-    ?payment_ev(PaymentID, ?session_ev(Target, ?session_finished(?session_failed(_)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(Target, ?session_started())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(Target, ?session_finished(?session_failed(_)))),
+        ?payment_ev(PaymentID, ?session_ev(Target, ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1).
 
 assert_success_post_request(Req) ->
@@ -6336,10 +6261,10 @@ execute_payment(InvoiceID, Params, Client) ->
 execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     ?adjustment(AdjustmentID, ?adjustment_pending()) =
         Adjustment = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
-    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed())))
+    ] = next_changes(InvoiceID, 2, Client),
     true =
         case next_change(InvoiceID, Client) of
             ?payment_ev(
@@ -6362,14 +6287,12 @@ execute_payment_refund(InvoiceID, PaymentID, Params, Client) ->
 
 execute_payment_manual_refund(InvoiceID, PaymentID, Params, Client) ->
     ?refund_id(RefundID) = hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, Params, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))),
+        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded()))))
+    ] = next_changes(InvoiceID, 4, Client),
     _ = await_refund_succeeded(InvoiceID, PaymentID, Client),
     RefundID.
 
@@ -6384,21 +6307,20 @@ execute_payment_chargeback(InvoiceID, PaymentID, Params, Client) ->
     Chargeback =
         #domain_InvoicePaymentChargeback{id = ChargebackID} =
         hg_client_invoicing:create_chargeback(InvoiceID, PaymentID, Params, Client),
-    ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_created(Chargeback))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_cash_flow_changed(_))) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_created(Chargeback))),
+        ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_cash_flow_changed(_)))
+    ] = next_changes(InvoiceID, 2, Client),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(InvoiceID, PaymentID, ChargebackID, AcceptParams, Client),
-    ?payment_ev(
-        PaymentID,
-        ?chargeback_ev(ChargebackID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
-    ) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_status_changed(?chargeback_status_accepted()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?payment_status_changed(?charged_back())) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(
+            PaymentID,
+            ?chargeback_ev(ChargebackID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?charged_back()))
+    ] = next_changes(InvoiceID, 3, Client),
     ChargebackID.
 
 make_payment_adjustment_and_get_revision(InvoiceID, PaymentID, Client) ->
@@ -6465,12 +6387,11 @@ payment_customer_risk_score_check(C) ->
     CustomerID = make_customer_w_rec_tool(PartyID, ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_customer_payment_params(CustomerID),
     ?payment_state(?payment(PaymentID1)) = hg_client_invoicing:start_payment(InvoiceID1, PaymentParams, Client),
-    ?payment_ev(PaymentID1, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID1, Client),
-    ?payment_ev(PaymentID1, ?risk_score_changed(fatal)) =
-        next_change(InvoiceID1, Client),
-    ?payment_ev(PaymentID1, ?payment_status_changed(?failed(Failure))) =
-        next_change(InvoiceID1, Client),
+    [
+        ?payment_ev(PaymentID1, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID1, ?risk_score_changed(fatal)),
+        ?payment_ev(PaymentID1, ?payment_status_changed(?failed(Failure)))
+    ] = next_changes(InvoiceID1, 3, Client),
     {failure, #domain_Failure{
         code = <<"no_route_found">>,
         sub = #domain_SubFailure{code = <<"risk_score_is_too_high">>}
