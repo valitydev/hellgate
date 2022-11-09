@@ -16,8 +16,6 @@
 -export([repair_scenario/3]).
 
 -export([create_invoice_adjustment/3]).
--export([capture_invoice_adjustment/3]).
--export([cancel_invoice_adjustment/3]).
 -export([get_invoice_adjustment/3]).
 
 -export([start_payment/3]).
@@ -40,8 +38,6 @@
 -export([get_payment_chargeback/4]).
 
 -export([create_payment_adjustment/4]).
--export([capture_payment_adjustment/4]).
--export([cancel_payment_adjustment/4]).
 -export([get_payment_adjustment/4]).
 
 -export([compute_terms/3]).
@@ -70,7 +66,6 @@
 -type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
 
 -type invoice_adjustment() :: dmsl_domain_thrift:'InvoiceAdjustment'().
--type invoice_adjustment_id() :: dmsl_domain_thrift:'InvoiceAdjustmentID'().
 -type invoice_adjustment_params() :: dmsl_payproc_thrift:'InvoiceAdjustmentParams'().
 
 -type payment_params() :: dmsl_payproc_thrift:'InvoicePaymentParams'().
@@ -155,18 +150,6 @@ repair_scenario(InvoiceID, Scenario, Client) ->
 create_invoice_adjustment(InvoiceID, Params, Client) ->
     Args = [InvoiceID, Params],
     map_result_error(gen_server:call(Client, {call, 'CreateInvoiceAdjustment', Args})).
-
--spec capture_invoice_adjustment(invoice_id(), invoice_adjustment_id(), pid()) ->
-    invoice_adjustment() | woody_error:business_error().
-capture_invoice_adjustment(InvoiceID, ID, Client) ->
-    Args = [InvoiceID, ID],
-    map_result_error(gen_server:call(Client, {call, 'CaptureAdjustment', Args})).
-
--spec cancel_invoice_adjustment(invoice_id(), invoice_adjustment_id(), pid()) ->
-    invoice_adjustment() | woody_error:business_error().
-cancel_invoice_adjustment(InvoiceID, ID, Client) ->
-    Args = [InvoiceID, ID],
-    map_result_error(gen_server:call(Client, {call, 'CancelAdjustment', Args})).
 
 -spec get_invoice_adjustment(invoice_id(), invoice_adjustment_params(), pid()) ->
     invoice_adjustment() | woody_error:business_error().
@@ -271,18 +254,6 @@ create_payment_adjustment(InvoiceID, PaymentID, ID, Client) ->
 get_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     Args = [InvoiceID, PaymentID, Params],
     map_result_error(gen_server:call(Client, {call, 'GetPaymentAdjustment', Args})).
-
--spec capture_payment_adjustment(invoice_id(), payment_id(), payment_adjustment_id(), pid()) ->
-    payment_adjustment() | woody_error:business_error().
-capture_payment_adjustment(InvoiceID, PaymentID, ID, Client) ->
-    Args = [InvoiceID, PaymentID, ID],
-    map_result_error(gen_server:call(Client, {call, 'CapturePaymentAdjustment', Args})).
-
--spec cancel_payment_adjustment(invoice_id(), payment_id(), payment_adjustment_id(), pid()) ->
-    payment_adjustment() | woody_error:business_error().
-cancel_payment_adjustment(InvoiceID, PaymentID, ID, Client) ->
-    Args = [InvoiceID, PaymentID, ID],
-    map_result_error(gen_server:call(Client, {call, 'CancelPaymentAdjustment', Args})).
 
 -spec compute_terms(invoice_id(), party_revision_param(), pid()) -> term_set().
 compute_terms(InvoiceID, PartyRevision, Client) ->

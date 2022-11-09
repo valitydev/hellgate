@@ -1131,11 +1131,10 @@ switch_provider_after_limit_overflow(C) ->
         Client
     ),
     Route = start_payment_ev(InvoiceID, Client),
-
     ?assertMatch(#domain_PaymentRoute{provider = #domain_ProviderRef{id = 6}}, Route),
     [?payment_ev(PaymentID2, ?cash_flow_changed(_))] = next_event(InvoiceID, Client),
     PaymentID2 = await_payment_session_started(InvoiceID, PaymentID2, Client, ?processed()),
-    PaymentID2 = await_payment_process_finish(InvoiceID, PaymentID2, Client, 0).
+    PaymentID2 = await_payment_process_finish(InvoiceID, PaymentID2, Client).
 
 -spec limit_not_found(config()) -> test_return().
 limit_not_found(C) ->
@@ -1543,7 +1542,7 @@ repair_failed_capture(InvoiceID, PaymentID, Reason, Cost, Client) ->
         ?payment_ev(PaymentID, ?session_ev(Target, ?session_finished(?session_succeeded())))
     ],
     ok = repair_invoice(InvoiceID, Changes, Client),
-    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, 0).
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
 repair_failed_cancel(InvoiceID, PaymentID, Reason, Client) ->
     Target = ?cancelled_with_reason(Reason),
@@ -1561,26 +1560,14 @@ repair_failed_cancel(InvoiceID, PaymentID, Reason, Client) ->
 
 -spec payment_w_terminal_w_payment_service_success(config()) -> _ | no_return().
 payment_w_terminal_w_payment_service_success(C) ->
-    ?invoice_state(_, [?payment_last_trx(Trx)]) =
-        payment_w_terminal(C, Ref = ?pmt_srv(<<"euroset-ref">>), success),
+    Client = cfg(client, C),
+    PaymentService = ?pmt_srv(<<"euroset-ref">>),
     #domain_PaymentService{
         name = PmtSrvName,
         brand_name = PmtSrvBrandName
-    } = hg_domain:get({payment_service, Ref}),
-    ?assertMatch(
-        #domain_TransactionInfo{
-            extra = #{
-                <<"payment.payment_service.name">> := PmtSrvName,
-                <<"payment.payment_service.brand_name">> := PmtSrvBrandName
-            }
-        },
-        Trx
-    ).
-
-payment_w_terminal(C, PmtSrv, success) ->
-    Client = cfg(client, C),
+    } = hg_domain:get({payment_service, PaymentService}),
     InvoiceID = start_invoice(<<"rubberruble">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(terminal, PmtSrv),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(terminal, PaymentService),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
@@ -1589,12 +1576,22 @@ payment_w_terminal(C, PmtSrv, success) ->
     BadForm = #{<<"tag">> => <<"666">>},
     _ = assert_invalid_post_request({URL, BadForm}),
     _ = assert_success_post_request({URL, GoodForm}),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
-        [?payment_state(?payment_w_status(PaymentID, ?captured()))]
-    ) = hg_client_invoicing:get(InvoiceID, Client).
+        [PaymentSt = ?payment_state(?payment_w_status(PaymentID, ?captured()))]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(
+        ?payment_last_trx(#domain_TransactionInfo{
+            extra = #{
+                <<"payment.payment_service.name">> := PmtSrvName,
+                <<"payment.payment_service.brand_name">> := PmtSrvBrandName
+            }
+        }),
+        PaymentSt
+    ).
 
 -spec payment_w_crypto_currency_success(config()) -> _ | no_return().
 payment_w_crypto_currency_success(C) ->
@@ -1763,6 +1760,7 @@ payment_success_on_second_try(C) ->
     _ = assert_success_post_request({URL, GoodForm}),
     %% ensure that callback is now invalid̋
     _ = assert_invalid_post_request({URL, GoodForm}),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
@@ -1900,6 +1898,7 @@ invoice_success_on_third_payment(C) ->
     GoodPost = get_post_request(UserInteraction),
     %% simulate user interaction FTW!
     _ = assert_success_post_request(GoodPost),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID3, UserInteraction, Client),
     PaymentID3 = await_payment_process_finish(InvoiceID, PaymentID3, Client),
     PaymentID3 = await_payment_capture(InvoiceID, PaymentID3, Client).
 
@@ -2068,12 +2067,6 @@ payment_adjustment_success(C) ->
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed())))
     ] = next_event(InvoiceID, Client),
-    ok =
-        hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
-    ?invalid_adjustment_status(?adjustment_captured(_)) =
-        hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
-    ?invalid_adjustment_status(?adjustment_captured(_)) =
-        hg_client_invoicing:cancel_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
     ] = next_event(InvoiceID, Client),
@@ -2372,13 +2365,23 @@ status_adjustment_of_partial_refunded_payment(C) ->
 -spec payment_temporary_unavailability_retry_success(config()) -> test_return().
 payment_temporary_unavailability_retry_success(C) ->
     Client = cfg(client, C),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Amount = 42000,
+    Cost = make_cash(Amount),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
     PaymentParams = make_scenario_payment_params([temp, temp, good, temp, temp], ?pmt_sys(<<"visa-ref">>)),
-    PaymentID = process_payment(InvoiceID, PaymentParams, Client, 2),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, ?timeout_reason(), Client, 2),
+    PaymentID = start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_sessions_restarts(PaymentID, ?processed(), InvoiceID, Client, 2),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
+    ] = next_event(InvoiceID, Client),
+    PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, undefined), InvoiceID, Client, 2),
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
-        [?payment_state(?payment_w_status(PaymentID, ?captured(_Reason, _Cost)))]
+        [?payment_state(?payment_w_status(PaymentID, ?captured(Reason, Cost)))]
     ) = hg_client_invoicing:get(InvoiceID, Client).
 
 -spec payment_temporary_unavailability_too_many_retries(config()) -> test_return().
@@ -3773,7 +3776,7 @@ start_chargeback_partial_capture(C, Cost, Partial, CBParams, PmtSys) ->
     [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
     ] = next_event(InvoiceID, Client),
-    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, 0, Cash),
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Client),
     % Settlement1  = hg_accounting:get_balance(SettlementID),
     % ?assertEqual(Partial - Fee, maps:get(min_available_amount, Settlement1)),
     Chargeback = hg_client_invoicing:create_chargeback(InvoiceID, PaymentID, CBParams, Client),
@@ -4486,7 +4489,7 @@ payment_hold_partial_capturing(C) ->
     [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
     ] = next_event(InvoiceID, Client),
-    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, 0, Cash).
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Client).
 
 -spec payment_hold_partial_capturing_with_cart(config()) -> _ | no_return().
 payment_hold_partial_capturing_with_cart(C) ->
@@ -4505,7 +4508,7 @@ payment_hold_partial_capturing_with_cart(C) ->
     [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash, Cart), ?session_started()))
     ] = next_event(InvoiceID, Client),
-    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, 0, Cash, Cart).
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Cart, Client).
 
 -spec payment_hold_partial_capturing_with_cart_missing_cash(config()) -> _ | no_return().
 payment_hold_partial_capturing_with_cart_missing_cash(C) ->
@@ -4524,7 +4527,7 @@ payment_hold_partial_capturing_with_cart_missing_cash(C) ->
     [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash, Cart), ?session_started()))
     ] = next_event(InvoiceID, Client),
-    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, 0, Cash, Cart).
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Cart, Client).
 
 -spec invalid_currency_partial_capture(config()) -> _ | no_return().
 invalid_currency_partial_capture(C) ->
@@ -4585,6 +4588,7 @@ payment_hold_auto_capturing(C) ->
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     _ = assert_success_post_request(get_post_request(UserInteraction)),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     _ = assert_invalid_post_request(get_post_request(UserInteraction)),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, ?timeout_reason(), Client).
@@ -4837,7 +4841,19 @@ payment_with_offsite_preauth_success(C) ->
     timer:sleep(2000),
     {URL, Form} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, Form}),
-    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?trx_bound(?trx_info(_)))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_succeeded()))
+        )
+    ] = next_event(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_event(InvoiceID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
@@ -5189,7 +5205,7 @@ repair_fulfill_session_on_captured_succeeded(C) ->
     timeout = next_event(InvoiceID, 2000, Client),
     ok = repair_invoice_with_scenario(InvoiceID, fulfill_session, Client),
 
-    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, 0).
+    PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
 -spec repair_fulfill_session_on_pre_processing_failed(config()) -> test_return().
 repair_fulfill_session_on_pre_processing_failed(C) ->
@@ -5999,12 +6015,9 @@ start_payment_ev(InvoiceID, Client) ->
     Route.
 
 process_payment(InvoiceID, PaymentParams, Client) ->
-    process_payment(InvoiceID, PaymentParams, Client, 0).
-
-process_payment(InvoiceID, PaymentParams, Client, Restarts) ->
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
-    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client, Restarts).
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client).
 
 await_payment_started(InvoiceID, PaymentID, Client) ->
     [
@@ -6059,15 +6072,14 @@ await_payment_process_interaction(InvoiceID, PaymentID, Client) ->
     ] = Events0,
     Events1 = next_event(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?interaction_requested(UserInteraction)))
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_requested))
+        )
     ] = Events1,
     UserInteraction.
 
 await_payment_process_finish(InvoiceID, PaymentID, Client) ->
-    await_payment_process_finish(InvoiceID, PaymentID, Client, 0).
-
-await_payment_process_finish(InvoiceID, PaymentID, Client, Restarts) ->
-    PaymentID = await_sessions_restarts(PaymentID, ?processed(), InvoiceID, Client, Restarts),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded())))
@@ -6077,24 +6089,30 @@ await_payment_process_finish(InvoiceID, PaymentID, Client, Restarts) ->
     ] = next_event(InvoiceID, Client),
     PaymentID.
 
+await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client) ->
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(
+                ?processed(),
+                ?interaction_changed(UserInteraction, ?interaction_completed)
+            )
+        )
+    ] = next_event(InvoiceID, Client),
+    ok.
+
 await_payment_capture(InvoiceID, PaymentID, Client) ->
     await_payment_capture(InvoiceID, PaymentID, ?timeout_reason(), Client).
 
 await_payment_capture(InvoiceID, PaymentID, Reason, Client) ->
-    await_payment_capture(InvoiceID, PaymentID, Reason, Client, 0).
-
-await_payment_capture(InvoiceID, PaymentID, Reason, Client, Restarts) ->
     Cost = get_payment_cost(InvoiceID, PaymentID, Client),
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
     ] = next_event(InvoiceID, Client),
-    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts).
+    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
 await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client) ->
-    await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client, 0).
-
-await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client, Restarts) ->
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
         ?payment_ev(PaymentID, ?cash_flow_changed(_))
@@ -6102,17 +6120,16 @@ await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client, Restar
     [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
     ] = next_event(InvoiceID, Client),
-    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cash).
+    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cash, Client).
 
-await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts) ->
+await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client) ->
     Cost = get_payment_cost(InvoiceID, PaymentID, Client),
-    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost).
+    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client).
 
-await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost) ->
-    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost, undefined).
+await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client) ->
+    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, undefined, Client).
 
-await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost, Cart) ->
-    PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, Cart), InvoiceID, Client, Restarts),
+await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Cart, Client) ->
     [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded())))
     ] = next_event(InvoiceID, Client),
@@ -6331,10 +6348,19 @@ execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed())))
     ] = next_event(InvoiceID, Client),
-    ok = hg_client_invoicing:capture_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
-    [
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
-    ] = next_event(InvoiceID, Client),
+    true = lists:any(
+        fun
+            (
+                ?payment_ev(
+                    PaymentID1, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_)))
+                )
+            ) ->
+                PaymentID =:= PaymentID1 andalso AdjustmentID =:= AdjustmentID1;
+            (_) ->
+                false
+        end,
+        next_event(InvoiceID, Client)
+    ),
     AdjustmentID.
 
 execute_payment_refund(InvoiceID, PaymentID, #payproc_InvoicePaymentRefundParams{cash = undefined} = Params, Client) ->
@@ -6729,15 +6755,6 @@ construct_domain_fixture() ->
                         ])},
                 lifetime =
                     {decisions, [
-                        #domain_HoldLifetimeDecision{
-                            if_ =
-                                {condition,
-                                    {payment_tool,
-                                        {bank_card, #domain_BankCardCondition{
-                                            definition = {payment_system_is, mastercard}
-                                        }}}},
-                            then_ = {value, ?hold_lifetime(120)}
-                        },
                         #domain_HoldLifetimeDecision{
                             if_ =
                                 {condition,

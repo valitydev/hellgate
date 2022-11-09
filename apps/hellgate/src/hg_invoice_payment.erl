@@ -45,7 +45,6 @@
 -export([get_party_revision/1]).
 -export([get_remaining_payment_balance/1]).
 -export([get_activity/1]).
--export([get_tags/1]).
 
 -export([construct_payment_info/2]).
 -export([set_repair_scenario/2]).
@@ -59,8 +58,6 @@
 -export([manual_refund/3]).
 
 -export([create_adjustment/4]).
--export([capture_adjustment/3]).
--export([cancel_adjustment/3]).
 
 -export([create_chargeback/3]).
 -export([cancel_chargeback/3]).
@@ -213,25 +210,28 @@
 
 %%
 
--spec get_party_revision(st()) -> hg_party:party_revision().
+-spec get_party_revision(st()) -> {hg_party:party_revision(), hg_datetime:timestamp()}.
 get_party_revision(#st{activity = {payment, _}} = St) ->
-    #domain_InvoicePayment{party_revision = Revision} = get_payment(St),
-    Revision;
+    #domain_InvoicePayment{party_revision = Revision, created_at = Timestamp} = get_payment(St),
+    {Revision, Timestamp};
 get_party_revision(#st{activity = {chargeback, ID, _Type}} = St) ->
     CB = hg_invoice_payment_chargeback:get(get_chargeback_state(ID, St)),
-    #domain_InvoicePaymentChargeback{party_revision = Revision} = CB,
-    Revision;
+    #domain_InvoicePaymentChargeback{party_revision = Revision, created_at = Timestamp} = CB,
+    {Revision, Timestamp};
 get_party_revision(#st{activity = {_, ID} = Activity} = St) when
     Activity =:= {refund_new, ID} orelse
         Activity =:= {refund_failure, ID} orelse
         Activity =:= {refund_session, ID} orelse
         Activity =:= {refund_accounter, ID}
 ->
-    #domain_InvoicePaymentRefund{party_revision = Revision} = get_refund(ID, St),
-    Revision;
-get_party_revision(#st{activity = {adjustment_new, ID}} = St) ->
-    #domain_InvoicePaymentAdjustment{party_revision = Revision} = get_adjustment(ID, St),
-    Revision;
+    #domain_InvoicePaymentRefund{party_revision = Revision, created_at = Timestamp} = get_refund(ID, St),
+    {Revision, Timestamp};
+get_party_revision(#st{activity = {Activity, ID}} = St) when
+    Activity =:= adjustment_new orelse
+        Activity =:= adjustment_pending
+->
+    #domain_InvoicePaymentAdjustment{party_revision = Revision, created_at = Timestamp} = get_adjustment(ID, St),
+    {Revision, Timestamp};
 get_party_revision(#st{activity = Activity}) ->
     erlang:error({no_revision_for_activity, Activity}).
 
@@ -347,16 +347,6 @@ get_refund(ID, St) ->
 -spec get_activity(st()) -> activity().
 get_activity(#st{activity = Activity}) ->
     Activity.
-
--spec get_tags(st()) -> [tag()].
-get_tags(#st{sessions = Sessions, refunds = Refunds}) ->
-    lists:usort(
-        lists:flatten(
-            [hg_session:tags(S) || S <- lists:flatten(maps:values(Sessions))] ++
-                %% TODO it seems we only get last session from refund instead of all
-                [hg_session:tags(hg_invoice_payment_refund:session(R)) || R <- maps:values(Refunds)]
-        )
-    ).
 
 -spec get_opts(st()) -> opts().
 get_opts(#st{opts = Opts}) ->
@@ -930,6 +920,13 @@ collect_cash_flow_context(
         operation_amount => Cash
     }.
 
+get_available_amount(AccountID) ->
+    #{
+        min_available_amount := AvailableAmount
+    } =
+        hg_accounting:get_balance(AccountID),
+    AvailableAmount.
+
 construct_payment_plan_id(St) ->
     construct_payment_plan_id(get_invoice(get_opts(St)), get_payment(St)).
 
@@ -951,7 +948,7 @@ get_selector_value(Name, Selector) ->
 
 -spec start_session(target()) -> events().
 start_session(Target) ->
-    hg_session:create(Target).
+    [hg_session:wrap_event(Target, hg_session:create())].
 
 start_capture(Reason, Cost, Cart, Allocation) ->
     [?payment_capture_started(Reason, Cost, Cart, Allocation)] ++
@@ -1917,43 +1914,25 @@ assert_payment_flow(hold, #domain_InvoicePayment{flow = ?invoice_payment_flow_ho
 assert_payment_flow(_, _) ->
     throw(#payproc_OperationNotPermitted{}).
 
--spec capture_adjustment(adjustment_id(), st(), opts()) -> {ok, result()}.
-capture_adjustment(ID, St, Options) ->
-    finalize_adjustment(ID, capture, St, Options).
-
--spec cancel_adjustment(adjustment_id(), st(), opts()) -> {ok, result()}.
-cancel_adjustment(ID, St, Options) ->
-    finalize_adjustment(ID, cancel, St, Options).
-
--spec finalize_adjustment(adjustment_id(), capture | cancel, st(), opts()) -> {ok, result()}.
-finalize_adjustment(ID, Intent, St, Options = #{timestamp := Timestamp}) ->
+-spec process_adjustment_capture(adjustment_id(), action(), st()) -> machine_result().
+process_adjustment_capture(ID, _Action, St) ->
+    Opts = get_opts(St),
     Adjustment = get_adjustment(ID, St),
     ok = assert_adjustment_status(processed, Adjustment),
-    ok = finalize_adjustment_cashflow(Intent, Adjustment, St, Options),
-    Status =
-        case Intent of
-            capture ->
-                ?adjustment_captured(Timestamp);
-            cancel ->
-                ?adjustment_cancelled(Timestamp)
-        end,
+    ok = finalize_adjustment_cashflow(Adjustment, St, Opts),
+    Status = ?adjustment_captured(maps:get(timestamp, Opts)),
     Event = ?adjustment_ev(ID, ?adjustment_status_changed(Status)),
-    {ok, {[Event], hg_machine_action:new()}}.
+    {done, {[Event], hg_machine_action:new()}}.
 
 prepare_adjustment_cashflow(Adjustment, St, Options) ->
     PlanID = construct_adjustment_plan_id(Adjustment, St, Options),
     Plan = get_adjustment_cashflow_plan(Adjustment),
     plan(PlanID, Plan).
 
-finalize_adjustment_cashflow(Intent, Adjustment, St, Options) ->
+finalize_adjustment_cashflow(Adjustment, St, Options) ->
     PlanID = construct_adjustment_plan_id(Adjustment, St, Options),
     Plan = get_adjustment_cashflow_plan(Adjustment),
-    case Intent of
-        capture ->
-            commit(PlanID, Plan);
-        cancel ->
-            rollback(PlanID, Plan)
-    end.
+    commit(PlanID, Plan).
 
 get_adjustment_cashflow_plan(#domain_InvoicePaymentAdjustment{
     old_cash_flow_inverse = CashflowInverse,
@@ -1978,12 +1957,6 @@ commit(_PlanID, []) ->
     ok;
 commit(PlanID, Plan) ->
     _ = hg_accounting:commit(PlanID, Plan),
-    ok.
-
-rollback(_PlanID, []) ->
-    ok;
-rollback(PlanID, Plan) ->
-    _ = hg_accounting:rollback(PlanID, Plan),
     ok.
 
 assert_adjustment_status(Status, #domain_InvoicePaymentAdjustment{status = {Status, _}}) ->
@@ -2075,6 +2048,8 @@ process_timeout({refund_accounter, ID}, _Action, St = #st{payment = Payment}) ->
     hg_invoice_payment_refund:process(Payment, try_get_refund_state(ID, St));
 process_timeout({adjustment_new, ID}, Action, St) ->
     process_adjustment_cashflow(ID, Action, St);
+process_timeout({adjustment_pending, ID}, Action, St) ->
+    process_adjustment_capture(ID, Action, St);
 process_timeout({payment, flow_waiting}, Action, St) ->
     finalize_payment(Action, St).
 
@@ -2102,7 +2077,7 @@ process_callback(Tag, Payload, St) ->
 process_callback(Tag, Payload, Session, St) when Session /= undefined ->
     case {hg_session:status(Session), hg_session:tags(Session)} of
         {suspended, [Tag | _]} ->
-            handle_callback(get_activity(St), Payload, St);
+            handle_callback(Payload, Session, St);
         _ ->
             throw(invalid_callback)
     end;
@@ -2255,13 +2230,52 @@ maybe_set_charged_back_status(_ChargebackStatus, _ChargebackBody, _St) ->
 
 %%
 
+-spec process_refund_cashflow(refund_id(), action(), st()) -> machine_result().
+process_refund_cashflow(ID, Action, St) ->
+    Opts = get_opts(St),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
+    RefundSt = try_get_refund_state(ID, St),
+    hold_refund_limits(RefundSt, St),
+
+    #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Party, Shop, #{}),
+    _ = prepare_refund_cashflow(RefundSt, St),
+    % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
+    case get_available_amount(SettlementID) of
+        % TODO we must pull this rule out of refund terms
+        Available when Available >= 0 ->
+            Events = start_session(?refunded()) ++ get_manual_refund_events(RefundSt),
+            {next, {
+                [?refund_ev(ID, C) || C <- Events],
+                hg_machine_action:set_timeout(0, Action)
+            }};
+        _ ->
+            Failure =
+                {failure,
+                    payproc_errors:construct(
+                        'RefundFailure',
+                        {terms_violated, {insufficient_merchant_funds, #payproc_error_GeneralFailure{}}}
+                    )},
+            process_failure(get_activity(St), [], Action, Failure, St, RefundSt)
+    end.
+
+get_manual_refund_events(#refund_st{transaction_info = undefined}) ->
+    [];
+get_manual_refund_events(#refund_st{transaction_info = TransactionInfo}) ->
+    [
+        ?session_ev(?refunded(), ?trx_bound(TransactionInfo)),
+        ?session_ev(?refunded(), ?session_finished(?session_succeeded()))
+    ].
+
+%%
+
 -spec process_adjustment_cashflow(adjustment_id(), action(), st()) -> machine_result().
 process_adjustment_cashflow(ID, _Action, St) ->
     Opts = get_opts(St),
     Adjustment = get_adjustment(ID, St),
     ok = prepare_adjustment_cashflow(Adjustment, St, Opts),
     Events = [?adjustment_ev(ID, ?adjustment_status_changed(?adjustment_processed()))],
-    {done, {Events, hg_machine_action:new()}}.
+    {next, {Events, hg_machine_action:instant()}}.
 
 process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, capture_data = CaptureData}) ->
     Opts = get_opts(St),
@@ -2286,12 +2300,11 @@ process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, cap
 
 %%
 
--spec handle_callback(activity(), callback(), st()) -> {callback_response(), machine_result()}.
+-spec handle_callback(callback(), hg_session:t(), st()) -> {callback_response(), machine_result()}.
 handle_callback({refund_session, ID}, Payload, St) ->
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     hg_invoice_payment_refund:process_callback(Payload, PaymentInfo, try_get_refund_state(ID, St));
-handle_callback({payment, _Step}, Payload, St) ->
-    Session0 = get_activity_session(St),
+handle_callback(Payload, Session0, St) ->
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     Session1 = hg_session:set_payment_info(PaymentInfo, Session0),
     {Response, {Result, Session2}} = hg_session:process_callback(Payload, Session1),
@@ -2469,7 +2482,10 @@ maybe_notify_fault_detector({payment, processing_session}, processed, Status, St
     ProviderID = ProviderRef#domain_ProviderRef.id,
     PaymentID = get_payment_id(get_payment(St)),
     InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
-    hg_fault_detector_client:notify(Status, InvoiceID, PaymentID, ProviderID);
+    ServiceType = provider_conversion,
+    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [InvoiceID, PaymentID]),
+    ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
+    hg_fault_detector_client:register_transaction(ServiceType, Status, ServiceID, OperationID);
 maybe_notify_fault_detector(_Activity, _TargetType, _Status, _St) ->
     ok.
 
@@ -2573,7 +2589,7 @@ get_limit_overflow_routes(Routes, VS, St, RejectedRoutes) ->
             PaymentRoute = hg_routing:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment) of
+            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
                 {ok, _} ->
                     {[Route | RoutesNoOverflowIn], RejectedIn};
                 {error, {limit_overflow, IDs}} ->
@@ -3174,7 +3190,7 @@ merge_change(Change = ?adjustment_ev(ID, Event), St, Opts) ->
             St2
     end;
 merge_change(
-    Change = ?session_ev(Target, ?session_started()),
+    Change = ?session_ev(Target, Event = ?session_started()),
     #st{activity = Activity} = St,
     Opts
 ) ->
@@ -3193,8 +3209,9 @@ merge_change(
         St,
         Opts
     ),
-    Session0 = hg_session:apply_event(Change, undefined, create_event_context(Opts)),
-    %% Set trx to deduplicate trx bound events
+    % FIXME why the hell dedicated handling
+    Session0 = hg_session:apply_event(Event, undefined, create_session_event_context(Target, St, Opts)),
+    %% We need to pass processed trx_info to captured/cancelled session due to provider requirements
     Session1 = hg_session:set_trx_info(get_trx(St), Session0),
     St1 = add_session(Target, Session1, St#st{target = Target}),
     St2 = save_retry_attempt(Target, St1),
@@ -3220,9 +3237,9 @@ merge_change(
 merge_change(Change = ?session_ev(Target, _Event), St = #st{activity = Activity}, Opts) ->
     _ = validate_transition([{payment, S} || S <- [processing_session, finalizing_session]], Change, St, Opts),
     Session = hg_session:apply_event(
-        Change,
+        Event,
         get_session(Target, St),
-        create_event_context(Opts)
+        create_session_event_context(Target, St, Opts)
     ),
     St1 = update_session(Target, Session, St),
     % FIXME leaky transactions
@@ -3365,10 +3382,14 @@ get_captured_cost(_, #domain_InvoicePayment{cost = Cost}) ->
 get_captured_allocation(#domain_InvoicePaymentCaptured{allocation = Allocation}) ->
     Allocation.
 
--spec create_event_context(change_opts()) -> hg_session:event_context().
-create_event_context(Opts) ->
+-spec create_session_event_context(target(), st(), change_opts()) -> hg_session:event_context().
+create_session_event_context(Target, St, Opts = #{invoice_id := InvoiceID}) ->
     #{
-        timestamp => define_event_timestamp(Opts)
+        timestamp => define_event_timestamp(Opts),
+        target => Target,
+        route => get_route(St),
+        invoice_id => InvoiceID,
+        payment_id => get_payment_id(get_payment(St))
     }.
 
 get_refund_status(#domain_InvoicePaymentRefund{status = Status}) ->

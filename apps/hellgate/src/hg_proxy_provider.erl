@@ -12,6 +12,7 @@
 
 -export([bind_transaction/2]).
 -export([update_proxy_state/2]).
+-export([handle_interaction_intent/2]).
 -export([wrap_session_events/2]).
 
 -include("payment_events.hrl").
@@ -23,6 +24,9 @@
 
 -type change() :: dmsl_payproc_thrift:'SessionChangePayload'().
 -type proxy_state() :: dmsl_base_thrift:'Opaque'().
+-type proxy_intent() ::
+    dmsl_proxy_provider_thrift:'Intent'()
+    | dmsl_proxy_provider_thrift:'RecurrentTokenIntent'().
 
 %%
 
@@ -69,7 +73,6 @@ handle_recurrent_token_callback(Payload, ProxyContext, Route) ->
 -spec issue_call(woody:func(), woody:args(), route()) -> term().
 issue_call(Func, Args, Route) ->
     CallID = hg_utils:unique_id(),
-    _ = notify_fault_detector(start, Route, CallID),
     try hg_woody_wrapper:call(proxy_provider, Func, Args, get_call_options(Route)) of
         Result ->
             _ = notify_fault_detector(finish, Route, CallID),
@@ -84,29 +87,9 @@ notify_fault_detector(Status, Route, CallID) ->
     ServiceType = adapter_availability,
     ProviderRef = get_route_provider(Route),
     ProviderID = ProviderRef#domain_ProviderRef.id,
-    FDConfig = genlib_app:env(hellgate, fault_detector, #{}),
-    Config = genlib_map:get(availability, FDConfig, #{}),
-    SlidingWindow = genlib_map:get(sliding_window, Config, 60000),
-    OpTimeLimit = genlib_map:get(operation_time_limit, Config, 10000),
-    PreAggrSize = genlib_map:get(pre_aggregation_size, Config, 2),
-    ServiceConfig = hg_fault_detector_client:build_config(SlidingWindow, OpTimeLimit, PreAggrSize),
     ServiceID = hg_fault_detector_client:build_service_id(ServiceType, ProviderID),
-    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, CallID),
-    fd_register(Status, ServiceID, OperationID, ServiceConfig).
-
-fd_register(start, ServiceID, OperationID, ServiceConfig) ->
-    _ = fd_maybe_init_service_and_start(ServiceID, OperationID, ServiceConfig);
-fd_register(Status, ServiceID, OperationID, ServiceConfig) ->
-    _ = hg_fault_detector_client:register_operation(Status, ServiceID, OperationID, ServiceConfig).
-
-fd_maybe_init_service_and_start(ServiceID, OperationID, ServiceConfig) ->
-    case hg_fault_detector_client:register_operation(start, ServiceID, OperationID, ServiceConfig) of
-        {error, not_found} ->
-            _ = hg_fault_detector_client:init_service(ServiceID, ServiceConfig),
-            _ = hg_fault_detector_client:register_operation(start, ServiceID, OperationID, ServiceConfig);
-        Result ->
-            Result
-    end.
+    OperationID = hg_fault_detector_client:build_operation_id(ServiceType, [CallID]),
+    hg_fault_detector_client:register_transaction(ServiceType, Status, ServiceID, OperationID).
 
 get_call_options(Route) ->
     Revision = hg_domain:head(),
@@ -118,7 +101,7 @@ get_route_provider(#domain_PaymentRoute{provider = ProviderRef}) ->
 
 %%
 
--spec bind_transaction(trx_info(), term()) -> [change()].
+-spec bind_transaction(trx_info(), _Session) -> [change()].
 bind_transaction(undefined, _Session) ->
     % no transaction yet
     [];
@@ -154,6 +137,45 @@ update_proxy_state(ProxyState, Session) ->
 
 get_session_proxy_state(Session) ->
     maps:get(proxy_state, Session, undefined).
+
+%%
+
+-spec handle_interaction_intent(proxy_intent(), _Session) ->
+    [change()].
+handle_interaction_intent(
+    {sleep, #proxy_provider_SleepIntent{
+        user_interaction = UserInteraction,
+        user_interaction_completion = Completion
+    }},
+    Session
+) ->
+    handle_interaction_intent(UserInteraction, Completion, Session);
+handle_interaction_intent(
+    {suspend, #proxy_provider_SuspendIntent{
+        user_interaction = UserInteraction,
+        user_interaction_completion = Completion
+    }},
+    Session
+) ->
+    handle_interaction_intent(UserInteraction, Completion, Session);
+handle_interaction_intent(_Intent, _Session) ->
+    [].
+
+handle_interaction_intent(UserInteraction, Completion, Session) ->
+    try_complete_interaction(Completion, Session) ++ try_request_interaction(UserInteraction).
+
+try_complete_interaction(undefined, _Session) ->
+    [];
+try_complete_interaction(#user_interaction_Completed{}, #{interaction := InteractionPrev}) ->
+    [?interaction_changed(InteractionPrev, ?interaction_completed)];
+try_complete_interaction(#user_interaction_Completed{}, Session) ->
+    _ = logger:warning("Received unexpected user interaction completion, session: ~p", [Session]),
+    [].
+
+try_request_interaction(undefined) ->
+    [];
+try_request_interaction(UserInteraction) ->
+    [?interaction_changed(UserInteraction, ?interaction_requested)].
 
 %%
 

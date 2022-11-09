@@ -103,27 +103,23 @@ get_payment(PaymentID, St) ->
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
-    get_payment_opts_(Invoice, hg_party:get_party(get_party_id(St)));
+    #{
+        party => hg_party:get_party(get_party_id(St)),
+        invoice => Invoice,
+        timestamp => hg_datetime:format_now()
+    };
 get_payment_opts(#st{invoice = Invoice, party = Party}) ->
-    get_payment_opts_(Invoice, Party).
-
--spec get_payment_opts(hg_party:party_revision(), st()) ->
-    hg_invoice_payment:opts().
-get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
-    Party = hg_party:checkout(get_party_id(St), {revision, Revision}),
-    get_payment_opts_(Invoice, Party).
-
-get_payment_opts_(Invoice, Party) ->
-    hg_container:bind(
-        hg_container:make_complex_key(hg_invoice_payment_refund, inject_context, party),
-        Party
-    ),
-    hg_container:bind(
-        hg_container:make_complex_key(hg_invoice_payment_refund, inject_context, invoice),
-        Invoice
-    ),
     #{
         party => Party,
+        invoice => Invoice,
+        timestamp => hg_datetime:format_now()
+    }.
+
+-spec get_payment_opts(hg_party:party_revision(), hg_datetime:timestamp(), st()) ->
+    hg_invoice_payment:opts().
+get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
+    #{
+        party => hg_party:checkout(get_party_id(St), {revision, Revision}),
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     }.
@@ -225,16 +221,12 @@ handle_function_(Fun, Args, _Opts) when
         Fun =:= 'RefundPayment' orelse
         Fun =:= 'CreateManualRefund' orelse
         Fun =:= 'CreateInvoiceAdjustment' orelse
-        Fun =:= 'CaptureAdjustment' orelse
-        Fun =:= 'CancelAdjustment' orelse
         Fun =:= 'CreateChargeback' orelse
         Fun =:= 'CancelChargeback' orelse
         Fun =:= 'AcceptChargeback' orelse
         Fun =:= 'RejectChargeback' orelse
         Fun =:= 'ReopenChargeback' orelse
         Fun =:= 'CreatePaymentAdjustment' orelse
-        Fun =:= 'CapturePaymentAdjustment' orelse
-        Fun =:= 'CancelPaymentAdjustment' orelse
         Fun =:= 'Fulfill' orelse
         Fun =:= 'Rescind'
 ->
@@ -517,9 +509,23 @@ handle_signal(timeout, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_signal(timeout, PaymentID, PaymentSession, St);
 handle_signal(timeout, St = #st{activity = {adjustment_new, ID}}) ->
-    Status = {processed, #domain_InvoiceAdjustmentProcessed{}},
-    Change = [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Status))],
-    #{changes => Change, state => St};
+    OccurredAt = hg_datetime:format_now(),
+    {ok, {Changes, Action}} = hg_invoice_adjustment:process(OccurredAt),
+    #{
+        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
+        action => Action,
+        state => St
+    };
+handle_signal(timeout, St = #st{activity = {adjustment_pending, ID}}) ->
+    _ = assert_adjustment_processed(ID, St),
+    OccurredAt = hg_datetime:format_now(),
+    ?adjustment_target_status(Status) = get_adjustment(ID, St),
+    {ok, {Changes, Action}} = hg_invoice_adjustment:capture(OccurredAt),
+    #{
+        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
+        action => set_invoice_timer(Status, Action, St),
+        state => St
+    };
 handle_signal(timeout, St = #st{activity = invoice}) ->
     % invoice is expired
     handle_expiration(St).
@@ -637,28 +643,6 @@ handle_call({{'Invoicing', 'CreateInvoiceAdjustment'}, {_InvoiceID, Params}}, St
     ok = assert_all_adjustments_finalised(St),
     OccurredAt = hg_datetime:format_now(),
     wrap_adjustment_impact(ID, hg_invoice_adjustment:create(ID, Params, OccurredAt), St, OccurredAt);
-handle_call({{'Invoicing', 'CaptureAdjustment'}, {_InvoiceID, ID}}, St) ->
-    _ = assert_adjustment_processed(ID, St),
-    OccurredAt = hg_datetime:format_now(),
-    ?adjustment_target_status(Status) = get_adjustment(ID, St),
-    {Response, {Changes, Action}} = hg_invoice_adjustment:capture(OccurredAt),
-    #{
-        response => Response,
-        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
-        action => set_invoice_timer(Status, Action, St),
-        state => St
-    };
-handle_call({{'Invoicing', 'CancelAdjustment'}, {_InvoiceID, ID}}, St) ->
-    _ = assert_adjustment_processed(ID, St),
-    OccurredAt = hg_datetime:format_now(),
-    Status = get_invoice_status(St),
-    {Response, {Changes, Action}} = hg_invoice_adjustment:cancel(OccurredAt),
-    #{
-        response => Response,
-        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
-        action => set_invoice_timer(Status, Action, St),
-        state => St
-    };
 handle_call({{'Invoicing', 'RefundPayment'}, {_InvoiceID, PaymentID, Params}}, St0) ->
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
     _ = assert_invoice(operable, St),
@@ -699,27 +683,6 @@ handle_call({{'Invoicing', 'CreatePaymentAdjustment'}, {_InvoiceID, PaymentID, P
     wrap_payment_impact(
         PaymentID,
         hg_invoice_payment:create_adjustment(Timestamp, Params, PaymentSession, Opts),
-        St
-    );
-handle_call({{'Invoicing', 'CapturePaymentAdjustment'}, {_InvoiceID, PaymentID, ID}}, St) ->
-    PaymentSession = get_payment_session(PaymentID, St),
-    Adjustment = hg_invoice_payment:get_adjustment(ID, PaymentSession),
-    PaymentOpts = get_payment_opts(
-        Adjustment#domain_InvoicePaymentAdjustment.party_revision,
-        St
-    ),
-    Impact = hg_invoice_payment:capture_adjustment(ID, PaymentSession, PaymentOpts),
-    wrap_payment_impact(PaymentID, Impact, St);
-handle_call({{'Invoicing', 'CancelPaymentAdjustment'}, {_InvoiceID, PaymentID, ID}}, St) ->
-    PaymentSession = get_payment_session(PaymentID, St),
-    Adjustment = hg_invoice_payment:get_adjustment(ID, PaymentSession),
-    PaymentOpts = get_payment_opts(
-        Adjustment#domain_InvoicePaymentAdjustment.party_revision,
-        St
-    ),
-    wrap_payment_impact(
-        PaymentID,
-        hg_invoice_payment:cancel_adjustment(ID, PaymentSession, PaymentOpts),
         St
     );
 handle_call({callback, Tag, Callback}, St) ->
@@ -781,14 +744,14 @@ do_start_payment(PaymentID, PaymentParams, St) ->
     }.
 
 process_payment_signal(Signal, PaymentID, PaymentSession, St) ->
-    Revision = hg_invoice_payment:get_party_revision(PaymentSession),
-    Opts = get_payment_opts(Revision, St),
+    {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
+    Opts = get_payment_opts(Revision, Timestamp, St),
     PaymentResult = hg_invoice_payment:process_signal(Signal, PaymentSession, Opts),
     handle_payment_result(PaymentResult, PaymentID, PaymentSession, St, Opts).
 
 process_payment_call(Call, PaymentID, PaymentSession, St) ->
-    Revision = hg_invoice_payment:get_party_revision(PaymentSession),
-    Opts = get_payment_opts(Revision, St),
+    {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
+    Opts = get_payment_opts(Revision, Timestamp, St),
     {Response, PaymentResult0} = hg_invoice_payment:process_call(Call, PaymentSession, Opts),
     PaymentResult1 = handle_payment_result(PaymentResult0, PaymentID, PaymentSession, St, Opts),
     PaymentResult1#{response => Response}.
@@ -1072,11 +1035,6 @@ collapse_changes(Changes, St0, Opts) ->
     lists:foldl(fun(C, St) -> merge_change(C, St, Opts) end, St0, Changes).
 
 merge_change(?invoice_created(Invoice), St, _Opts) ->
-    #domain_Invoice{id = InvoiceID} = Invoice,
-    hg_container:bind_or_update(
-        hg_container:make_complex_key(hg_session, create_session, invoice_id),
-        InvoiceID
-    ),
     St#st{activity = invoice, invoice = Invoice};
 merge_change(?invoice_status_changed(Status), St = #st{invoice = I}, _Opts) ->
     St#st{invoice = I#domain_Invoice{status = Status}};
