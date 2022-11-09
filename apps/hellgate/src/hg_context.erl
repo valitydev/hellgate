@@ -49,15 +49,23 @@ create(Options0) ->
 
 -spec save(context()) -> ok.
 save(Context) ->
-    hg_container:global_bind_or_update(?REGISTRY_KEY, Context).
+    true =
+        try
+            gproc:reg(?REGISTRY_KEY, Context)
+        catch
+            error:badarg ->
+                gproc:set_value(?REGISTRY_KEY, Context)
+        end,
+    ok.
 
--spec load() -> context().
+-spec load() -> context() | no_return().
 load() ->
-    hg_container:global_inject(?REGISTRY_KEY).
+    gproc:get_value(?REGISTRY_KEY).
 
 -spec cleanup() -> ok.
 cleanup() ->
-    hg_container:global_unbind(?REGISTRY_KEY).
+    true = gproc:unreg(?REGISTRY_KEY),
+    ok.
 
 -spec get_woody_context(context()) -> woody_context().
 get_woody_context(#{woody_context := WoodyContext}) ->
