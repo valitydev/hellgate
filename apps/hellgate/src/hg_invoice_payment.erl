@@ -77,7 +77,7 @@
 
 %% Machine like
 
--export([init/4]).
+-export([init/3]).
 
 -export([process_signal/3]).
 -export([process_call/3]).
@@ -365,22 +365,16 @@ get_chargeback_opts(#st{opts = Opts} = St) ->
 -type events() :: [event()].
 -type result() :: {events(), action()}.
 -type machine_result() :: {next | done, result()}.
--type payment_type() :: regular | register.
 
--spec init(payment_type(), payment_id(), _, opts()) -> {st(), result()}.
-init(Type, PaymentID, PaymentParams, Opts) ->
+-spec init(payment_id(), _, opts()) -> {st(), result()}.
+init(PaymentID, PaymentParams, Opts) ->
     scoper:scope(
         payment,
         #{
             id => PaymentID
         },
         fun() ->
-            case Type of
-                regular ->
-                    init_(PaymentID, PaymentParams, Opts);
-                register ->
-                    hg_invoice_registered_payment:init(PaymentID, PaymentParams, Opts)
-            end
+            init_(PaymentID, PaymentParams, Opts)
         end
     ).
 
@@ -1141,8 +1135,6 @@ validate_provider_holds_terms(#domain_PaymentsProvisionTerms{holds = Terms}) whe
         #domain_PaymentHoldsProvisionTerms{} ->
             throw(#payproc_OperationNotPermitted{})
     end;
-validate_provider_holds_terms(undefined) ->
-    throw(#payproc_OperationNotPermitted{});
 %% Чтобы упростить интеграцию, по умолчанию разрешили частичные подтверждения
 validate_provider_holds_terms(#domain_PaymentsProvisionTerms{holds = undefined}) ->
     ok.
@@ -1388,8 +1380,6 @@ get_provider_refunds_terms(
         ?cash(Amount, _) when Amount > 0 ->
             get_provider_partial_refunds_terms(Terms, Refund, Payment)
     end;
-%%get_provider_refunds_terms(undefined, _Refund, Payment) ->
-%%    error({misconfiguration, {'No payments terms for a payment', Payment}});
 get_provider_refunds_terms(#domain_PaymentsProvisionTerms{refunds = undefined}, _Refund, Payment) ->
     error({misconfiguration, {'No refund terms for a payment', Payment}}).
 
@@ -1906,8 +1896,8 @@ calculate_cashflow(Route, Payment, ProviderTerms, MerchantTerms, VS, Revision, O
     route(),
     payment(),
     hg_payment_institution:t(),
-    dmsl_domain_thrift:'PaymentsProvisionTerms'() | undefined,
-    dmsl_domain_thrift:'PaymentsServiceTerms'() | undefined,
+    dmsl_domain_thrift:'PaymentsProvisionTerms'(),
+    dmsl_domain_thrift:'PaymentsServiceTerms'(),
     hg_varset:varset(),
     hg_domain:revision(),
     opts(),

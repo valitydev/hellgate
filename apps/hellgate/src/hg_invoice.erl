@@ -53,7 +53,9 @@
 
 -import(hg_invoice_utils, [
     assert_party_operable/1,
+    assert_party_unblocked/1,
     assert_shop_operable/1,
+    assert_shop_unblocked/1,
     assert_shop_exists/1
 ]).
 
@@ -293,6 +295,12 @@ assert_invoice(operable, #st{party = Party} = St) when Party =/= undefined ->
         Party
     ),
     St;
+assert_invoice(unblocked, #st{party = Party} = St) when Party =/= undefined ->
+    assert_party_shop_unblocked(
+        hg_party:get_shop(get_shop_id(St), Party),
+        Party
+    ),
+    St;
 assert_invoice({status, Status}, #st{invoice = #domain_Invoice{status = {Status, _}}} = St) ->
     St;
 assert_invoice({status, _Status}, #st{invoice = #domain_Invoice{status = Invalid}}) ->
@@ -301,6 +309,11 @@ assert_invoice({status, _Status}, #st{invoice = #domain_Invoice{status = Invalid
 assert_party_shop_operable(Shop, Party) ->
     _ = assert_party_operable(Party),
     _ = assert_shop_operable(Shop),
+    ok.
+
+assert_party_shop_unblocked(Shop, Party) ->
+    _ = assert_party_unblocked(Party),
+    _ = assert_shop_unblocked(Shop),
     ok.
 
 get_invoice_state(#st{invoice = Invoice, payments = Payments}) ->
@@ -590,7 +603,7 @@ handle_call({{'Invoicing', 'StartPayment'}, {_InvoiceID, PaymentParams}}, St0) -
     start_payment(PaymentParams, St);
 handle_call({{'Invoicing', 'RegisterPayment'}, {_InvoiceID, PaymentParams}}, St0) ->
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
-    _ = assert_invoice(operable, St),
+    _ = assert_invoice(unblocked, St),
     _ = assert_all_adjustments_finalised(St),
     register_payment(PaymentParams, St);
 handle_call({{'Invoicing', 'CapturePayment'}, {_InvoiceID, PaymentID, Params}}, St0) ->
@@ -755,10 +768,11 @@ do_register_payment(PaymentID, PaymentParams, St) ->
     _ = assert_no_pending_payment(St),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
-    {PaymentSession, {Changes, _Action}} = hg_invoice_payment:init(register, PaymentID, PaymentParams, Opts),
+    {PaymentSession, {Changes, Action}} = hg_invoice_registered_payment:init(PaymentID, PaymentParams, Opts),
     #{
         response => get_payment_state(PaymentSession),
         changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
+        action => Action,
         state => St
     }.
 
@@ -767,7 +781,7 @@ do_start_payment(PaymentID, PaymentParams, St) ->
     _ = assert_no_pending_payment(St),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
-    {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(regular, PaymentID, PaymentParams, Opts),
+    {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(PaymentID, PaymentParams, Opts),
     #{
         response => get_payment_state(PaymentSession),
         changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),

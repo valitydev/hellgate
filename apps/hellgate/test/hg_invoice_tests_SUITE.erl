@@ -549,6 +549,7 @@ end_per_suite(C) ->
 -define(trx_info(ID, Extra), #domain_TransactionInfo{id = ID, extra = Extra}).
 -define(refund_id(RefundID), #domain_InvoicePaymentRefund{id = RefundID}).
 -define(refund_id(RefundID, ExternalID), #domain_InvoicePaymentRefund{id = RefundID, external_id = ExternalID}).
+-define(contact_info(), ?contact_info(undefined)).
 
 -define(invalid_invoice_status(Status),
     {exception, #payproc_InvalidInvoiceStatus{status = Status}}
@@ -1075,7 +1076,7 @@ register_payment_success(C) ->
                     payment_session_id = Session,
                     client_info = #domain_ClientInfo{}
                 },
-                contact_info = #domain_ContactInfo{}
+                contact_info = ?contact_info()
             }},
         route = Route,
         payer_session_info = PayerSessionInfo,
@@ -1149,7 +1150,7 @@ register_invoice_payment(ShopID, Client, C) ->
                     payment_session_id = Session,
                     client_info = #domain_ClientInfo{}
                 },
-                contact_info = #domain_ContactInfo{}
+                contact_info = ?contact_info()
             }},
         route = Route,
         transaction_info = ?trx_info(<<"1">>, #{})
@@ -2145,12 +2146,6 @@ payment_adjustment_success(C) ->
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
     %% update terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
-    %% update merchant fees
-    {PartyClient, Context} = PartyPair = cfg(party_client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyPair),
-    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, Context),
-    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(3), PartyPair),
 
     %% make an adjustment
     Params = make_adjustment_params(Reason = <<"imdrunk">>),
@@ -2486,7 +2481,7 @@ registered_payment_adjustment_success(C) ->
                     payment_session_id = Session,
                     client_info = #domain_ClientInfo{}
                 },
-                contact_info = #domain_ContactInfo{}
+                contact_info = ?contact_info()
             }},
         route = Route,
         transaction_info = ?trx_info(<<"1">>, #{})
@@ -2506,12 +2501,6 @@ registered_payment_adjustment_success(C) ->
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
     %% update terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
-    %% update merchant fees
-    {PartyClient, Context} = PartyPair = cfg(party_client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyPair),
-    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, Context),
-    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(3), PartyPair),
 
     %% make an adjustment
     Params = make_adjustment_params(Reason = <<"imdrunk">>),
@@ -5761,7 +5750,7 @@ make_payment_params(PaymentTool, Session, FlowType) ->
                     payment_session_id = Session,
                     client_info = #domain_ClientInfo{}
                 },
-                contact_info = #domain_ContactInfo{}
+                contact_info = ?contact_info()
             }},
         flow = Flow
     }.
@@ -5937,11 +5926,9 @@ start_payment(InvoiceID, PaymentParams, Client) ->
     PaymentID.
 
 register_payment(InvoiceID, RegisterPaymentParams, Client) ->
-    #payproc_RegisterInvoicePaymentParams{risk_score = RiskScore0} = RegisterPaymentParams,
-    RiskScore1 = genlib:define(RiskScore0, low),
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, RegisterPaymentParams, Client),
-    _ = start_payment_ev_optional_risk_score(InvoiceID, RiskScore1, Client),
+    _ = start_payment_ev_optional_risk_score(InvoiceID, Client),
     ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
         next_change(InvoiceID, Client),
     PaymentID.
@@ -5959,18 +5946,6 @@ start_payment_ev_optional_risk_score(InvoiceID, Client) ->
         next_change(InvoiceID, Client),
     case next_change(InvoiceID, Client) of
         ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)) ->
-            ?payment_ev(PaymentID, ?route_changed(Route)) =
-                next_change(InvoiceID, Client),
-            Route;
-        ?payment_ev(PaymentID, ?route_changed(Route)) ->
-            Route
-    end.
-
-start_payment_ev_optional_risk_score(InvoiceID, RiskScore, Client) ->
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    case next_change(InvoiceID, Client) of
-        ?payment_ev(PaymentID, ?risk_score_changed(RiskScore)) ->
             ?payment_ev(PaymentID, ?route_changed(Route)) =
                 next_change(InvoiceID, Client),
             Route;
@@ -6265,17 +6240,11 @@ execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
         Adjustment = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed())))
-    ] = next_changes(InvoiceID, 2, Client),
-    true =
-        case next_change(InvoiceID, Client) of
-            ?payment_ev(
-                PaymentID1, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_)))
-            ) ->
-                PaymentID =:= PaymentID1 andalso AdjustmentID =:= AdjustmentID1;
-            _ ->
-                false
-        end,
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(
+            PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
+    ] = next_changes(InvoiceID, 3, Client),
     AdjustmentID.
 
 execute_payment_refund(InvoiceID, PaymentID, #payproc_InvoicePaymentRefundParams{cash = undefined} = Params, Client) ->

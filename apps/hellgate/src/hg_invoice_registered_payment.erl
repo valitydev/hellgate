@@ -10,7 +10,6 @@
 
 -export([init/3]).
 -export([merge_change/3]).
--export([collapse_changes/3]).
 -export([process_finishing_registration/2]).
 
 -define(CAPTURE_REASON, <<"Timeout">>).
@@ -19,7 +18,20 @@
 
 -spec init(hg_invoice_payment:payment_id(), _, hg_invoice_payment:opts()) ->
     {hg_invoice_payment:st(), hg_invoice_payment:result()}.
-init(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
+init(PaymentID, Params, Opts) ->
+    scoper:scope(
+        payment,
+        #{
+            id => PaymentID
+        },
+        fun() ->
+            init_(PaymentID, Params, Opts)
+        end
+    ).
+
+-spec init_(hg_invoice_payment:payment_id(), _, hg_invoice_payment:opts()) ->
+    {hg_invoice_payment:st(), hg_invoice_payment:result()}.
+init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     #payproc_RegisterInvoicePaymentParams{
         payer_params = PayerParams,
         route = Route,
@@ -36,6 +48,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     Party = get_party(Opts),
     Shop = get_shop(Opts),
     Invoice = get_invoice(Opts),
+    %% NOTE even if payment cost < invoice cost, invoice will gain status 'paid'
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
     {ok, Payer, _} = hg_invoice_payment:construct_payer(PayerParams, Shop),
     PaymentTool = get_payer_payment_tool(Payer),
@@ -99,7 +112,7 @@ init(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     ChangeOpts = #{
         invoice_id => Invoice#domain_Invoice.id
     },
-    {collapse_changes(Events, undefined, ChangeOpts), {Events, hg_machine_action:new()}}.
+    {collapse_changes(Events, undefined, ChangeOpts), {Events, hg_machine_action:instant()}}.
 
 -spec merge_change(
     hg_invoice_payment:change(),
