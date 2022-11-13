@@ -4341,7 +4341,8 @@ registered_payment_manual_refund_success(C) ->
     RefundParams = make_manual_refund_params(),
     RefundID = execute_payment_manual_refund(InvoiceID, PaymentID, RefundParams, Client),
     #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
-        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+    ?invoice_state() = hg_client_invoicing:get(InvoiceID, Client).
 
 %%----------------- refunds group end
 

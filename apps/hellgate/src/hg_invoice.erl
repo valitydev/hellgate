@@ -792,8 +792,16 @@ do_start_payment(PaymentID, PaymentParams, St) ->
 process_payment_signal(Signal, PaymentID, PaymentSession, St) ->
     {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
     Opts = get_payment_opts(Revision, Timestamp, St),
-    PaymentResult = hg_invoice_payment:process_signal(Signal, PaymentSession, Opts),
+    PaymentResult = process_invoice_payment_signal(Signal, PaymentSession, Opts),
     handle_payment_result(PaymentResult, PaymentID, PaymentSession, St, Opts).
+
+process_invoice_payment_signal(Signal, PaymentSession, Opts) ->
+    case hg_invoice_payment:get_origin(PaymentSession) of
+        ?invoice_payment_merchant_reg_origin() ->
+            hg_invoice_payment:process_signal(Signal, PaymentSession, Opts);
+        ?invoice_payment_provider_reg_origin() ->
+            hg_invoice_registered_payment:process_signal(Signal, PaymentSession, Opts)
+    end.
 
 process_payment_call(Call, PaymentID, PaymentSession, St) ->
     {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),

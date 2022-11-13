@@ -81,6 +81,7 @@
 
 -export([process_signal/3]).
 -export([process_call/3]).
+-export([process_timeout/3]).
 
 -export([merge_change/3]).
 -export([collapse_changes/3]).
@@ -2094,8 +2095,6 @@ process_timeout(St) ->
     repair_process_timeout(get_activity(St), Action, St).
 
 -spec process_timeout(activity(), action(), st()) -> machine_result().
-process_timeout({payment, finish_registration}, Action, St) ->
-    hg_invoice_registered_payment:process_finishing_registration(Action, St);
 process_timeout({payment, risk_scoring}, Action, St) ->
     process_risk_score(Action, St);
 process_timeout({payment, routing}, Action, St) ->

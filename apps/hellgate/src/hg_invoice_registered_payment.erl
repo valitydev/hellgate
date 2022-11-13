@@ -10,7 +10,7 @@
 
 -export([init/3]).
 -export([merge_change/3]).
--export([process_finishing_registration/2]).
+-export([process_signal/3]).
 
 -define(CAPTURE_REASON, <<"Timeout">>).
 
@@ -89,6 +89,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
         PlanID,
         {1, FinalCashflow}
     ),
+    ok = hold_payment_limits(Route, Invoice, Payment, VS, Revision),
 
     Events =
         [
@@ -162,6 +163,32 @@ merge_change(Change, St, Opts) ->
 collapse_changes(Changes, St, Opts) ->
     lists:foldl(fun(C, St1) -> merge_change(C, St1, Opts) end, St, Changes).
 
+-spec process_signal(timeout, hg_invoice_payment:st(), hg_invoice_payment:opts()) ->
+    hg_invoice_payment:machine_result().
+process_signal(timeout, St, Options) ->
+    scoper:scope(
+        payment,
+        get_st_meta(St),
+        fun() -> process_timeout(St#st{opts = Options}) end
+    ).
+
+process_timeout(St) ->
+    Action = hg_machine_action:new(),
+    repair_process_timeout(hg_invoice_payment:get_activity(St), Action, St).
+
+repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
+    case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
+        {result, Result} ->
+            Result;
+        call ->
+            process_timeout(Activity, Action, St)
+    end.
+
+process_timeout({payment, finish_registration}, Action, St) ->
+    process_finishing_registration(Action, St);
+process_timeout(Activity, Action, St) ->
+    hg_invoice_payment:process_timeout(Activity, Action, St).
+
 -spec process_finishing_registration(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
     hg_invoice_payment:machine_result().
 process_finishing_registration(Action, St) ->
@@ -192,6 +219,11 @@ maybe_risk_score_event_list(RiskScore) ->
 get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
     TermSet = hg_invoice_payment:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
     TermSet#domain_TermSet.payments.
+
+hold_payment_limits(Route, Invoice, Payment, VS, Revision) ->
+    ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
+    TurnoverLimits = get_turnover_limits(ProviderTerms),
+    hg_limiter:hold_payment_limits(TurnoverLimits, Route, Invoice, Payment).
 
 commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
     ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
@@ -298,3 +330,10 @@ get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
 
 get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = PaymentTool}) ->
     PaymentTool.
+
+get_st_meta(#st{payment = #domain_InvoicePayment{id = ID}}) ->
+    #{
+        id => ID
+    };
+get_st_meta(_) ->
+    #{}.
