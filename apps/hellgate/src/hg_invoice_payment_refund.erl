@@ -26,7 +26,8 @@
 -type event_context() :: #{
     timestamp := integer(),
     route := route(),
-    remaining_payment_amount := cash()
+    remaining_payment_amount := cash(),
+    session_context := hg_session:event_context()
 }.
 
 -type id() :: dmsl_domain_thrift:'InvoicePaymentRefundID'().
@@ -294,7 +295,7 @@ process_session(Refund) ->
 
 -spec finish_session_processing(result(), hg_session:t(), t()) -> machine_result().
 finish_session_processing({Events0, Action}, Session, Refund) ->
-    Events1 = wrap_events(Events0, Refund),
+    Events1 = wrap_events(hg_session:wrap_events(Events0, Session), Refund),
     case {hg_session:status(Session), hg_session:result(Session)} of
         {finished, ?session_succeeded()} ->
             NewAction = hg_machine_action:set_timeout(0, Action),
@@ -550,10 +551,10 @@ apply_event_(?refund_status_changed(Status = {StatusTag, _}), Refund, _Context) 
     Refund#{status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}};
 apply_event_(?refund_rollback_started(Failure), Refund, _Context) ->
     Refund#{failure => Failure};
-apply_event_(?session_ev(?refunded(), Event = ?session_started()), Refund, Context) ->
+apply_event_(?session_ev(?refunded(), Event = ?session_started()), Refund, #{session_context := Context}) ->
     Session = hg_session:apply_event(Event, undefined, Context),
     add_refund_session(Session, Refund);
-apply_event_(?session_ev(?refunded(), Event), Refund, Context) ->
+apply_event_(?session_ev(?refunded(), Event), Refund, #{session_context := Context}) ->
     Session = hg_session:apply_event(Event, session(Refund), Context),
     update_refund_session(Session, Refund).
 

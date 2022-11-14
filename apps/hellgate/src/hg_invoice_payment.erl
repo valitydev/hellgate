@@ -2295,17 +2295,18 @@ process_session(Session0, St = #st{repair_scenario = Scenario}) ->
     finish_session_processing(get_activity(St), Result, Session3, St).
 
 -spec finish_session_processing(activity(), result(), hg_session:t(), st()) -> machine_result().
-finish_session_processing(Activity, {Events, Action}, Session, St) ->
+finish_session_processing(Activity, {Events0, Action}, Session, St) ->
+    Events1 = hg_session:wrap_events(Events0, Session),
     case {hg_session:status(Session), hg_session:result(Session)} of
         {finished, ?session_succeeded()} ->
             TargetType = get_target_type(hg_session:target(Session)),
             _ = maybe_notify_fault_detector(Activity, TargetType, finish, St),
             NewAction = hg_machine_action:set_timeout(0, Action),
-            {next, {Events, NewAction}};
+            {next, {Events1, NewAction}};
         {finished, ?session_failed(Failure)} ->
-            process_failure(Activity, Events, Action, Failure, St);
+            process_failure(Activity, Events1, Action, Failure, St);
         _ ->
-            {next, {Events, Action}}
+            {next, {Events1, Action}}
     end.
 
 -spec finalize_payment(action(), st()) -> machine_result().
@@ -3340,7 +3341,8 @@ create_refund_event_context(RemainingPaymentAmount, St, Opts) ->
     #{
         timestamp => define_event_timestamp(Opts),
         route => get_route(St),
-        remaining_payment_amount => RemainingPaymentAmount
+        remaining_payment_amount => RemainingPaymentAmount,
+        session_context => create_session_event_context(?refunded(), St, Opts)
     }.
 
 get_refund_status(#domain_InvoicePaymentRefund{status = Status}) ->
