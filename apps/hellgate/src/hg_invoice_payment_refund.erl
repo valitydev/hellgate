@@ -12,6 +12,7 @@
     retry_attempts := non_neg_integer(),
     route := route(),
     status := status(),
+    session_context := hg_session:event_context(),
     transaction_info => trx_info(),
     failure => failure(),
     injected_context => injected_context()
@@ -64,8 +65,10 @@
 %% API
 
 -export([create/1]).
+-export([is_status_changed/2]).
 -export([deduce_activity/1]).
 -export([apply_event/3]).
+-export([update_state_with/2]).
 
 -export([process/2]).
 -export([process_callback/3]).
@@ -88,6 +91,7 @@
 -type timestamp() :: dmsl_base_thrift:'Timestamp'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type payment_info() :: dmsl_proxy_provider_thrift:'PaymentInfo'().
+-type domain_status() :: dmsl_domain_thrift:'InvoicePaymentRefundStatus'().
 
 -type callback() :: dmsl_proxy_provider_thrift:'Callback'().
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
@@ -201,6 +205,13 @@ create(Params = #{refund := Refund, cash_flow := Cashflow}) ->
     TransactionInfo = maps:get(transaction_info, Params, undefined),
     ID = Refund#domain_InvoicePaymentRefund.id,
     [?refund_ev(ID, ?refund_created(Refund, Cashflow, TransactionInfo))].
+
+-spec is_status_changed(domain_status(), events()) -> boolean().
+is_status_changed(Status, Events) ->
+    lists:any(fun(Event) -> is_status_changed_event(Status, Event) end, Events).
+
+is_status_changed_event(Status, ?refund_ev(_, ?refund_status_changed(Status))) -> true;
+is_status_changed_event(_, _) -> false.
 
 -spec process(options(), t()) -> machine_result().
 process(Options, Refund0) ->
@@ -318,16 +329,7 @@ finish_session_processing({Events0, Action}, Session, Refund) ->
 process_accounter(Refund) ->
     _ = commit_refund_limits(Refund),
     _PostingPlanLog = commit_refund_cashflow(Refund),
-    Events =
-        case hg_cash:sub(remaining_payment_amount(Refund), cash(Refund)) of
-            ?cash(0, _) ->
-                [
-                    ?payment_status_changed(?refunded())
-                ];
-            ?cash(Amount, _) when Amount > 0 ->
-                []
-        end,
-    {done, {[wrap_event(?refund_status_changed(?refund_succeeded()), Refund) | Events], hg_machine_action:new()}}.
+    {done, {[wrap_event(?refund_status_changed(?refund_succeeded()), Refund)], hg_machine_action:new()}}.
 
 process_failure(Refund) ->
     Failure = failure(Refund),
@@ -522,16 +524,15 @@ wrap_events(Events, T) ->
 wrap_event(Event, T) ->
     ?refund_ev(id(T), Event).
 
-% -spec update_state_with(events(), t()) -> t().
-% update_state_with(Events, T) ->
-%     Context = #{timestamp => erlang:system_time(millisecond)},
-%     lists:foldl(
-%         fun(Ev, State) -> apply_event(Ev, State, Context) end,
-%         T,
-%         Events
-%     ).
+-spec update_state_with(events(), t()) -> t().
+update_state_with(Events, T) ->
+    lists:foldl(
+        fun(Ev, State) -> apply_event(Ev, State, undefined) end,
+        T,
+        Events
+    ).
 
--spec apply_event(event(), t() | undefined, event_context()) -> t().
+-spec apply_event(event(), t() | undefined, event_context() | undefined) -> t().
 apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)), undefined, Context) ->
     genlib_map:compact(#{
         refund => Refund,
@@ -541,7 +542,8 @@ apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)),
         status => pending,
         remaining_payment_amount => maps:get(remaining_payment_amount, Context),
         retry_attempts => 0,
-        route => maps:get(route, Context)
+        route => maps:get(route, Context),
+        session_context => maps:get(session_context, Context)
     });
 apply_event(?refund_ev(_ID, Event), Refund, Context) ->
     apply_event_(Event, Refund, Context).
@@ -551,10 +553,10 @@ apply_event_(?refund_status_changed(Status = {StatusTag, _}), Refund, _Context) 
     Refund#{status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}};
 apply_event_(?refund_rollback_started(Failure), Refund, _Context) ->
     Refund#{failure => Failure};
-apply_event_(?session_ev(?refunded(), Event = ?session_started()), Refund, #{session_context := Context}) ->
+apply_event_(?session_ev(?refunded(), Event = ?session_started()), Refund = #{session_context := Context}, _) ->
     Session = hg_session:apply_event(Event, undefined, Context),
     add_refund_session(Session, Refund);
-apply_event_(?session_ev(?refunded(), Event), Refund, #{session_context := Context}) ->
+apply_event_(?session_ev(?refunded(), Event), Refund = #{session_context := Context}, _) ->
     Session = hg_session:apply_event(Event, session(Refund), Context),
     update_refund_session(Session, Refund).
 

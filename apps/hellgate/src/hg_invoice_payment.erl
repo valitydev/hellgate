@@ -2036,7 +2036,7 @@ process_refund(ID, St = #st{opts = Options0, payment = Payment, repair_scenario 
     RepairScenario =
         case hg_invoice_repair:check_for_action(repair_session, Scenario) of
             call -> undefined;
-            Action -> Action
+            RepairAction -> RepairAction
         end,
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     Options1 = Options0#{
@@ -2044,7 +2044,33 @@ process_refund(ID, St = #st{opts = Options0, payment = Payment, repair_scenario 
         payment_info => PaymentInfo,
         repair_scenario => RepairScenario
     },
-    hg_invoice_payment_refund:process(Options1, try_get_refund_state(ID, St)).
+    Refund = try_get_refund_state(ID, St),
+    {Step, {Events0, Action}} = hg_invoice_payment_refund:process(Options1, Refund),
+    Events1 =
+        case hg_invoice_payment_refund:is_status_changed(?refund_succeeded(), Events0) of
+            true ->
+                process_refund_result(Events0, Refund);
+            false ->
+                Events0
+        end,
+    {Step, {Events1, Action}}.
+
+process_refund_result(Events0, Refund0) ->
+    Refund1 = hg_invoice_payment_refund:update_state_with(Events0, Refund0),
+    PaymentEvents =
+        case
+            hg_cash:sub(
+                hg_invoice_payment_refund:remaining_payment_amount(Refund1), hg_invoice_payment_refund:cash(Refund1)
+            )
+        of
+            ?cash(0, _) ->
+                [
+                    ?payment_status_changed(?refunded())
+                ];
+            ?cash(Amount, _) when Amount > 0 ->
+                []
+        end,
+    Events0 ++ PaymentEvents.
 
 repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
     case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
