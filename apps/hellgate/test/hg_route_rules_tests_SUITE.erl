@@ -24,6 +24,8 @@
 -export([empty_candidate_ok/1]).
 -export([ruleset_misconfig/1]).
 -export([choice_context_formats_ok/1]).
+-export([empty_terms_allow_test/1]).
+-export([not_reduced_terms_allow_test/1]).
 -export([routes_selected_for_high_risk_score/1]).
 -export([routes_selected_for_low_risk_score/1]).
 -export([terminal_priority_for_shop/1]).
@@ -64,6 +66,8 @@ groups() ->
             routes_selected_for_high_risk_score,
 
             choice_context_formats_ok,
+            empty_terms_allow_test,
+            not_reduced_terms_allow_test,
 
             terminal_priority_for_shop,
 
@@ -132,6 +136,8 @@ cfg(Key, C) ->
 -define(routing_with_fail_rate_domain_revision, 3).
 -define(terminal_priority_domain_revision, 4).
 -define(pinned_route_revision, 5).
+-define(empty_allow_revision, 6).
+-define(not_reduced_allow_revision, 7).
 
 mock_dominant(SupPid) ->
     Domain = construct_domain_fixture(),
@@ -239,7 +245,8 @@ mock_party_management(SupPid) ->
                             {candidates, [
                                 ?candidate({constant, true}, ?trm(1)),
                                 ?candidate({constant, true}, ?trm(2)),
-                                ?candidate({constant, true}, ?trm(3))
+                                ?candidate({constant, true}, ?trm(3)),
+                                ?candidate({constant, true}, ?trm(4))
                             ]}
                     }};
                 ('ComputeRoutingRuleset', {?ruleset(1), ?base_routing_rule_domain_revision, _}) ->
@@ -256,6 +263,32 @@ mock_party_management(SupPid) ->
                         DomainRevision == ?terminal_priority_domain_revision orelse
                         DomainRevision == ?pinned_route_revision
                 ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"No prohibition: all candidate is allowed">>,
+                        decisions = {candidates, []}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(2), ?empty_allow_revision, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"">>,
+                        decisions =
+                            {candidates, [
+                                ?candidate({constant, true}, ?trm(5))
+                            ]}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(1), ?empty_allow_revision, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"No prohibition: all candidate is allowed">>,
+                        decisions = {candidates, []}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(2), ?not_reduced_allow_revision, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"">>,
+                        decisions =
+                            {candidates, [
+                                ?candidate({constant, true}, ?trm(6))
+                            ]}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(1), ?not_reduced_allow_revision, _}) ->
                     {ok, #domain_RoutingRuleset{
                         name = <<"No prohibition: all candidate is allowed">>,
                         decisions = {candidates, []}
@@ -292,6 +325,12 @@ mock_party_management(SupPid) ->
                                     ])}
                         }
                     }};
+                ('ComputeProviderTerminalTerms', {?prv(4), _, ?base_routing_rule_domain_revision, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                            allow = {constant, false}
+                        }
+                    }};
                 ('ComputeProviderTerminalTerms', {?prv(1), _, ?routing_with_risk_coverage_set_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = ?payment_terms#domain_PaymentsProvisionTerms{
@@ -302,6 +341,18 @@ mock_party_management(SupPid) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = ?payment_terms#domain_PaymentsProvisionTerms{
                             risk_coverage = {value, high}
+                        }
+                    }};
+                ('ComputeProviderTerminalTerms', {?prv(5), _, ?empty_allow_revision, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                            allow = undefined
+                        }
+                    }};
+                ('ComputeProviderTerminalTerms', {?prv(6), _, ?not_reduced_allow_revision, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                            allow = {all_of, [{constant, false}]}
                         }
                     }};
                 ('ComputeProviderTerminalTerms', _) ->
@@ -400,7 +451,8 @@ no_route_found_for_payment(_C) ->
         [
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', cost}},
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
-            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}}
+            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
         ],
         RejectedRoutes1
     ),
@@ -418,7 +470,8 @@ no_route_found_for_payment(_C) ->
         [
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', currency}},
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
-            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}}
+            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
         ],
         RejectedRoutes2
     ).
@@ -456,7 +509,8 @@ gather_route_success(_C) ->
     ?assertMatch(
         [
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
-            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}}
+            {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
         ],
         RejectedRoutes
     ).
@@ -495,7 +549,8 @@ rejected_by_table_prohibitions(_C) ->
         [
             {?prv(3), ?trm(3), {'RoutingRule', undefined}},
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', payment_tool}},
-            {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}}
+            {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
         ],
         RejectedRoutes
     ),
@@ -562,11 +617,11 @@ ruleset_misconfig(_C) ->
 
 -spec routes_selected_for_low_risk_score(config()) -> test_return().
 routes_selected_for_low_risk_score(C) ->
-    routes_selected_with_risk_score(C, low, [?prv(1), ?prv(2), ?prv(3)]).
+    routes_selected_with_risk_score(C, low, [?prv(1), ?prv(2), ?prv(3), ?prv(4)]).
 
 -spec routes_selected_for_high_risk_score(config()) -> test_return().
 routes_selected_for_high_risk_score(C) ->
-    routes_selected_with_risk_score(C, high, [?prv(2), ?prv(3)]).
+    routes_selected_with_risk_score(C, high, [?prv(2), ?prv(3), ?prv(4)]).
 
 routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     Currency = ?cur(<<"RUB">>),
@@ -624,6 +679,51 @@ choice_context_formats_ok(C) ->
         },
         hg_routing:get_logger_metadata(Context, Revision)
     ).
+
+-spec empty_terms_allow_test(config()) -> test_return().
+empty_terms_allow_test(_C) ->
+    do_gather_routes(?empty_allow_revision, ?trm(5), []).
+
+-spec not_reduced_terms_allow_test(config()) -> test_return().
+not_reduced_terms_allow_test(_C) ->
+    Error = {'Misconfiguration', {'Could not reduce predicate to a value', {allow, {all_of, [{constant, false}]}}}},
+    do_gather_routes(?not_reduced_allow_revision, undefined, [{?prv(6), ?trm(6), Error}]).
+
+do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    VS = #{
+        category => ?cat(1),
+        currency => Currency,
+        cost => ?PROVIDER_MIN_ALLOWED,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        flow => instant,
+        risk_score => low
+    },
+
+    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+    {ok, {Routes, RejectedRoutes}} = hg_routing:gather_routes(
+        payment,
+        PaymentInstitution,
+        VS,
+        Revision,
+        Ctx
+    ),
+    case ExpectedRouteTerminal of
+        undefined ->
+            ok;
+        Terminal ->
+            [Route] = Routes,
+            ?assertMatch(Terminal, hg_routing:terminal_ref(Route))
+    end,
+    ?assertMatch(ExpectedRejectedRoutes, RejectedRoutes).
 
 %%% Terminal priority tests
 
@@ -755,6 +855,9 @@ construct_domain_fixture() ->
         {terminal, ?trm(1)} => {terminal, ?terminal_obj(?trm(1), ?prv(1))},
         {terminal, ?trm(2)} => {terminal, ?terminal_obj(?trm(2), ?prv(2))},
         {terminal, ?trm(3)} => {terminal, ?terminal_obj(?trm(3), ?prv(3))},
+        {terminal, ?trm(4)} => {terminal, ?terminal_obj(?trm(4), ?prv(4))},
+        {terminal, ?trm(5)} => {terminal, ?terminal_obj(?trm(5), ?prv(5))},
+        {terminal, ?trm(6)} => {terminal, ?terminal_obj(?trm(6), ?prv(6))},
         {terminal, ?trm(11)} => {terminal, ?terminal_obj(?trm(11), ?prv(11))},
         {terminal, ?trm(12)} => {terminal, ?terminal_obj(?trm(12), ?prv(12))},
         {payment_institution, ?pinst(1)} =>
