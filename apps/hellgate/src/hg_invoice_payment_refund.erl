@@ -2,6 +2,7 @@
 
 -include_lib("hellgate/include/domain.hrl").
 -include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
+-include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 -include("payment_events.hrl").
 
 -opaque t() :: #{
@@ -44,6 +45,7 @@
 -export_type([params/0]).
 -export_type([process_result/0]).
 -export_type([event_context/0]).
+-export_type([activity/0]).
 
 %% Accessors
 
@@ -66,12 +68,15 @@
 
 -export([create/1]).
 -export([is_status_changed/2]).
--export([deduce_activity/1]).
 -export([apply_event/3]).
+
+-export([wrap_events/2]).
+-export([wrap_event/2]).
 -export([update_state_with/2]).
 
 -export([process/2]).
 -export([process_callback/3]).
+-export([deduce_activity/1]).
 
 %% Internal types
 
@@ -220,8 +225,9 @@ process(Options, Refund0) ->
     do_process(Activity, Refund1).
 
 -spec process_callback(callback(), payment_info(), t()) -> {callback_response(), machine_result()}.
-process_callback(Payload, PaymentInfo, Refund) ->
-    Session0 = hg_session:set_payment_info(PaymentInfo, session(Refund)),
+process_callback(Payload, PaymentInfo0, Refund) ->
+    PaymentInfo1 = construct_payment_info(PaymentInfo0, Refund),
+    Session0 = hg_session:set_payment_info(PaymentInfo1, session(Refund)),
     {Response, {Result, Session1}} = hg_session:process_callback(Payload, Session0),
     {Response, finish_session_processing(Result, Session1, Refund)}.
 
@@ -285,7 +291,7 @@ process_refund_cashflow(Refund) ->
             Events =
                 [hg_session:wrap_event(?refunded(), hg_session:create())] ++
                     get_manual_refund_events(Refund),
-            {next, {wrap_events(Events, Refund), Action}};
+            {next, {Events, Action}};
         _ ->
             Failure =
                 {failure,
@@ -293,11 +299,11 @@ process_refund_cashflow(Refund) ->
                         'RefundFailure',
                         {terms_violated, {insufficient_merchant_funds, #payproc_error_GeneralFailure{}}}
                     )},
-            {next, {[wrap_event(?refund_rollback_started(Failure), Refund)], Action}}
+            {next, {[?refund_rollback_started(Failure)], Action}}
     end.
 
 process_session(Refund) ->
-    PaymentInfo = payment_info(Refund),
+    PaymentInfo = construct_payment_info(payment_info(Refund), Refund),
     Scenario = repair_scenario(Refund),
     Session0 = hg_session:set_payment_info(PaymentInfo, session(Refund)),
     Session1 = hg_session:set_repair_scenario(Scenario, Session0),
@@ -306,7 +312,7 @@ process_session(Refund) ->
 
 -spec finish_session_processing(result(), hg_session:t(), t()) -> machine_result().
 finish_session_processing({Events0, Action}, Session, Refund) ->
-    Events1 = wrap_events(hg_session:wrap_events(Events0, Session), Refund),
+    Events1 = hg_session:wrap_events(Events0, Session),
     case {hg_session:status(Session), hg_session:result(Session)} of
         {finished, ?session_succeeded()} ->
             NewAction = hg_machine_action:set_timeout(0, Action),
@@ -315,11 +321,10 @@ finish_session_processing({Events0, Action}, Session, Refund) ->
             case check_retry_possibility(Failure, Refund) of
                 {retry, Timeout} ->
                     _ = logger:info("Retry session after transient failure, wait ~p", [Timeout]),
-                    {SessionEvents0, SessionAction} = retry_session(Action, Timeout),
-                    SessionEvents1 = wrap_events(SessionEvents0, Refund),
-                    {next, {Events1 ++ SessionEvents1, SessionAction}};
+                    {SessionEvents, SessionAction} = retry_session(Action, Timeout),
+                    {next, {Events1 ++ SessionEvents, SessionAction}};
                 fatal ->
-                    RollbackStarted = [wrap_event(?refund_rollback_started(Failure), Refund)],
+                    RollbackStarted = [?refund_rollback_started(Failure)],
                     {next, {Events1 ++ RollbackStarted, hg_machine_action:set_timeout(0, Action)}}
             end;
         _ ->
@@ -329,13 +334,13 @@ finish_session_processing({Events0, Action}, Session, Refund) ->
 process_accounter(Refund) ->
     _ = commit_refund_limits(Refund),
     _PostingPlanLog = commit_refund_cashflow(Refund),
-    {done, {[wrap_event(?refund_status_changed(?refund_succeeded()), Refund)], hg_machine_action:new()}}.
+    {done, {[?refund_status_changed(?refund_succeeded())], hg_machine_action:new()}}.
 
 process_failure(Refund) ->
     Failure = failure(Refund),
     _ = rollback_refund_limits(Refund),
     _PostingPlanLog = rollback_refund_cashflow(Refund),
-    Events = [wrap_event(?refund_status_changed(?refund_failed(Failure)), Refund)],
+    Events = [?refund_status_changed(?refund_failed(Failure))],
     {done, {Events, hg_machine_action:new()}}.
 
 hold_refund_limits(Refund) ->
@@ -532,8 +537,8 @@ update_state_with(Events, T) ->
         Events
     ).
 
--spec apply_event(event(), t() | undefined, event_context() | undefined) -> t().
-apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)), undefined, Context) ->
+-spec apply_event(event_payload(), t() | undefined, event_context() | undefined) -> t().
+apply_event(?refund_created(Refund, Cashflow, TransactionInfo), undefined, Context) ->
     genlib_map:compact(#{
         refund => Refund,
         cash_flow => Cashflow,
@@ -545,18 +550,15 @@ apply_event(?refund_ev(_ID, ?refund_created(Refund, Cashflow, TransactionInfo)),
         route => maps:get(route, Context),
         session_context => maps:get(session_context, Context)
     });
-apply_event(?refund_ev(_ID, Event), Refund, Context) ->
-    apply_event_(Event, Refund, Context).
-
-apply_event_(?refund_status_changed(Status = {StatusTag, _}), Refund, _Context) ->
+apply_event(?refund_status_changed(Status = {StatusTag, _}), Refund, _Context) ->
     DomainRefund = refund(Refund),
     Refund#{status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}};
-apply_event_(?refund_rollback_started(Failure), Refund, _Context) ->
+apply_event(?refund_rollback_started(Failure), Refund, _Context) ->
     Refund#{failure => Failure};
-apply_event_(?session_ev(?refunded(), Event = ?session_started()), Refund = #{session_context := Context}, _) ->
+apply_event(?session_ev(?refunded(), Event = ?session_started()), Refund = #{session_context := Context}, _) ->
     Session = hg_session:apply_event(Event, undefined, Context),
     add_refund_session(Session, Refund);
-apply_event_(?session_ev(?refunded(), Event), Refund = #{session_context := Context}, _) ->
+apply_event(?session_ev(?refunded(), Event), Refund = #{session_context := Context}, _) ->
     Session = hg_session:apply_event(Event, session(Refund), Context),
     update_refund_session(Session, Refund).
 
@@ -573,3 +575,25 @@ update_refund_session(Session, Refund) ->
 save_retry_attempt(Refund) ->
     Attempts = retry_attempts(Refund),
     Refund#{retry_attempts := Attempts + 1}.
+
+get_refund_created_at(#domain_InvoicePaymentRefund{created_at = CreatedAt}) ->
+    CreatedAt.
+
+construct_payment_info(PaymentInfo, Refund) ->
+    PaymentInfo#proxy_provider_PaymentInfo{
+        refund = #proxy_provider_InvoicePaymentRefund{
+            id = id(Refund),
+            created_at = get_refund_created_at(refund(Refund)),
+            trx = hg_session:trx_info(session(Refund)),
+            cash = construct_proxy_cash(cash(Refund))
+        }
+    }.
+
+construct_proxy_cash(#domain_Cash{
+    amount = Amount,
+    currency = CurrencyRef
+}) ->
+    #proxy_provider_Cash{
+        amount = Amount,
+        currency = hg_domain:get({currency, CurrencyRef})
+    }.

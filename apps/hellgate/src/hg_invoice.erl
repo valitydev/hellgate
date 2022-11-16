@@ -1016,7 +1016,15 @@ repair_complex([Scenario | Rest], St) ->
 repair_scenario(Scenario, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     Activity = hg_invoice_payment:get_activity(PaymentSession),
-    RepairSession = hg_invoice_repair:get_repair_state(Activity, Scenario, PaymentSession),
+    NewActivity =
+        case Activity of
+            {refund, ID} ->
+                Refund = hg_invoice_payment:get_refund_state(ID, PaymentSession),
+                {refund, hg_invoice_payment_refund:deduce_activity(Refund)};
+            _ ->
+                Activity
+        end,
+    RepairSession = hg_invoice_repair:get_repair_state(NewActivity, Scenario, PaymentSession),
     process_payment_signal(timeout, PaymentID, RepairSession, St).
 
 %%

@@ -33,6 +33,7 @@
 -export([get_chargebacks/1]).
 -export([get_chargeback_state/2]).
 -export([get_refund/2]).
+-export([get_refund_state/2]).
 -export([get_route/1]).
 -export([get_adjustments/1]).
 -export([get_allocation/1]).
@@ -87,18 +88,12 @@
 
 -type activity() ::
     payment_activity()
-    | refund_activity()
+    | {refund, refund_id()}
     | adjustment_activity()
     | chargeback_activity()
     | idle.
 
 -type payment_activity() :: {payment, payment_step()}.
-
--type refund_activity() ::
-    {refund_new, refund_id()}
-    | {refund_session, refund_id()}
-    | {refund_failure, refund_id()}
-    | {refund_accounter, refund_id()}.
 
 -type adjustment_activity() ::
     {adjustment_new, adjustment_id()}
@@ -218,12 +213,7 @@ get_party_revision(#st{activity = {chargeback, ID, _Type}} = St) ->
     CB = hg_invoice_payment_chargeback:get(get_chargeback_state(ID, St)),
     #domain_InvoicePaymentChargeback{party_revision = Revision, created_at = Timestamp} = CB,
     {Revision, Timestamp};
-get_party_revision(#st{activity = {_, ID} = Activity} = St) when
-    Activity =:= {refund_new, ID} orelse
-        Activity =:= {refund_failure, ID} orelse
-        Activity =:= {refund_session, ID} orelse
-        Activity =:= {refund_accounter, ID}
-->
+get_party_revision(#st{activity = {refund, ID}} = St) ->
     #domain_InvoicePaymentRefund{party_revision = Revision, created_at = Timestamp} = get_refund(ID, St),
     {Revision, Timestamp};
 get_party_revision(#st{activity = {Activity, ID}} = St) when
@@ -338,6 +328,15 @@ get_refund(ID, St) ->
     case try_get_refund_state(ID, St) of
         Refund when Refund =/= undefined ->
             hg_invoice_payment_refund:refund(Refund);
+        undefined ->
+            throw(#payproc_InvoicePaymentRefundNotFound{})
+    end.
+
+-spec get_refund_state(refund_id(), st()) -> hg_invoice_payment_refund:t() | no_return().
+get_refund_state(ID, St) ->
+    case try_get_refund_state(ID, St) of
+        Refund when Refund =/= undefined ->
+            Refund;
         undefined ->
             throw(#payproc_InvoicePaymentRefundNotFound{})
     end.
@@ -2017,13 +2016,7 @@ process_timeout({payment, updating_accounter}, Action, St) ->
     process_accounter_update(Action, St);
 process_timeout({chargeback, ID, Type}, Action, St) ->
     process_chargeback(Type, ID, Action, St);
-process_timeout({refund_new, ID}, _Action, St) ->
-    process_refund(ID, St);
-process_timeout({refund_session, ID}, _Action, St) ->
-    process_refund(ID, St);
-process_timeout({refund_failure, ID}, _Action, St) ->
-    process_refund(ID, St);
-process_timeout({refund_accounter, ID}, _Action, St) ->
+process_timeout({refund, ID}, _Action, St) ->
     process_refund(ID, St);
 process_timeout({adjustment_new, ID}, Action, St) ->
     process_adjustment_cashflow(ID, Action, St);
@@ -2046,17 +2039,19 @@ process_refund(ID, St = #st{opts = Options0, payment = Payment, repair_scenario 
     },
     Refund = try_get_refund_state(ID, St),
     {Step, {Events0, Action}} = hg_invoice_payment_refund:process(Options1, Refund),
-    Events1 =
-        case hg_invoice_payment_refund:is_status_changed(?refund_succeeded(), Events0) of
+    Events1 = hg_invoice_payment_refund:wrap_events(Events0, Refund),
+    Events2 =
+        case hg_invoice_payment_refund:is_status_changed(?refund_succeeded(), Events1) of
             true ->
-                process_refund_result(Events0, Refund);
+                process_refund_result(Events1, Refund);
             false ->
-                Events0
+                Events1
         end,
-    {Step, {Events1, Action}}.
+    {Step, {Events2, Action}}.
 
-process_refund_result(Events0, Refund0) ->
-    Refund1 = hg_invoice_payment_refund:update_state_with(Events0, Refund0),
+process_refund_result(Changes, Refund0) ->
+    Events = [Event || ?refund_ev(_, Event) <- Changes],
+    Refund1 = hg_invoice_payment_refund:update_state_with(Events, Refund0),
     PaymentEvents =
         case
             hg_cash:sub(
@@ -2070,7 +2065,7 @@ process_refund_result(Events0, Refund0) ->
             ?cash(Amount, _) when Amount > 0 ->
                 []
         end,
-    Events0 ++ PaymentEvents.
+    Changes ++ PaymentEvents.
 
 repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
     case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
@@ -2281,7 +2276,7 @@ process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, cap
 %%
 
 -spec handle_callback(activity(), callback(), hg_session:t(), st()) -> {callback_response(), machine_result()}.
-handle_callback({refund_session, ID}, Payload, _Session0, St) ->
+handle_callback({refund, ID}, Payload, _Session0, St) ->
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     hg_invoice_payment_refund:process_callback(Payload, PaymentInfo, try_get_refund_state(ID, St));
 handle_callback(Activity, Payload, Session0, St) ->
@@ -2684,16 +2679,8 @@ construct_payment_info(
     };
 construct_payment_info({payment, _Step}, _Target, _St, PaymentInfo) ->
     PaymentInfo;
-construct_payment_info({refund_session, ID}, _Target, St, PaymentInfo) ->
-    PaymentInfo#proxy_provider_PaymentInfo{
-        refund = construct_proxy_refund(try_get_refund_state(ID, St))
-    };
-construct_payment_info({RefundActivity, _ID}, _Target, _St, _PaymentInfo) when
-    RefundActivity =:= refund_new orelse
-        RefundActivity =:= refund_failure orelse
-        RefundActivity =:= refund_accounter
-->
-    undefined.
+construct_payment_info({refund, _ID}, _Target, _St, PaymentInfo) ->
+    PaymentInfo.
 
 construct_proxy_payment(
     #domain_InvoicePayment{
@@ -2796,14 +2783,6 @@ construct_proxy_cash(#domain_Cash{
     #proxy_provider_Cash{
         amount = Amount,
         currency = hg_domain:get({currency, CurrencyRef})
-    }.
-
-construct_proxy_refund(Refund) ->
-    #proxy_provider_InvoicePaymentRefund{
-        id = hg_invoice_payment_refund:id(Refund),
-        created_at = get_refund_created_at(hg_invoice_payment_refund:refund(Refund)),
-        trx = hg_session:trx_info(hg_invoice_payment_refund:session(Refund)),
-        cash = construct_proxy_cash(hg_invoice_payment_refund:cash(Refund))
     }.
 
 construct_proxy_capture(?captured(_, Cost)) ->
@@ -3089,24 +3068,14 @@ merge_change(Change = ?chargeback_ev(ID, Event), St, Opts) ->
         end,
     ChargebackSt = merge_chargeback_change(Event, try_get_chargeback_state(ID, St1)),
     set_chargeback_state(ID, ChargebackSt, St1);
-merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
+merge_change(?refund_ev(ID, Event), St, Opts) ->
     RemainingPaymentAmount = get_remaining_payment_balance(St),
     EventContext = create_refund_event_context(RemainingPaymentAmount, St, Opts),
     St1 =
         case Event of
-            ?refund_created(_, _, _) ->
-                _ = validate_transition(idle, Change, St, Opts),
-                St#st{activity = {refund_new, ID}};
-            ?session_ev(?refunded(), ?session_started()) ->
-                _ = validate_transition([{refund_new, ID}, {refund_session, ID}], Change, St, Opts),
-                St#st{activity = {refund_session, ID}};
-            ?session_ev(?refunded(), ?session_finished(?session_succeeded())) ->
-                _ = validate_transition({refund_session, ID}, Change, St, Opts),
-                St#st{activity = {refund_accounter, ID}};
             ?refund_status_changed(?refund_succeeded()) ->
-                _ = validate_transition([{refund_accounter, ID}], Change, St, Opts),
                 RefundSt0 = hg_invoice_payment_refund:apply_event(
-                    Change, try_get_refund_state(ID, St), EventContext
+                    Event, try_get_refund_state(ID, St), EventContext
                 ),
                 DomainRefund = hg_invoice_payment_refund:refund(RefundSt0),
                 Allocation = get_allocation(St),
@@ -3119,23 +3088,16 @@ merge_change(Change = ?refund_ev(ID, Event), St, Opts) ->
                     Allocation
                 ),
                 St#st{allocation = FinalAllocation};
-            ?refund_rollback_started(_) ->
-                _ = validate_transition([{refund_session, ID}, {refund_new, ID}], Change, St, Opts),
-                St#st{activity = {refund_failure, ID}};
-            ?refund_status_changed(?refund_failed(_)) ->
-                _ = validate_transition([{refund_failure, ID}], Change, St, Opts),
-                St;
             _ ->
-                _ = validate_transition([{refund_session, ID}], Change, St, Opts),
                 St
         end,
-    RefundSt1 = hg_invoice_payment_refund:apply_event(Change, try_get_refund_state(ID, St1), EventContext),
+    RefundSt1 = hg_invoice_payment_refund:apply_event(Event, try_get_refund_state(ID, St1), EventContext),
     St2 = set_refund_state(ID, RefundSt1, St1),
     case hg_invoice_payment_refund:status(RefundSt1) of
         S when S == succeeded; S == failed ->
             St2#st{activity = idle};
         _ ->
-            St2
+            St2#st{activity = {refund, ID}}
     end;
 merge_change(Change = ?adjustment_ev(ID, Event), St, Opts) ->
     St1 =
@@ -3457,7 +3419,7 @@ get_activity_session(St) ->
 -spec get_activity_session(activity(), st()) -> session() | undefined.
 get_activity_session({payment, _Step}, St) ->
     get_session(get_target(St), St);
-get_activity_session({refund_session, ID}, St) ->
+get_activity_session({refund, ID}, St) ->
     Refund = try_get_refund_state(ID, St),
     hg_invoice_payment_refund:session(Refund).
 
