@@ -230,8 +230,6 @@ commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
     TurnoverLimits = get_turnover_limits(ProviderTerms),
     hg_limiter:commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, Cash).
 
-get_turnover_limits(undefined) ->
-    [];
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).

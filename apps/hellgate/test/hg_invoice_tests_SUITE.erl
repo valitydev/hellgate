@@ -40,6 +40,7 @@
 -export([register_payment_customer_payer_success/1]).
 
 -export([payment_limit_success/1]).
+-export([register_payment_limit_success/1]).
 -export([payment_limit_other_shop_success/1]).
 -export([payment_limit_overflow/1]).
 -export([refund_limit_success/1]).
@@ -365,6 +366,7 @@ groups() ->
 
         {operation_limits, [], [
             payment_limit_success,
+            register_payment_limit_success,
             payment_limit_other_shop_success,
             payment_limit_overflow,
             payment_partial_capture_limit_success,
@@ -1139,9 +1141,12 @@ register_payment_customer_payer_success(C) ->
 %% register_* cases helpers
 
 register_invoice_payment(ShopID, Client, C) ->
+    Route = ?route(?prv(1), ?trm(1)),
+    register_invoice_payment(Route, ShopID, Client, C).
+
+register_invoice_payment(Route, ShopID, Client, C) ->
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
-    Route = ?route(?prv(1), ?trm(1)),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
             {payment_resource, #payproc_PaymentResourcePayerParams{
@@ -1184,6 +1189,20 @@ payment_limit_success(C) ->
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
     ) = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)).
+
+-spec register_payment_limit_success(config()) -> test_return().
+register_payment_limit_success(C0) ->
+    Client = cfg(client, C0),
+    PartyClient = cfg(party_client, C0),
+    #{party_id := PartyID} = cfg(limits, C0),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    C1 = [{party_id, PartyID}, {shop_id, ShopID} | C0],
+    Route = ?route(?prv(5), ?trm(12)),
+    {InvoiceID, PaymentID} = register_invoice_payment(Route, ShopID, Client, C1),
+    ?invoice_state(?invoice_w_status(?invoice_paid())) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_state(?payment_w_status(PaymentID, ?captured())) =
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
 
 -spec payment_limit_other_shop_success(config()) -> test_return().
 payment_limit_other_shop_success(C) ->
