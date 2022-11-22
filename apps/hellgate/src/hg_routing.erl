@@ -618,6 +618,7 @@ check_terms_acceptability(recurrent_payment, Terms, VS) ->
 
 acceptable_payment_terms(
     #domain_PaymentsProvisionTerms{
+        allow = Allow,
         currencies = CurrenciesSelector,
         categories = CategoriesSelector,
         payment_methods = PMsSelector,
@@ -631,6 +632,7 @@ acceptable_payment_terms(
     % TODO varsets getting mixed up
     %      it seems better to pass down here hierarchy of contexts w/ appropriate module accessors
     ParentName = 'PaymentsProvisionTerms',
+    _ = acceptable_allow(ParentName, Allow),
     _ = try_accept_term(ParentName, currency, getv(currency, VS), CurrenciesSelector),
     _ = try_accept_term(ParentName, category, getv(category, VS), CategoriesSelector),
     _ = try_accept_term(ParentName, payment_tool, getv(payment_tool, VS), PMsSelector),
@@ -692,6 +694,15 @@ acceptable_partial_refunds_terms(
         throw(?rejected({'PartialRefundsProvisionTerms', cash_limit}));
 acceptable_partial_refunds_terms(undefined, _RVS) ->
     throw(?rejected({'PartialRefundsProvisionTerms', undefined})).
+
+acceptable_allow(_ParentName, undefined) ->
+    true;
+acceptable_allow(_ParentName, {constant, true}) ->
+    true;
+acceptable_allow(ParentName, {constant, false}) ->
+    throw(?rejected({ParentName, allow}));
+acceptable_allow(_ParentName, Ambiguous) ->
+    error({misconfiguration, {'Could not reduce predicate to a value', {allow, Ambiguous}}}).
 
 %%
 
