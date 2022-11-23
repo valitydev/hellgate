@@ -5573,20 +5573,20 @@ consistent_account_balances(C) ->
 %%
 
 next_changes(InvoiceID, Amount, Client) ->
-    next_changes(InvoiceID, Amount, ?DEFAULT_NEXT_CHANGE_TIMEOUT * Amount, Client).
+    next_changes(InvoiceID, Amount, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
 
 next_changes(InvoiceID, Amount, Timeout, Client) ->
-    TimeoutTime = os:system_time(millisecond) + Timeout,
+    TimeoutTime = erlang:monotonic_time(millisecond) + Timeout,
     next_changes_(InvoiceID, Amount, TimeoutTime, Client).
 
 next_changes_(InvoiceID, Amount, Timeout, Client) ->
     Result = lists:foldl(
         fun(_N, Acc) ->
-            case os:system_time(millisecond) of
+            case erlang:monotonic_time(millisecond) of
                 Time when Time < Timeout ->
                     [next_change(InvoiceID, Client) | Acc];
                 _ ->
-                    Acc
+                    [{error, timeout}, Acc]
             end
         end,
         [],

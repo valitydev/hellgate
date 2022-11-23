@@ -283,13 +283,13 @@ pull_event(InvoiceID, Timeout, Client) ->
 -spec pull_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
     tuple() | timeout | woody_error:business_error().
 pull_change(InvoiceID, FilterMapFun, PullTimeout, Client) ->
-    Timeout = os:system_time(millisecond) + PullTimeout,
-    pull_change_(InvoiceID, FilterMapFun, PullTimeout, Timeout, Client).
+    Deadline = erlang:monotonic_time(millisecond) + PullTimeout,
+    pull_change_(InvoiceID, FilterMapFun, Deadline, Client).
 
-pull_change_(InvoiceID, FilterMapFun, PullTimeout, Timeout, Client) ->
-    case os:system_time(millisecond) of
-        Time when Time < Timeout ->
-            case gen_server:call(Client, {pull_change, InvoiceID, PullTimeout}, infinity) of
+pull_change_(InvoiceID, FilterMapFun, Deadline, Client) ->
+    case erlang:monotonic_time(millisecond) of
+        Time when Time < Deadline ->
+            case gen_server:call(Client, {pull_change, InvoiceID, Deadline - Time}, infinity) of
                 {ok, Change} ->
                     case FilterMapFun(Change) of
                         true ->
@@ -297,7 +297,7 @@ pull_change_(InvoiceID, FilterMapFun, PullTimeout, Timeout, Client) ->
                         {true, NewChange} ->
                             NewChange;
                         false ->
-                            pull_change_(InvoiceID, FilterMapFun, PullTimeout, Timeout, Client)
+                            pull_change_(InvoiceID, FilterMapFun, Deadline, Client)
                     end;
                 Result ->
                     Result
