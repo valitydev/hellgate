@@ -13,7 +13,7 @@ env:
 
 jobs:
   build-push:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - uses: valitydev/action-deploy-docker@v2
         with:
