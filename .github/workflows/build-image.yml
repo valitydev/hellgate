@@ -10,11 +10,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  ImageOS: ubuntu20
 
 jobs:
   build-push:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: valitydev/action-deploy-docker@v2
         with:
