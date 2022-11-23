@@ -30,7 +30,7 @@ jobs:
   run:
     name: Run checks
     needs: setup
-    uses: valitydev/erlang-workflows/.github/workflows/erlang-parallel-build.yml@2f0b92cc4c5f82600d5abb18c332004470e18d15
+    uses: valitydev/erlang-workflows/.github/workflows/erlang-parallel-build.yml@53806a1a82f37ce25832aa9e8d5345a7462c2437
     with:
       otp-version: ${{ needs.setup.outputs.otp-version }}
       rebar-version: ${{ needs.setup.outputs.rebar-version }}
