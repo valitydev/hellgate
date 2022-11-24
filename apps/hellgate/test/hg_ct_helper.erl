@@ -114,22 +114,9 @@ start_app(dmt_client = AppName) ->
         ]),
         #{}
     };
-start_app(hellgate = AppName) ->
+start_app(hg_proto = AppName) ->
     {
         start_app(AppName, [
-            {host, ?HELLGATE_HOST},
-            {port, ?HELLGATE_PORT},
-            {default_woody_handling_timeout, 30000},
-            {transport_opts, #{
-                max_connections => 8096
-            }},
-            {scoper_event_handler_options, #{
-                event_handler_opts => #{
-                    formatter_opts => #{
-                        max_length => 1000
-                    }
-                }
-            }},
             {services, #{
                 accounter => <<"http://shumway:8022/accounter">>,
                 automaton => <<"http://machinegun:8022/v1/automaton">>,
@@ -188,6 +175,18 @@ start_app(hellgate = AppName) ->
                     url => <<"http://limiter:8022/v1/limiter">>,
                     transport_opts => #{}
                 }
+            }}
+        ]),
+        #{}
+    };
+start_app(hellgate = AppName) ->
+    {
+        start_app(AppName, [
+            {host, ?HELLGATE_HOST},
+            {port, ?HELLGATE_PORT},
+            {default_woody_handling_timeout, 30000},
+            {transport_opts, #{
+                max_connections => 8096
             }},
             {proxy_opts, #{
                 transport_opts => #{
@@ -246,6 +245,22 @@ start_app(party_client = AppName) ->
         ]),
         #{}
     };
+start_app(bender_client = AppName) ->
+    {
+        start_app(AppName, [
+            {services, #{
+                'Bender' => <<"http://bender:8022/v1/bender">>,
+                'Generator' => <<"http://bender:8022/v1/generator">>
+            }},
+            {deadline, 10000},
+            {retries, #{
+                'GenerateID' => finish,
+                'GetInternalID' => finish,
+                '_' => finish
+            }}
+        ]),
+        #{}
+    };
 start_app(snowflake = AppName) ->
     {
         start_app(AppName, [
@@ -254,7 +269,7 @@ start_app(snowflake = AppName) ->
         #{}
     };
 start_app(AppName) ->
-    {genlib_app:start_application(AppName), #{}}.
+    {start_application(AppName), #{}}.
 
 -spec start_app(app_name(), term()) -> [app_name()].
 start_app(cowboy = AppName, Env) ->
@@ -267,7 +282,24 @@ start_app(cowboy = AppName, Env) ->
     _ = cowboy:start_clear(Ref, [{num_acceptors, Count} | TransOpt], ProtoOpt),
     [AppName];
 start_app(AppName, Env) ->
-    genlib_app:start_application_with(AppName, Env).
+    start_application_with(AppName, Env).
+
+start_application_with(App, Env) ->
+    _ = application:load(App),
+    _ = set_app_env(App, Env),
+    start_application(App).
+
+set_app_env(App, Env) ->
+    lists:foreach(fun({K, V}) -> ok = application:set_env(App, K, V) end, Env).
+
+-spec start_application(Application :: atom()) -> [Application] when Application :: atom().
+start_application(AppName) ->
+    case application:ensure_all_started(AppName, temporary) of
+        {ok, Apps} ->
+            Apps;
+        {error, Reason} ->
+            exit(Reason)
+    end.
 
 -spec start_apps([app_name() | {app_name(), term()}]) -> {[app_name()], map()}.
 start_apps(Apps) ->
@@ -309,7 +341,6 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 
 %%
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("hellgate/include/party_events.hrl").
 
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
@@ -322,8 +353,8 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type category() :: dmsl_domain_thrift:'CategoryRef'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type invoice_tpl_id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
--type invoice_params() :: dmsl_payment_processing_thrift:'InvoiceParams'().
--type invoice_params_tpl() :: dmsl_payment_processing_thrift:'InvoiceWithTemplateParams'().
+-type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
+-type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
 -type timestamp() :: integer().
 -type context() :: dmsl_base_thrift:'Content'().
 -type lifetime_interval() :: dmsl_domain_thrift:'LifetimeInterval'().
@@ -331,8 +362,8 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type invoice_tpl_details() :: dmsl_domain_thrift:'InvoiceTemplateDetails'().
 -type invoice_tpl_cost() :: dmsl_domain_thrift:'InvoiceTemplateProductPrice'().
 -type currency() :: dmsl_domain_thrift:'CurrencySymbolicCode'().
--type invoice_tpl_create_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateCreateParams'().
--type invoice_tpl_update_params() :: dmsl_payment_processing_thrift:'InvoiceTemplateUpdateParams'().
+-type invoice_tpl_create_params() :: dmsl_payproc_thrift:'InvoiceTemplateCreateParams'().
+-type invoice_tpl_update_params() :: dmsl_payproc_thrift:'InvoiceTemplateUpdateParams'().
 -type party_client() :: {party_client:client(), party_client:context()}.
 -type payment_inst_ref() :: dmsl_domain_thrift:'PaymentInstitutionRef'().
 -type allocation_prototype() :: dmsl_domain_thrift:'AllocationPrototype'().
@@ -465,7 +496,7 @@ create_claim(PartyID, Changeset, {Client, Context}) ->
 -spec make_contract_params(
     contract_tpl() | undefined,
     payment_inst_ref()
-) -> dmsl_payment_processing_thrift:'ContractParams'().
+) -> dmsl_payproc_thrift:'ContractParams'().
 make_contract_params(TemplateRef, PaymentInstitutionRef) ->
     #payproc_ContractParams{
         contractor = make_contractor(),
@@ -494,7 +525,7 @@ make_contractor() ->
             russian_bank_account = BankAccount
         }}}.
 
--spec make_payout_tool_params() -> dmsl_payment_processing_thrift:'PayoutToolParams'().
+-spec make_payout_tool_params() -> dmsl_payproc_thrift:'PayoutToolParams'().
 make_payout_tool_params() ->
     #payproc_PayoutToolParams{
         currency = ?cur(<<"RUB">>),
@@ -675,7 +706,7 @@ make_invoice_context() ->
 
 -spec make_invoice_context(binary()) -> context().
 make_invoice_context(Data) ->
-    #'Content'{
+    #base_Content{
         type = <<"application/octet-stream">>,
         data = Data
     }.
@@ -709,7 +740,7 @@ make_meta_data(NS) ->
 get_hellgate_url() ->
     "http://" ++ ?HELLGATE_HOST ++ ":" ++ integer_to_list(?HELLGATE_PORT).
 
--spec make_customer_params(party_id(), shop_id(), binary()) -> dmsl_payment_processing_thrift:'CustomerParams'().
+-spec make_customer_params(party_id(), shop_id(), binary()) -> dmsl_payproc_thrift:'CustomerParams'().
 make_customer_params(PartyID, ShopID, EMail) ->
     #payproc_CustomerParams{
         customer_id = hg_utils:unique_id(),
@@ -720,7 +751,7 @@ make_customer_params(PartyID, ShopID, EMail) ->
     }.
 
 -spec make_customer_binding_params(hg_dummy_provider:payment_tool()) ->
-    dmsl_payment_processing_thrift:'CustomerBindingParams'().
+    dmsl_payproc_thrift:'CustomerBindingParams'().
 make_customer_binding_params(PaymentToolSession) ->
     RecPaymentToolID = hg_utils:unique_id(),
     make_customer_binding_params(RecPaymentToolID, PaymentToolSession).
@@ -728,7 +759,7 @@ make_customer_binding_params(PaymentToolSession) ->
 -spec make_customer_binding_params(
     dmsl_domain_thrift:'RecurrentPaymentToolID'(),
     hg_dummy_provider:payment_tool()
-) -> dmsl_payment_processing_thrift:'CustomerBindingParams'().
+) -> dmsl_payproc_thrift:'CustomerBindingParams'().
 make_customer_binding_params(RecPayToolId, PaymentToolSession) ->
     CustomerBindingID = hg_utils:unique_id(),
     make_customer_binding_params(CustomerBindingID, RecPayToolId, PaymentToolSession).
@@ -737,7 +768,7 @@ make_customer_binding_params(RecPayToolId, PaymentToolSession) ->
     dmsl_domain_thrift:'CustomerBindingID'(),
     dmsl_domain_thrift:'RecurrentPaymentToolID'(),
     hg_dummy_provider:payment_tool()
-) -> dmsl_payment_processing_thrift:'CustomerBindingParams'().
+) -> dmsl_payproc_thrift:'CustomerBindingParams'().
 make_customer_binding_params(CustomerBindingId, RecPayToolId, PaymentToolSession) ->
     #payproc_CustomerBindingParams{
         customer_binding_id = CustomerBindingId,

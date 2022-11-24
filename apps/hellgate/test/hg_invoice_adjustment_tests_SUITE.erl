@@ -2,9 +2,6 @@
 
 -include("hg_ct_domain.hrl").
 
--include_lib("common_test/include/ct.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0]).
@@ -15,13 +12,9 @@
 -export([end_per_testcase/2]).
 
 -export([invoice_adjustment_capture/1]).
--export([invoice_adjustment_cancel/1]).
 -export([invoice_adjustment_existing_invoice_status/1]).
 -export([invoice_adjustment_invalid_invoice_status/1]).
--export([invoice_adjustment_invalid_adjustment_status/1]).
 -export([invoice_adjustment_payment_pending/1]).
--export([invoice_adjustment_pending_blocks_payment/1]).
--export([invoice_adjustment_pending_no_invoice_expiration/1]).
 -export([invoice_adjustment_invoice_expiration_after_capture/1]).
 
 -behaviour(supervisor).
@@ -53,13 +46,9 @@ groups() ->
     [
         {all_tests, [parallel], [
             invoice_adjustment_capture,
-            invoice_adjustment_cancel,
             invoice_adjustment_existing_invoice_status,
             invoice_adjustment_invalid_invoice_status,
-            invoice_adjustment_invalid_adjustment_status,
             invoice_adjustment_payment_pending,
-            invoice_adjustment_pending_blocks_payment,
-            invoice_adjustment_pending_no_invoice_expiration,
             invoice_adjustment_invoice_expiration_after_capture
         ]}
     ].
@@ -73,7 +62,16 @@ init_per_suite(C) ->
     % _ = dbg:tpl({'hg_invoice_payment', 'p', '_'}, x),
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
 
-    {Apps, Ret} = hg_ct_helper:start_apps([woody, scoper, dmt_client, party_client, hellgate, {cowboy, CowboySpec}]),
+    {Apps, Ret} = hg_ct_helper:start_apps([
+        woody,
+        scoper,
+        dmt_client,
+        bender_client,
+        party_client,
+        hg_proto,
+        hellgate,
+        {cowboy, CowboySpec}
+    ]),
     _ = hg_domain:insert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -155,41 +153,10 @@ invoice_adjustment_capture(C) ->
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
     ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:capture_invoice_adjustment(InvoiceID, ID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Captured))] = next_event(InvoiceID, Client),
     ?assertMatch({captured, #domain_InvoiceAdjustmentCaptured{}}, Captured),
     #payproc_Invoice{invoice = #domain_Invoice{status = FinalStatus}} = hg_client_invoicing:get(InvoiceID, Client),
     ?assertMatch(Unpaid, FinalStatus).
-
--spec invoice_adjustment_cancel(config()) -> test_return().
-invoice_adjustment_cancel(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    #payproc_Invoice{invoice = #domain_Invoice{status = InvoiceStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    TargetInvoiceStatus = {unpaid, #domain_InvoiceUnpaid{}},
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = TargetInvoiceStatus
-            }}
-    },
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    ?assertMatch({pending, #domain_InvoiceAdjustmentPending{}}, Adjustment#domain_InvoiceAdjustment.status),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
-    ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:cancel_invoice_adjustment(InvoiceID, ID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Cancelled))] = next_event(InvoiceID, Client),
-    ?assertMatch({cancelled, #domain_InvoiceAdjustmentCancelled{}}, Cancelled),
-    #payproc_Invoice{invoice = #domain_Invoice{status = FinalStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    ?assertMatch(InvoiceStatus, FinalStatus).
 
 -spec invoice_adjustment_invalid_invoice_status(config()) -> test_return().
 invoice_adjustment_invalid_invoice_status(C) ->
@@ -233,37 +200,6 @@ invoice_adjustment_existing_invoice_status(C) ->
     {exception, E} = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
     ?assertMatch(#payproc_InvoiceAlreadyHasStatus{status = Paid}, E).
 
--spec invoice_adjustment_invalid_adjustment_status(config()) -> test_return().
-invoice_adjustment_invalid_adjustment_status(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_)] = next_event(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    #payproc_Invoice{invoice = #domain_Invoice{status = InvoiceStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = {cancelled, #domain_InvoiceCancelled{details = <<"hulk smash">>}}
-            }}
-    },
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    ?assertMatch({pending, #domain_InvoiceAdjustmentPending{}}, Adjustment#domain_InvoiceAdjustment.status),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
-    ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:cancel_invoice_adjustment(InvoiceID, ID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Cancelled))] = next_event(InvoiceID, Client),
-    ?assertMatch({cancelled, #domain_InvoiceAdjustmentCancelled{}}, Cancelled),
-    #payproc_Invoice{invoice = #domain_Invoice{status = FinalStatus}} = hg_client_invoicing:get(InvoiceID, Client),
-    ?assertMatch(InvoiceStatus, FinalStatus),
-    {exception, E} = hg_client_invoicing:cancel_invoice_adjustment(InvoiceID, ID, Client),
-    ?assertMatch(#payproc_InvalidInvoiceAdjustmentStatus{status = Cancelled}, E).
-
 -spec invoice_adjustment_payment_pending(config()) -> test_return().
 invoice_adjustment_payment_pending(C) ->
     Client = cfg(client, C),
@@ -284,61 +220,10 @@ invoice_adjustment_payment_pending(C) ->
     {exception, E} = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
     ?assertMatch(#payproc_InvoicePaymentPending{id = PaymentID}, E),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
-    {URL, GoodForm} = get_post_request(UserInteraction),
-    _ = assert_success_post_request({URL, GoodForm}),
+    _ = assert_success_interaction(UserInteraction),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
-
--spec invoice_adjustment_pending_blocks_payment(config()) -> test_return().
-invoice_adjustment_pending_blocks_payment(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_Invoice)] = next_event(InvoiceID, Client),
-    PaymentParams = make_payment_params({hold, capture}, ?pmt_sys(<<"visa-ref">>)),
-    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    Cash = ?cash(10, <<"RUB">>),
-    Reason = <<"ok">>,
-    TargetInvoiceStatus = {cancelled, #domain_InvoiceCancelled{details = <<"hulk smash">>}},
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = TargetInvoiceStatus
-            }}
-    },
-    ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, Cash, Client),
-    PaymentID = await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client),
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    ?assertMatch({pending, #domain_InvoiceAdjustmentPending{}}, Adjustment#domain_InvoiceAdjustment.status),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
-    ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    {exception, E} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?assertMatch(#payproc_InvoiceAdjustmentPending{id = ID}, E).
-
--spec invoice_adjustment_pending_no_invoice_expiration(config()) -> test_return().
-invoice_adjustment_pending_no_invoice_expiration(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(5), make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    [?invoice_created(_)] = next_event(InvoiceID, Client),
-    Paid = {paid, #domain_InvoicePaid{}},
-    AdjustmentParams = #payproc_InvoiceAdjustmentParams{
-        reason = <<"kek">>,
-        scenario =
-            {status_change, #domain_InvoiceAdjustmentStatusChange{
-                target_status = Paid
-            }}
-    },
-    Adjustment = hg_client_invoicing:create_invoice_adjustment(InvoiceID, AdjustmentParams, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
-    [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(_Processed))] = next_event(InvoiceID, Client),
-    timeout = next_event(InvoiceID, 6000, Client).
 
 -spec invoice_adjustment_invoice_expiration_after_capture(config()) -> test_return().
 invoice_adjustment_invoice_expiration_after_capture(C) ->
@@ -348,7 +233,7 @@ invoice_adjustment_invoice_expiration_after_capture(C) ->
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     [?invoice_created(_)] = next_event(InvoiceID, Client),
-    Context = #'Content'{
+    Context = #base_Content{
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
     },
@@ -368,7 +253,6 @@ invoice_adjustment_invoice_expiration_after_capture(C) ->
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_created(Adjustment))] = next_event(InvoiceID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Processed))] = next_event(InvoiceID, Client),
     ?assertMatch({processed, #domain_InvoiceAdjustmentProcessed{}}, Processed),
-    ok = hg_client_invoicing:capture_invoice_adjustment(InvoiceID, ID, Client),
     [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Captured))] = next_event(InvoiceID, Client),
     ?assertMatch({captured, #domain_InvoiceAdjustmentCaptured{}}, Captured),
     #payproc_Invoice{invoice = #domain_Invoice{status = Unpaid}} = hg_client_invoicing:get(InvoiceID, Client),
@@ -471,7 +355,7 @@ construct_domain_fixture() ->
                             ?fixed(100, <<"RUB">>)
                         )
                     ]},
-                eligibility_time = {value, #'TimeSpan'{minutes = 1}},
+                eligibility_time = {value, #base_TimeSpan{minutes = 1}},
                 partial_refunds = #domain_PartialRefundsServiceTerms{
                     cash_limit =
                         {decisions, [
@@ -589,7 +473,7 @@ construct_domain_fixture() ->
             data = #domain_TermSetHierarchy{
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TestTermSet
                     }
                 ]
@@ -657,27 +541,6 @@ construct_domain_fixture() ->
                                                 ?share(18, 1000, operation_amount)
                                             )
                                         ]}
-                                },
-                                #domain_CashFlowDecision{
-                                    if_ =
-                                        {condition,
-                                            {payment_tool,
-                                                {bank_card, #domain_BankCardCondition{
-                                                    definition = {payment_system_is, visa}
-                                                }}}},
-                                    then_ =
-                                        {value, [
-                                            ?cfpost(
-                                                {provider, settlement},
-                                                {merchant, settlement},
-                                                ?share(1, 1, operation_amount)
-                                            ),
-                                            ?cfpost(
-                                                {system, settlement},
-                                                {provider, settlement},
-                                                ?share(18, 1000, operation_amount)
-                                            )
-                                        ]}
                                 }
                             ]},
                         holds = #domain_PaymentHoldsProvisionTerms{
@@ -692,15 +555,6 @@ construct_domain_fixture() ->
                                                             {payment_system, #domain_PaymentSystemCondition{
                                                                 payment_system_is = ?pmt_sys(<<"visa-ref">>)
                                                             }}
-                                                    }}}},
-                                        then_ = {value, ?hold_lifetime(12)}
-                                    },
-                                    #domain_HoldLifetimeDecision{
-                                        if_ =
-                                            {condition,
-                                                {payment_tool,
-                                                    {bank_card, #domain_BankCardCondition{
-                                                        definition = {payment_system_is, visa}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}
                                     }
@@ -870,9 +724,7 @@ make_payment_params(PaymentTool, Session, FlowType) ->
     Flow =
         case FlowType of
             instant ->
-                {instant, #payproc_InvoicePaymentParamsFlowInstant{}};
-            {hold, OnHoldExpiration} ->
-                {hold, #payproc_InvoicePaymentParamsFlowHold{on_hold_expiration = OnHoldExpiration}}
+                {instant, #payproc_InvoicePaymentParamsFlowInstant{}}
         end,
     #payproc_InvoicePaymentParams{
         payer =
@@ -886,12 +738,6 @@ make_payment_params(PaymentTool, Session, FlowType) ->
             }},
         flow = Flow
     }.
-
-get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
-    {URL, Form};
-get_post_request({payment_terminal_reciept, #'PaymentTerminalReceipt'{short_payment_id = SPID}}) ->
-    URL = hg_dummy_provider:get_callback_url(),
-    {URL, #{<<"tag">> => SPID}}.
 
 start_payment(InvoiceID, PaymentParams, Client) ->
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
@@ -957,19 +803,6 @@ await_payment_capture(InvoiceID, PaymentID, Reason, Client, Restarts) ->
     ] = next_event(InvoiceID, Client),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts).
 
-await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client) ->
-    await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client, 0).
-
-await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client, Restarts) ->
-    [
-        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cash, _, _Allocation)),
-        ?payment_ev(PaymentID, ?cash_flow_changed(_))
-    ] = next_event(InvoiceID, Client),
-    [
-        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cash), ?session_started()))
-    ] = next_event(InvoiceID, Client),
-    await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cash).
-
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts) ->
     Cost = get_payment_cost(InvoiceID, PaymentID, Client),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client, Restarts, Cost).
@@ -996,9 +829,21 @@ await_payment_process_interaction(InvoiceID, PaymentID, Client) ->
     ] = Events0,
     Events1 = next_event(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?interaction_requested(UserInteraction)))
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_requested))
+        )
     ] = Events1,
     UserInteraction.
+
+await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client) ->
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?interaction_changed(UserInteraction, ?interaction_completed))
+        )
+    ] = next_event(InvoiceID, Client),
+    ok.
 
 -dialyzer({no_match, await_sessions_restarts/5}).
 
@@ -1017,10 +862,17 @@ await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts) when Res
     ] = next_event(InvoiceID, Client),
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1).
 
-assert_success_post_request(Req) ->
-    {ok, 200, _RespHeaders, _ClientRef} = post_request(Req).
+assert_success_interaction(UserInteraction) ->
+    {URL, Form} = get_post_request(UserInteraction),
+    {ok, 200, _RespHeaders, _ClientRef} = post_request(URL, Form).
 
-post_request({URL, Form}) ->
+get_post_request(?redirect(URL, Form)) ->
+    {URL, Form};
+get_post_request(?payterm_receipt(SPID)) ->
+    URL = hg_dummy_provider:get_callback_url(),
+    {URL, #{<<"tag">> => SPID}}.
+
+post_request(URL, Form) ->
     Method = post,
     Headers = [],
     Body = {form, maps:to_list(Form)},

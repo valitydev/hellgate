@@ -4,15 +4,15 @@
 
 -module(hg_customer).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -include("customer_events.hrl").
 
 -define(NS, <<"customer">>).
 
-%% Woody handler called by hg_woody_wrapper
+%% Woody handler called by hg_woody_service_wrapper
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -36,22 +36,21 @@
 
 -record(st, {
     customer :: undefined | customer(),
-    active_binding :: undefined | binding_id(),
     binding_activity :: #{binding_id() => integer()},
     created_at :: undefined | hg_datetime:timestamp()
 }).
 
--type customer() :: dmsl_payment_processing_thrift:'Customer'().
--type customer_id() :: dmsl_payment_processing_thrift:'CustomerID'().
--type customer_params() :: dmsl_payment_processing_thrift:'CustomerParams'().
--type customer_change() :: dmsl_payment_processing_thrift:'CustomerChange'().
--type binding_id() :: dmsl_payment_processing_thrift:'CustomerBindingID'().
+-type customer() :: dmsl_payproc_thrift:'Customer'().
+-type customer_id() :: dmsl_payproc_thrift:'CustomerID'().
+-type customer_params() :: dmsl_payproc_thrift:'CustomerParams'().
+-type customer_change() :: dmsl_payproc_thrift:'CustomerChange'().
+-type binding_id() :: dmsl_payproc_thrift:'CustomerBindingID'().
 
 %%
 %% Woody handler
 %%
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         customer_management,
@@ -120,22 +119,22 @@ handle_function_(Fun, Args, _Opts) when
 set_meta(ID) ->
     scoper:add_meta(#{customer_id => ID}).
 
-get_history(Ref) ->
-    History = hg_machine:get_history(?NS, Ref),
+get_history(ID) ->
+    History = hg_machine:get_history(?NS, ID),
     unmarshal_history(map_history_error(History)).
 
-get_history(Ref, AfterID, Limit) ->
-    History = hg_machine:get_history(?NS, Ref, AfterID, Limit),
+get_history(ID, AfterID, Limit) ->
+    History = hg_machine:get_history(?NS, ID, AfterID, Limit),
     unmarshal_history(map_history_error(History)).
 
-get_state(Ref) ->
-    collapse_history(get_history(Ref)).
+get_state(ID) ->
+    collapse_history(get_history(ID)).
 
-get_state(Ref, AfterID, Limit) ->
-    collapse_history(get_history(Ref, AfterID, Limit)).
+get_state(ID, AfterID, Limit) ->
+    collapse_history(get_history(ID, AfterID, Limit)).
 
-get_initial_state(Ref) ->
-    collapse_history(get_history(Ref, undefined, 1)).
+get_initial_state(ID) ->
+    collapse_history(get_history(ID, undefined, 1)).
 
 get_public_history(CustomerID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_customer_event(CustomerID, Ev) || Ev <- get_history(CustomerID, AfterID, Limit)].
@@ -411,9 +410,9 @@ produce_binding_changes_(?recurrent_payment_tool_has_acquired(_), Binding) ->
 produce_binding_changes_(?recurrent_payment_tool_has_failed(Failure), Binding) ->
     ok = assert_binding_status(pending, Binding),
     [?customer_binding_status_changed(?customer_binding_failed(Failure))];
-produce_binding_changes_(?session_ev(?interaction_requested(UserInteraction)), Binding) ->
+produce_binding_changes_(?session_ev(?interaction_changed(UserInteraction, Status)), Binding) ->
     ok = assert_binding_status(pending, Binding),
-    [?customer_binding_interaction_requested(UserInteraction)];
+    [?customer_binding_interaction_changed(UserInteraction, Status)];
 produce_binding_changes_(?recurrent_payment_tool_has_abandoned() = Change, _Binding) ->
     error({unexpected, {'Unexpected recurrent payment tool change received', Change}});
 produce_binding_changes_(?session_ev(_), _Binding) ->
@@ -544,7 +543,7 @@ merge_binding_change(?customer_binding_started(Binding, _Timestamp), undefined) 
     Binding;
 merge_binding_change(?customer_binding_status_changed(BindingStatus), Binding) ->
     Binding#payproc_CustomerBinding{status = BindingStatus};
-merge_binding_change(?customer_binding_interaction_requested(_), Binding) ->
+merge_binding_change(?customer_binding_interaction_changed(_, _), Binding) ->
     Binding.
 
 get_party_id(#st{customer = #payproc_Customer{owner_id = PartyID}}) ->
@@ -702,16 +701,12 @@ app_parse_timespan(Value) ->
 %% Marshalling
 %%
 
--define(BINARY_BINDING_STATUS_PENDING, <<"pending">>).
--define(BINARY_BINDING_STATUS_SUCCEEDED, <<"succeeded">>).
--define(BINARY_BINDING_STATUS_FAILED(Failure), [<<"failed">>, Failure]).
-
 -spec marshal_event_payload([customer_change()]) -> hg_machine:event_payload().
 marshal_event_payload(Changes) ->
     wrap_event_payload({customer_changes, Changes}).
 
 wrap_event_payload(Payload) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     Bin = hg_proto_utils:serialize(Type, Payload),
     #{
         format_version => 1,
@@ -720,7 +715,7 @@ wrap_event_payload(Payload) ->
 
 -spec marshal_customer_params(customer_params()) -> binary().
 marshal_customer_params(Params) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'CustomerParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'CustomerParams'}},
     hg_proto_utils:serialize(Type, Params).
 
 %% AuxState
@@ -754,13 +749,13 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) -> [customer_change()].
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     {customer_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
     Buf.
 
 -spec unmarshal_customer_params(binary()) -> customer_params().
 unmarshal_customer_params(Bin) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'CustomerParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'CustomerParams'}},
     hg_proto_utils:deserialize(Type, Bin).
 
 %% Aux State

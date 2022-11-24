@@ -22,7 +22,7 @@
 -export([commit/2]).
 -export([rollback/2]).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 
@@ -144,7 +144,7 @@ do_get_account(AccountID) ->
         {ok, Result} ->
             Result;
         {exception, #accounter_AccountNotFound{}} ->
-            hg_woody_wrapper:raise(#payproc_AccountNotFound{})
+            hg_woody_service_wrapper:raise(#payproc_AccountNotFound{})
     end.
 
 construct_prototype(CurrencyCode, Description) ->

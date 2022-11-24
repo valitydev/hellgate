@@ -11,7 +11,6 @@ services:
       - .:$PWD
     hostname: hellgate
     depends_on:
-      # FIXME: Switch all service_started to service_healthy when its possible to debug its problems
       machinegun:
         condition: service_healthy
       dominant:
@@ -21,6 +20,8 @@ services:
       limiter:
         condition: service_healthy
       shumway:
+        condition: service_healthy
+      bender:
         condition: service_healthy
     working_dir: $PWD
     command: /sbin/init
@@ -49,8 +50,20 @@ services:
       timeout: 1s
       retries: 20
 
+  bender:
+    image: ghcr.io/valitydev/bender:sha-d05ea29
+    command: /opt/bender/bin/bender foreground
+    depends_on:
+      machinegun:
+        condition: service_healthy
+    healthcheck:
+      test: "/opt/bender/bin/bender ping"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   limiter:
-    image: docker.io/rbkmoney/limiter:c7e96068a56da444e78cc7739a902da8e268dc63
+    image: ghcr.io/valitydev/limiter:sha-cd37acd
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
@@ -58,7 +71,7 @@ services:
       shumway:
         condition: service_healthy
     healthcheck:
-      test: "curl http://localhost:8022/"
+      test: "/opt/limiter/bin/limiter ping"
       interval: 5s
       timeout: 1s
       retries: 20

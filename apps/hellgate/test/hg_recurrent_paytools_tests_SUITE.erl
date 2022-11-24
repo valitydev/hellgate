@@ -1,12 +1,10 @@
 -module(hg_recurrent_paytools_tests_SUITE).
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -include("hg_ct_domain.hrl").
 -include("hg_ct_json.hrl").
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include_lib("hellgate/include/customer_events.hrl").
 -include_lib("hellgate/include/recurrent_payment_tools.hrl").
 
@@ -65,9 +63,16 @@ init_per_suite(C) ->
     % _ = dbg:p(all, c),
     % _ = dbg:tpl({woody_client, '_', '_'}, x),
     CowboySpec = hg_dummy_provider:get_http_cowboy_spec(),
-    {Apps, Ret} = hg_ct_helper:start_apps(
-        [woody, scoper, dmt_client, party_client, hellgate, {cowboy, CowboySpec}]
-    ),
+    {Apps, Ret} = hg_ct_helper:start_apps([
+        woody,
+        scoper,
+        dmt_client,
+        bender_client,
+        party_client,
+        hg_proto,
+        hellgate,
+        {cowboy, CowboySpec}
+    ]),
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
@@ -339,12 +344,17 @@ recurrent_paytool_w_tds_acquired(C) ->
         ?session_ev(?session_started())
     ] = next_event(RecurrentPaytoolID, Client),
     [
-        ?session_ev(?interaction_requested(UserInteraction))
+        ?session_ev(?interaction_changed(UserInteraction, ?interaction_requested))
     ] = next_event(RecurrentPaytoolID, Client),
-
-    {URL, GoodForm} = get_post_request(UserInteraction),
-    _ = assert_success_post_request({URL, GoodForm}),
-    ok = await_acquirement_finish(RecurrentPaytoolID, Client).
+    _ = assert_success_interaction(UserInteraction),
+    [
+        ?session_ev(?interaction_changed(UserInteraction, ?interaction_completed))
+    ] = next_event(RecurrentPaytoolID, Client),
+    [
+        ?session_ev(?trx_bound(?trx_info(_))),
+        ?session_ev(?session_finished(?session_succeeded())),
+        ?recurrent_payment_tool_has_acquired(_)
+    ] = next_event(RecurrentPaytoolID, Client).
 
 recurrent_paytool_abandoned(C) ->
     Client = cfg(client, C),
@@ -514,20 +524,14 @@ filter_change(_) ->
 
 %%
 
-assert_success_post_request(Req) ->
+assert_success_interaction(Req) ->
     {ok, 200, _RespHeaders, _ClientRef} = post_request(Req).
 
-% assert_failed_post_request(Req) ->
-%     {ok, 500, _RespHeaders, _ClientRef} = post_request(Req).
-
-post_request({URL, Form}) ->
+post_request(?redirect(URL, Form)) ->
     Method = post,
     Headers = [],
     Body = {form, maps:to_list(Form)},
     hackney:request(Method, URL, Headers, Body).
-
-get_post_request({'redirect', {'post_request', #'BrowserPostRequest'{uri = URL, form = Form}}}) ->
-    {URL, Form}.
 
 %%
 
@@ -657,7 +661,7 @@ construct_domain_fixture(TermSet) ->
                 parent_terms = undefined,
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = TermSet
                     }
                 ]

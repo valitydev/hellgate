@@ -2,10 +2,15 @@
 -define(__hellgate_ct_domain__, 42).
 
 -include_lib("hellgate/include/domain.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
+-include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
 
 -define(ordset(Es), ordsets:from_list(Es)).
 
 -define(match(Term), erlang:binary_to_term(erlang:term_to_binary(Term))).
+-define('_', ?match('_')).
+
 -define(glob(), #domain_GlobalsRef{}).
 -define(cur(ID), #domain_CurrencyRef{symbolic_code = ID}).
 -define(pmt(C, T), #domain_PaymentMethodRef{id = {C, T}}).
@@ -53,10 +58,12 @@
     }}
 ).
 
--define(share(P, Q, C), {share, #domain_CashVolumeShare{parts = #'Rational'{p = P, q = Q}, 'of' = C}}).
+-define(ratio(P, Q), #base_Rational{p = P, q = Q}).
+
+-define(share(P, Q, C), {share, #domain_CashVolumeShare{parts = ?ratio(P, Q), 'of' = C}}).
 
 -define(share_with_rounding_method(P, Q, C, RM),
-    {share, #domain_CashVolumeShare{parts = #'Rational'{p = P, q = Q}, 'of' = C, 'rounding_method' = RM}}
+    {share, #domain_CashVolumeShare{parts = ?ratio(P, Q), 'of' = C, rounding_method = RM}}
 ).
 
 -define(cfpost(A1, A2, V), #domain_CashFlowPosting{
@@ -94,22 +101,31 @@
     ]
 }).
 
--define(candidate(Allowed, TerminalRef), #domain_RoutingCandidate{
-    allowed = Allowed,
-    terminal = TerminalRef
-}).
+-define(pin(Features), #domain_RoutingPin{features = ordsets:from_list(Features)}).
 
--define(candidate(Descr, Allowed, TerminalRef), #domain_RoutingCandidate{
-    description = Descr,
-    allowed = Allowed,
-    terminal = TerminalRef
-}).
+-define(candidate(Allowed, TerminalRef),
+    ?candidate(undefined, Allowed, TerminalRef)
+).
 
--define(candidate(Descr, Allowed, TerminalRef, Priority), #domain_RoutingCandidate{
+-define(candidate(Descr, Allowed, TerminalRef),
+    ?candidate(Descr, Allowed, TerminalRef, undefined)
+).
+
+-define(candidate(Descr, Allowed, TerminalRef, Priority),
+    ?candidate(Descr, Allowed, TerminalRef, Priority, undefined)
+).
+
+-define(candidate(Descr, Allowed, TerminalRef, Priority, Weight),
+    ?candidate(Descr, Allowed, TerminalRef, Priority, Weight, undefined)
+).
+
+-define(candidate(Descr, Allowed, TerminalRef, Priority, Weight, Pin), #domain_RoutingCandidate{
     description = Descr,
     allowed = Allowed,
     terminal = TerminalRef,
-    priority = Priority
+    priority = Priority,
+    weight = Weight,
+    pin = Pin
 }).
 
 -define(delegate(Allowed, RuleSetRef), #domain_RoutingDelegate{
@@ -147,6 +163,7 @@
 }).
 
 -define(payment_terms, #domain_PaymentsProvisionTerms{
+    allow = {constant, true},
     currencies =
         {value,
             ?ordset([
@@ -160,8 +177,7 @@
     payment_methods =
         {value,
             ?ordset([
-                ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>)),
-                ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))
+                ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))
             ])},
     cash_limit =
         {value,
@@ -181,8 +197,17 @@
                 {provider, settlement},
                 ?share(21, 1000, operation_amount)
             )
-        ]},
-    risk_coverage = undefined
+        ]}
 }).
+
+-define(err_gen_failure(), #payproc_error_GeneralFailure{}).
+
+-define(redirect(Uri, Form),
+    {redirect, {post_request, #user_interaction_BrowserPostRequest{uri = Uri, form = Form}}}
+).
+
+-define(payterm_receipt(SPID),
+    {payment_terminal_reciept, #user_interaction_PaymentTerminalReceipt{short_payment_id = SPID}}
+).
 
 -endif.

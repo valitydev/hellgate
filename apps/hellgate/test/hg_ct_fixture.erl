@@ -2,9 +2,6 @@
 
 -include("hg_ct_domain.hrl").
 
--include_lib("damsel/include/dmsl_base_thrift.hrl").
--include_lib("damsel/include/dmsl_domain_thrift.hrl").
-
 %%
 
 -export([construct_currency/1]).
@@ -64,7 +61,7 @@
 
 %%
 
--define(EVERY, {every, #'ScheduleEvery'{}}).
+-define(EVERY, {every, #base_ScheduleEvery{}}).
 
 %%
 
@@ -110,8 +107,6 @@ construct_payment_method(?pmt(crypto_currency, ?crypta(Name)) = Ref) ->
 construct_payment_method(?pmt(bank_card, ?token_bank_card(Name, _)) = Ref) ->
     construct_payment_method(Name, Ref);
 construct_payment_method(?pmt(bank_card, ?bank_card(Name)) = Ref) ->
-    construct_payment_method(Name, Ref);
-construct_payment_method(?pmt(_Type, Name) = Ref) when is_atom(Name) ->
     construct_payment_method(Name, Ref);
 construct_payment_method(?pmt(_Type, #domain_BankCardPaymentMethod{} = PM) = Ref) ->
     construct_payment_method(PM#domain_BankCardPaymentMethod.payment_system, Ref).
@@ -269,7 +264,7 @@ construct_business_schedule(Ref) ->
         ref = Ref,
         data = #domain_BusinessSchedule{
             name = <<"Every day at 7:40">>,
-            schedule = #'Schedule'{
+            schedule = #base_Schedule{
                 year = ?EVERY,
                 month = ?EVERY,
                 day_of_month = ?EVERY,

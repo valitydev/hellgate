@@ -2,10 +2,6 @@
 
 -include("hg_ct_domain.hrl").
 
--include_lib("common_test/include/ct.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
--include_lib("hellgate/include/domain.hrl").
-
 -export([all/0]).
 -export([init_per_suite/1]).
 -export([end_per_suite/1]).
@@ -44,7 +40,6 @@
 -type config() :: hg_ct_helper:config().
 -type test_case_name() :: hg_ct_helper:test_case_name().
 
--define(MISSING_PARTY_ID, <<"42">>).
 -define(MISSING_SHOP_ID, <<"42">>).
 
 -define(invoice_tpl(ID), #domain_InvoiceTemplate{id = ID}).
@@ -80,9 +75,16 @@ init_per_suite(C) ->
     % _ = dbg:tracer(),
     % _ = dbg:p(all, c),
     % _ = dbg:tpl({'woody_client', '_', '_'}, x),
-    {Apps, Ret} = hg_ct_helper:start_apps(
-        [woody, scoper, dmt_client, party_client, hellgate, snowflake]
-    ),
+    {Apps, Ret} = hg_ct_helper:start_apps([
+        woody,
+        scoper,
+        dmt_client,
+        bender_client,
+        party_client,
+        hg_proto,
+        hellgate,
+        snowflake
+    ]),
     _ = hg_domain:insert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
@@ -489,7 +491,7 @@ update_invalid_cost(Cost, currency, TplID, Client) ->
 update_invalid_cost(Cost, Error, TplID, Client) ->
     Details = hg_ct_helper:make_invoice_tpl_details(<<"RNGName">>, Cost),
     Diff = make_invoice_tpl_update_params(#{details => Details}),
-    {exception, #'InvalidRequest'{errors = [Error]}} = hg_client_invoice_templating:update(TplID, Diff, Client),
+    {exception, #base_InvalidRequest{errors = [Error]}} = hg_client_invoice_templating:update(TplID, Diff, Client),
     ok.
 
 create_invalid_cost(Cost, amount, Config) ->
@@ -499,7 +501,7 @@ create_invalid_cost(Cost, currency, Config) ->
 create_invalid_cost(Cost, Error, Config) ->
     Product = <<"rubberduck">>,
     Lifetime = make_lifetime(0, 0, 2),
-    {exception, #'InvalidRequest'{errors = [Error]}} = create_invoice_tpl(Config, Product, Lifetime, Cost),
+    {exception, #base_InvalidRequest{errors = [Error]}} = create_invoice_tpl(Config, Product, Lifetime, Cost),
     ok.
 
 make_invoice_tpl_create_params(PartyID, ShopID) ->
@@ -552,7 +554,7 @@ construct_domain_fixture() ->
                 parent_terms = undefined,
                 term_sets = [
                     #domain_TimedTermSet{
-                        action_time = #'TimestampInterval'{},
+                        action_time = #base_TimestampInterval{},
                         terms = #domain_TermSet{
                             payments = #domain_PaymentsServiceTerms{
                                 currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
@@ -601,7 +603,7 @@ construct_term_set_for_cost(LowerBound, UpperBound) ->
             parent_terms = undefined,
             term_sets = [
                 #domain_TimedTermSet{
-                    action_time = #'TimestampInterval'{},
+                    action_time = #base_TimestampInterval{},
                     terms = TermSet
                 }
             ]

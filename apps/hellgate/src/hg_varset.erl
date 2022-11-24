@@ -1,6 +1,6 @@
 -module(hg_varset).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export([prepare_varset/1]).
 -export([prepare_contract_terms_varset/1]).
@@ -22,7 +22,7 @@
     identification_level => dmsl_domain_thrift:'ContractorIdentificationLevel'()
 }.
 
--spec prepare_varset(varset()) -> dmsl_payment_processing_thrift:'Varset'().
+-spec prepare_varset(varset()) -> dmsl_payproc_thrift:'Varset'().
 prepare_varset(Varset) ->
     #payproc_Varset{
         category = genlib_map:get(category, Varset),
@@ -36,7 +36,7 @@ prepare_varset(Varset) ->
         shop_id = genlib_map:get(shop_id, Varset)
     }.
 
--spec prepare_contract_terms_varset(varset()) -> dmsl_payment_processing_thrift:'ComputeContractTermsVarset'().
+-spec prepare_contract_terms_varset(varset()) -> dmsl_payproc_thrift:'ComputeContractTermsVarset'().
 prepare_contract_terms_varset(Varset) ->
     #payproc_ComputeContractTermsVarset{
         amount = genlib_map:get(cost, Varset),
@@ -47,7 +47,7 @@ prepare_contract_terms_varset(Varset) ->
         bin_data = genlib_map:get(bin_data, Varset)
     }.
 
--spec prepare_shop_terms_varset(varset()) -> dmsl_payment_processing_thrift:'ComputeShopTermsVarset'().
+-spec prepare_shop_terms_varset(varset()) -> dmsl_payproc_thrift:'ComputeShopTermsVarset'().
 prepare_shop_terms_varset(Varset) ->
     #payproc_ComputeShopTermsVarset{
         amount = genlib_map:get(cost, Varset),

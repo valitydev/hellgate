@@ -4,7 +4,8 @@
 
 -module(hg_recurrent_paytool).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 
 -define(NS, <<"recurrent_paytools">>).
@@ -16,9 +17,9 @@
 
 -export([process_callback/2]).
 
-%% Woody handler called by hg_woody_wrapper
+%% Woody handler called by hg_woody_service_wrapper
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -37,21 +38,20 @@
     rec_payment_tool :: undefined | rec_payment_tool(),
     route :: undefined | route(),
     risk_score :: undefined | risk_score(),
-    session :: undefined | session(),
-    minimal_payment_cost :: undefined | cash()
+    session :: undefined | session()
 }).
 
 -type st() :: #st{}.
 
 -export_type([st/0]).
 
--type rec_payment_tool() :: dmsl_payment_processing_thrift:'RecurrentPaymentTool'().
--type rec_payment_tool_change() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolChange'().
--type rec_payment_tool_params() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolParams'().
+-type rec_payment_tool() :: dmsl_payproc_thrift:'RecurrentPaymentTool'().
+-type rec_payment_tool_id() :: dmsl_payproc_thrift:'RecurrentPaymentToolID'().
+-type rec_payment_tool_change() :: dmsl_payproc_thrift:'RecurrentPaymentToolChange'().
+-type rec_payment_tool_params() :: dmsl_payproc_thrift:'RecurrentPaymentToolParams'().
 
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type risk_score() :: dmsl_domain_thrift:'RiskScore'().
--type cash() :: dmsl_domain_thrift:'Cash'().
 -type shop() :: dmsl_domain_thrift:'Shop'().
 -type party() :: dmsl_domain_thrift:'Party'().
 -type merchant_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
@@ -60,16 +60,19 @@
 -type timeout_behaviour() :: dmsl_timeout_behaviour_thrift:'TimeoutBehaviour'().
 
 -type session() :: #{
+    rec_payment_tool_id := rec_payment_tool_id(),
     status := active | suspended | finished,
     result => session_result(),
     trx => undefined | trx_info(),
     proxy_state => proxy_state(),
+    interaction => interaction(),
     timeout_behaviour => timeout_behaviour()
 }.
 
 -type proxy_state() :: dmsl_proxy_provider_thrift:'ProxyState'().
+-type interaction() :: dmsl_user_interaction_thrift:'UserInteraction'().
 -type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
--type session_result() :: dmsl_payment_processing_thrift:'SessionResult'().
+-type session_result() :: dmsl_payproc_thrift:'SessionResult'().
 
 -type tag() :: dmsl_base_thrift:'Tag'().
 -type callback() :: {provider, dmsl_proxy_provider_thrift:'Callback'()}.
@@ -79,7 +82,7 @@
 
 %% Woody handler
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function('GetEvents', {#payproc_EventRange{'after' = After, limit = Limit}}, _Opts) ->
     case hg_event_sink:get_events(?NS, After, Limit) of
         {ok, Events} ->
@@ -218,7 +221,7 @@ map_start_error({error, Reason}) ->
 
 %% hg_machine callbacks
 
--type create_params() :: dmsl_payment_processing_thrift:'RecurrentPaymentToolParams'().
+-type create_params() :: dmsl_payproc_thrift:'RecurrentPaymentToolParams'().
 
 -spec namespace() -> hg_machine:ns().
 namespace() ->
@@ -237,9 +240,15 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
     VS1 = VS#{risk_score => RiskScore},
     PaymentInstitutionRef = get_payment_institution_ref(Shop, Party),
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
+    #domain_Shop{account = #domain_ShopAccount{currency = Currency}} = Shop,
     try
         check_risk_score(RiskScore),
-        NonFailRatedRoutes = gather_routes(PaymentInstitution, VS1, Revision),
+        NonFailRatedRoutes = gather_routes(PaymentInstitution, VS1, Revision, #{
+            currency => Currency,
+            payment_tool => PaymentTool,
+            party_id => Params#payproc_RecurrentPaymentToolParams.party_id,
+            client_ip => get_client_info_ip(Params#payproc_RecurrentPaymentToolParams.payment_resource)
+        }),
         {ChosenRoute, ChoiceContext} = hg_routing:choose_route(NonFailRatedRoutes),
         ChosenPaymentRoute = hg_routing:to_payment_route(ChosenRoute),
         LoggerMetadata = hg_routing:get_logger_metadata(ChoiceContext, Revision),
@@ -262,14 +271,15 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
             error(handle_route_error(Error, RecPaymentTool, VS1))
     end.
 
-gather_routes(PaymentInstitution, VS, Revision) ->
+gather_routes(PaymentInstitution, VS, Revision, Ctx) ->
     Predestination = recurrent_paytool,
     case
         hg_routing:gather_routes(
             Predestination,
             PaymentInstitution,
             VS,
-            Revision
+            Revision,
+            Ctx
         )
     of
         {ok, {[], RejectedRoutes}} ->
@@ -279,6 +289,15 @@ gather_routes(PaymentInstitution, VS, Revision) ->
         {error, {misconfiguration, _Reason}} ->
             throw({no_route_found, misconfiguration})
     end.
+
+get_client_info_ip(#domain_DisposablePaymentResource{
+    client_info = #domain_ClientInfo{
+        ip_address = IP
+    }
+}) ->
+    IP;
+get_client_info_ip(_) ->
+    undefined.
 
 %% TODO uncomment after inspect will implement
 % check_risk_score(fatal) ->
@@ -435,19 +454,19 @@ get_route(#st{route = Route}) ->
 %%
 
 construct_proxy_context(St) ->
-    #prxprv_RecurrentTokenContext{
+    #proxy_provider_RecurrentTokenContext{
         session = construct_session(St),
         token_info = construct_token_info(St),
         options = hg_proxy_provider:collect_proxy_options(get_route(St))
     }.
 
 construct_session(St) ->
-    #prxprv_RecurrentTokenSession{
+    #proxy_provider_RecurrentTokenSession{
         state = maps:get(proxy_state, get_session(St), undefined)
     }.
 
 construct_token_info(St) ->
-    #prxprv_RecurrentTokenInfo{
+    #proxy_provider_RecurrentTokenInfo{
         payment_tool = construct_proxy_payment_tool(St),
         trx = get_session_trx(get_session(St)),
         shop = construct_proxy_shop(get_shop(St), get_domain_revision(St))
@@ -461,7 +480,7 @@ construct_proxy_shop(DomainShop, DomainRevision) ->
         category = ShopCategoryRef
     } = DomainShop,
     ShopCategory = hg_domain:get(DomainRevision, {category, ShopCategoryRef}),
-    #prxprv_Shop{
+    #proxy_provider_Shop{
         id = ShopID,
         category = ShopCategory,
         details = ShopDetails,
@@ -509,7 +528,7 @@ construct_proxy_payment_tool(St) ->
             domain_revision = DomainRevison
         } = get_rec_payment_tool(St),
     VS = collect_rec_payment_tool_varset(RecPaymentTool),
-    #prxprv_RecurrentPaymentTool{
+    #proxy_provider_RecurrentPaymentTool{
         id = ID,
         created_at = CreatedAt,
         payment_resource = PaymentResource,
@@ -522,7 +541,7 @@ construct_proxy_cash(#domain_PaymentRoute{provider = ProviderRef}, VS, DomainRev
         amount = Amount,
         currency = CurrencyRef
     } = get_minimal_payment_cost(ProviderTerms),
-    #prxprv_Cash{
+    #proxy_provider_Cash{
         amount = Amount,
         currency = hg_domain:get(DomainRevison, {currency, CurrencyRef})
     }.
@@ -530,8 +549,8 @@ construct_proxy_cash(#domain_PaymentRoute{provider = ProviderRef}, VS, DomainRev
 %%
 
 handle_proxy_result(
-    #prxprv_RecurrentTokenProxyResult{
-        intent = {_Type, Intent},
+    #proxy_provider_RecurrentTokenProxyResult{
+        intent = {Type, Intent},
         trx = Trx,
         next_state = ProxyState
     },
@@ -540,19 +559,59 @@ handle_proxy_result(
 ) ->
     Changes1 = hg_proxy_provider:bind_transaction(Trx, Session),
     Changes2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
-    {Changes3, Action} = hg_proxy_provider:handle_proxy_intent(Intent, Action0),
-    Changes = Changes1 ++ Changes2 ++ Changes3,
+    Changes3 = hg_proxy_provider:handle_interaction_intent({Type, Intent}, Session),
+    {Changes4, Action} = handle_proxy_intent(Intent, Session, Action0),
+    Changes = Changes1 ++ Changes2 ++ Changes3 ++ Changes4,
     case Intent of
-        #prxprv_RecurrentTokenFinishIntent{status = {'success', #prxprv_RecurrentTokenSuccess{token = Token}}} ->
+        #proxy_provider_RecurrentTokenFinishIntent{
+            status = {'success', #proxy_provider_RecurrentTokenSuccess{token = Token}}
+        } ->
             make_proxy_result(Changes, Action, Token);
         _ ->
             make_proxy_result(Changes, Action)
     end.
 
+%%
+
+-spec handle_proxy_intent(_Intent, _Session, _Action) -> {list(), _Action}.
+handle_proxy_intent(
+    #proxy_provider_RecurrentTokenFinishIntent{status = {success, _}},
+    _Session,
+    Action
+) ->
+    Events = [?session_finished(?session_succeeded())],
+    {Events, Action};
+handle_proxy_intent(
+    #proxy_provider_RecurrentTokenFinishIntent{status = {failure, Failure}},
+    _Session,
+    Action
+) ->
+    Events = [?session_finished(?session_failed({failure, Failure}))],
+    {Events, Action};
+handle_proxy_intent(
+    #proxy_provider_SleepIntent{timer = Timer},
+    _Session,
+    Action0
+) ->
+    Action = hg_machine_action:set_timer(Timer, Action0),
+    Events = [?session_activated()],
+    {Events, Action};
+handle_proxy_intent(
+    #proxy_provider_SuspendIntent{tag = Tag, timeout = Timer, timeout_behaviour = TimeoutBehaviour},
+    #{rec_payment_tool_id := ToolID},
+    Action0
+) ->
+    ok = hg_machine_tag:create_binding(namespace(), Tag, ToolID),
+    Action = hg_machine_action:set_timer(Timer, Action0),
+    Events = [?session_suspended(Tag, TimeoutBehaviour)],
+    {Events, Action}.
+
+%%
+
 -spec handle_callback_result(proxy_callback_result(), action(), session()) ->
     {callback_response(), {[rec_payment_tool_change()], action(), token()}}.
 handle_callback_result(
-    #prxprv_RecurrentTokenCallbackResult{result = ProxyResult, response = Response},
+    #proxy_provider_RecurrentTokenCallbackResult{result = ProxyResult, response = Response},
     Action0,
     Session
 ) ->
@@ -637,7 +696,8 @@ apply_change(?recurrent_payment_tool_has_failed(Failure), St) ->
         }
     };
 apply_change(?session_ev(?session_started()), St) ->
-    St#st{session = create_session()};
+    RecPaymentTool = get_rec_payment_tool(St),
+    St#st{session = create_session(RecPaymentTool#payproc_RecurrentPaymentTool.id)};
 apply_change(?session_ev(Event), St) ->
     Session = merge_session_change(Event, get_session(St)),
     St#st{session = Session}.
@@ -654,13 +714,22 @@ merge_session_change(?trx_bound(Trx), Session) ->
     Session#{trx := Trx};
 merge_session_change(?proxy_st_changed(ProxyState), Session) ->
     Session#{proxy_state => ProxyState};
-merge_session_change(?interaction_requested(_), Session) ->
-    Session.
+merge_session_change(
+    ?interaction_changed(UserInteraction, ?interaction_requested),
+    Session
+) ->
+    Session#{interaction => UserInteraction};
+merge_session_change(
+    ?interaction_changed(UserInteraction, ?interaction_completed),
+    Session = #{interaction := UserInteraction}
+) ->
+    maps:remove(interaction, Session).
 
 %%
 
-create_session() ->
+create_session(RecPaymentToolID) ->
     #{
+        rec_payment_tool_id => RecPaymentToolID,
         status => active,
         trx => undefined,
         timeout_behaviour => {operation_failure, ?operation_timeout()}
@@ -715,11 +784,16 @@ dispatch_callback({provider, Payload}, St) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    case hg_machine:call(?NS, {tag, Tag}, {callback, Callback}) of
-        {ok, _CallbackResponse} = Result ->
-            Result;
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
+    case hg_machine_tag:get_binding(namespace(), Tag) of
+        {ok, _EntityID, MachineID} ->
+            case hg_machine:call(?NS, MachineID, {callback, Callback}) of
+                {ok, _} = Ok ->
+                    Ok;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.
@@ -859,12 +933,12 @@ ensure_domain_revision_defined(Revision) ->
 
 -spec marshal_recurrent_paytool_params(create_params()) -> binary().
 marshal_recurrent_paytool_params(Params) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'RecurrentPaymentToolParams'}},
     hg_proto_utils:serialize(Type, Params).
 
 -spec marshal_event_payload([rec_payment_tool_change()]) -> hg_machine:event_payload().
 marshal_event_payload(Changes) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolEventData'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'RecurrentPaymentToolEventData'}},
     Bin = hg_proto_utils:serialize(Type, #payproc_RecurrentPaymentToolEventData{changes = Changes}),
     #{
         format_version => 1,
@@ -877,7 +951,7 @@ marshal_event_payload(Changes) ->
 
 -spec unmarshal_recurrent_paytool_params(binary()) -> create_params().
 unmarshal_recurrent_paytool_params(Binary) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolParams'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'RecurrentPaymentToolParams'}},
     hg_proto_utils:deserialize(Type, Binary).
 
 -spec unmarshal_history([hg_machine:event()]) -> [hg_machine:event([rec_payment_tool_change()])].
@@ -890,7 +964,7 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) -> [rec_payment_tool_change()].
 unmarshal_event_payload(#{format_version := 1, data := {bin, Bin}}) ->
-    Type = {struct, struct, {dmsl_payment_processing_thrift, 'RecurrentPaymentToolEventData'}},
+    Type = {struct, struct, {dmsl_payproc_thrift, 'RecurrentPaymentToolEventData'}},
     #payproc_RecurrentPaymentToolEventData{changes = Changes} = hg_proto_utils:deserialize(Type, Bin),
     Changes.
 

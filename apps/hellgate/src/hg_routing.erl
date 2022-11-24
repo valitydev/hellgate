@@ -3,10 +3,10 @@
 -module(hg_routing).
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 
--export([gather_routes/4]).
+-export([gather_routes/5]).
 -export([choose_route/1]).
 -export([get_payment_terms/3]).
 
@@ -15,14 +15,13 @@
 -export([from_payment_route/1]).
 -export([new/2]).
 -export([new/4]).
+-export([new/5]).
 -export([to_payment_route/1]).
 -export([provider_ref/1]).
 -export([terminal_ref/1]).
 
 -export([prepare_log_message/1]).
-%% Using in ct
--export([gather_fail_rates/1]).
--export([choose_rated_route/1]).
+
 %%
 
 -include("domain.hrl").
@@ -31,9 +30,16 @@
     provider_ref :: dmsl_domain_thrift:'ProviderRef'(),
     terminal_ref :: dmsl_domain_thrift:'TerminalRef'(),
     weight :: integer(),
-    priority :: integer()
+    priority :: integer(),
+    pin :: pin()
 }).
 
+-type pin() :: #{
+    currency => currency(),
+    payment_tool => payment_tool(),
+    party_id => party_id(),
+    client_ip => client_ip() | undefined
+}.
 -type route() :: #route{}.
 -type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
@@ -77,6 +83,18 @@
     reject_reason => atom()
 }.
 
+-type currency() :: dmsl_domain_thrift:'CurrencyRef'().
+-type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type client_ip() :: dmsl_domain_thrift:'IPAddress'().
+
+-type gather_route_context() :: #{
+    currency := currency(),
+    payment_tool := payment_tool(),
+    party_id := party_id(),
+    client_ip := client_ip() | undefined
+}.
+
 -type varset() :: hg_varset:varset().
 -type revision() :: hg_domain:revision().
 
@@ -84,6 +102,7 @@
     availability_condition :: condition_score(),
     conversion_condition :: condition_score(),
     priority_rating :: terminal_priority_rating(),
+    pin :: integer(),
     random_condition :: integer(),
     availability :: float(),
     conversion :: float()
@@ -99,22 +118,27 @@
 
 -spec new(provider_ref(), terminal_ref()) -> route().
 new(ProviderRef, TerminalRef) ->
-    #route{
-        provider_ref = ProviderRef,
-        terminal_ref = TerminalRef,
-        weight = ?DOMAIN_CANDIDATE_WEIGHT,
-        priority = ?DOMAIN_CANDIDATE_PRIORITY
-    }.
+    new(
+        ProviderRef,
+        TerminalRef,
+        ?DOMAIN_CANDIDATE_WEIGHT,
+        ?DOMAIN_CANDIDATE_PRIORITY
+    ).
 
 -spec new(provider_ref(), terminal_ref(), integer() | undefined, integer()) -> route().
-new(ProviderRef, TerminalRef, undefined, Priority) ->
-    new(ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, Priority);
 new(ProviderRef, TerminalRef, Weight, Priority) ->
+    new(ProviderRef, TerminalRef, Weight, Priority, #{}).
+
+-spec new(provider_ref(), terminal_ref(), integer() | undefined, integer(), pin()) -> route().
+new(ProviderRef, TerminalRef, undefined, Priority, Pin) ->
+    new(ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, Priority, Pin);
+new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
     #route{
         provider_ref = ProviderRef,
         terminal_ref = TerminalRef,
         weight = Weight,
-        priority = Priority
+        priority = Priority,
+        pin = Pin
     }.
 
 -spec provider_ref(route()) -> provider_ref().
@@ -133,15 +157,14 @@ priority(#route{priority = Priority}) ->
 weight(#route{weight = Weight}) ->
     Weight.
 
+-spec pin(route()) -> pin() | undefined.
+pin(#route{pin = Pin}) ->
+    Pin.
+
 -spec from_payment_route(payment_route()) -> route().
 from_payment_route(Route) ->
     ?route(ProviderRef, TerminalRef) = Route,
-    #route{
-        provider_ref = ProviderRef,
-        terminal_ref = TerminalRef,
-        weight = ?DOMAIN_CANDIDATE_WEIGHT,
-        priority = ?DOMAIN_CANDIDATE_PRIORITY
-    }.
+    new(ProviderRef, TerminalRef).
 
 -spec to_payment_route(route()) -> payment_route().
 to_payment_route(#route{} = Route) ->
@@ -163,13 +186,14 @@ prepare_log_message({misconfiguration, {routing_candidate, Candidate}}) ->
     route_predestination(),
     payment_institution(),
     varset(),
-    revision()
+    revision(),
+    gather_route_context()
 ) ->
     {ok, {[route()], [rejected_route()]}}
     | {error, misconfiguration_error()}.
-gather_routes(_, #domain_PaymentInstitution{payment_routing_rules = undefined}, _, _) ->
+gather_routes(_, #domain_PaymentInstitution{payment_routing_rules = undefined}, _, _, _) ->
     {ok, {[], []}};
-gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, VS, Revision) ->
+gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, VS, Revision, Ctx) ->
     #domain_RoutingRules{
         policies = Policies,
         prohibitions = Prohibitions
@@ -177,7 +201,7 @@ gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules =
     try
         Candidates = get_candidates(Policies, VS, Revision),
         {Accepted, RejectedRoutes} = filter_routes(
-            collect_routes(Predestination, Candidates, VS, Revision),
+            collect_routes(Predestination, Candidates, VS, Revision, Ctx),
             get_table_prohibitions(Prohibitions, VS, Revision)
         ),
         {ok, {Accepted, RejectedRoutes}}
@@ -217,22 +241,24 @@ validate_decisions_candidates([#domain_RoutingCandidate{allowed = {constant, tru
 validate_decisions_candidates([Candidate | _]) ->
     throw({misconfiguration, {routing_candidate, Candidate}}).
 
-collect_routes(Predestination, Candidates, VS, Revision) ->
+collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
     lists:foldr(
         fun(Candidate, {Accepted, Rejected}) ->
             #domain_RoutingCandidate{
                 terminal = TerminalRef,
                 priority = Priority,
-                weight = Weight
+                weight = Weight,
+                pin = Pin
             } = Candidate,
             % Looks like overhead, we got Terminal only for provider_ref. Maybe we can remove provider_ref from route().
             % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
             #domain_Terminal{
                 provider_ref = ProviderRef
             } = hg_domain:get(Revision, {terminal, TerminalRef}),
+            GatheredPinInfo = gather_pin_info(Pin, Ctx),
             try
                 true = acceptable_terminal(Predestination, ProviderRef, TerminalRef, VS, Revision),
-                Route = new(ProviderRef, TerminalRef, Weight, Priority),
+                Route = new(ProviderRef, TerminalRef, Weight, Priority, GatheredPinInfo),
                 {[Route | Accepted], Rejected}
             catch
                 {rejected, Reason} ->
@@ -243,6 +269,18 @@ collect_routes(Predestination, Candidates, VS, Revision) ->
         end,
         {[], []},
         Candidates
+    ).
+
+gather_pin_info(undefined, _Ctx) ->
+    #{};
+gather_pin_info(#domain_RoutingPin{features = Features}, Ctx) ->
+    FeaturesList = ordsets:to_list(Features),
+    lists:foldl(
+        fun(Feature, Acc) ->
+            Acc#{Feature => maps:get(Feature, Ctx)}
+        end,
+        #{},
+        FeaturesList
     ).
 
 filter_routes({Routes, Rejected}, Prohibitions) ->
@@ -446,16 +484,19 @@ score_routes(Routes) ->
 score_route({Route, ProviderStatus}) ->
     PriorityRate = priority(Route),
     RandomCondition = weight(Route),
+    Pin = pin(Route),
+    PinHash = erlang:phash2(Pin),
     {AvailabilityStatus, ConversionStatus} = ProviderStatus,
     {AvailabilityCondition, Availability} = get_availability_score(AvailabilityStatus),
     {ConversionCondition, Conversion} = get_conversion_score(ConversionStatus),
     #route_scores{
         availability_condition = AvailabilityCondition,
         conversion_condition = ConversionCondition,
-        availability = Availability,
-        conversion = Conversion,
         priority_rating = PriorityRate,
-        random_condition = RandomCondition
+        pin = PinHash,
+        random_condition = RandomCondition,
+        availability = Availability,
+        conversion = Conversion
     }.
 
 get_availability_score({alive, FailRate}) -> {1, 1.0 - FailRate};
@@ -576,6 +617,7 @@ check_terms_acceptability(recurrent_payment, Terms, VS) ->
 
 acceptable_payment_terms(
     #domain_PaymentsProvisionTerms{
+        allow = Allow,
         currencies = CurrenciesSelector,
         categories = CategoriesSelector,
         payment_methods = PMsSelector,
@@ -589,6 +631,7 @@ acceptable_payment_terms(
     % TODO varsets getting mixed up
     %      it seems better to pass down here hierarchy of contexts w/ appropriate module accessors
     ParentName = 'PaymentsProvisionTerms',
+    _ = acceptable_allow(ParentName, Allow),
     _ = try_accept_term(ParentName, currency, getv(currency, VS), CurrenciesSelector),
     _ = try_accept_term(ParentName, category, getv(category, VS), CategoriesSelector),
     _ = try_accept_term(ParentName, payment_tool, getv(payment_tool, VS), PMsSelector),
@@ -650,6 +693,15 @@ acceptable_partial_refunds_terms(
         throw(?rejected({'PartialRefundsProvisionTerms', cash_limit}));
 acceptable_partial_refunds_terms(undefined, _RVS) ->
     throw(?rejected({'PartialRefundsProvisionTerms', undefined})).
+
+acceptable_allow(_ParentName, undefined) ->
+    true;
+acceptable_allow(_ParentName, {constant, true}) ->
+    true;
+acceptable_allow(ParentName, {constant, false}) ->
+    throw(?rejected({ParentName, allow}));
+acceptable_allow(_ParentName, Ambiguous) ->
+    error({misconfiguration, {'Could not reduce predicate to a value', {allow, Ambiguous}}}).
 
 %%
 
@@ -720,6 +772,7 @@ record_comparsion_test() ->
             conversion_condition = 1,
             conversion = 0.5,
             priority_rating = 1,
+            pin = 0,
             random_condition = 1
         },
         {42, 42}
@@ -731,6 +784,7 @@ record_comparsion_test() ->
             conversion_condition = 1,
             conversion = 0.5,
             priority_rating = 1,
+            pin = 0,
             random_condition = 1
         },
         {99, 99}
@@ -791,11 +845,13 @@ balance_routes_with_default_weight_test_() ->
 -spec preferable_route_scoring_test_() -> [testcase()].
 preferable_route_scoring_test_() ->
     StatusAlive = {{alive, 0.0}, {normal, 0.0}},
+    StatusAliveLowerConversion = {{alive, 0.0}, {normal, 0.1}},
     StatusDead = {{dead, 0.4}, {lacking, 0.6}},
     StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
     StatusBroken = {{alive, 0.1}, {lacking, 0.8}},
     RoutePreferred1 = new(?prv(1), ?trm(1), 0, 1),
     RoutePreferred2 = new(?prv(1), ?trm(2), 0, 1),
+    RoutePreferred3 = new(?prv(1), ?trm(3), 0, 1),
     RouteFallback = new(?prv(2), ?trm(2), 0, 0),
     [
         ?_assertMatch(
@@ -803,6 +859,16 @@ preferable_route_scoring_test_() ->
             choose_rated_route([
                 {RoutePreferred1, StatusAlive},
                 {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertEqual(
+            {RoutePreferred3, #{
+                chosen_route => RoutePreferred3
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusDead},
+                {RoutePreferred2, StatusDead},
+                {RoutePreferred3, StatusAlive}
             ])
         ),
         ?_assertMatch(
@@ -825,7 +891,17 @@ preferable_route_scoring_test_() ->
                 {RouteFallback, StatusAlive}
             ])
         ),
-        % TODO TD-167
+        ?_assertMatch(
+            {RoutePreferred1, #{
+                preferable_route := RoutePreferred2,
+                reject_reason := conversion
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RoutePreferred2, StatusAliveLowerConversion}
+            ])
+        ),
+        % TODO TD-344
         % We rely here on inverted order of preference which is just an accidental
         % side effect.
         ?_assertMatch(
@@ -840,5 +916,35 @@ preferable_route_scoring_test_() ->
             ])
         )
     ].
+
+-spec prefer_weight_over_availability_test() -> _.
+prefer_weight_over_availability_test() ->
+    Route1 = new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.5}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    ?assertMatch({Route2, _}, choose_rated_route(FailRatedRoutes)).
+
+-spec prefer_weight_over_conversion_test() -> _.
+prefer_weight_over_conversion_test() ->
+    Route1 = new(?prv(1), ?trm(1), 0, 1000),
+    Route2 = new(?prv(2), ?trm(2), 0, 1005),
+    Route3 = new(?prv(3), ?trm(3), 0, 1000),
+    Routes = [Route1, Route2, Route3],
+
+    ProviderStatuses = [
+        {{alive, 0.3}, {normal, 0.5}},
+        {{alive, 0.3}, {normal, 0.3}},
+        {{alive, 0.3}, {normal, 0.3}}
+    ],
+    FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
+    {Route2, _Meta} = choose_rated_route(FailRatedRoutes).
 
 -endif.

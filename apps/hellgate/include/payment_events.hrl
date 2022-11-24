@@ -1,7 +1,9 @@
 -ifndef(__hellgate_payment_events__).
 -define(__hellgate_payment_events__, 42).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 %% Payments
 
@@ -157,8 +159,19 @@
     {session_proxy_state_changed, #payproc_SessionProxyStateChanged{proxy_state = ProxySt}}
 ).
 
--define(interaction_requested(UserInteraction),
-    {session_interaction_requested, #payproc_SessionInteractionRequested{interaction = UserInteraction}}
+-define(interaction_changed(UserInteraction, Status),
+    {session_interaction_changed, #payproc_SessionInteractionChanged{
+        interaction = UserInteraction,
+        status = Status
+    }}
+).
+
+-define(interaction_requested,
+    {requested, #user_interaction_Requested{}}
+).
+
+-define(interaction_completed,
+    {completed, #user_interaction_Completed{}}
 ).
 
 -define(session_succeeded(),

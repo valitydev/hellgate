@@ -1,7 +1,7 @@
 -ifndef(__hellgate_customer_events__).
 -define(__hellgate_customer_events__, 42).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 %%
 %% Customers
@@ -42,8 +42,11 @@
     {status_changed, #payproc_CustomerBindingStatusChanged{status = CustomerBindingStatus}}
 ).
 
--define(customer_binding_interaction_requested(UserInteraction),
-    {interaction_requested, #payproc_CustomerBindingInteractionRequested{interaction = UserInteraction}}
+-define(customer_binding_interaction_changed(UserInteraction, Status),
+    {interaction_changed, #payproc_CustomerBindingInteractionChanged{
+        interaction = UserInteraction,
+        status = Status
+    }}
 ).
 
 % Statuses

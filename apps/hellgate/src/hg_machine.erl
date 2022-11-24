@@ -5,8 +5,6 @@
 -type msgp() :: mg_msgpack_marshalling:msgpack_value().
 
 -type id() :: mg_proto_base_thrift:'ID'().
--type tag() :: {tag, mg_proto_base_thrift:'Tag'()}.
--type ref() :: id() | tag().
 -type ns() :: mg_proto_base_thrift:'Namespace'().
 -type args() :: _.
 
@@ -60,8 +58,6 @@
 }.
 
 -export_type([id/0]).
--export_type([ref/0]).
--export_type([tag/0]).
 -export_type([ns/0]).
 -export_type([args/0]).
 -export_type([event_id/0]).
@@ -98,9 +94,9 @@
 -export([start_link/1]).
 -export([init/1]).
 
-%% Woody handler called by hg_woody_wrapper
+%% Woody handler called by hg_woody_service_wrapper
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -117,13 +113,13 @@
 start(Ns, ID, Args) ->
     call_automaton('Start', {Ns, ID, wrap_args(Args)}).
 
--spec thrift_call(ns(), ref(), service_name(), function_ref(), args()) -> response() | {error, notfound | failed}.
-thrift_call(Ns, Ref, Service, FunRef, Args) ->
-    thrift_call(Ns, Ref, Service, FunRef, Args, undefined, undefined, forward).
+-spec thrift_call(ns(), id(), service_name(), function_ref(), args()) -> response() | {error, notfound | failed}.
+thrift_call(Ns, Id, Service, FunRef, Args) ->
+    thrift_call(Ns, Id, Service, FunRef, Args, undefined, undefined, forward).
 
--spec thrift_call(Ns, Ref, Service, FunRef, Args, After, Limit, Direction) -> Result when
+-spec thrift_call(Ns, Id, Service, FunRef, Args, After, Limit, Direction) -> Result when
     Ns :: ns(),
-    Ref :: ref(),
+    Id :: id(),
     Service :: service_name(),
     FunRef :: function_ref(),
     Args :: args(),
@@ -131,10 +127,10 @@ thrift_call(Ns, Ref, Service, FunRef, Args) ->
     Limit :: integer() | undefined,
     Direction :: forward | backward,
     Result :: response() | {error, notfound | failed}.
-thrift_call(Ns, Ref, Service, FunRef, Args, After, Limit, Direction) ->
+thrift_call(Ns, Id, Service, FunRef, Args, After, Limit, Direction) ->
     EncodedArgs = marshal_thrift_args(Service, FunRef, Args),
     Call = {thrift_call, Service, FunRef, EncodedArgs},
-    case do_call(Ns, Ref, Call, After, Limit, Direction) of
+    case do_call(Ns, Id, Call, After, Limit, Direction) of
         {ok, Response} ->
             % should be specific to a processing interface already
             unmarshal_thrift_response(Service, FunRef, Response);
@@ -142,56 +138,56 @@ thrift_call(Ns, Ref, Service, FunRef, Args, After, Limit, Direction) ->
             Error
     end.
 
--spec call(ns(), ref(), Args :: term()) -> response() | {error, notfound | failed}.
-call(Ns, Ref, Args) ->
-    call(Ns, Ref, Args, undefined, undefined, forward).
+-spec call(ns(), id(), Args :: term()) -> response() | {error, notfound | failed}.
+call(Ns, Id, Args) ->
+    call(Ns, Id, Args, undefined, undefined, forward).
 
--spec call(Ns, Ref, Args, After, Limit, Direction) -> Result when
+-spec call(Ns, Id, Args, After, Limit, Direction) -> Result when
     Ns :: ns(),
-    Ref :: ref(),
+    Id :: id(),
     Args :: args(),
     After :: event_id() | undefined,
     Limit :: integer() | undefined,
     Direction :: forward | backward,
     Result :: response() | {error, notfound | failed}.
-call(Ns, Ref, Args, After, Limit, Direction) ->
-    case do_call(Ns, Ref, {schemaless_call, Args}, After, Limit, Direction) of
+call(Ns, Id, Args, After, Limit, Direction) ->
+    case do_call(Ns, Id, {schemaless_call, Args}, After, Limit, Direction) of
         {ok, Response} ->
             unmarshal_schemaless_response(Response);
         {error, _} = Error ->
             Error
     end.
 
--spec repair(ns(), ref(), term()) ->
+-spec repair(ns(), id(), term()) ->
     {ok, term()} | {error, notfound | failed | working | {repair, {failed, binary()}}} | no_return().
-repair(Ns, Ref, Args) ->
-    Descriptor = prepare_descriptor(Ns, Ref, #mg_stateproc_HistoryRange{}),
+repair(Ns, Id, Args) ->
+    Descriptor = prepare_descriptor(Ns, Id, #mg_stateproc_HistoryRange{}),
     call_automaton('Repair', {Descriptor, wrap_args(Args)}).
 
--spec get_history(ns(), ref()) -> {ok, history()} | {error, notfound} | no_return().
-get_history(Ns, Ref) ->
-    get_history(Ns, Ref, undefined, undefined, forward).
+-spec get_history(ns(), id()) -> {ok, history()} | {error, notfound} | no_return().
+get_history(Ns, Id) ->
+    get_history(Ns, Id, undefined, undefined, forward).
 
--spec get_history(ns(), ref(), undefined | event_id(), undefined | non_neg_integer()) ->
+-spec get_history(ns(), id(), undefined | event_id(), undefined | non_neg_integer()) ->
     {ok, history()} | {error, notfound} | no_return().
-get_history(Ns, Ref, AfterID, Limit) ->
-    get_history(Ns, Ref, AfterID, Limit, forward).
+get_history(Ns, Id, AfterID, Limit) ->
+    get_history(Ns, Id, AfterID, Limit, forward).
 
--spec get_history(ns(), ref(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
+-spec get_history(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
     {ok, history()} | {error, notfound} | no_return().
-get_history(Ns, Ref, AfterID, Limit, Direction) ->
-    case get_machine(Ns, Ref, AfterID, Limit, Direction) of
+get_history(Ns, Id, AfterID, Limit, Direction) ->
+    case get_machine(Ns, Id, AfterID, Limit, Direction) of
         {ok, #{history := History}} ->
             {ok, History};
         Error ->
             Error
     end.
 
--spec get_machine(ns(), ref(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
+-spec get_machine(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
     {ok, machine()} | {error, notfound} | no_return().
-get_machine(Ns, Ref, AfterID, Limit, Direction) ->
+get_machine(Ns, Id, AfterID, Limit, Direction) ->
     Range = #mg_stateproc_HistoryRange{'after' = AfterID, limit = Limit, direction = Direction},
-    Descriptor = prepare_descriptor(Ns, Ref, Range),
+    Descriptor = prepare_descriptor(Ns, Id, Range),
     case call_automaton('GetMachine', {Descriptor}) of
         {ok, #mg_stateproc_Machine{} = Machine} ->
             {ok, unmarshal_machine(Machine)};
@@ -201,21 +197,21 @@ get_machine(Ns, Ref, AfterID, Limit, Direction) ->
 
 %%
 
--spec do_call(Ns, Ref, Args, After, Limit, Direction) -> Result when
+-spec do_call(Ns, Id, Args, After, Limit, Direction) -> Result when
     Ns :: ns(),
-    Ref :: ref(),
+    Id :: id(),
     Args :: args(),
     After :: event_id() | undefined,
     Limit :: integer() | undefined,
     Direction :: forward | backward,
     Result :: {ok, response()} | {error, notfound | failed}.
-do_call(Ns, Ref, Args, After, Limit, Direction) ->
+do_call(Ns, Id, Args, After, Limit, Direction) ->
     HistoryRange = #mg_stateproc_HistoryRange{
         'after' = After,
         'limit' = Limit,
         'direction' = Direction
     },
-    Descriptor = prepare_descriptor(Ns, Ref, HistoryRange),
+    Descriptor = prepare_descriptor(Ns, Id, HistoryRange),
     case call_automaton('Call', {Descriptor, wrap_args(Args)}) of
         {ok, Response} ->
             {ok, unmarshal_response(Response)};
@@ -243,7 +239,7 @@ call_automaton(Function, Args) ->
 
 -type func() :: 'ProcessSignal' | 'ProcessCall' | 'ProcessRepair'.
 
--spec handle_function(func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         machine,
@@ -374,7 +370,7 @@ marshal_repair_failed({exception, _} = Error) ->
 %%
 
 -type service_handler() ::
-    {Path :: string(), {woody:service(), {module(), hg_woody_wrapper:handler_opts()}}}.
+    {Path :: string(), {woody:service(), {module(), hg_woody_service_wrapper:handler_opts()}}}.
 
 -spec get_child_spec([MachineHandler :: module()]) -> supervisor:child_spec().
 get_child_spec(MachineHandlers) ->
@@ -392,7 +388,7 @@ get_service_handler(MachineHandler, Opts) ->
     Ns = MachineHandler:namespace(),
     FullOpts = maps:merge(#{ns => Ns, handler => ?MODULE}, Opts),
     {Path, Service} = hg_proto:get_service_spec(processor, #{namespace => Ns}),
-    {Path, {Service, {hg_woody_wrapper, FullOpts}}}.
+    {Path, {Service, {hg_woody_service_wrapper, FullOpts}}}.
 
 %%
 
@@ -549,15 +545,10 @@ marshal_term(V) ->
 unmarshal_term({bin, B}) ->
     binary_to_term(B).
 
--spec prepare_descriptor(ns(), ref(), history_range()) -> descriptor().
-prepare_descriptor(NS, Ref, Range) ->
+-spec prepare_descriptor(ns(), id(), history_range()) -> descriptor().
+prepare_descriptor(NS, Id, Range) ->
     #mg_stateproc_MachineDescriptor{
         ns = NS,
-        ref = prepare_ref(Ref),
+        ref = {id, Id},
         range = Range
     }.
-
-prepare_ref(ID) when is_binary(ID) ->
-    {id, ID};
-prepare_ref({tag, Tag}) ->
-    {tag, Tag}.

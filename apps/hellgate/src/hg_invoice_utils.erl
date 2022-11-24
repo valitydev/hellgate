@@ -3,7 +3,9 @@
 
 -module(hg_invoice_utils).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export([validate_cost/2]).
 -export([validate_currency/2]).
@@ -29,8 +31,8 @@
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type payment_service_terms() :: dmsl_domain_thrift:'PaymentsServiceTerms'().
 -type timestamp() :: dmsl_base_thrift:'Timestamp'().
--type party_revision_param() :: dmsl_payment_processing_thrift:'PartyRevisionParam'().
--type varset() :: dmsl_payment_processing_thrift:'ComputeShopTermsVarset'().
+-type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
+-type varset() :: dmsl_payproc_thrift:'ComputeShopTermsVarset'().
 
 -spec validate_cost(cash(), shop()) -> ok.
 validate_cost(#domain_Cash{currency = Currency, amount = Amount}, Shop) ->
@@ -42,7 +44,7 @@ validate_cost(#domain_Cash{currency = Currency, amount = Amount}, Shop) ->
 validate_amount(Amount) when Amount > 0 ->
     ok;
 validate_amount(_) ->
-    throw(#'InvalidRequest'{errors = [<<"Invalid amount">>]}).
+    throw(#base_InvalidRequest{errors = [<<"Invalid amount">>]}).
 
 -spec validate_currency(currency(), shop()) -> ok.
 validate_currency(Currency, Shop = #domain_Shop{}) ->
@@ -59,7 +61,7 @@ validate_cash_range(#domain_CashRange{
 ->
     ok;
 validate_cash_range(_) ->
-    throw(#'InvalidRequest'{errors = [<<"Invalid cost range">>]}).
+    throw(#base_InvalidRequest{errors = [<<"Invalid cost range">>]}).
 
 -spec assert_party_operable(party()) -> party().
 assert_party_operable(#domain_Party{blocking = Blocking, suspension = Suspension} = V) ->
@@ -110,7 +112,7 @@ compute_shop_terms(PartyID, ShopID, Timestamp, PartyRevision, Varset) ->
 validate_currency_(Currency, Currency) ->
     ok;
 validate_currency_(_, _) ->
-    throw(#'InvalidRequest'{errors = [<<"Invalid currency">>]}).
+    throw(#base_InvalidRequest{errors = [<<"Invalid currency">>]}).
 
 -spec get_shop_currency(shop()) -> currency().
 get_shop_currency(#domain_Shop{account = #domain_ShopAccount{currency = Currency}}) ->

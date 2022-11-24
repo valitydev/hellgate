@@ -14,10 +14,11 @@
 
 -module(hg_invoice).
 
--include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
 -include("payment_events.hrl").
 -include("invoice_events.hrl").
 -include("domain.hrl").
+
+-include_lib("damsel/include/dmsl_repair_thrift.hrl").
 
 -define(NS, <<"invoice">>).
 
@@ -29,9 +30,9 @@
 -export([get_payment/2]).
 -export([get_payment_opts/1]).
 
-%% Woody handler called by hg_woody_wrapper
+%% Woody handler called by hg_woody_service_wrapper
 
--behaviour(hg_woody_wrapper).
+-behaviour(hg_woody_service_wrapper).
 
 -export([handle_function/3]).
 
@@ -70,7 +71,7 @@
 
 -type st() :: #st{}.
 
--type invoice_change() :: dmsl_payment_processing_thrift:'InvoiceChange'().
+-type invoice_change() :: dmsl_payproc_thrift:'InvoiceChange'().
 
 -type activity() ::
     invoice
@@ -82,23 +83,16 @@
 
 %% API
 
--spec get(hg_machine:ref()) -> {ok, st()} | {error, notfound}.
-get(Ref) ->
-    case hg_machine:get_history(?NS, Ref) of
+-spec get(hg_machine:id()) -> {ok, st()} | {error, notfound}.
+get(Id) ->
+    case hg_machine:get_history(?NS, Id) of
         {ok, History} ->
             {ok, collapse_history(unmarshal_history(History))};
         Error ->
             Error
     end.
 
--spec get_payment(hg_machine:tag() | payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
-get_payment({tag, Tag}, #st{payments = Ps}) ->
-    case lists:dropwhile(fun({_, PS}) -> not lists:member(Tag, get_payment_tags(PS)) end, Ps) of
-        [{_ID, PaymentSession} | _] ->
-            {ok, PaymentSession};
-        [] ->
-            {error, notfound}
-    end;
+-spec get_payment(payment_id(), st()) -> {ok, payment_st()} | {error, notfound}.
 get_payment(PaymentID, St) ->
     case try_get_payment_session(PaymentID, St) of
         PaymentSession when PaymentSession /= undefined ->
@@ -106,9 +100,6 @@ get_payment(PaymentID, St) ->
         undefined ->
             {error, notfound}
     end.
-
-get_payment_tags(PaymentSession) ->
-    hg_invoice_payment:get_tags(PaymentSession).
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
@@ -124,14 +115,8 @@ get_payment_opts(#st{invoice = Invoice, party = Party}) ->
         timestamp => hg_datetime:format_now()
     }.
 
--spec get_payment_opts(hg_party:party_revision() | undefined, hg_datetime:timestamp(), st()) ->
+-spec get_payment_opts(hg_party:party_revision(), hg_datetime:timestamp(), st()) ->
     hg_invoice_payment:opts().
-get_payment_opts(undefined, Timestamp, St = #st{invoice = Invoice}) ->
-    #{
-        party => hg_party:checkout(get_party_id(St), {timestamp, Timestamp}),
-        invoice => Invoice,
-        timestamp => hg_datetime:format_now()
-    };
 get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
     #{
         party => hg_party:checkout(get_party_id(St), {revision, Revision}),
@@ -141,7 +126,7 @@ get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
 
 %%
 
--spec handle_function(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoicing,
@@ -150,7 +135,7 @@ handle_function(Func, Args, Opts) ->
         end
     ).
 
--spec handle_function_(woody:func(), woody:args(), hg_woody_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {InvoiceParams}, _Opts) ->
     DomainRevision = hg_domain:head(),
     InvoiceID = InvoiceParams#payproc_InvoiceParams.id,
@@ -236,16 +221,12 @@ handle_function_(Fun, Args, _Opts) when
         Fun =:= 'RefundPayment' orelse
         Fun =:= 'CreateManualRefund' orelse
         Fun =:= 'CreateInvoiceAdjustment' orelse
-        Fun =:= 'CaptureAdjustment' orelse
-        Fun =:= 'CancelAdjustment' orelse
         Fun =:= 'CreateChargeback' orelse
         Fun =:= 'CancelChargeback' orelse
         Fun =:= 'AcceptChargeback' orelse
         Fun =:= 'RejectChargeback' orelse
         Fun =:= 'ReopenChargeback' orelse
         Fun =:= 'CreatePaymentAdjustment' orelse
-        Fun =:= 'CapturePaymentAdjustment' orelse
-        Fun =:= 'CancelPaymentAdjustment' orelse
         Fun =:= 'Fulfill' orelse
         Fun =:= 'Rescind'
 ->
@@ -367,20 +348,25 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
-    case hg_machine:call(?NS, {tag, Tag}, {callback, Tag, Callback}) of
-        {ok, _Reply} = Response ->
-            Response;
-        {exception, invalid_callback} ->
-            {error, invalid_callback};
+    case hg_machine_tag:get_binding(namespace(), Tag) of
+        {ok, _EntityID, MachineID} ->
+            case hg_machine:call(?NS, MachineID, {callback, Tag, Callback}) of
+                {ok, _} = Ok ->
+                    Ok;
+                {exception, invalid_callback} ->
+                    {error, invalid_callback};
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.
 
 %%
 
--spec fail(hg_machine:ref()) -> ok.
-fail(Ref) ->
-    case hg_machine:call(?NS, Ref, fail) of
+-spec fail(hg_machine:id()) -> ok.
+fail(Id) ->
+    case hg_machine:call(?NS, Id, fail) of
         {error, failed} ->
             ok;
         {error, Error} ->
@@ -391,19 +377,19 @@ fail(Ref) ->
 
 %%
 
-get_history(Ref) ->
-    History = hg_machine:get_history(?NS, Ref),
+get_history(ID) ->
+    History = hg_machine:get_history(?NS, ID),
     unmarshal_history(map_history_error(History)).
 
-get_history(Ref, AfterID, Limit) ->
-    History = hg_machine:get_history(?NS, Ref, AfterID, Limit),
+get_history(ID, AfterID, Limit) ->
+    History = hg_machine:get_history(?NS, ID, AfterID, Limit),
     unmarshal_history(map_history_error(History)).
 
-get_state(Ref) ->
-    collapse_history(get_history(Ref)).
+get_state(ID) ->
+    collapse_history(get_history(ID)).
 
-get_state(Ref, AfterID, Limit) ->
-    collapse_history(get_history(Ref, AfterID, Limit)).
+get_state(ID, AfterID, Limit) ->
+    collapse_history(get_history(ID, AfterID, Limit)).
 
 get_public_history(InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_invoice_event(InvoiceID, Ev) || Ev <- get_history(InvoiceID, AfterID, Limit)].
@@ -437,7 +423,7 @@ repair(ID, Args) ->
     case hg_machine:repair(?NS, ID, Args) of
         {ok, _Result} -> ok;
         {error, notfound} -> erlang:throw(#payproc_InvoiceNotFound{});
-        {error, working} -> erlang:throw(#'InvalidRequest'{errors = [<<"No need to repair">>]});
+        {error, working} -> erlang:throw(#base_InvalidRequest{errors = [<<"No need to repair">>]});
         {error, Reason} -> erlang:error(Reason)
     end.
 
@@ -451,7 +437,7 @@ map_history_error({error, notfound}) ->
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type party() :: dmsl_domain_thrift:'Party'().
 
--type adjustment() :: dmsl_payment_processing_thrift:'InvoiceAdjustment'().
+-type adjustment() :: dmsl_payproc_thrift:'InvoiceAdjustment'().
 
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_st() :: hg_invoice_payment:st().
@@ -523,9 +509,23 @@ handle_signal(timeout, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_signal(timeout, PaymentID, PaymentSession, St);
 handle_signal(timeout, St = #st{activity = {adjustment_new, ID}}) ->
-    Status = {processed, #domain_InvoiceAdjustmentProcessed{}},
-    Change = [?invoice_adjustment_ev(ID, ?invoice_adjustment_status_changed(Status))],
-    #{changes => Change, state => St};
+    OccurredAt = hg_datetime:format_now(),
+    {ok, {Changes, Action}} = hg_invoice_adjustment:process(OccurredAt),
+    #{
+        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
+        action => Action,
+        state => St
+    };
+handle_signal(timeout, St = #st{activity = {adjustment_pending, ID}}) ->
+    _ = assert_adjustment_processed(ID, St),
+    OccurredAt = hg_datetime:format_now(),
+    ?adjustment_target_status(Status) = get_adjustment(ID, St),
+    {ok, {Changes, Action}} = hg_invoice_adjustment:capture(OccurredAt),
+    #{
+        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
+        action => set_invoice_timer(Status, Action, St),
+        state => St
+    };
 handle_signal(timeout, St = #st{activity = invoice}) ->
     % invoice is expired
     handle_expiration(St).
@@ -643,28 +643,6 @@ handle_call({{'Invoicing', 'CreateInvoiceAdjustment'}, {_InvoiceID, Params}}, St
     ok = assert_all_adjustments_finalised(St),
     OccurredAt = hg_datetime:format_now(),
     wrap_adjustment_impact(ID, hg_invoice_adjustment:create(ID, Params, OccurredAt), St, OccurredAt);
-handle_call({{'Invoicing', 'CaptureAdjustment'}, {_InvoiceID, ID}}, St) ->
-    _ = assert_adjustment_processed(ID, St),
-    OccurredAt = hg_datetime:format_now(),
-    ?adjustment_target_status(Status) = get_adjustment(ID, St),
-    {Response, {Changes, Action}} = hg_invoice_adjustment:capture(OccurredAt),
-    #{
-        response => Response,
-        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
-        action => set_invoice_timer(Status, Action, St),
-        state => St
-    };
-handle_call({{'Invoicing', 'CancelAdjustment'}, {_InvoiceID, ID}}, St) ->
-    _ = assert_adjustment_processed(ID, St),
-    OccurredAt = hg_datetime:format_now(),
-    Status = get_invoice_status(St),
-    {Response, {Changes, Action}} = hg_invoice_adjustment:cancel(OccurredAt),
-    #{
-        response => Response,
-        changes => wrap_adjustment_changes(ID, Changes, OccurredAt),
-        action => set_invoice_timer(Status, Action, St),
-        state => St
-    };
 handle_call({{'Invoicing', 'RefundPayment'}, {_InvoiceID, PaymentID, Params}}, St0) ->
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
     _ = assert_invoice(operable, St),
@@ -705,29 +683,6 @@ handle_call({{'Invoicing', 'CreatePaymentAdjustment'}, {_InvoiceID, PaymentID, P
     wrap_payment_impact(
         PaymentID,
         hg_invoice_payment:create_adjustment(Timestamp, Params, PaymentSession, Opts),
-        St
-    );
-handle_call({{'Invoicing', 'CapturePaymentAdjustment'}, {_InvoiceID, PaymentID, ID}}, St) ->
-    PaymentSession = get_payment_session(PaymentID, St),
-    Adjustment = hg_invoice_payment:get_adjustment(ID, PaymentSession),
-    PaymentOpts = get_payment_opts(
-        Adjustment#domain_InvoicePaymentAdjustment.party_revision,
-        Adjustment#domain_InvoicePaymentAdjustment.created_at,
-        St
-    ),
-    Impact = hg_invoice_payment:capture_adjustment(ID, PaymentSession, PaymentOpts),
-    wrap_payment_impact(PaymentID, Impact, St);
-handle_call({{'Invoicing', 'CancelPaymentAdjustment'}, {_InvoiceID, PaymentID, ID}}, St) ->
-    PaymentSession = get_payment_session(PaymentID, St),
-    Adjustment = hg_invoice_payment:get_adjustment(ID, PaymentSession),
-    PaymentOpts = get_payment_opts(
-        Adjustment#domain_InvoicePaymentAdjustment.party_revision,
-        Adjustment#domain_InvoicePaymentAdjustment.created_at,
-        St
-    ),
-    wrap_payment_impact(
-        PaymentID,
-        hg_invoice_payment:cancel_adjustment(ID, PaymentSession, PaymentOpts),
         St
     );
 handle_call({callback, Tag, Callback}, St) ->
@@ -810,8 +765,9 @@ handle_payment_result({next, {Changes, Action}}, PaymentID, _PaymentSession, St,
     };
 handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, Opts) ->
     Invoice = St#st.invoice,
+    InvoiceID = Invoice#domain_Invoice.id,
     #{timestamp := OccurredAt} = Opts,
-    PaymentSession1 = hg_invoice_payment:collapse_changes(Changes, PaymentSession),
+    PaymentSession1 = hg_invoice_payment:collapse_changes(Changes, PaymentSession, #{invoice_id => InvoiceID}),
     Payment = hg_invoice_payment:get_payment(PaymentSession1),
     case get_payment_status(Payment) of
         ?processed() ->
@@ -946,7 +902,7 @@ force_refund_id_format(manual_refund, Correct = <<?MANUAL_REFUND_ID_PREFIX, _Res
 force_refund_id_format(manual_refund, Incorrect) ->
     <<?MANUAL_REFUND_ID_PREFIX, Incorrect/binary>>;
 force_refund_id_format(refund, <<?MANUAL_REFUND_ID_PREFIX, _ID/binary>>) ->
-    throw(#'InvalidRequest'{errors = [<<"Invalid id format">>]});
+    throw(#base_InvalidRequest{errors = [<<"Invalid id format">>]});
 force_refund_id_format(refund, ID) ->
     ID.
 
@@ -1100,9 +1056,9 @@ merge_change(?invoice_adjustment_ev(ID, Event), St, _Opts) ->
         _ ->
             St2
     end;
-merge_change(?payment_ev(PaymentID, Change), St, Opts) ->
+merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts) ->
     PaymentSession = try_get_payment_session(PaymentID, St),
-    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts),
+    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
     St1 = set_payment_session(PaymentID, PaymentSession1, St),
     case hg_invoice_payment:get_activity(PaymentSession1) of
         A when A =/= idle ->
@@ -1319,11 +1275,11 @@ make_invoice_cart(Cost, {product, TplProduct}, Shop) ->
 get_templated_price(undefined, {fixed, Cost}, Shop) ->
     get_cost(Cost, Shop);
 get_templated_price(undefined, _, _Shop) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_NO_COST]});
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_NO_COST]});
 get_templated_price(Cost, {fixed, Cost}, Shop) ->
     get_cost(Cost, Shop);
 get_templated_price(_Cost, {fixed, _CostTpl}, _Shop) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_COST]});
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_COST]});
 get_templated_price(Cost, {range, Range}, Shop) ->
     _ = assert_cost_in_range(Cost, Range),
     get_cost(Cost, Shop);
@@ -1345,14 +1301,14 @@ assert_cost_in_range(
     _ = assert_less_than(UType, Amount, UAmount),
     ok;
 assert_cost_in_range(_, _) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_CURRENCY]}).
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_CURRENCY]}).
 
 assert_less_than(inclusive, Less, More) when Less =< More ->
     ok;
 assert_less_than(exclusive, Less, More) when Less < More ->
     ok;
 assert_less_than(_, _, _) ->
-    throw(#'InvalidRequest'{errors = [?INVOICE_TPL_BAD_AMOUNT]}).
+    throw(#base_InvalidRequest{errors = [?INVOICE_TPL_BAD_AMOUNT]}).
 
 make_invoice_due_date(#domain_LifetimeInterval{years = YY, months = MM, days = DD}) ->
     hg_datetime:add_interval(hg_datetime:format_now(), {YY, MM, DD}).
@@ -1458,7 +1414,7 @@ unmarshal_event({ID, Dt, Payload}) ->
 
 -spec unmarshal_event_payload(hg_machine:event_payload()) -> [invoice_change()].
 unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     {invoice_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
     Buf.
 
@@ -1470,7 +1426,7 @@ unmarshal_invoice(Bin) ->
 %% Wrap in thrift binary
 
 wrap_event_payload(Payload) ->
-    Type = {struct, union, {dmsl_payment_processing_thrift, 'EventPayload'}},
+    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
     Bin = hg_proto_utils:serialize(Type, Payload),
     #{
         format_version => 1,
