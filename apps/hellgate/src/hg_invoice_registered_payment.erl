@@ -123,52 +123,75 @@ merge_change(
     },
     hg_invoice_payment:merge_change(Change, St1, Opts);
 merge_change(
-    Change = ?payment_capture_started(#payproc_InvoicePaymentCaptureData{
-        reason = ?CAPTURE_REASON,
-        cash = _Cost
-    }),
-    #st{} = St0,
+    Change = ?payment_capture_started(Data),
+    #st{} = St,
     Opts
 ) ->
-    St1 = hg_invoice_payment:merge_change(Change, St0, Opts),
-    St1#st{
-        activity = {payment, registration_hold}
+    _ = hg_invoice_payment:validate_transition({payment, flow_waiting}, Change, St, Opts),
+    St#st{
+        capture_data = Data,
+        activity = {payment, registration_hold},
+        %% NOTE If supporting registering allocation is needed, add them here
+        allocation = undefined
     };
 merge_change(
     Change = ?session_ev(
-        ?captured(?CAPTURE_REASON, _Cost),
-        ?session_started()
+        Target = ?captured(_Reason, _Cost),
+        Event = ?session_started()
     ),
-    #st{} = St0,
+    #st{
+        sessions = Sessions,
+        retry_attempts = RetryAttempts
+    } = St0,
     Opts
 ) ->
     _ = hg_invoice_payment:validate_transition({payment, registration_hold}, Change, St0, Opts),
-    St1 = St0#st{
-        activity = {payment, processing_capture}
-    },
-    hg_invoice_payment:merge_change(Change, St1, Opts);
-merge_change(
-    Change = ?session_ev(
-        ?captured(?CAPTURE_REASON, _Cost),
-        ?session_finished(?session_succeeded())
+    Session0 = hg_session:apply_event(
+        Event, undefined, hg_invoice_payment:create_session_event_context(Target, St0, Opts)
     ),
-    #st{} = St0,
-    Opts
-) ->
-    St2 = hg_invoice_payment:merge_change(Change, St0, Opts),
-    St2#st{
-        activity = {payment, finish_registration}
+    Session1 = hg_session:set_trx_info(hg_invoice_payment:get_trx(St0), Session0),
+    TargetType = captured,
+    St0#st{
+        activity = {payment, finish_registration},
+        sessions = Sessions#{TargetType => [Session1]},
+        retry_attempts = RetryAttempts#{TargetType => 0}
     };
 merge_change(
-    Change = ?payment_status_changed(?captured(?CAPTURE_REASON, _Cost)),
-    #st{} = St0,
+    Change = ?session_ev(
+        Target = ?captured(_Reason, _Cost),
+        Event = ?session_finished(?session_succeeded())
+    ),
+    #st{
+        sessions = Sessions
+    } = St,
     Opts
 ) ->
-    _ = hg_invoice_payment:validate_transition({payment, finish_registration}, Change, St0, Opts),
-    St1 = St0#st{
-        activity = {payment, finalizing_accounter}
-    },
-    hg_invoice_payment:merge_change(Change, St1, Opts);
+    _ = hg_invoice_payment:validate_transition({payment, finish_registration}, Change, St, Opts),
+    Session = hg_session:apply_event(
+        Event,
+        hg_invoice_payment:get_session(Target, St),
+        hg_invoice_payment:create_session_event_context(Target, St, Opts)
+    ),
+    TargetType = captured,
+    St#st{
+        activity = {payment, finish_registration},
+        sessions = Sessions#{TargetType => [Session | maps:get(TargetType, Sessions)]}
+    };
+merge_change(
+    Change = ?payment_status_changed(?captured(_Reason, _Cost) = Status),
+    #st{
+        payment = Payment
+    } = St,
+    Opts
+) ->
+    _ = hg_invoice_payment:validate_transition({payment, finish_registration}, Change, St, Opts),
+    St#st{
+        payment = Payment#domain_InvoicePayment{
+            status = Status
+        },
+        activity = idle,
+        timings = hg_invoice_payment:accrue_status_timing(captured, Opts, St)
+    };
 merge_change(Change, St, Opts) ->
     hg_invoice_payment:merge_change(Change, St, Opts).
 

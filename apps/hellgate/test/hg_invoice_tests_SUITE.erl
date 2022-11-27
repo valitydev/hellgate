@@ -1090,7 +1090,7 @@ register_payment_success(C) ->
         risk_score = high,
         occurred_at = OccurredAt
     },
-    PaymentID = register_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = register_payment(InvoiceID, PaymentParams, true, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
@@ -1130,7 +1130,7 @@ register_payment_customer_payer_success(C) ->
         route = Route,
         transaction_info = ?trx_info(<<"1">>, #{})
     },
-    PaymentID = register_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = register_payment(InvoiceID, PaymentParams, false, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
@@ -1160,7 +1160,7 @@ register_invoice_payment(Route, ShopID, Client, C) ->
         route = Route,
         transaction_info = ?trx_info(<<"1">>, #{})
     },
-    PaymentID = register_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = register_payment(InvoiceID, PaymentParams, false, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
@@ -2507,7 +2507,7 @@ registered_payment_adjustment_success(C) ->
     },
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, PaymentParams, Client),
-    _ = start_payment_ev_optional_risk_score(InvoiceID, Client),
+    _ = start_payment_ev_no_risk_scoring(InvoiceID, Client),
     ?payment_ev(PaymentID, ?cash_flow_changed(CF1)) =
         next_change(InvoiceID, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -5586,7 +5586,7 @@ next_changes_(InvoiceID, Amount, Timeout, Client) ->
                 Time when Time < Timeout ->
                     [next_change(InvoiceID, Client) | Acc];
                 _ ->
-                    [{error, timeout}, Acc]
+                    [{error, timeout} | Acc]
             end
         end,
         [],
@@ -5944,10 +5944,16 @@ start_payment(InvoiceID, PaymentParams, Client) ->
         next_change(InvoiceID, Client),
     PaymentID.
 
-register_payment(InvoiceID, RegisterPaymentParams, Client) ->
+register_payment(InvoiceID, RegisterPaymentParams, WithRiskScoring, Client) ->
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, RegisterPaymentParams, Client),
-    _ = start_payment_ev_optional_risk_score(InvoiceID, Client),
+    _ =
+        case WithRiskScoring of
+            true ->
+                start_payment_ev(InvoiceID, Client);
+            false ->
+                start_payment_ev_no_risk_scoring(InvoiceID, Client)
+        end,
     ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
         next_change(InvoiceID, Client),
     PaymentID.
@@ -5960,17 +5966,12 @@ start_payment_ev(InvoiceID, Client) ->
     ] = next_changes(InvoiceID, 3, Client),
     Route.
 
-start_payment_ev_optional_risk_score(InvoiceID, Client) ->
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    case next_change(InvoiceID, Client) of
-        ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)) ->
-            ?payment_ev(PaymentID, ?route_changed(Route)) =
-                next_change(InvoiceID, Client),
-            Route;
-        ?payment_ev(PaymentID, ?route_changed(Route)) ->
-            Route
-    end.
+start_payment_ev_no_risk_scoring(InvoiceID, Client) ->
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?route_changed(Route))
+    ] = next_changes(InvoiceID, 2, Client),
+    Route.
 
 process_payment(InvoiceID, PaymentParams, Client) ->
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),

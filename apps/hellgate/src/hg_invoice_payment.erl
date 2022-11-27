@@ -40,6 +40,7 @@
 -export([get_allocation/1]).
 -export([get_adjustment/2]).
 -export([get_trx/1]).
+-export([get_session/2]).
 
 -export([get_final_cashflow/1]).
 -export([get_sessions/1]).
@@ -74,6 +75,10 @@
 -export([get_merchant_terms/5]).
 -export([get_provider_terminal_terms/3]).
 -export([calculate_cashflow/10]).
+
+-export([create_session_event_context/3]).
+-export([add_session/3]).
+-export([accrue_status_timing/3]).
 
 %% Machine like
 
@@ -168,6 +173,7 @@
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_status() :: dmsl_domain_thrift:'InvoicePaymentStatus'().
+-type payment_status_type() :: pending | processed | captured | cancelled | refunded | failed | charged_back.
 -type domain_refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
 -type payment_refund() :: dmsl_payproc_thrift:'InvoicePaymentRefund'().
 -type refund_id() :: dmsl_domain_thrift:'InvoicePaymentRefundID'().
@@ -3467,6 +3473,7 @@ is_transition_valid(Allowed, St) when is_list(Allowed) ->
 is_transition_valid(Allowed, #st{activity = Activity}) ->
     Activity =:= Allowed.
 
+-spec accrue_status_timing(payment_status_type(), opts(), st()) -> hg_timings:t().
 accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
     EventTime = define_event_timestamp(Opts),
     hg_timings:mark(Name, EventTime, hg_timings:accrue(Name, started, EventTime, Timings)).
@@ -3635,6 +3642,7 @@ get_payment_state(InvoiceID, PaymentID) ->
             throw(#payproc_InvoicePaymentNotFound{})
     end.
 
+-spec get_session(target(), st()) -> session().
 get_session(Target, #st{sessions = Sessions}) ->
     case maps:get(get_target_type(Target), Sessions, []) of
         [] ->
@@ -3643,6 +3651,7 @@ get_session(Target, #st{sessions = Sessions}) ->
             Session
     end.
 
+-spec add_session(target(), session(), st()) -> st().
 add_session(Target, Session, St = #st{sessions = Sessions}) ->
     TargetType = get_target_type(Target),
     TargetTypeSessions = maps:get(TargetType, Sessions, []),
