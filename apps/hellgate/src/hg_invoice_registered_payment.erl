@@ -234,23 +234,14 @@ process_timeout(Activity, Action, St) ->
 -spec process_registration_hold(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
     hg_invoice_payment:machine_result().
 process_registration_hold(Action, St) ->
-    Route = hg_invoice_payment:get_route(St),
-    FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
     Opts = hg_invoice_payment:get_opts(St),
     Invoice = hg_invoice_payment:get_invoice(Opts),
-    RiskScore = hg_invoice_payment:get_risk_score(St),
-    Party = get_party(Opts),
-    Shop = get_shop(Opts),
     #domain_InvoicePayment{
-        cost = Cost,
-        payer = Payer,
-        domain_revision = Revision
+        cost = Cost
     } = Payment = hg_invoice_payment:get_payment(St),
-    PlanID = construct_payment_plan_id(Invoice, Payment),
-    PaymentTool = get_payer_payment_tool(Payer),
-    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore),
-    ok = hold_payment_limits(Route, Invoice, Payment, VS, Revision),
-    _Clock = hg_accounting:hold(PlanID, {1, FinalCashflow}),
+
+    ok = hold_payment_limits(Invoice, Payment, St),
+    ok = hold_payment_cashflow(Invoice, Payment, St),
     Events = [
         hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost), hg_session:create()),
         hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost), ?session_finished(?session_succeeded()))
@@ -260,24 +251,27 @@ process_registration_hold(Action, St) ->
 -spec process_finishing_registration(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
     hg_invoice_payment:machine_result().
 process_finishing_registration(Action, St) ->
-    Route = hg_invoice_payment:get_route(St),
     Opts = hg_invoice_payment:get_opts(St),
-    RiskScore = hg_invoice_payment:get_risk_score(St),
     Invoice = hg_invoice_payment:get_invoice(Opts),
-    FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
-    Party = get_party(Opts),
-    Shop = get_shop(Opts),
     #domain_InvoicePayment{
-        cost = Cost,
-        payer = Payer,
-        domain_revision = Revision
+        cost = Cost
     } = Payment = hg_invoice_payment:get_payment(St),
-    PaymentTool = get_payer_payment_tool(Payer),
-    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore),
-    ok = commit_payment_limits(Route, Invoice, Payment, Cost, VS, Revision),
-    PlanID = construct_payment_plan_id(Invoice, Payment),
-    _ = hg_accounting:commit(PlanID, [{1, FinalCashflow}]),
+
+    ok = commit_payment_limits(Invoice, Payment, Cost, St),
+    ok = commit_payment_cashflow(Invoice, Payment, St),
     {done, {[?payment_status_changed(?captured(?CAPTURE_REASON, Cost))], Action}}.
+
+hold_payment_cashflow(Invoice, Payment, St) ->
+    PlanID = construct_payment_plan_id(Invoice, Payment),
+    FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
+    _Clock = hg_accounting:hold(PlanID, {1, FinalCashflow}),
+    ok.
+
+commit_payment_cashflow(Invoice, Payment, St) ->
+    PlanID = construct_payment_plan_id(Invoice, Payment),
+    FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
+    _ = hg_accounting:commit(PlanID, [{1, FinalCashflow}]),
+    ok.
 
 maybe_risk_score_event_list(undefined) ->
     [];
@@ -288,17 +282,30 @@ get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
     TermSet = hg_invoice_payment:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
     TermSet#domain_TermSet.payments.
 
-hold_payment_limits(Route, Invoice, Payment, VS, Revision) ->
-    ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
-    TurnoverLimits = get_turnover_limits(ProviderTerms),
+hold_payment_limits(Invoice, Payment, St) ->
+    Route = hg_invoice_payment:get_route(St),
+    TurnoverLimits = get_turnover_limits(Payment, Route, St),
     hg_limiter:hold_payment_limits(TurnoverLimits, Route, Invoice, Payment).
 
-commit_payment_limits(Route, Invoice, Payment, Cash, VS, Revision) ->
-    ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
-    TurnoverLimits = get_turnover_limits(ProviderTerms),
+commit_payment_limits(Invoice, Payment, Cash, St) ->
+    Route = hg_invoice_payment:get_route(St),
+    TurnoverLimits = get_turnover_limits(Payment, Route, St),
     hg_limiter:commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, Cash).
 
-get_turnover_limits(ProviderTerms) ->
+get_turnover_limits(Payment, Route, St) ->
+    Route = hg_invoice_payment:get_route(St),
+    Opts = hg_invoice_payment:get_opts(St),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
+    #domain_InvoicePayment{
+        cost = Cost,
+        payer = Payer,
+        domain_revision = Revision
+    } = Payment = hg_invoice_payment:get_payment(St),
+    PaymentTool = get_payer_payment_tool(Payer),
+    RiskScore = hg_invoice_payment:get_risk_score(St),
+    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore),
+    ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).
 
