@@ -122,76 +122,6 @@ merge_change(
         activity = {payment, routing}
     },
     hg_invoice_payment:merge_change(Change, St1, Opts);
-merge_change(
-    Change = ?payment_capture_started(Data),
-    #st{} = St,
-    Opts
-) ->
-    _ = hg_invoice_payment:validate_transition({payment, flow_waiting}, Change, St, Opts),
-    St#st{
-        capture_data = Data,
-        activity = {payment, registration_hold},
-        %% NOTE If supporting registering allocation is needed, add them here
-        allocation = undefined
-    };
-merge_change(
-    Change = ?session_ev(
-        Target = ?captured(_Reason, _Cost),
-        Event = ?session_started()
-    ),
-    #st{
-        sessions = Sessions,
-        retry_attempts = RetryAttempts
-    } = St0,
-    Opts
-) ->
-    _ = hg_invoice_payment:validate_transition({payment, registration_hold}, Change, St0, Opts),
-    Session0 = hg_session:apply_event(
-        Event, undefined, hg_invoice_payment:create_session_event_context(Target, St0, Opts)
-    ),
-    Session1 = hg_session:set_trx_info(hg_invoice_payment:get_trx(St0), Session0),
-    TargetType = captured,
-    St0#st{
-        activity = {payment, finish_registration},
-        sessions = Sessions#{TargetType => [Session1]},
-        retry_attempts = RetryAttempts#{TargetType => 0}
-    };
-merge_change(
-    Change = ?session_ev(
-        Target = ?captured(_Reason, _Cost),
-        Event = ?session_finished(?session_succeeded())
-    ),
-    #st{
-        sessions = Sessions
-    } = St,
-    Opts
-) ->
-    _ = hg_invoice_payment:validate_transition({payment, finish_registration}, Change, St, Opts),
-    Session = hg_session:apply_event(
-        Event,
-        hg_invoice_payment:get_session(Target, St),
-        hg_invoice_payment:create_session_event_context(Target, St, Opts)
-    ),
-    TargetType = captured,
-    St#st{
-        activity = {payment, finish_registration},
-        sessions = Sessions#{TargetType => [Session | maps:get(TargetType, Sessions)]}
-    };
-merge_change(
-    Change = ?payment_status_changed(?captured(_Reason, _Cost) = Status),
-    #st{
-        payment = Payment
-    } = St,
-    Opts
-) ->
-    _ = hg_invoice_payment:validate_transition({payment, finish_registration}, Change, St, Opts),
-    St#st{
-        payment = Payment#domain_InvoicePayment{
-            status = Status
-        },
-        activity = idle,
-        timings = hg_invoice_payment:accrue_status_timing(captured, Opts, St)
-    };
 merge_change(Change, St, Opts) ->
     hg_invoice_payment:merge_change(Change, St, Opts).
 
@@ -224,16 +154,14 @@ repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) -
             process_timeout(Activity, Action, St)
     end.
 
-process_timeout({payment, registration_hold}, Action, St) ->
-    process_registration_hold(Action, St);
-process_timeout({payment, finish_registration}, Action, St) ->
-    process_finishing_registration(Action, St);
+process_timeout({payment, processing_capture}, Action, St) ->
+    process_processing_capture(Action, St);
 process_timeout(Activity, Action, St) ->
     hg_invoice_payment:process_timeout(Activity, Action, St).
 
--spec process_registration_hold(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
+-spec process_processing_capture(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
     hg_invoice_payment:machine_result().
-process_registration_hold(Action, St) ->
+process_processing_capture(Action, St) ->
     Opts = hg_invoice_payment:get_opts(St),
     Invoice = hg_invoice_payment:get_invoice(Opts),
     #domain_InvoicePayment{
@@ -248,29 +176,10 @@ process_registration_hold(Action, St) ->
     ],
     {next, {Events, hg_machine_action:set_timeout(0, Action)}}.
 
--spec process_finishing_registration(hg_invoice_payment:action(), hg_invoice_payment:st()) ->
-    hg_invoice_payment:machine_result().
-process_finishing_registration(Action, St) ->
-    Opts = hg_invoice_payment:get_opts(St),
-    Invoice = hg_invoice_payment:get_invoice(Opts),
-    #domain_InvoicePayment{
-        cost = Cost
-    } = Payment = hg_invoice_payment:get_payment(St),
-
-    ok = commit_payment_limits(Invoice, Payment, Cost, St),
-    ok = commit_payment_cashflow(Invoice, Payment, St),
-    {done, {[?payment_status_changed(?captured(?CAPTURE_REASON, Cost))], Action}}.
-
 hold_payment_cashflow(Invoice, Payment, St) ->
     PlanID = construct_payment_plan_id(Invoice, Payment),
     FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
     _Clock = hg_accounting:hold(PlanID, {1, FinalCashflow}),
-    ok.
-
-commit_payment_cashflow(Invoice, Payment, St) ->
-    PlanID = construct_payment_plan_id(Invoice, Payment),
-    FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
-    _ = hg_accounting:commit(PlanID, [{1, FinalCashflow}]),
     ok.
 
 maybe_risk_score_event_list(undefined) ->
@@ -286,11 +195,6 @@ hold_payment_limits(Invoice, Payment, St) ->
     Route = hg_invoice_payment:get_route(St),
     TurnoverLimits = get_turnover_limits(Payment, Route, St),
     hg_limiter:hold_payment_limits(TurnoverLimits, Route, Invoice, Payment).
-
-commit_payment_limits(Invoice, Payment, Cash, St) ->
-    Route = hg_invoice_payment:get_route(St),
-    TurnoverLimits = get_turnover_limits(Payment, Route, St),
-    hg_limiter:commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, Cash).
 
 get_turnover_limits(Payment, Route, St) ->
     Route = hg_invoice_payment:get_route(St),

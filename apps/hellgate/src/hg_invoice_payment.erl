@@ -154,9 +154,7 @@
     | updating_accounter
     | flow_waiting
     | finalizing_session
-    | finalizing_accounter
-    | finish_registration
-    | registration_hold.
+    | finalizing_accounter.
 
 -type chargeback_state() :: hg_invoice_payment_chargeback:state().
 
