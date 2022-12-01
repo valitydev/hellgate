@@ -28,7 +28,7 @@ services:
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-b978f94
+    image: ghcr.io/valitydev/dominant:sha-5009e22
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -87,7 +87,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-bbbeae5
+    image: ghcr.io/valitydev/party-management:sha-bc8368d
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:

@@ -11,7 +11,6 @@
 -export([make_route/2]).
 -export([get_provider/1]).
 -export([get_terminal/1]).
--export([merge_withdrawal_terms/2]).
 -export([routes/1]).
 -export([log_reject_context/1]).
 
@@ -134,33 +133,6 @@ get_provider(#{provider_id := ProviderID}) ->
 -spec get_terminal(route()) -> ff_maybe:maybe(terminal_id()).
 get_terminal(Route) ->
     maps:get(terminal_id, Route, undefined).
-
--spec merge_withdrawal_terms(
-    ff_payouts_provider:provision_terms() | undefined,
-    ff_payouts_terminal:provision_terms() | undefined
-) -> ff_maybe:maybe(withdrawal_provision_terms()).
-merge_withdrawal_terms(
-    #domain_WithdrawalProvisionTerms{
-        currencies = PCurrencies,
-        payout_methods = PPayoutMethods,
-        cash_limit = PCashLimit,
-        cash_flow = PCashflow
-    },
-    #domain_WithdrawalProvisionTerms{
-        currencies = TCurrencies,
-        payout_methods = TPayoutMethods,
-        cash_limit = TCashLimit,
-        cash_flow = TCashflow
-    }
-) ->
-    #domain_WithdrawalProvisionTerms{
-        currencies = ff_maybe:get_defined(TCurrencies, PCurrencies),
-        payout_methods = ff_maybe:get_defined(TPayoutMethods, PPayoutMethods),
-        cash_limit = ff_maybe:get_defined(TCashLimit, PCashLimit),
-        cash_flow = ff_maybe:get_defined(TCashflow, PCashflow)
-    };
-merge_withdrawal_terms(ProviderTerms, TerminalTerms) ->
-    ff_maybe:get_defined(TerminalTerms, ProviderTerms).
 
 -spec routes(routing_state()) ->
     {ok, [route()]} | {error, route_not_found}.
@@ -296,6 +268,7 @@ do_validate_limits(CombinedTerms, PartyVarset, Route, RoutingContext) ->
 do_validate_terms(CombinedTerms, PartyVarset, _Route, _RoutingContext) ->
     do(fun() ->
         #domain_WithdrawalProvisionTerms{
+            allow = Allow,
             currencies = CurrenciesSelector,
             %% PayoutMethodsSelector is useless for withdrawals
             %% so we can just ignore it
@@ -303,6 +276,7 @@ do_validate_terms(CombinedTerms, PartyVarset, _Route, _RoutingContext) ->
             cash_limit = CashLimitSelector
         } = CombinedTerms,
         valid = unwrap(validate_selectors_defined(CombinedTerms)),
+        valid = unwrap(validate_allow(Allow)),
         valid = unwrap(validate_currencies(CurrenciesSelector, PartyVarset)),
         valid = unwrap(validate_cash_limit(CashLimitSelector, PartyVarset))
     end).
@@ -322,6 +296,18 @@ validate_selectors_defined(Terms) ->
             {ok, valid};
         true ->
             {error, terms_undefined}
+    end.
+
+validate_allow(Constant) ->
+    case Constant of
+        undefined ->
+            {ok, valid};
+        {constant, true} ->
+            {ok, valid};
+        {constant, false} ->
+            {error, {terms_violation, terminal_forbidden}};
+        Ambiguous ->
+            {error, {misconfiguration, {'Could not reduce predicate to a value', {allow, Ambiguous}}}}
     end.
 
 -spec validate_currencies(currency_selector(), party_varset()) ->

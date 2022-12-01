@@ -32,6 +32,9 @@
 
 %% Tests
 
+-export([allow_route_test/1]).
+-export([not_allow_route_test/1]).
+-export([not_reduced_allow_route_test/1]).
 -export([adapter_unreachable_route_test/1]).
 -export([adapter_unreachable_route_retryable_test/1]).
 -export([adapter_unreachable_quote_test/1]).
@@ -70,6 +73,9 @@ all() ->
 groups() ->
     [
         {default, [
+            allow_route_test,
+            not_allow_route_test,
+            not_reduced_allow_route_test,
             adapter_unreachable_route_test,
             adapter_unreachable_route_retryable_test,
             adapter_unreachable_quote_test,
@@ -115,6 +121,69 @@ end_per_testcase(_Name, _C) ->
     ok = ct_helper:unset_context().
 
 %% Tests
+
+-spec allow_route_test(config()) -> test_return().
+allow_route_test(C) ->
+    Currency = <<"RUB">>,
+    Cash = {910000, Currency},
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, C),
+    WithdrawalID = generate_id(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        body => Cash,
+        external_id => WithdrawalID
+    },
+    ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
+    ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)).
+
+-spec not_allow_route_test(config()) -> test_return().
+not_allow_route_test(C) ->
+    Currency = <<"RUB">>,
+    Cash = {920000, Currency},
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, C),
+    WithdrawalID = generate_id(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        body => Cash,
+        external_id => WithdrawalID
+    },
+    ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
+    ?assertMatch(
+        {failed, #{code := <<"no_route_found">>}},
+        await_final_withdrawal_status(WithdrawalID)
+    ).
+
+-spec not_reduced_allow_route_test(config()) -> test_return().
+not_reduced_allow_route_test(C) ->
+    Currency = <<"RUB">>,
+    Cash = {930000, Currency},
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, C),
+    WithdrawalID = generate_id(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        body => Cash,
+        external_id => WithdrawalID
+    },
+    ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
+    ?assertMatch(
+        {failed, #{code := <<"no_route_found">>}},
+        await_final_withdrawal_status(WithdrawalID)
+    ).
 
 -spec adapter_unreachable_route_test(config()) -> test_return().
 adapter_unreachable_route_test(C) ->
