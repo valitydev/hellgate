@@ -2043,19 +2043,19 @@ process_refund(ID, St = #st{opts = Options0, payment = Payment, repair_scenario 
     Events2 =
         case hg_invoice_payment_refund:is_status_changed(?refund_succeeded(), Events1) of
             true ->
-                process_refund_result(Events1, Refund);
+                process_refund_result(Events1, Refund, St);
             false ->
                 Events1
         end,
     {Step, {Events2, Action}}.
 
-process_refund_result(Changes, Refund0) ->
+process_refund_result(Changes, Refund0, St) ->
     Events = [Event || ?refund_ev(_, Event) <- Changes],
     Refund1 = hg_invoice_payment_refund:update_state_with(Events, Refund0),
     PaymentEvents =
         case
             hg_cash:sub(
-                hg_invoice_payment_refund:remaining_payment_amount(Refund1), hg_invoice_payment_refund:cash(Refund1)
+                get_remaining_payment_balance(St), hg_invoice_payment_refund:cash(Refund1)
             )
         of
             ?cash(0, _) ->
@@ -3069,8 +3069,7 @@ merge_change(Change = ?chargeback_ev(ID, Event), St, Opts) ->
     ChargebackSt = merge_chargeback_change(Event, try_get_chargeback_state(ID, St1)),
     set_chargeback_state(ID, ChargebackSt, St1);
 merge_change(?refund_ev(ID, Event), St, Opts) ->
-    RemainingPaymentAmount = get_remaining_payment_balance(St),
-    EventContext = create_refund_event_context(RemainingPaymentAmount, St, Opts),
+    EventContext = create_refund_event_context(St, Opts),
     St1 =
         case Event of
             ?refund_status_changed(?refund_succeeded()) ->
@@ -3324,12 +3323,11 @@ create_session_event_context(Target, St, Opts = #{invoice_id := InvoiceID}) ->
         payment_id => get_payment_id(get_payment(St))
     }.
 
--spec create_refund_event_context(cash(), st(), change_opts()) -> hg_invoice_payment_refund:event_context().
-create_refund_event_context(RemainingPaymentAmount, St, Opts) ->
+-spec create_refund_event_context(st(), change_opts()) -> hg_invoice_payment_refund:event_context().
+create_refund_event_context(St, Opts) ->
     #{
         timestamp => define_event_timestamp(Opts),
         route => get_route(St),
-        remaining_payment_amount => RemainingPaymentAmount,
         session_context => create_session_event_context(?refunded(), St, Opts)
     }.
 
