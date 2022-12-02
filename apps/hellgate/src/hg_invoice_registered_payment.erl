@@ -144,17 +144,11 @@ process_signal(timeout, St, Options) ->
 
 process_timeout(St) ->
     Action = hg_machine_action:new(),
-    repair_process_timeout(hg_invoice_payment:get_activity(St), Action, St).
-
-repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
-    case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
-        {result, Result} ->
-            Result;
-        call ->
-            process_timeout(Activity, Action, St)
-    end.
+    process_timeout(hg_invoice_payment:get_activity(St), Action, St).
 
 process_timeout({payment, processing_capture}, Action, St) ->
+    %% It is an intermediate activity in hg_invoice_payment, but is used to initiate holds,
+    %% due to need to save Transaction Info during initiation.
     process_processing_capture(Action, St);
 process_timeout(Activity, Action, St) ->
     hg_invoice_payment:process_timeout(Activity, Action, St).
