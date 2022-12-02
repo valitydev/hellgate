@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -export([cfg/2]).
+-export([cfg/3]).
 
 -export([start_apps/1]).
 -export([start_app/1]).
@@ -95,6 +96,23 @@ start_app(dmt_client = AppName) ->
             {service_urls, #{
                 'Repository' => <<"http://dominant:8022/v1/domain/repository">>,
                 'RepositoryClient' => <<"http://dominant:8022/v1/domain/repository_client">>
+            }}
+        ]),
+        #{}
+    };
+start_app(party_client = AppName) ->
+    {
+        start_app_with(AppName, [
+            {services, #{
+                party_management => "http://party-management:8022/v1/processing/partymgmt"
+            }},
+            {woody, #{
+                cache_mode => safe,
+                options => #{
+                    woody_client => #{
+                        event_handler => {scoper_woody_event_handler, #{}}
+                    }
+                }
             }}
         ]),
         #{}

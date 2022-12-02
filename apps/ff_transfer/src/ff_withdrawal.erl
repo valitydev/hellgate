@@ -18,7 +18,6 @@
     created_at => ff_time:timestamp_ms(),
     party_revision => party_revision(),
     domain_revision => domain_revision(),
-    iteration => non_neg_integer(),
     route => route(),
     attempts => attempts(),
     resource => destination_resource(),
@@ -191,6 +190,7 @@
 -export_type([adjustment_params/0]).
 -export_type([start_adjustment_error/0]).
 -export_type([limit_check_details/0]).
+-export_type([activity/0]).
 
 %% Transfer logic callbacks
 
@@ -217,6 +217,7 @@
 -export([destination_resource/1]).
 -export([metadata/1]).
 -export([params/1]).
+-export([activity/1]).
 
 %% API
 
@@ -392,6 +393,10 @@ metadata(T) ->
 -spec params(withdrawal_state()) -> transfer_params().
 params(#{params := V}) ->
     V.
+
+-spec activity(withdrawal_state()) -> activity().
+activity(Withdrawal) ->
+    deduce_activity(Withdrawal).
 
 %% API
 
@@ -744,7 +749,7 @@ do_process_transfer(routing, Withdrawal) ->
 do_process_transfer(p_transfer_start, Withdrawal) ->
     process_p_transfer_creation(Withdrawal);
 do_process_transfer(p_transfer_prepare, Withdrawal) ->
-    ok = do_rollback_routing(route(Withdrawal), Withdrawal),
+    ok = do_rollback_routing([route(Withdrawal)], Withdrawal),
     Tr = ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)),
     {ok, Events} = ff_postings_transfer:prepare(Tr),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
@@ -790,7 +795,7 @@ process_routing(Withdrawal) ->
 
 -spec process_rollback_routing(withdrawal_state()) -> process_result().
 process_rollback_routing(Withdrawal) ->
-    _ = do_rollback_routing(undefined, Withdrawal),
+    ok = do_rollback_routing([], Withdrawal),
     {undefined, []}.
 
 -spec do_process_routing(withdrawal_state()) -> {ok, [route()]} | {error, Reason} when
@@ -799,7 +804,8 @@ process_rollback_routing(Withdrawal) ->
 do_process_routing(Withdrawal) ->
     do(fun() ->
         {Varset, Context} = make_routing_varset_and_context(Withdrawal),
-        GatherResult = ff_withdrawal_routing:gather_routes(Varset, Context),
+        ExcludeRoutes = ff_withdrawal_route_attempt_utils:get_terminals(attempts(Withdrawal)),
+        GatherResult = ff_withdrawal_routing:gather_routes(Varset, Context, ExcludeRoutes),
         FilterResult = ff_withdrawal_routing:filter_limit_overflow_routes(GatherResult, Varset, Context),
         ff_withdrawal_routing:log_reject_context(FilterResult),
         Routes = unwrap(ff_withdrawal_routing:routes(FilterResult)),
@@ -813,46 +819,21 @@ do_process_routing(Withdrawal) ->
         end
     end).
 
-% filter_attempts(#{routes := Routes} = Result, Withdrawal) ->
-%     NextRoutesResult = ff_withdrawal_route_attempt_utils:next_routes(
-%         [
-%             ff_withdrawal_routing:make_route(ProviderID, TerminalID)
-%          || #{
-%                 provider_ref := #domain_ProviderRef{id = ProviderID},
-%                 terminal_ref := #domain_TerminalRef{id = TerminalID}
-%             } <- Routes
-%         ],
-%         attempts(Withdrawal),
-%         get_attempt_limit(Withdrawal)
-%     ),
-%     case NextRoutesResult of
-%         {ok, Left} ->
-%             {ok, Result#{
-%                 routes => [
-%                     Route
-%                  || Route = #{
-%                         provider_ref := #domain_ProviderRef{id = ProviderID},
-%                         terminal_ref := #domain_TerminalRef{id = TerminalID}
-%                     } <- Routes,
-%                     lists:member(ff_withdrawal_routing:make_route(ProviderID, TerminalID), Left)
-%                 ]
-%             }};
-%         {error, Reason} ->
-%             {error, Reason}
-%     end.
-
-do_rollback_routing(ExcludeRoute, Withdrawal) ->
-    do(fun() ->
-        {Varset, Context} = make_routing_varset_and_context(Withdrawal),
-        Routes = unwrap(ff_withdrawal_routing:routes(ff_withdrawal_routing:gather_routes(Varset, Context))),
-        RollbackRoutes = maybe_exclude_route(ExcludeRoute, Routes),
-        rollback_routes_limits(RollbackRoutes, Varset, Context)
-    end).
-
-maybe_exclude_route(#{terminal_id := TerminalID}, Routes) ->
-    lists:filter(fun(#{terminal_id := TID}) -> TerminalID =/= TID end, Routes);
-maybe_exclude_route(undefined, Routes) ->
-    Routes.
+do_rollback_routing(ExcludeRoutes0, Withdrawal) ->
+    {Varset, Context} = make_routing_varset_and_context(Withdrawal),
+    ExcludeUsedRoutes0 = ff_withdrawal_route_attempt_utils:get_terminals(attempts(Withdrawal)),
+    ExcludeUsedRoutes1 =
+        case ff_withdrawal_route_attempt_utils:get_current_p_transfer_status(attempts(Withdrawal)) of
+            cancelled ->
+                ExcludeUsedRoutes0;
+            _ ->
+                CurrentRoute = ff_withdrawal_route_attempt_utils:get_current_terminal(attempts(Withdrawal)),
+                lists:filter(fun(R) -> CurrentRoute =/= R end, ExcludeUsedRoutes0)
+        end,
+    ExcludeRoutes1 =
+        ExcludeUsedRoutes1 ++ lists:map(fun(R) -> ff_withdrawal_routing:get_terminal(R) end, ExcludeRoutes0),
+    Routes = ff_withdrawal_routing:get_routes(ff_withdrawal_routing:gather_routes(Varset, Context, ExcludeRoutes1)),
+    rollback_routes_limits(Routes, Varset, Context).
 
 rollback_routes_limits(Routes, Withdrawal) ->
     {Varset, Context} = make_routing_varset_and_context(Withdrawal),
@@ -885,7 +866,7 @@ make_routing_varset_and_context(Withdrawal) ->
         domain_revision => DomainRevision,
         identity => Identity,
         withdrawal => Withdrawal,
-        iteration => maps:get(iteration, Withdrawal)
+        iteration => ff_withdrawal_route_attempt_utils:get_index(attempts(Withdrawal))
     },
     {build_party_varset(VarsetParams), Context}.
 
@@ -1906,15 +1887,8 @@ apply_event_({limit_check, Details}, T) ->
     add_limit_check(Details, T);
 apply_event_({p_transfer, Ev}, T) ->
     Tr = ff_postings_transfer:apply_event(Ev, p_transfer(T)),
-    Iteration =
-        case maps:get(status, Tr, undefined) of
-            committed -> maps:get(iteration, T) + 1;
-            cancelled -> maps:get(iteration, T) + 1;
-            _ -> maps:get(iteration, T)
-        end,
-    Attempts = attempts(T),
-    R = ff_withdrawal_route_attempt_utils:update_current_p_transfer(Tr, Attempts),
-    update_attempts(R, T#{iteration => Iteration});
+    R = ff_withdrawal_route_attempt_utils:update_current_p_transfer(Tr, attempts(T)),
+    update_attempts(R, T);
 apply_event_({session_started, SessionID}, T) ->
     Session = #{id => SessionID},
     Attempts = attempts(T),
@@ -1941,11 +1915,10 @@ apply_event_({adjustment, _Ev} = Event, T) ->
 make_state(#{route := Route} = T) ->
     Attempts = ff_withdrawal_route_attempt_utils:new(),
     T#{
-        iteration => 1,
         attempts => ff_withdrawal_route_attempt_utils:new_route(Route, Attempts)
     };
 make_state(T) when not is_map_key(route, T) ->
-    T#{iteration => 1}.
+    T.
 
 get_attempt_limit(Withdrawal) ->
     #{

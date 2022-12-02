@@ -33,6 +33,14 @@ init_per_suite(Config) ->
     {ok, #config_LimitConfig{}} = ff_ct_limiter_client:create_config(
         limiter_create_amount_params(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2),
         ct_helper:get_woody_ctx(Config)
+    ),
+    {ok, #config_LimitConfig{}} = ff_ct_limiter_client:create_config(
+        limiter_create_amount_params(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID3),
+        ct_helper:get_woody_ctx(Config)
+    ),
+    {ok, #config_LimitConfig{}} = ff_ct_limiter_client:create_config(
+        limiter_create_amount_params(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID4),
+        ct_helper:get_woody_ctx(Config)
     ).
 
 -spec get_limit_amount(id(), withdrawal(), config()) -> integer().

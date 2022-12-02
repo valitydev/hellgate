@@ -20,8 +20,10 @@
 -export([new_route/2]).
 -export([next_route/3]).
 -export([next_routes/3]).
+-export([get_index/1]).
 -export([get_current_session/1]).
 -export([get_current_p_transfer/1]).
+-export([get_current_p_transfer_status/1]).
 -export([get_current_limit_checks/1]).
 -export([update_current_session/2]).
 -export([update_current_p_transfer/2]).
@@ -29,21 +31,27 @@
 
 -export([get_sessions/1]).
 -export([get_attempt/1]).
+-export([get_terminals/1]).
+-export([get_current_terminal/1]).
 
 -opaque attempts() :: #{
     attempts := #{route_key() => attempt()},
     inversed_routes := [route_key()],
     attempt := non_neg_integer(),
-    current => route_key()
+    current => route_key(),
+    index := index()
 }.
+
+-type index() :: non_neg_integer().
+-define(DEFAULT_INDEX, 1).
 
 -export_type([attempts/0]).
 
 %% Iternal types
 
 -type p_transfer() :: ff_postings_transfer:transfer().
+-type p_transfer_status() :: ff_postings_transfer:status().
 -type limit_check_details() :: ff_withdrawal:limit_check_details().
--type account() :: ff_account:account().
 -type route() :: ff_withdrawal_routing:route().
 -type route_key() :: {ff_payouts_provider:id(), ff_payouts_terminal:id()} | unknown.
 -type session() :: ff_withdrawal:session().
@@ -62,7 +70,8 @@ new() ->
     #{
         attempts => #{},
         inversed_routes => [],
-        attempt => 0
+        attempt => 0,
+        index => ?DEFAULT_INDEX
     }.
 
 -spec new_route(route(), attempts()) -> attempts().
@@ -99,6 +108,12 @@ next_routes(Routes, #{attempts := Existing}, _AttemptLimit) ->
             Routes
         )}.
 
+-spec get_index(attempts() | undefined) -> index().
+get_index(undefined) ->
+    ?DEFAULT_INDEX;
+get_index(#{index := Index}) ->
+    Index.
+
 -spec get_current_session(attempts()) -> undefined | session().
 get_current_session(Attempts) ->
     Attempt = current(Attempts),
@@ -108,6 +123,11 @@ get_current_session(Attempts) ->
 get_current_p_transfer(Attempts) ->
     Attempt = current(Attempts),
     maps:get(p_transfer, Attempt, undefined).
+
+-spec get_current_p_transfer_status(attempts()) -> undefined | p_transfer_status().
+get_current_p_transfer_status(Attempts) ->
+    Attempt = current(Attempts),
+    maps:get(status, maps:get(p_transfer, Attempt, #{}), undefined).
 
 -spec get_current_limit_checks(attempts()) -> undefined | [limit_check_details()].
 get_current_limit_checks(Attempts) ->
@@ -122,13 +142,19 @@ update_current_session(Session, Attempts) ->
     },
     update_current(Updated, Attempts).
 
--spec update_current_p_transfer(account(), attempts()) -> attempts().
-update_current_p_transfer(Account, Attempts) ->
+-spec update_current_p_transfer(p_transfer(), attempts()) -> attempts().
+update_current_p_transfer(PTransfer, Attempts = #{index := Index}) ->
     Attempt = current(Attempts),
     Updated = Attempt#{
-        p_transfer => Account
+        p_transfer => PTransfer
     },
-    update_current(Updated, Attempts).
+    NewIndex =
+        case maps:get(status, PTransfer, undefined) of
+            committed -> Index + 1;
+            cancelled -> Index + 1;
+            _ -> Index
+        end,
+    update_current(Updated, Attempts#{index => NewIndex}).
 
 -spec update_current_limit_checks([limit_check_details()], attempts()) -> attempts().
 update_current_limit_checks(LimitChecks, Routes) ->
@@ -159,6 +185,18 @@ get_sessions(#{attempts := Attempts, inversed_routes := InvRoutes}) ->
 -spec get_attempt(attempts()) -> non_neg_integer().
 get_attempt(#{attempt := Attempt}) ->
     Attempt.
+
+-spec get_terminals(attempts()) -> [ff_payouts_terminal:id()].
+get_terminals(#{attempts := Attempts}) ->
+    lists:map(fun({_, TerminalID}) -> TerminalID end, maps:keys(Attempts));
+get_terminals(_) ->
+    [].
+
+-spec get_current_terminal(attempts()) -> undefined | ff_payouts_terminal:id().
+get_current_terminal(#{current := {_, TerminalID}}) ->
+    TerminalID;
+get_current_terminal(_) ->
+    undefined.
 
 %% Internal
 
@@ -192,8 +230,4 @@ update_current(Attempt, #{current := Route, attempts := Attempts} = R) ->
         attempts => Attempts#{
             Route => Attempt
         }
-    };
-update_current(Attempt, R) when not is_map_key(current, R) ->
-    % There are some legacy operations without a route in storage
-    % It looks like we should save other data without route.
-    update_current(Attempt, add_route(unknown, R)).
+    }.

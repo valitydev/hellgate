@@ -57,7 +57,6 @@
 %% Internal types
 
 -type id() :: ff_accounting:id().
--type account() :: ff_account:account().
 
 %%
 
@@ -177,7 +176,7 @@ cancel(#{status := Status}) ->
 
 %%
 
--spec apply_event(event(), ff_maybe:maybe(account())) -> account().
+-spec apply_event(event(), ff_maybe:maybe(transfer())) -> transfer().
 apply_event({created, Transfer}, undefined) ->
     Transfer;
 apply_event({status_changed, S}, Transfer) ->
