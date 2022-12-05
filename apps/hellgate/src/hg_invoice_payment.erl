@@ -3529,7 +3529,7 @@ try_get_chargeback_state(ID, #st{chargebacks = CBs}) ->
 set_refund_state(ID, RefundSt, St = #st{refunds = Rs}) ->
     St#st{refunds = Rs#{ID => RefundSt}}.
 
--spec get_origin(st() | undefined) -> dmsl_domain_thrift:'InvoicePaymentRegistrationOrigin'().
+-spec get_origin(st() | undefined) -> dmsl_domain_thrift:'InvoicePaymentRegistrationOrigin'() | undefined.
 get_origin(#st{payment = #domain_InvoicePayment{registration_origin = Origin}}) ->
     Origin.
 
