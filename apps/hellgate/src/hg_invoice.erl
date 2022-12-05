@@ -796,7 +796,7 @@ process_payment_signal(Signal, PaymentID, PaymentSession, St) ->
     handle_payment_result(PaymentResult, PaymentID, PaymentSession, St, Opts).
 
 process_invoice_payment_signal(Signal, PaymentSession, Opts) ->
-    case hg_maybe:apply(fun (PS) -> hg_invoice_payment:get_origin(PS) end, PaymentSession) of
+    case hg_maybe:apply(fun(PS) -> hg_invoice_payment:get_origin(PS) end, PaymentSession) of
         undefined ->
             hg_invoice_payment:process_signal(Signal, PaymentSession, Opts);
         ?invoice_payment_merchant_reg_origin() ->
@@ -1128,7 +1128,7 @@ merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{
     end.
 
 merge_payment_change(Change, PaymentSession, Opts) ->
-    case hg_maybe:apply(fun (PS) -> hg_invoice_payment:get_origin(PS) end, PaymentSession) of
+    case hg_maybe:apply(fun(PS) -> hg_invoice_payment:get_origin(PS) end, PaymentSession) of
         undefined ->
             hg_invoice_payment:merge_change(Change, PaymentSession, Opts);
         ?invoice_payment_merchant_reg_origin() ->
