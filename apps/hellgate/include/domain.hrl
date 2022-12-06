@@ -25,6 +25,14 @@
     {operation_timeout, #domain_OperationTimeout{}}
 ).
 
+-define(invoice_payment_merchant_reg_origin(),
+    {merchant, #domain_InvoicePaymentMerchantRegistration{}}
+).
+
+-define(invoice_payment_provider_reg_origin(),
+    {provider, #domain_InvoicePaymentProviderRegistration{}}
+).
+
 -define(invoice_payment_flow_instant(),
     {instant, #domain_InvoicePaymentFlowInstant{}}
 ).

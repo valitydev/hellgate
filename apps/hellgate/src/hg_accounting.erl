@@ -31,7 +31,7 @@
 -type account_id() :: dmsl_accounter_thrift:'AccountID'().
 -type plan_id() :: dmsl_accounter_thrift:'PlanID'().
 -type batch_id() :: dmsl_accounter_thrift:'BatchID'().
--type final_cash_flow() :: dmsl_domain_thrift:'FinalCashFlow'().
+-type final_cash_flow() :: hg_cashflow:final_cash_flow().
 -type batch() :: {batch_id(), final_cash_flow()}.
 -type posting_plan_log() :: dmsl_accounter_thrift:'PostingPlanLog'().
 -type thrift_account() :: dmsl_accounter_thrift:'Account'().
@@ -39,7 +39,7 @@
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type party() :: dmsl_domain_thrift:'Party'().
 -type shop() :: dmsl_domain_thrift:'Shop'().
--type route() :: dmsl_domain_thrift:'PaymentRoute'().
+-type route() :: hg_routing:payment_route().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
 -type provider() :: dmsl_domain_thrift:'Provider'().
 -type varset() :: hg_varset:varset().

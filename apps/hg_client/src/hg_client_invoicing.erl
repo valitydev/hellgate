@@ -1,6 +1,7 @@
 -module(hg_client_invoicing).
 
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("hellgate/include/invoice_events.hrl").
 
 -export([start/1]).
 -export([start_link/1]).
@@ -19,6 +20,7 @@
 -export([get_invoice_adjustment/3]).
 
 -export([start_payment/3]).
+-export([register_payment/3]).
 -export([get_payment/3]).
 -export([cancel_payment/4]).
 -export([capture_payment/4]).
@@ -44,6 +46,7 @@
 
 -export([pull_event/2]).
 -export([pull_event/3]).
+-export([pull_change/4]).
 
 %% GenServer
 
@@ -61,6 +64,7 @@
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type invoice_state() :: dmsl_payproc_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
+-type payment_st() :: dmsl_payproc_thrift:'InvoicePayment'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
 -type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
@@ -69,6 +73,7 @@
 -type invoice_adjustment_params() :: dmsl_payproc_thrift:'InvoiceAdjustmentParams'().
 
 -type payment_params() :: dmsl_payproc_thrift:'InvoicePaymentParams'().
+-type register_payment_params() :: dmsl_payproc_thrift:'RegisterInvoicePaymentParams'().
 
 -type payment_adjustment() :: dmsl_domain_thrift:'InvoicePaymentAdjustment'().
 -type payment_adjustment_id() :: dmsl_domain_thrift:'InvoicePaymentAdjustmentID'().
@@ -161,7 +166,11 @@ get_invoice_adjustment(InvoiceID, ID, Client) ->
 start_payment(InvoiceID, PaymentParams, Client) ->
     map_result_error(gen_server:call(Client, {call, 'StartPayment', [InvoiceID, PaymentParams]})).
 
--spec get_payment(invoice_id(), payment_id(), pid()) -> payment() | woody_error:business_error().
+-spec register_payment(invoice_id(), register_payment_params(), pid()) -> payment() | woody_error:business_error().
+register_payment(InvoiceID, RegisterPaymentParams, Client) ->
+    map_result_error(gen_server:call(Client, {call, 'RegisterPayment', [InvoiceID, RegisterPaymentParams]})).
+
+-spec get_payment(invoice_id(), payment_id(), pid()) -> payment_st() | woody_error:business_error().
 get_payment(InvoiceID, PaymentID, Client) ->
     map_result_error(gen_server:call(Client, {call, 'GetPayment', [InvoiceID, PaymentID]})).
 
@@ -261,14 +270,41 @@ compute_terms(InvoiceID, PartyRevision, Client) ->
 
 -define(DEFAULT_NEXT_EVENT_TIMEOUT, 5000).
 
--spec pull_event(invoice_id(), pid()) -> tuple() | timeout | woody_error:business_error().
+-spec pull_event(invoice_id(), pid()) ->
+    tuple() | timeout | woody_error:business_error().
 pull_event(InvoiceID, Client) ->
     pull_event(InvoiceID, ?DEFAULT_NEXT_EVENT_TIMEOUT, Client).
 
--spec pull_event(invoice_id(), timeout(), pid()) -> tuple() | timeout | woody_error:business_error().
+-spec pull_event(invoice_id(), timeout(), pid()) ->
+    tuple() | timeout | woody_error:business_error().
 pull_event(InvoiceID, Timeout, Client) ->
-    % FIXME: infinity sounds dangerous
     gen_server:call(Client, {pull_event, InvoiceID, Timeout}, infinity).
+
+-spec pull_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
+    tuple() | timeout | woody_error:business_error().
+pull_change(InvoiceID, FilterMapFun, PullTimeout, Client) ->
+    Deadline = erlang:monotonic_time(millisecond) + PullTimeout,
+    pull_change_(InvoiceID, FilterMapFun, Deadline, Client).
+
+pull_change_(InvoiceID, FilterMapFun, Deadline, Client) ->
+    case erlang:monotonic_time(millisecond) of
+        Time when Time < Deadline ->
+            case gen_server:call(Client, {pull_change, InvoiceID, Deadline - Time}, infinity) of
+                {ok, Change} ->
+                    case FilterMapFun(Change) of
+                        true ->
+                            Change;
+                        {true, NewChange} ->
+                            NewChange;
+                        false ->
+                            pull_change_(InvoiceID, FilterMapFun, Deadline, Client)
+                    end;
+                Result ->
+                    Result
+            end;
+        _ ->
+            timeout
+    end.
 
 map_result_error({ok, Result}) ->
     Result;
@@ -280,10 +316,12 @@ map_result_error({error, Error}) ->
 %%
 
 -type event() :: dmsl_payproc_thrift:'Event'().
+-type changes() :: [dmsl_payproc_thrift:'InvoiceChange'()].
 
 -record(state, {
     pollers :: #{invoice_id() => hg_client_event_poller:st(event())},
-    client :: hg_client_api:t()
+    client :: hg_client_api:t(),
+    changes = #{} :: #{invoice_id() => [changes()]}
 }).
 
 -type state() :: #state{}.
@@ -297,18 +335,12 @@ init(ApiClient) ->
 handle_call({call, Function, Args}, _From, St = #state{client = Client}) ->
     {Result, ClientNext} = hg_client_api:call(invoicing, Function, Args, Client),
     {reply, Result, St#state{client = ClientNext}};
-handle_call({pull_event, InvoiceID, Timeout}, _From, St = #state{client = Client}) ->
-    Poller = get_poller(InvoiceID, St),
-    {Result, ClientNext, PollerNext} = hg_client_event_poller:poll(1, Timeout, Client, Poller),
-    StNext = set_poller(InvoiceID, PollerNext, St#state{client = ClientNext}),
-    case Result of
-        [] ->
-            {reply, timeout, StNext};
-        [#payproc_Event{payload = Payload}] ->
-            {reply, {ok, Payload}, StNext};
-        Error ->
-            {reply, Error, StNext}
-    end;
+handle_call({pull_event, InvoiceID, Timeout}, _From, St) ->
+    {Result, StNext} = handle_pull_event(InvoiceID, Timeout, St),
+    {reply, Result, StNext};
+handle_call({pull_change, InvoiceID, Timeout}, _From, St) ->
+    {Result, StNext} = handle_pull_change(InvoiceID, Timeout, St),
+    {reply, Result, StNext};
 handle_call(Call, _From, State) ->
     _ = logger:warning("unexpected call received: ~tp", [Call]),
     {noreply, State}.
@@ -332,6 +364,35 @@ code_change(_OldVsn, _State, _Extra) ->
     {error, noimpl}.
 
 %%
+
+handle_pull_event(InvoiceID, Timeout, St = #state{client = Client}) ->
+    Poller = get_poller(InvoiceID, St),
+    {Result, ClientNext, PollerNext} = hg_client_event_poller:poll(1, Timeout, Client, Poller),
+    StNext = set_poller(InvoiceID, PollerNext, St#state{client = ClientNext}),
+    case Result of
+        [] ->
+            {timeout, StNext};
+        [#payproc_Event{payload = Payload}] ->
+            {{ok, Payload}, StNext};
+        Error ->
+            {Error, StNext}
+    end.
+
+handle_pull_change(InvoiceID, Timeout, St = #state{changes = ChangesMap}) ->
+    case ChangesMap of
+        #{InvoiceID := [ResultChange | RemainingChanges]} ->
+            ChangesMapNext = ChangesMap#{InvoiceID => RemainingChanges},
+            StNext = St#state{changes = ChangesMapNext},
+            {{ok, ResultChange}, StNext};
+        _ ->
+            case handle_pull_event(InvoiceID, Timeout, St) of
+                {{ok, ?invoice_ev(Changes)}, StNext0} ->
+                    StNext1 = StNext0#state{changes = ChangesMap#{InvoiceID => Changes}},
+                    handle_pull_change(InvoiceID, 0, StNext1);
+                {Result, StNext0} ->
+                    {Result, StNext0}
+            end
+    end.
 
 get_poller(InvoiceID, #state{pollers = Pollers}) ->
     maps:get(InvoiceID, Pollers, construct_poller(InvoiceID)).

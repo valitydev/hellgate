@@ -11,6 +11,8 @@
 -include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
+-export_type([final_cash_flow/0]).
+
 -type account() :: dmsl_domain_thrift:'CashFlowAccount'().
 -type account_id() :: dmsl_domain_thrift:'AccountID'().
 -type account_map() :: #{
@@ -27,7 +29,7 @@
 
 -type shop_id() :: dmsl_domain_thrift:'ShopID'().
 -type party_id() :: dmsl_domain_thrift:'PartyID'().
--type route() :: dmsl_domain_thrift:'PaymentRoute'().
+-type route() :: hg_routing:payment_route().
 
 %%
 
