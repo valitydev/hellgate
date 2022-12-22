@@ -11,7 +11,7 @@
 
 %% dmsl types
 
--type risk_score() :: dmsl_domain_thrift:'RiskScore'().
+-type risk_score() :: hg_inspector:risk_score().
 -type proxy_result() :: dmsl_proxy_provider_thrift:'PaymentProxyResult'().
 -type scenario() :: dmsl_payproc_thrift:'InvoiceRepairScenario'().
 

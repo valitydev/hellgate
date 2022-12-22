@@ -9,8 +9,8 @@
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
--type route() :: dmsl_domain_thrift:'PaymentRoute'().
--type refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
+-type route() :: hg_routing:payment_route().
+-type refund() :: hg_invoice_payment:domain_refund().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 
 -export([get_turnover_limits/1]).
@@ -29,7 +29,6 @@
 
 -spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
 get_turnover_limits(undefined) ->
-    logger:info("Operation limits haven't been set on provider terms."),
     [];
 get_turnover_limits({value, Limits}) ->
     Limits;

@@ -112,6 +112,7 @@
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
 
 -export_type([route/0]).
+-export_type([payment_route/0]).
 -export_type([route_predestination/0]).
 
 %% Route accessors
@@ -718,11 +719,11 @@ acceptable_recurrent_paytool_terms(
 acceptable_recurrent_paytool_terms(undefined, _VS) ->
     throw(?rejected({'RecurrentPaytoolsProvisionTerms', undefined})).
 
-try_accept_term(ParentName, Name, Value, Selector) when Selector /= undefined ->
-    Values = get_selector_value(Name, Selector),
-    test_term(Name, Value, Values) orelse throw(?rejected({ParentName, Name}));
 try_accept_term(ParentName, Name, _Value, undefined) ->
-    throw(?rejected({ParentName, Name})).
+    throw(?rejected({ParentName, Name}));
+try_accept_term(ParentName, Name, Value, Selector) ->
+    Values = get_selector_value(Name, Selector),
+    test_term(Name, Value, Values) orelse throw(?rejected({ParentName, Name})).
 
 test_term(currency, V, Vs) ->
     ordsets:is_element(V, Vs);

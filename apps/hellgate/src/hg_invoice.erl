@@ -53,7 +53,9 @@
 
 -import(hg_invoice_utils, [
     assert_party_operable/1,
+    assert_party_unblocked/1,
     assert_shop_operable/1,
+    assert_shop_unblocked/1,
     assert_shop_exists/1
 ]).
 
@@ -216,6 +218,7 @@ handle_function_('ComputeTerms', {InvoiceID, PartyRevision0}, _Opts) ->
     );
 handle_function_(Fun, Args, _Opts) when
     Fun =:= 'StartPayment' orelse
+        Fun =:= 'RegisterPayment' orelse
         Fun =:= 'CapturePayment' orelse
         Fun =:= 'CancelPayment' orelse
         Fun =:= 'RefundPayment' orelse
@@ -292,6 +295,12 @@ assert_invoice(operable, #st{party = Party} = St) when Party =/= undefined ->
         Party
     ),
     St;
+assert_invoice(unblocked, #st{party = Party} = St) when Party =/= undefined ->
+    assert_party_shop_unblocked(
+        hg_party:get_shop(get_shop_id(St), Party),
+        Party
+    ),
+    St;
 assert_invoice({status, Status}, #st{invoice = #domain_Invoice{status = {Status, _}}} = St) ->
     St;
 assert_invoice({status, _Status}, #st{invoice = #domain_Invoice{status = Invalid}}) ->
@@ -300,6 +309,11 @@ assert_invoice({status, _Status}, #st{invoice = #domain_Invoice{status = Invalid
 assert_party_shop_operable(Shop, Party) ->
     _ = assert_party_operable(Party),
     _ = assert_shop_operable(Shop),
+    ok.
+
+assert_party_shop_unblocked(Shop, Party) ->
+    _ = assert_party_unblocked(Party),
+    _ = assert_shop_unblocked(Shop),
     ok.
 
 get_invoice_state(#st{invoice = Invoice, payments = Payments}) ->
@@ -587,6 +601,11 @@ handle_call({{'Invoicing', 'StartPayment'}, {_InvoiceID, PaymentParams}}, St0) -
     _ = assert_invoice(operable, St),
     _ = assert_all_adjustments_finalised(St),
     start_payment(PaymentParams, St);
+handle_call({{'Invoicing', 'RegisterPayment'}, {_InvoiceID, PaymentParams}}, St0) ->
+    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    _ = assert_invoice(unblocked, St),
+    _ = assert_all_adjustments_finalised(St),
+    register_payment(PaymentParams, St);
 handle_call({{'Invoicing', 'CapturePayment'}, {_InvoiceID, PaymentID, Params}}, St0) ->
     St = St0#st{party = hg_party:get_party(get_party_id(St0))},
     _ = assert_invoice(operable, St),
@@ -730,6 +749,33 @@ start_payment(#payproc_InvoicePaymentParams{id = PaymentID} = PaymentParams, St)
             }
     end.
 
+register_payment(#payproc_RegisterInvoicePaymentParams{id = undefined} = PaymentParams, St) ->
+    PaymentID = create_payment_id(St),
+    do_register_payment(PaymentID, PaymentParams, St);
+register_payment(#payproc_RegisterInvoicePaymentParams{id = PaymentID} = PaymentParams, St) ->
+    case try_get_payment_session(PaymentID, St) of
+        undefined ->
+            do_register_payment(PaymentID, PaymentParams, St);
+        PaymentSession ->
+            #{
+                response => get_payment_state(PaymentSession),
+                state => St
+            }
+    end.
+
+do_register_payment(PaymentID, PaymentParams, St) ->
+    _ = assert_invoice({status, unpaid}, St),
+    _ = assert_no_pending_payment(St),
+    Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
+    % TODO make timer reset explicit here
+    {PaymentSession, {Changes, Action}} = hg_invoice_registered_payment:init(PaymentID, PaymentParams, Opts),
+    #{
+        response => get_payment_state(PaymentSession),
+        changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
+        action => Action,
+        state => St
+    }.
+
 do_start_payment(PaymentID, PaymentParams, St) ->
     _ = assert_invoice({status, unpaid}, St),
     _ = assert_no_pending_payment(St),
@@ -746,8 +792,18 @@ do_start_payment(PaymentID, PaymentParams, St) ->
 process_payment_signal(Signal, PaymentID, PaymentSession, St) ->
     {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
     Opts = get_payment_opts(Revision, Timestamp, St),
-    PaymentResult = hg_invoice_payment:process_signal(Signal, PaymentSession, Opts),
+    PaymentResult = process_invoice_payment_signal(Signal, PaymentSession, Opts),
     handle_payment_result(PaymentResult, PaymentID, PaymentSession, St, Opts).
+
+process_invoice_payment_signal(Signal, PaymentSession, Opts) ->
+    case hg_maybe:apply(fun(PS) -> hg_invoice_payment:get_origin(PS) end, PaymentSession) of
+        undefined ->
+            hg_invoice_payment:process_signal(Signal, PaymentSession, Opts);
+        ?invoice_payment_merchant_reg_origin() ->
+            hg_invoice_payment:process_signal(Signal, PaymentSession, Opts);
+        ?invoice_payment_provider_reg_origin() ->
+            hg_invoice_registered_payment:process_signal(Signal, PaymentSession, Opts)
+    end.
 
 process_payment_call(Call, PaymentID, PaymentSession, St) ->
     {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
@@ -767,7 +823,7 @@ handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, 
     Invoice = St#st.invoice,
     InvoiceID = Invoice#domain_Invoice.id,
     #{timestamp := OccurredAt} = Opts,
-    PaymentSession1 = hg_invoice_payment:collapse_changes(Changes, PaymentSession, #{invoice_id => InvoiceID}),
+    PaymentSession1 = collapse_payment_changes(Changes, PaymentSession, #{invoice_id => InvoiceID}),
     Payment = hg_invoice_payment:get_payment(PaymentSession1),
     case get_payment_status(Payment) of
         ?processed() ->
@@ -812,6 +868,9 @@ handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, 
                 state => St
             }
     end.
+
+collapse_payment_changes(Changes, PaymentSession, ChangeOpts) ->
+    lists:foldl(fun(C, St1) -> merge_payment_change(C, St1, ChangeOpts) end, PaymentSession, Changes).
 
 wrap_payment_changes(PaymentID, Changes, OccurredAt) ->
     [?payment_ev(PaymentID, C, OccurredAt) || C <- Changes].
@@ -1066,7 +1125,7 @@ merge_change(?invoice_adjustment_ev(ID, Event), St, _Opts) ->
     end;
 merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts) ->
     PaymentSession = try_get_payment_session(PaymentID, St),
-    PaymentSession1 = hg_invoice_payment:merge_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
+    PaymentSession1 = merge_payment_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
     St1 = set_payment_session(PaymentID, PaymentSession1, St),
     case hg_invoice_payment:get_activity(PaymentSession1) of
         A when A =/= idle ->
@@ -1074,6 +1133,16 @@ merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{
             St1#st{activity = {payment, PaymentID}};
         idle ->
             check_non_idle_payments(St1)
+    end.
+
+merge_payment_change(Change, PaymentSession, Opts) ->
+    case hg_maybe:apply(fun(PS) -> hg_invoice_payment:get_origin(PS) end, PaymentSession) of
+        undefined ->
+            hg_invoice_payment:merge_change(Change, PaymentSession, Opts);
+        ?invoice_payment_merchant_reg_origin() ->
+            hg_invoice_payment:merge_change(Change, PaymentSession, Opts);
+        ?invoice_payment_provider_reg_origin() ->
+            hg_invoice_registered_payment:merge_change(Change, PaymentSession, Opts)
     end.
 
 -spec check_non_idle_payments(st()) -> st().

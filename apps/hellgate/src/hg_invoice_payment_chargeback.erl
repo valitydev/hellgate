@@ -107,7 +107,7 @@
     dmsl_domain_thrift:'Cash'().
 
 -type final_cash_flow() ::
-    dmsl_domain_thrift:'FinalCashFlow'().
+    hg_cashflow:final_cash_flow().
 
 -type batch() ::
     hg_accounting:batch().

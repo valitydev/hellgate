@@ -18,6 +18,8 @@
 -export([get_shop_currency/1]).
 -export([get_cart_amount/1]).
 -export([check_deadline/1]).
+-export([assert_party_unblocked/1]).
+-export([assert_shop_unblocked/1]).
 
 -type amount() :: dmsl_domain_thrift:'Amount'().
 -type currency() :: dmsl_domain_thrift:'CurrencyRef'().
@@ -64,15 +66,15 @@ validate_cash_range(_) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid cost range">>]}).
 
 -spec assert_party_operable(party()) -> party().
-assert_party_operable(#domain_Party{blocking = Blocking, suspension = Suspension} = V) ->
-    _ = assert_party_unblocked(Blocking),
-    _ = assert_party_active(Suspension),
+assert_party_operable(V) ->
+    _ = assert_party_unblocked(V),
+    _ = assert_party_active(V),
     V.
 
 -spec assert_shop_operable(shop()) -> shop().
-assert_shop_operable(#domain_Shop{blocking = Blocking, suspension = Suspension} = V) ->
-    _ = assert_shop_unblocked(Blocking),
-    _ = assert_shop_active(Suspension),
+assert_shop_operable(V) ->
+    _ = assert_shop_unblocked(V),
+    _ = assert_shop_active(V),
     V.
 
 -spec assert_shop_exists(shop() | undefined) -> shop().
@@ -118,16 +120,20 @@ validate_currency_(_, _) ->
 get_shop_currency(#domain_Shop{account = #domain_ShopAccount{currency = Currency}}) ->
     Currency.
 
-assert_party_unblocked(V = {Status, _}) ->
+-spec assert_party_unblocked(party()) -> true | no_return().
+assert_party_unblocked(#domain_Party{blocking = V = {Status, _}}) ->
     Status == unblocked orelse throw(#payproc_InvalidPartyStatus{status = {blocking, V}}).
 
-assert_party_active(V = {Status, _}) ->
+-spec assert_party_active(party()) -> true | no_return().
+assert_party_active(#domain_Party{suspension = V = {Status, _}}) ->
     Status == active orelse throw(#payproc_InvalidPartyStatus{status = {suspension, V}}).
 
-assert_shop_unblocked(V = {Status, _}) ->
+-spec assert_shop_unblocked(shop()) -> true | no_return().
+assert_shop_unblocked(#domain_Shop{blocking = V = {Status, _}}) ->
     Status == unblocked orelse throw(#payproc_InvalidShopStatus{status = {blocking, V}}).
 
-assert_shop_active(V = {Status, _}) ->
+-spec assert_shop_active(shop()) -> true | no_return().
+assert_shop_active(#domain_Shop{suspension = V = {Status, _}}) ->
     Status == active orelse throw(#payproc_InvalidShopStatus{status = {suspension, V}}).
 
 -spec get_cart_amount(cart()) -> cash().
