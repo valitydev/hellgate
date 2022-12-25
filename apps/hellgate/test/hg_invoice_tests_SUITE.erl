@@ -135,6 +135,7 @@
 -export([payment_refund_success/1]).
 -export([payment_success_ruleset/1]).
 -export([payment_refund_failure/1]).
+-export([payment_refund_success_after_callback/1]).
 -export([deadline_doesnt_affect_payment_refund/1]).
 -export([payment_manual_refund/1]).
 -export([payment_partial_refunds_success/1]).
@@ -383,6 +384,7 @@ groups() ->
             payment_refund_idempotency,
             payment_refund_success,
             payment_refund_failure,
+            payment_refund_success_after_callback,
             payment_partial_refunds_success,
             invalid_amount_payment_partial_refund,
             invalid_amount_partial_capture_and_refund,
@@ -3931,6 +3933,62 @@ payment_refund_failure(C) ->
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure))))
     ] = next_changes(InvoiceID, 3, Client),
     #domain_InvoicePaymentRefund{status = ?refund_failed(Failure)} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
+
+-spec payment_refund_success_after_callback(config()) -> _ | no_return().
+payment_refund_success_after_callback(C) ->
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_id, C),
+        ?cat(2),
+        <<"RUB">>,
+        ?tmpl(2),
+        ?pinst(2),
+        PartyClient
+    ),
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    % start invoice that will be refunded
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = start_payment(InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client),
+    UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
+    %% simulate user interaction
+    {URL, GoodForm} = get_post_request(UserInteraction),
+    _ = assert_success_post_request({URL, GoodForm}),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    % create a refund finally
+    RefundParams = make_refund_params(),
+    ?refund_id(RefundID) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+    PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID, Client),
+    PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID, Client),
+    ?payment_ev(
+        PaymentID,
+        ?refund_ev(
+            RefundID,
+            ?session_ev(
+                ?refunded(),
+                ?interaction_changed(RefundUserInteraction, ?interaction_requested)
+            )
+        )
+    ) = next_change(InvoiceID, Client),
+    {RefundURL, RefundForm} = get_post_request(RefundUserInteraction),
+    _ = assert_success_post_request({RefundURL, RefundForm}),
+    ?payment_ev(
+        PaymentID,
+        ?refund_ev(
+            RefundID,
+            ?session_ev(
+                ?refunded(),
+                ?interaction_changed(RefundUserInteraction, ?interaction_completed)
+            )
+        )
+    ) = next_change(InvoiceID, Client),
+    PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
         hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
 
 -spec deadline_doesnt_affect_payment_refund(config()) -> _ | no_return().

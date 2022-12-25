@@ -2361,7 +2361,10 @@ process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, cap
 -spec handle_callback(activity(), callback(), hg_session:t(), st()) -> {callback_response(), machine_result()}.
 handle_callback({refund, ID}, Payload, _Session0, St) ->
     PaymentInfo = construct_payment_info(St, get_opts(St)),
-    hg_invoice_payment_refund:process_callback(Payload, PaymentInfo, try_get_refund_state(ID, St));
+    Refund = try_get_refund_state(ID, St),
+    {Resp, {Step, {Events0, Action}}} = hg_invoice_payment_refund:process_callback(Payload, PaymentInfo, Refund),
+    Events1 = hg_invoice_payment_refund:wrap_events(Events0, Refund),
+    {Resp, {Step, {Events1, Action}}};
 handle_callback(Activity, Payload, Session0, St) ->
     PaymentInfo = construct_payment_info(St, get_opts(St)),
     Session1 = hg_session:set_payment_info(PaymentInfo, Session0),
