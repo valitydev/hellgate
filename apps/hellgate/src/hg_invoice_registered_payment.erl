@@ -182,7 +182,7 @@ maybe_risk_score_event_list(RiskScore) ->
     [?risk_score_changed(RiskScore)].
 
 get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
-    TermSet = hg_invoice_payment:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
+    TermSet = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
     TermSet#domain_TermSet.payments.
 
 hold_payment_limits(Invoice, Payment, St) ->
