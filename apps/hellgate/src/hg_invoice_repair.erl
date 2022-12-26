@@ -71,7 +71,12 @@ check_complex_list(ActionType, [Scenario | Rest]) ->
 
 %% create repair event
 
--spec get_repair_state(hg_invoice_payment:activity(), scenario(), hg_invoice_payment:st()) -> hg_invoice_payment:st().
+-spec get_repair_state(
+    hg_invoice_payment:activity() | {refund, hg_invoice_payment_refund:activity()},
+    scenario(),
+    hg_invoice_payment:st()
+) ->
+    hg_invoice_payment:st().
 get_repair_state(Activity, Scenario, St) ->
     ok = check_activity_compatibility(Scenario, Activity),
     hg_invoice_payment:set_repair_scenario(Scenario, St).
@@ -100,14 +105,14 @@ check_activity_compatibility(?SCENARIO_SKIP_INSPECTOR, Activity) when
     ok;
 check_activity_compatibility(?SCENARIO_FAIL_SESSION, {payment, processing_session}) ->
     ok;
-check_activity_compatibility(?SCENARIO_FAIL_SESSION, {refund_session, _}) ->
+check_activity_compatibility(?SCENARIO_FAIL_SESSION, {refund, session}) ->
     ok;
 check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, processing_session}) ->
     ok;
 check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {payment, finalizing_session}) ->
     %% Capture session
     ok;
-check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {refund_session, _}) ->
+check_activity_compatibility(?SCENARIO_FULFILL_SESSION, {refund, session}) ->
     ok;
 check_activity_compatibility(Scenario, Activity) ->
     throw({exception, {activity_not_compatible_with_scenario, Activity, Scenario}}).

@@ -168,6 +168,16 @@ handle_function(
 handle_function(
     'HandlePaymentCallback',
     {Payload, #proxy_provider_PaymentContext{
+        session = #proxy_provider_Session{target = ?refunded(), state = State},
+        payment_info = PaymentInfo,
+        options = _
+    }},
+    Opts
+) ->
+    handle_refund_callback(Payload, State, PaymentInfo, Opts);
+handle_function(
+    'HandlePaymentCallback',
+    {Payload, #proxy_provider_PaymentContext{
         session = #proxy_provider_Session{target = Target, state = State},
         payment_info = PaymentInfo,
         options = _
@@ -449,12 +459,18 @@ get_failure_scenario_step(Scenario, Step) ->
 
 process_refund(undefined, PaymentInfo, _) ->
     case get_payment_info_scenario(PaymentInfo) of
+        {preauth_3ds, Timeout} ->
+            Tag = generate_tag(<<"refund">>),
+            Uri = get_callback_url(),
+            result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
         {temporary_unavailability, Scenario} ->
             PaymentId = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_refund_id(PaymentInfo)]),
             process_failure_scenario(PaymentInfo, Scenario, PaymentId);
         _ ->
             finish(success(PaymentInfo), get_payment_id(PaymentInfo))
-    end.
+    end;
+process_refund(<<"sleeping">>, PaymentInfo, _) ->
+    finish(success(PaymentInfo), get_payment_id(PaymentInfo)).
 
 process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
@@ -468,6 +484,12 @@ process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
         error ->
             error(planned_scenario_error)
     end.
+
+handle_refund_callback(_Tag, <<"suspended">>, _PaymentInfo, _Opts) ->
+    respond(<<"sure">>, #proxy_provider_PaymentCallbackProxyResult{
+        intent = ?sleep(1, undefined, ?completed),
+        next_state = <<"sleeping">>
+    }).
 
 result(Intent) ->
     result(Intent, undefined).
