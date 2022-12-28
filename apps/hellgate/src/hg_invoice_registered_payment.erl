@@ -72,18 +72,16 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
 
     MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt1, VS),
     ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS, Revision),
-    FinalCashflow = hg_invoice_payment:calculate_cashflow(
-        Route,
-        Payment,
-        PaymentInstitution,
-        ProviderTerms,
-        MerchantTerms,
-        VS,
-        Revision,
-        Opts,
-        CreatedAt1,
-        undefined
-    ),
+    CashflowContext = #{
+        provision_terms => ProviderTerms,
+        merchant_terms => MerchantTerms,
+        route => Route,
+        payment => Payment,
+        timestamp => CreatedAt1,
+        varset => VS,
+        revision => Revision
+    },
+    FinalCashflow = hg_invoice_payment:calculate_cashflow(PaymentInstitution, CashflowContext, Opts),
 
     Events =
         [

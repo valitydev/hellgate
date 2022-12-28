@@ -113,7 +113,7 @@ compute_shop_terms(PartyID, ShopID, Timestamp, PartyRevision, Varset) ->
     TermSet.
 
 -spec get_merchant_terms(party(), shop(), hg_domain:revision(), hg_datetime:timestamp(), hg_varset:varset()) ->
-    dmsl_domain_thrift:'TermSet'().
+    term_set().
 get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
     ContractID = Shop#domain_Shop.contract_id,
     Contract = hg_party:get_contract(ContractID, Party),
