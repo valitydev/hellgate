@@ -154,11 +154,15 @@ process_timeout(Machine, _, _Opts) ->
     Session = session(State),
     process_result(ff_withdrawal_session:process_session(Session), State).
 
--spec process_call(any(), machine(), handler_args(), handler_opts()) -> {ok, result()}.
+-spec process_call(any(), machine(), handler_args(), handler_opts()) -> {Response, result()} | no_return() when
+    Response ::
+        {ok, process_callback_response()}
+        | {error, ff_withdrawal_session:process_callback_error()}.
+
 process_call({process_callback, Params}, Machine, _, _Opts) ->
     do_process_callback(Params, Machine);
-process_call(_CallArgs, #{}, _, _Opts) ->
-    {ok, #{}}.
+process_call(CallArgs, #{}, _, _Opts) ->
+    erlang:error({unexpected_call, CallArgs}).
 
 -spec process_repair(ff_repair:scenario(), machine(), handler_args(), handler_opts()) ->
     {ok, {repair_response(), result()}} | {error, repair_error()}.
