@@ -52,7 +52,7 @@ limiter_mk_config_object(LimitID) ->
             started_at = <<"2000-01-01T00:00:00Z">>,
             shard_size = 12,
             time_range_type = {calendar, {month, #limiter_config_TimeRangeTypeCalendarMonth{}}},
-            context_type = {withdrawal_processing, #limiter_config_LimitContextTypeWithdrawalProcessing{}},
+            context_type = {payment_processing, #limiter_config_LimitContextTypePaymentProcessing{}},
             type = {turnover, #limiter_config_LimitTypeTurnover{}},
             scopes = [{payment_tool, #limiter_config_LimitScopeEmptyDetails{}}],
             description = <<"description">>,
