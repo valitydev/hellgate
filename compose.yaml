@@ -27,7 +27,7 @@ services:
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-0b47590
+    image: ghcr.io/valitydev/dominant:sha-e0afa44
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -39,7 +39,7 @@ services:
       retries: 10
 
   machinegun:
-    image: ghcr.io/valitydev/machinegun:sha-7f0a21a
+    image: ghcr.io/valitydev/machinegun:sha-fb7fbf9
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
@@ -63,7 +63,7 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-cd37acd
+    image: ghcr.io/valitydev/limiter:sha-3eff7dd
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
@@ -98,7 +98,7 @@ services:
       retries: 40
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-76058e0
+    image: ghcr.io/valitydev/party-management:sha-57d4d64
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
