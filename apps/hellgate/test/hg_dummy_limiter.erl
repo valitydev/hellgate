@@ -7,7 +7,6 @@
 -export([hold/3]).
 -export([commit/3]).
 
--export([create_config/2]).
 -export([get_config/2]).
 
 -type client() :: woody_context:ctx().
@@ -16,7 +15,6 @@
 -type limit_change() :: limproto_limiter_thrift:'LimitChange'().
 -type limit_context() :: limproto_limiter_thrift:'LimitContext'().
 -type clock() :: limproto_limiter_thrift:'Clock'().
--type limit_config_params() :: limproto_configurator_thrift:'LimitCreateParams'().
 
 %%% API
 
@@ -35,10 +33,6 @@ hold(LimitChange, Context, Client) ->
 -spec commit(limit_change(), limit_context(), client()) -> woody:result() | no_return().
 commit(LimitChange, Context, Client) ->
     call('Commit', {LimitChange, clock(), Context}, Client).
-
--spec create_config(limit_config_params(), client()) -> woody:result() | no_return().
-create_config(LimitCreateParams, Client) ->
-    call_configurator('CreateLegacy', {LimitCreateParams}, Client).
 
 -spec get_config(limit_id(), client()) -> woody:result() | no_return().
 get_config(LimitConfigID, Client) ->

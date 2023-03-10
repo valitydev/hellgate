@@ -51,9 +51,9 @@ check_limits(TurnoverLimits, Invoice, Payment, Route) ->
 check_limits_([], _, Limits) ->
     {ok, Limits};
 check_limits_([T | TurnoverLimits], Context, Acc) ->
-    #domain_TurnoverLimit{id = LimitID} = T,
+    #domain_TurnoverLimit{id = LimitID, domain_revision = Version} = T,
     Clock = get_latest_clock(),
-    Limit = hg_limiter_client:get(LimitID, Clock, Context),
+    Limit = hg_limiter_client:get(LimitID, Version, Clock, Context),
     #limiter_Limit{
         amount = LimiterAmount
     } = Limit,
@@ -170,9 +170,10 @@ gen_limit_changes(Limits, ChangeID) ->
     [
         #limiter_LimitChange{
             id = ID,
-            change_id = hg_utils:construct_complex_id([<<"limiter">>, ID, ChangeID])
+            change_id = hg_utils:construct_complex_id([<<"limiter">>, ID, ChangeID]),
+            version = Version
         }
-     || #domain_TurnoverLimit{id = ID} <- Limits
+     || #domain_TurnoverLimit{id = ID, domain_revision = Version} <- Limits
     ].
 
 construct_payment_change_id(?route(ProviderRef, TerminalRef), Invoice, Payment) ->

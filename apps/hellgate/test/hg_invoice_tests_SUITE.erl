@@ -7725,7 +7725,8 @@ construct_domain_fixture() ->
                             {value, [
                                 #domain_TurnoverLimit{
                                     id = ?LIMIT_ID,
-                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                    domain_revision = dmt_client:get_last_version()
                                 }
                             ]}
                     }
@@ -7777,7 +7778,8 @@ construct_domain_fixture() ->
                         {value, [
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID2,
-                                upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                domain_revision = dmt_client:get_last_version()
                             }
                         ]}
                 }
@@ -7821,7 +7823,8 @@ construct_domain_fixture() ->
                         {value, [
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID3,
-                                upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                domain_revision = dmt_client:get_last_version()
                             }
                         ]}
                 }
