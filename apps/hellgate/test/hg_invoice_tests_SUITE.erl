@@ -474,8 +474,8 @@ init_per_suite(C) ->
         {cowboy, CowboySpec}
     ]),
 
-    _ = hg_domain:insert(construct_domain_fixture()),
     _ = hg_limiter_helper:init_per_suite(C),
+    _ = hg_domain:insert(construct_domain_fixture()),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
