@@ -10,7 +10,7 @@
 
 -type limit() :: limproto_limiter_thrift:'Limit'().
 -type limit_id() :: limproto_limiter_thrift:'LimitID'().
--type limit_version() :: dmsl_domain_thrift:'DataRevision'().
+-type limit_version() :: limproto_limiter_thrift:'Version'().
 -type limit_change() :: limproto_limiter_thrift:'LimitChange'().
 -type context() :: limproto_limiter_thrift:'LimitContext'().
 -type clock() :: limproto_limiter_thrift:'Clock'().
