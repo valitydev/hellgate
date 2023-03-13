@@ -474,8 +474,8 @@ init_per_suite(C) ->
         {cowboy, CowboySpec}
     ]),
 
-    _ = hg_domain:insert(construct_domain_fixture()),
     _ = hg_limiter_helper:init_per_suite(C),
+    _ = hg_domain:insert(construct_domain_fixture()),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -1292,7 +1292,7 @@ limit_not_found(C) ->
         [?payment_state(Payment)]
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
-    {exception, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, Payment, Invoice).
+    {exception, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, 0, Payment, Invoice).
 
 -spec refund_limit_success(config()) -> test_return().
 refund_limit_success(C) ->
@@ -7725,7 +7725,8 @@ construct_domain_fixture() ->
                             {value, [
                                 #domain_TurnoverLimit{
                                     id = ?LIMIT_ID,
-                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                    domain_revision = dmt_client:get_last_version()
                                 }
                             ]}
                     }
@@ -7777,7 +7778,8 @@ construct_domain_fixture() ->
                         {value, [
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID2,
-                                upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                domain_revision = dmt_client:get_last_version()
                             }
                         ]}
                 }
@@ -7821,7 +7823,8 @@ construct_domain_fixture() ->
                         {value, [
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID3,
-                                upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                domain_revision = dmt_client:get_last_version()
                             }
                         ]}
                 }
