@@ -2,6 +2,7 @@
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_limiter_config_thrift.hrl").
 
