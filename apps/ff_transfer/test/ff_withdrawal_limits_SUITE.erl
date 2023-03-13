@@ -54,17 +54,17 @@ groups() ->
     ].
 
 -spec init_per_suite(config()) -> config().
-init_per_suite(C0) ->
+init_per_suite(C) ->
     ff_ct_machine:load_per_suite(),
-    C1 = ct_helper:makeup_cfg(
+    ct_helper:makeup_cfg(
         [
             ct_helper:test_case_name(init),
-            ct_payment_system:setup()
+            ct_payment_system:setup(#{
+                setup_dominant => fun ff_limiter_helper:init_per_suite/1
+            })
         ],
-        C0
-    ),
-    _ = ff_limiter_helper:init_per_suite(C1),
-    C1.
+        C
+    ).
 
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->

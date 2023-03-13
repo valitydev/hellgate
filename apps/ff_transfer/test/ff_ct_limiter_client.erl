@@ -2,7 +2,7 @@
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 
--export([get/3]).
+-export([get/4]).
 
 -export([create_config/2]).
 -export([get_config/2]).
@@ -10,15 +10,16 @@
 -type client() :: woody_context:ctx().
 
 -type limit_id() :: limproto_limiter_thrift:'LimitID'().
+-type limit_version() :: limproto_limiter_thrift:'Version'().
 -type limit_context() :: limproto_limiter_thrift:'LimitContext'().
 -type clock() :: limproto_limiter_thrift:'Clock'().
 -type limit_config_params() :: limproto_config_thrift:'LimitConfigParams'().
 
 %%% API
 
--spec get(limit_id(), limit_context(), client()) -> woody:result() | no_return().
-get(LimitID, Context, Client) ->
-    call('Get', {LimitID, clock(), Context}, Client).
+-spec get(limit_id(), limit_version(), limit_context(), client()) -> woody:result() | no_return().
+get(LimitID, Version, Context, Client) ->
+    call('GetVersioned', {LimitID, Version, clock(), Context}, Client).
 
 -spec create_config(limit_config_params(), client()) -> woody:result() | no_return().
 create_config(LimitCreateParams, Client) ->

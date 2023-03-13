@@ -16,7 +16,8 @@
     dummy_payment_inst_identity_id => id(),
     provider_identity_id => id(),
     dummy_provider_identity_id => id(),
-    optional_apps => list()
+    optional_apps => list(),
+    setup_dominant => fun((config()) -> ok)
 }.
 
 -opaque system() :: #{
@@ -61,7 +62,7 @@ do_setup(Options0, C0) ->
     {ok, Processing0} = start_processing_apps(Options),
     C1 = ct_helper:makeup_cfg([ct_helper:woody_ctx()], [{services, services(Options)} | C0]),
     ok = ct_helper:set_context(C1),
-    ok = setup_dominant(Options),
+    ok = setup_dominant(C1, Options),
     ok = configure_processing_apps(Options),
     ok = ct_helper:unset_context(),
     [{payment_system, Processing0} | C1].
@@ -138,11 +139,17 @@ start_optional_apps(#{optional_apps := Apps}) ->
 start_optional_apps(_) ->
     [].
 
-setup_dominant(Options) ->
+setup_dominant(Config, Options) ->
+    ok = setup_dominant_internal(Config, Options),
     DomainConfig = domain_config(Options),
     _ = ct_domain_config:upsert(DomainConfig),
     DomainConfigUpdate = domain_config_add_version(Options),
     _ = ct_domain_config:upsert(DomainConfigUpdate),
+    ok.
+
+setup_dominant_internal(Config, #{setup_dominant := Func}) when is_function(Func, 1) ->
+    Func(Config);
+setup_dominant_internal(_Config, _Options) ->
     ok.
 
 configure_processing_apps(Options) ->

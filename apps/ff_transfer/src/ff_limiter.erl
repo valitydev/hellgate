@@ -16,6 +16,7 @@
 
 -type limit() :: limproto_limiter_thrift:'Limit'().
 -type limit_id() :: limproto_limiter_thrift:'LimitID'().
+-type limit_version() :: limproto_limiter_thrift:'Version'().
 -type limit_change() :: limproto_limiter_thrift:'LimitChange'().
 -type limit_amount() :: dmsl_domain_thrift:'Amount'().
 -type context() :: limproto_limiter_thrift:'LimitContext'().
@@ -50,9 +51,9 @@ check_limits(TurnoverLimits, Route, Withdrawal) ->
     end.
 
 check_limits_(T, {Limits, Errors}, Context) ->
-    #domain_TurnoverLimit{id = LimitID} = T,
+    #domain_TurnoverLimit{id = LimitID, domain_revision = DomainRevision} = T,
     Clock = get_latest_clock(),
-    Limit = get(LimitID, Clock, Context),
+    Limit = get(LimitID, DomainRevision, Clock, Context),
     #limiter_Limit{
         amount = LimitAmount
     } = Limit,
@@ -66,22 +67,19 @@ check_limits_(T, {Limits, Errors}, Context) ->
 
 -spec hold_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
 hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
-    IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal, Iter),
+    LimitChanges = gen_limit_changes(TurnoverLimits, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
     hold(LimitChanges, get_latest_clock(), Context).
 
 -spec commit_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
 commit_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
-    IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal, Iter),
+    LimitChanges = gen_limit_changes(TurnoverLimits, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
     commit(LimitChanges, get_latest_clock(), Context).
 
 -spec rollback_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
 rollback_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
-    IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-    LimitChanges = gen_limit_changes(IDs, Route, Withdrawal, Iter),
+    LimitChanges = gen_limit_changes(TurnoverLimits, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
     rollback(LimitChanges, get_latest_clock(), Context).
 
@@ -129,13 +127,14 @@ gen_limit_context(#{provider_id := ProviderID, terminal_id := TerminalID}, Withd
         }
     }.
 
-gen_limit_changes(LimitIDs, Route, Withdrawal, Iter) ->
+gen_limit_changes(TurnoverLimits, Route, Withdrawal, Iter) ->
     [
         #limiter_LimitChange{
             id = ID,
-            change_id = construct_limit_change_id(ID, Route, Withdrawal, Iter)
+            change_id = construct_limit_change_id(ID, Route, Withdrawal, Iter),
+            version = Version
         }
-     || ID <- LimitIDs
+     || #domain_TurnoverLimit{id = ID, domain_revision = Version} <- TurnoverLimits
     ].
 
 construct_limit_change_id(LimitID, #{terminal_id := TerminalID, provider_id := ProviderID}, Withdrawal, Iter) ->
@@ -193,10 +192,10 @@ marshal_withdrawal(Withdrawal) ->
         })
     }.
 
--spec get(limit_id(), clock(), context()) -> limit() | no_return().
-get(LimitID, Clock, Context) ->
-    Args = {LimitID, Clock, Context},
-    case call('Get', Args) of
+-spec get(limit_id(), limit_version(), clock(), context()) -> limit() | no_return().
+get(LimitID, Version, Clock, Context) ->
+    Args = {LimitID, Version, Clock, Context},
+    case call('GetVersioned', Args) of
         {ok, Limit} ->
             Limit;
         {exception, #limiter_LimitNotFound{}} ->
