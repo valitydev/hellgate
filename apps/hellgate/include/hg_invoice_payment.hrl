@@ -7,6 +7,8 @@
     risk_score :: undefined | hg_inspector:risk_score(),
     route :: undefined | hg_routing:payment_route(),
     candidate_routes :: undefined | [hg_routing:payment_route()],
+    attempted_routes :: undefined | [hg_routing:payment_route()],
+    route_attempt_limit :: dmsl_domain_thrift:'AttemptLimit'(),
     cash_flow :: undefined | hg_cashflow:final_cash_flow(),
     partial_cash_flow :: undefined | hg_cashflow:final_cash_flow(),
     final_cash_flow :: undefined | hg_cashflow:final_cash_flow(),

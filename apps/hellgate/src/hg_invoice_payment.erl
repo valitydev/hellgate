@@ -402,7 +402,17 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     Cost = get_invoice_cost(Invoice),
     {ok, Payer, VS0} = construct_payer(PayerParams, Shop),
     VS1 = collect_validation_varset(Party, Shop, VS0),
+    PaymentTool = get_payer_payment_tool(Payer),
+    VS2 = VS1#{
+        payment_tool => PaymentTool,
+        cost => Cost
+    },
+    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS1),
+    #domain_TermSet{payments = PaymentTerms, recurrent_paytools = RecurrentTerms} = Terms,
     Payment1 = construct_payment(
+        PaymentTool,
+        PaymentTerms,
+        RecurrentTerms,
         PaymentID,
         CreatedAt,
         Cost,
@@ -410,7 +420,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         FlowParams,
         Party,
         Shop,
-        VS1,
+        VS2,
         Revision,
         genlib:define(MakeRecurrent, false)
     ),
@@ -421,7 +431,8 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         processing_deadline = Deadline
     },
     Events = [?payment_started(Payment2)],
-    {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
+    Opts = #{route_attempt_limit => PaymentTerms#domain_PaymentsServiceTerms.attempt_limit},
+    {collapse_changes(Events, undefined, Opts), {Events, hg_machine_action:instant()}}.
 
 get_merchant_payments_terms(Opts, Revision, Timestamp, VS) ->
     Party = get_party(Opts),
@@ -534,6 +545,9 @@ get_customer_contact_info(#payproc_Customer{contact_info = ContactInfo}) ->
     ContactInfo.
 
 construct_payment(
+    PaymentTool,
+    PaymentTerms,
+    RecurrentTerms,
     PaymentID,
     CreatedAt,
     Cost,
@@ -541,17 +555,10 @@ construct_payment(
     FlowParams,
     Party,
     Shop,
-    VS0,
+    VS,
     Revision,
     MakeRecurrent
 ) ->
-    PaymentTool = get_payer_payment_tool(Payer),
-    VS1 = VS0#{
-        payment_tool => PaymentTool,
-        cost => Cost
-    },
-    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS1),
-    #domain_TermSet{payments = PaymentTerms, recurrent_paytools = RecurrentTerms} = Terms,
     ok = validate_payment_tool(
         PaymentTool,
         PaymentTerms#domain_PaymentsServiceTerms.payment_methods
@@ -566,7 +573,7 @@ construct_payment(
         PaymentTerms#domain_PaymentsServiceTerms.holds,
         PaymentTool
     ),
-    ParentPayment = maps:get(parent_payment, VS1, undefined),
+    ParentPayment = maps:get(parent_payment, VS, undefined),
     ok = validate_recurrent_intention(Payer, RecurrentTerms, PaymentTool, Shop, ParentPayment, MakeRecurrent),
     #domain_InvoicePayment{
         id = PaymentID,
@@ -2208,16 +2215,19 @@ process_routing(Action, St) ->
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
     try
         Payer = get_payment_payer(St),
-        Routes =
+        Routes0 =
             case get_predefined_route(Payer) of
                 {ok, PaymentRoute} ->
                     [hg_routing:from_payment_route(PaymentRoute)];
                 undefined ->
                     gather_routes(PaymentInstitution, VS3, Revision, St)
             end,
+        %% TODO: Refactor routes exclusion
+        Routes1 = [Route || Route <- Routes0, AttemptedRoute <- St#st.attempted_routes, AttemptedRoute =/= Route],
+        %% TODO: Preserve original `Failure` status record when `St#st.attempted_routes` not empty
         Events = handle_gathered_route_result(
-            filter_limit_overflow_routes(Routes, VS3, St),
-            [hg_routing:to_payment_route(R) || R <- Routes],
+            filter_limit_overflow_routes(Routes1, VS3, St),
+            [hg_routing:to_payment_route(R) || R <- Routes1],
             Revision
         ),
         {next, {Events, hg_machine_action:set_timeout(0, Action)}}
@@ -3081,8 +3091,12 @@ throw_invalid_recurrent_parent(Details) ->
 }.
 
 -spec merge_change(change(), st() | undefined, change_opts()) -> st().
-merge_change(Change, undefined, Opts) ->
-    merge_change(Change, #st{activity = {payment, new}}, Opts);
+merge_change(Change, undefined, Opts = #{route_attempt_limit := RouteAttemptLimit}) ->
+    St = #st{
+        activity = {payment, new},
+        route_attempt_limit = RouteAttemptLimit
+    },
+    merge_change(Change, St, Opts);
 merge_change(Change = ?payment_started(Payment), #st{} = St, Opts) ->
     _ = validate_transition({payment, new}, Change, St, Opts),
     St#st{
@@ -3163,7 +3177,7 @@ merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
         activity = Activity,
         timings = accrue_status_timing(failed, Opts, St)
     };
-merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment = Payment} = St, Opts) ->
+merge_change(Change = ?payment_status_changed({failed, FailureStatus} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition(
         [
             {payment, S}
@@ -3178,12 +3192,29 @@ merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment
         St,
         Opts
     ),
-    St#st{
-        payment = Payment#domain_InvoicePayment{status = Status},
-        activity = idle,
-        failure = undefined,
-        timings = accrue_status_timing(failed, Opts, St)
-    };
+    %% TODO/FIXME: Refactor into sane function calls
+    AttemptedRoutes = genlib:define(St#st.attempted_routes, []),
+    case {FailureStatus, St#st.route_attempt_limit} of
+        {
+            %% TODO: Discuss 'payment_route_failed' error code
+            #domain_InvoicePaymentFailed{failure = {failure, #domain_Failure{code = payment_route_failed}}},
+            AttemptLimit
+            %% TODO: Refactor into `hg_routing`
+        } when is_integer(AttemptLimit) andalso AttemptLimit < length(AttemptedRoutes) ->
+            St#st{
+                activity = {payment, routing},
+                route = undefined,
+                %% FIXME: Can `St#st.route` be undefined here?
+                attempted_routes = [St#st.route | AttemptedRoutes]
+            };
+        _ ->
+            St#st{
+                payment = Payment#domain_InvoicePayment{status = Status},
+                activity = idle,
+                failure = undefined,
+                timings = accrue_status_timing(failed, Opts, St)
+            }
+    end;
 merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
     St#st{
