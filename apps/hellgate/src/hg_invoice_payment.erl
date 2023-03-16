@@ -407,7 +407,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         payment_tool => PaymentTool,
         cost => Cost
     },
-    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS1),
+    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS2),
     #domain_TermSet{payments = PaymentTerms, recurrent_paytools = RecurrentTerms} = Terms,
     Payment1 = construct_payment(
         PaymentTool,
@@ -431,8 +431,10 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         processing_deadline = Deadline
     },
     Events = [?payment_started(Payment2)],
-    Opts = #{route_attempt_limit => PaymentTerms#domain_PaymentsServiceTerms.attempt_limit},
-    {collapse_changes(Events, undefined, Opts), {Events, hg_machine_action:instant()}}.
+    %% TODO/FIXME: Explicitly allow only 'value' option of `dmsl_domain_thrift:'AttemptLimitSelector'()`
+    {value, #domain_AttemptLimit{attempts = AttemptsLimit}} = PaymentTerms#domain_PaymentsServiceTerms.attempt_limit,
+    ChangeOpts = #{route_attempt_limit => AttemptsLimit},
+    {collapse_changes(Events, undefined, ChangeOpts), {Events, hg_machine_action:instant()}}.
 
 get_merchant_payments_terms(Opts, Revision, Timestamp, VS) ->
     Party = get_party(Opts),
@@ -3087,7 +3089,8 @@ throw_invalid_recurrent_parent(Details) ->
 -type change_opts() :: #{
     timestamp => hg_datetime:timestamp(),
     validation => strict,
-    invoice_id => invoice_id()
+    invoice_id => invoice_id(),
+    route_attempt_limit => integer()
 }.
 
 -spec merge_change(change(), st() | undefined, change_opts()) -> st().
@@ -3192,24 +3195,36 @@ merge_change(Change = ?payment_status_changed({failed, FailureStatus} = Status),
         St,
         Opts
     ),
+    %% FIXME: n a m i n g
+    %%        a
+    %%        m
+    %%        i
+    %%        n
+    %%        g
+    %% TODO: Consider moving this setup to `init_/3`
+    FailureCodeForRouteCascading = genlib_app:env(hellgate, failure_code_for_route_cascading),
+    %%
     %% TODO/FIXME: Refactor into sane function calls
     AttemptedRoutes = genlib:define(St#st.attempted_routes, []),
     case {FailureStatus, St#st.route_attempt_limit} of
         {
             %% TODO: Discuss 'payment_route_failed' error code
-            #domain_InvoicePaymentFailed{failure = {failure, #domain_Failure{code = payment_route_failed}}},
+            #domain_InvoicePaymentFailed{failure = {failure, #domain_Failure{code = FailureCodeForRouteCascading}}},
             AttemptLimit
             %% TODO: Refactor into `hg_routing`
-        } when is_integer(AttemptLimit) andalso AttemptLimit < length(AttemptedRoutes) ->
+        } when AttemptLimit < length(AttemptedRoutes) ->
             St#st{
+                original_payment_failure_status = Status,
                 activity = {payment, routing},
                 route = undefined,
                 %% FIXME: Can `St#st.route` be undefined here?
-                attempted_routes = [St#st.route | AttemptedRoutes]
+                attempted_routes = [St#st.route | AttemptedRoutes],
+                timings = accrue_status_timing(pending, Opts, St)
             };
         _ ->
+            FinalStatus = genlib:define(St#st.original_payment_failure_status, Status),
             St#st{
-                payment = Payment#domain_InvoicePayment{status = Status},
+                payment = Payment#domain_InvoicePayment{status = FinalStatus},
                 activity = idle,
                 failure = undefined,
                 timings = accrue_status_timing(failed, Opts, St)
