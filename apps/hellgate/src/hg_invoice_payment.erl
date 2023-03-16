@@ -3117,6 +3117,7 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
 merge_change(Change = ?route_changed(Route, Candidates), St, Opts) ->
     _ = validate_transition({payment, routing}, Change, St, Opts),
     St#st{
+        original_payment_failure_status = undefined,
         route = Route,
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building}
@@ -3180,7 +3181,11 @@ merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
         activity = Activity,
         timings = accrue_status_timing(failed, Opts, St)
     };
-merge_change(Change = ?payment_status_changed({failed, FailureStatus} = Status), #st{payment = Payment} = St, Opts) ->
+merge_change(
+    Change = ?payment_status_changed(?failed(OperationFailure) = Status),
+    #st{payment = Payment} = St,
+    Opts
+) ->
     _ = validate_transition(
         [
             {payment, S}
@@ -3202,17 +3207,16 @@ merge_change(Change = ?payment_status_changed({failed, FailureStatus} = Status),
     %%        n
     %%        g
     %% TODO: Consider moving this setup to `init_/3`
+    %% TODO: Discuss error code for `failure_code_for_route_cascading`
     FailureCodeForRouteCascading = genlib_app:env(hellgate, failure_code_for_route_cascading),
     %%
     %% TODO/FIXME: Refactor into sane function calls
     AttemptedRoutes = genlib:define(St#st.attempted_routes, []),
-    case {FailureStatus, St#st.route_attempt_limit} of
-        {
-            %% TODO: Discuss 'payment_route_failed' error code
-            #domain_InvoicePaymentFailed{failure = {failure, #domain_Failure{code = FailureCodeForRouteCascading}}},
-            AttemptLimit
-            %% TODO: Refactor into `hg_routing`
-        } when AttemptLimit < length(AttemptedRoutes) ->
+    case {OperationFailure, St#st.route_attempt_limit} of
+        %% TODO: Refactor into `hg_routing`
+        {{failure, #domain_Failure{code = FailureCodeForRouteCascading}}, AttemptLimit}
+            when AttemptLimit < length(AttemptedRoutes)
+        ->
             St#st{
                 original_payment_failure_status = Status,
                 activity = {payment, routing},
