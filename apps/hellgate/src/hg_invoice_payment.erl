@@ -103,6 +103,7 @@
 -export_type([machine_result/0]).
 -export_type([opts/0]).
 -export_type([payment/0]).
+-export_type([payment_status/0]).
 -export_type([refund_id/0]).
 -export_type([refund_state/0]).
 -export_type([trx_info/0]).
@@ -253,7 +254,9 @@ get_risk_score(#st{risk_score = RiskScore}) ->
     RiskScore.
 
 -spec get_route(st()) -> route().
-get_route(#st{route = Route}) ->
+get_route(#st{routes = []}) ->
+    undefined;
+get_route(#st{routes = [Route|_AttemptedRoutes]}) ->
     Route.
 
 -spec get_candidate_routes(st()) -> [route()].
@@ -432,7 +435,11 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     },
     Events = [?payment_started(Payment2)],
     %% TODO/FIXME: Explicitly allow only 'value' option of `dmsl_domain_thrift:'AttemptLimitSelector'()`
-    {value, #domain_AttemptLimit{attempts = AttemptsLimit}} = PaymentTerms#domain_PaymentsServiceTerms.attempt_limit,
+    %% TODO: make a func
+    AttemptsLimit = case PaymentTerms#domain_PaymentsServiceTerms.attempt_limit of
+        {value, #domain_AttemptLimit{attempts = Value}} when is_integer(Value) -> Value;
+        undefined -> 1 % Default attempt limit is obvious '1'
+    end,
     ChangeOpts = #{route_attempt_limit => AttemptsLimit},
     {collapse_changes(Events, undefined, ChangeOpts), {Events, hg_machine_action:instant()}}.
 
@@ -2224,9 +2231,7 @@ process_routing(Action, St) ->
                 undefined ->
                     gather_routes(PaymentInstitution, VS3, Revision, St)
             end,
-        %% TODO: Refactor routes exclusion
-        Routes1 = [Route || Route <- Routes0, AttemptedRoute <- St#st.attempted_routes, AttemptedRoute =/= Route],
-        %% TODO: Preserve original `Failure` status record when `St#st.attempted_routes` not empty
+        Routes1 = filter_out_attempted_routes(Routes0, St),
         Events = handle_gathered_route_result(
             filter_limit_overflow_routes(Routes1, VS3, St),
             [hg_routing:to_payment_route(R) || R <- Routes1],
@@ -2237,6 +2242,9 @@ process_routing(Action, St) ->
         throw:{no_route_found, Reason} ->
             handle_choose_route_error(Reason, [], St, Action)
     end.
+
+filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
+    Routes -- AttemptedRoutes.
 
 handle_gathered_route_result({ok, RoutesNoOverflow}, Routes, Revision) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
@@ -3114,11 +3122,11 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
         risk_score = RiskScore,
         activity = {payment, routing}
     };
-merge_change(Change = ?route_changed(Route, Candidates), St, Opts) ->
+merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = St, Opts) ->
     _ = validate_transition({payment, routing}, Change, St, Opts),
     St#st{
         original_payment_failure_status = undefined,
-        route = Route,
+        routes = [Route|Routes],
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building}
     };
@@ -3183,7 +3191,7 @@ merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
     };
 merge_change(
     Change = ?payment_status_changed(?failed(OperationFailure) = Status),
-    #st{payment = Payment} = St,
+    #st{payment = Payment, routes = AttemptedRoutes} = St,
     Opts
 ) ->
     _ = validate_transition(
@@ -3207,22 +3215,19 @@ merge_change(
     %%        n
     %%        g
     %% TODO: Consider moving this setup to `init_/3`
-    %% TODO: Discuss error code for `failure_code_for_route_cascading`
+    %% TODO: Discuss error code and naming for `failure_code_for_route_cascading`
     FailureCodeForRouteCascading = genlib_app:env(hellgate, failure_code_for_route_cascading),
     %%
     %% TODO/FIXME: Refactor into sane function calls
-    AttemptedRoutes = genlib:define(St#st.attempted_routes, []),
     case {OperationFailure, St#st.route_attempt_limit} of
         %% TODO: Refactor into `hg_routing`
         {{failure, #domain_Failure{code = FailureCodeForRouteCascading}}, AttemptLimit}
-            when AttemptLimit < length(AttemptedRoutes)
+            when length(AttemptedRoutes) < AttemptLimit
         ->
             St#st{
                 original_payment_failure_status = Status,
                 activity = {payment, routing},
-                route = undefined,
-                %% FIXME: Can `St#st.route` be undefined here?
-                attempted_routes = [St#st.route | AttemptedRoutes],
+                %% FIXME: Should we accrue more time? And what status type?
                 timings = accrue_status_timing(pending, Opts, St)
             };
         _ ->

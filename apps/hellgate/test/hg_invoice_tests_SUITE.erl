@@ -274,6 +274,8 @@ groups() ->
             {group, allocation}
         ]},
 
+        {debugging, [], [payment_success]},
+
         {base_payments, [], [
             invoice_creation_idempotency,
             invalid_invoice_shop,
