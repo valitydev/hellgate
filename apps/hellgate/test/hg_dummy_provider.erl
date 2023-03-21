@@ -160,11 +160,11 @@ handle_function(
     {#proxy_provider_PaymentContext{
         session = #proxy_provider_Session{target = Target, state = State},
         payment_info = PaymentInfo,
-        options = _
+        options = Ctx
     }},
     Opts
 ) ->
-    process_payment(Target, State, PaymentInfo, Opts);
+    process_payment(Target, State, PaymentInfo, Ctx, Opts);
 handle_function(
     'HandlePaymentCallback',
     {Payload, #proxy_provider_PaymentContext{
@@ -249,7 +249,7 @@ token_respond(Response, CallbackResult) ->
 % Payments
 %
 
-process_payment(?processed(), undefined, PaymentInfo, _) ->
+process_payment(?processed(), undefined, PaymentInfo, Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
@@ -304,9 +304,17 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         unexpected_failure_no_trx ->
             error(unexpected_failure);
         {temporary_unavailability, _Scenario} ->
-            result(?sleep(0), <<"sleeping">>)
+            result(?sleep(0), <<"sleeping">>);
+        two_routes_cascading ->
+            case Ctx of
+                #{<<"override">> := <<"duckblocker">>} ->
+                    Failure = #domain_Failure{code = <<"route_blocked">>},
+                    result(?finish({failure, Failure}), <<"suspended">>);
+                _Else ->
+                    result(?sleep(0), <<"sleeping">>)
+            end
     end;
-process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
+process_payment(?processed(), <<"sleeping">>, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         unexpected_failure ->
             error(unexpected_failure);
@@ -315,7 +323,7 @@ process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
         _ ->
             finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
     end;
-process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, _) ->
+process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, _Ctx, _) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
     case get_transaction_state(Key) of
         processed ->
@@ -333,6 +341,7 @@ process_payment(
     ?captured(),
     undefined,
     PaymentInfo = #proxy_provider_PaymentInfo{capture = Capture},
+    _Ctx,
     _Opts
 ) when Capture =/= undefined ->
     case get_payment_info_scenario(PaymentInfo) of
@@ -341,7 +350,7 @@ process_payment(
         _ ->
             finish(success(PaymentInfo))
     end;
-process_payment(?cancelled(), _, PaymentInfo, _) ->
+process_payment(?cancelled(), _, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
@@ -599,7 +608,9 @@ get_payment_tool_scenario({'crypto_currency', #domain_CryptoCurrencyRef{id = <<"
 get_payment_tool_scenario(
     {'mobile_commerce', #domain_MobileCommerce{operator = #domain_MobileOperatorRef{id = <<"mts-ref">>}}}
 ) ->
-    mobile_commerce.
+    mobile_commerce;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"two_routes_cascading">>}}) ->
+    two_routes_cascading.
 
 -type tokenized_bank_card_payment_system() ::
     {
@@ -633,7 +644,8 @@ get_payment_tool_scenario(
     | empty_cvv
     | {scenario, failure_scenario()}
     | {preauth_3ds, integer()}
-    | {preauth_3ds_sleep, integer()}.
+    | {preauth_3ds_sleep, integer()}
+    | two_routes_cascading.
 
 -spec make_payment_tool(payment_tool_code(), payment_system()) -> payment_tool().
 make_payment_tool(Code, PSys) when
@@ -645,7 +657,8 @@ make_payment_tool(Code, PSys) when
         Code =:= forbidden orelse
         Code =:= unexpected_failure orelse
         Code =:= unexpected_failure_when_suspended orelse
-        Code =:= unexpected_failure_no_trx
+        Code =:= unexpected_failure_no_trx orelse
+        Code =:= two_routes_cascading
 ->
     ?SESSION42(make_bank_card_payment_tool(atom_to_binary(Code, utf8), PSys));
 make_payment_tool(empty_cvv, PSys) ->

@@ -190,6 +190,8 @@
 -export([allocation_capture_payment/1]).
 -export([allocation_refund_payment/1]).
 
+-export([payment_fail_w_available_attempt_limit/1]).
+
 %%
 
 -behaviour(supervisor).
@@ -272,9 +274,9 @@ groups() ->
             {group, repair_scenarios},
 
             {group, allocation}
-        ]},
 
-        {debugging, [], [payment_success]},
+            % {group, route_cascading}
+        ]},
 
         {base_payments, [], [
             invoice_creation_idempotency,
@@ -452,6 +454,9 @@ groups() ->
             allocation_create_invoice,
             allocation_capture_payment,
             allocation_refund_payment
+        ]},
+        {route_cascading, [], [
+            payment_fail_w_available_attempt_limit %% WIP
         ]}
     ].
 
@@ -663,6 +668,8 @@ init_per_testcase(invalid_permit_partial_capture_in_service, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/1, C);
 init_per_testcase(invalid_permit_partial_capture_in_provider, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/1, C);
+init_per_testcase(payment_fail_w_available_attempt_limit, C) ->
+    override_domain_fixture(fun payment_w_failing_provider_route_fixture/1, C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
 
@@ -1540,6 +1547,55 @@ payment_w_misconfigured_routing_failed_fixture(_Revision) ->
                     {constant, false},
                     ?ruleset(1)
                 )
+            ]}
+        )
+    ].
+
+payment_w_failing_provider_route_fixture(Revision) ->
+    %% This setups a ruleset to resolve to two routes:
+    %% - (not bro) One that leads to nasty provider that must fail;
+    %%   see `proxy_provider_PaymentContext.options` with #{<<"override">> => <<"duckblocker">>},
+    %% - (bro) And second one that successfully executes callbacks for happy "testcases"
+    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    [
+        {provider, #domain_ProviderObject{
+            ref = ?prv(999),
+            data = #domain_Provider{
+                name = <<"Duck Blocker">>,
+                description = <<"No rubber ducks for you!">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"override">> => <<"duckblocker">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(999),
+            data = #domain_Terminal{
+                name = <<"Not-Brominal">>,
+                description = <<"Not-Brominal">>,
+                provider_ref = ?prv(999)
+            }
+        }},
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(999),
+            <<"SubFailingProviderRoute">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999))
+            ]}
+        ),
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"Main">>,
+            {delegates, [
+                ?delegate(<<"Failing">>, {constant, true}, ?ruleset(999)),
+                ?delegate(<<"Regular">>, {constant, true}, ?ruleset(1))
             ]}
         )
     ].
@@ -5572,6 +5628,38 @@ consistent_account_balances(C) ->
     ],
     ok.
 
+-spec payment_fail_w_available_attempt_limit(config()) -> test_return().
+payment_fail_w_available_attempt_limit(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(two_routes_cascading, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    _ = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
+        ),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
+    ] =
+        next_changes(InvoiceID, 3, Client),
+    ?assertMatch(#domain_Failure{code = <<"route_blocked">>}, Failure),
+    %% WIP
+
+    %% TODO add `route_blocked` to damsel protocol
+    % ok = payproc_errors:match(
+    %     'PaymentFailure',
+    %     Failure,
+    %     fun({route_blocked, {unknown, _}}) -> ok end
+    % ),
+    ok.
+
 %%
 
 next_changes(InvoiceID, Amount, Client) ->
@@ -6558,7 +6646,8 @@ construct_domain_fixture() ->
             },
             allocations = #domain_PaymentAllocationServiceTerms{
                 allow = {constant, true}
-            }
+            },
+            attempt_limit = {value, #domain_AttemptLimit{attempts = 2}}
         },
         recurrent_paytools = #domain_RecurrentPaytoolsServiceTerms{
             payment_methods =

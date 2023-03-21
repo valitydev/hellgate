@@ -3188,7 +3188,7 @@ merge_change(Change = ?payment_status_changed(?failed(_) = Status), St, Opts) ->
         Opts
     ),
     AttemptLimit = get_routing_attempt_limit(St),
-    RouteBlockedFailureCode = genlib_app:env(hellgate, route_blocked_failure),
+    RouteBlockedFailureCode = genlib_app:env(hellgate, route_blocked_failure, <<"route_blocked">>),
     merge_failure_with_new_routing_attempt(St, Opts, Status, RouteBlockedFailureCode, AttemptLimit);
 merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
