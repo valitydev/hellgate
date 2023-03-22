@@ -1584,18 +1584,11 @@ payment_w_failing_provider_route_fixture(Revision) ->
             }
         }},
         hg_ct_fixture:construct_payment_routing_ruleset(
-            ?ruleset(999),
-            <<"SubFailingProviderRoute">>,
-            {candidates, [
-                ?candidate({constant, true}, ?trm(999))
-            ]}
-        ),
-        hg_ct_fixture:construct_payment_routing_ruleset(
             ?ruleset(2),
-            <<"Main">>,
-            {delegates, [
-                ?delegate(<<"Failing">>, {constant, true}, ?ruleset(999)),
-                ?delegate(<<"Regular">>, {constant, true}, ?ruleset(1))
+            <<"Main with cascading">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999)),
+                ?candidate({constant, true}, ?trm(1))
             ]}
         )
     ].
@@ -5636,6 +5629,7 @@ payment_fail_w_available_attempt_limit(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(two_routes_cascading, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    % erlang:display(next_changes(InvoiceID, 20, Client)),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     _ = await_payment_cash_flow(InvoiceID, PaymentID, Client),
@@ -5650,14 +5644,15 @@ payment_fail_w_available_attempt_limit(C) ->
     ] =
         next_changes(InvoiceID, 3, Client),
     ?assertMatch(#domain_Failure{code = <<"route_blocked">>}, Failure),
-    %% WIP
-
-    %% TODO add `route_blocked` to damsel protocol
-    % ok = payproc_errors:match(
-    %     'PaymentFailure',
-    %     Failure,
-    %     fun({route_blocked, {unknown, _}}) -> ok end
-    % ),
+    ?payment_ev(PaymentID, ?route_changed(Route)) = next_change(InvoiceID, Client),
+    ?assertMatch(#domain_PaymentRoute{provider = ?prv(1)}, Route),
+    ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)) = next_change(InvoiceID, Client),
+    erlang:display(CashFlow),
+    erlang:display(next_changes(InvoiceID, 3, Client)),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    erlang:display(next_changes(InvoiceID, 3, Client)),
     ok.
 
 %%

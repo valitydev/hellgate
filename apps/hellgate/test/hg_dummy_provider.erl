@@ -306,10 +306,11 @@ process_payment(?processed(), undefined, PaymentInfo, Ctx, _) ->
         {temporary_unavailability, _Scenario} ->
             result(?sleep(0), <<"sleeping">>);
         two_routes_cascading ->
+            erlang:display(Ctx),
             case Ctx of
                 #{<<"override">> := <<"duckblocker">>} ->
                     Failure = #domain_Failure{code = <<"route_blocked">>},
-                    result(?finish({failure, Failure}), <<"suspended">>);
+                    result(?finish({failure, Failure}));
                 _Else ->
                     result(?sleep(0), <<"sleeping">>)
             end
