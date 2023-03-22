@@ -248,8 +248,19 @@ token_respond(Response, CallbackResult) ->
 %
 % Payments
 %
-
-process_payment(?processed(), undefined, PaymentInfo, Ctx, _) ->
+process_payment(
+    ?processed(),
+    undefined,
+    _PaymentInfo,
+    #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode},
+    _
+) ->
+    Failure = #domain_Failure{
+        code = FailureCode,
+        sub = #domain_SubFailure{code = <<"sub failure by ", ProviderCode/binary>>}
+    },
+    result(?finish({failure, Failure}));
+process_payment(?processed(), undefined, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
@@ -304,16 +315,7 @@ process_payment(?processed(), undefined, PaymentInfo, Ctx, _) ->
         unexpected_failure_no_trx ->
             error(unexpected_failure);
         {temporary_unavailability, _Scenario} ->
-            result(?sleep(0), <<"sleeping">>);
-        two_routes_cascading ->
-            erlang:display(Ctx),
-            case Ctx of
-                #{<<"override">> := <<"duckblocker">>} ->
-                    Failure = #domain_Failure{code = <<"route_blocked">>},
-                    result(?finish({failure, Failure}));
-                _Else ->
-                    result(?sleep(0), <<"sleeping">>)
-            end
+            result(?sleep(0), <<"sleeping">>)
     end;
 process_payment(?processed(), <<"sleeping">>, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
@@ -609,9 +611,7 @@ get_payment_tool_scenario({'crypto_currency', #domain_CryptoCurrencyRef{id = <<"
 get_payment_tool_scenario(
     {'mobile_commerce', #domain_MobileCommerce{operator = #domain_MobileOperatorRef{id = <<"mts-ref">>}}}
 ) ->
-    mobile_commerce;
-get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"two_routes_cascading">>}}) ->
-    two_routes_cascading.
+    mobile_commerce.
 
 -type tokenized_bank_card_payment_system() ::
     {
@@ -645,8 +645,7 @@ get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"two_routes_c
     | empty_cvv
     | {scenario, failure_scenario()}
     | {preauth_3ds, integer()}
-    | {preauth_3ds_sleep, integer()}
-    | two_routes_cascading.
+    | {preauth_3ds_sleep, integer()}.
 
 -spec make_payment_tool(payment_tool_code(), payment_system()) -> payment_tool().
 make_payment_tool(Code, PSys) when
@@ -658,8 +657,7 @@ make_payment_tool(Code, PSys) when
         Code =:= forbidden orelse
         Code =:= unexpected_failure orelse
         Code =:= unexpected_failure_when_suspended orelse
-        Code =:= unexpected_failure_no_trx orelse
-        Code =:= two_routes_cascading
+        Code =:= unexpected_failure_no_trx
 ->
     ?SESSION42(make_bank_card_payment_tool(atom_to_binary(Code, utf8), PSys));
 make_payment_tool(empty_cvv, PSys) ->

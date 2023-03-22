@@ -3189,7 +3189,7 @@ merge_change(Change = ?payment_status_changed(?failed(_) = Status), St0, Opts) -
         Opts
     ),
     AttemptLimit = get_routing_attempt_limit(St0),
-    RouteBlockedFailureCode = genlib_app:env(hellgate, route_blocked_failure, <<"route_blocked">>),
+    RouteBlockedFailureCode = genlib_app:env(hellgate, card_blocked_failure, <<"card_blocked">>),
     St1 = set_failure_payment_status(St0, Status),
     merge_failure_with_new_routing_attempt(St1, Opts, Status, RouteBlockedFailureCode, AttemptLimit);
 merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{payment = Payment} = St, Opts) ->
@@ -3407,14 +3407,13 @@ merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity},
     end.
 
 merge_failure_with_new_routing_attempt(
-    #st{routes = AttemptedRoutes, interim_payment_status = InterimPaymentStatus, trx = _Trx} = St,
+    #st{routes = AttemptedRoutes, interim_payment_status = InterimPaymentStatus} = St,
     Opts,
-    ?failed({failure, #domain_Failure{code = FailureCode} = _ailure}) = Status,
+    ?failed({failure, #domain_Failure{code = FailureCode}}) = Status,
     FailureCode,
     AttemptLimit
 ) when length(AttemptedRoutes) < AttemptLimit ->
     St#st{
-        % repair_scenario = {fail_session, #payproc_InvoiceRepairFailSession{failure = Failure, trx = Trx}},
         interim_payment_status = genlib:define(InterimPaymentStatus, Status),
         activity = {payment, routing},
         timings = accrue_status_timing(pending_attempt, Opts, St)
@@ -3450,8 +3449,7 @@ get_routing_attempt_limit(
     get_routing_attempt_limit_value(PaymentTerms#domain_PaymentsServiceTerms.attempt_limit).
 
 get_routing_attempt_limit_value(undefined) ->
-    % 1;
-    2; %% FIXME remove this line
+    1;
 get_routing_attempt_limit_value({decisions, _}) ->
     get_routing_attempt_limit_value(undefined);
 get_routing_attempt_limit_value({value, #domain_AttemptLimit{attempts = Value}}) when is_integer(Value) ->
@@ -3696,12 +3694,12 @@ get_payment_state(InvoiceID, PaymentID) ->
     end.
 
 -spec get_session(target(), st()) -> session().
-get_session(Target, #st{sessions = Sessions}) ->
-    case maps:get(get_target_type(Target), Sessions, []) of
-        [] ->
-            undefined;
-        [Session | _] ->
-            Session
+get_session(Target, #st{sessions = Sessions, routes = [Route | _PreviousRoutes]}) ->
+    TargetSessions = maps:get(get_target_type(Target), Sessions, []),
+    MatchingRoute = fun(#{route := SR}) -> SR =:= Route end,
+    case lists:search(MatchingRoute, TargetSessions) of
+        {value, Session} -> Session;
+        _ -> undefined
     end.
 
 -spec add_session(target(), session(), st()) -> st().
