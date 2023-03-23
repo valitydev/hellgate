@@ -263,9 +263,6 @@ get_route(#st{routes = []}) ->
 get_route(#st{routes = [Route | _AttemptedRoutes]}) ->
     Route.
 
-get_routes(#st{routes = Routes}) ->
-    Routes.
-
 -spec get_candidate_routes(st()) -> [route()].
 get_candidate_routes(#st{candidate_routes = undefined}) ->
     [];
@@ -2229,6 +2226,8 @@ process_routing(Action, St) ->
                     gather_routes(PaymentInstitution, VS3, Revision, St)
             end,
         AvailableRoutes = filter_out_attempted_routes(AllRoutes, St),
+        %% TODO Investigate necessity of so many `hg_routing:to_payment_route/1` calls.
+        %%      Here, in `filter_out_attempted_routes/2` and in `filter_limit_overflow_routes/3`.
         Events = handle_gathered_route_result(
             filter_limit_overflow_routes(AvailableRoutes, VS3, St),
             [hg_routing:to_payment_route(R) || R <- AllRoutes],
@@ -2513,7 +2512,9 @@ process_result({payment, routing_failure}, Action, St = #st{failure = Failure}) 
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
 process_result({payment, processing_failure}, Action, St = #st{failure = Failure}) ->
     NewAction = hg_machine_action:set_timeout(0, Action),
-    Routes = get_routes(St),
+    %% We need to rollback only current route.
+    %% Previously used routes are supposed to have their limits already rolled back.
+    Routes = [get_route(St)],
     _ = rollback_payment_limits(Routes, St),
     _ = rollback_payment_cashflow(St),
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
@@ -2525,8 +2526,8 @@ process_result({payment, finalizing_accounter}, Action, St) ->
                 commit_payment_limits(St),
                 commit_payment_cashflow(St);
             ?cancelled() ->
-                Routes = get_routes(St),
-                _ = rollback_payment_limits(Routes, St),
+                Route = get_route(St),
+                _ = rollback_payment_limits([Route], St),
                 rollback_payment_cashflow(St)
         end,
     check_recurrent_token(St),
@@ -2791,7 +2792,9 @@ rollback_payment_limits(Routes, St) ->
     ).
 
 rollback_unused_payment_limits(St) ->
-    UnUsedRoutes = get_candidate_routes(St) -- get_routes(St),
+    Route = get_route(St),
+    Routes = get_candidate_routes(St),
+    UnUsedRoutes = Routes -- [Route],
     rollback_payment_limits(UnUsedRoutes, St).
 
 get_turnover_limits(ProviderTerms) ->
