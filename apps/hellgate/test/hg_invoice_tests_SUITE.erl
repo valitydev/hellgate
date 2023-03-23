@@ -523,11 +523,7 @@ init_per_suite(C) ->
         | C
     ],
 
-    ok = start_proxies([
-        {hg_dummy_provider, 1, NewC},
-        {hg_dummy_inspector, 2, NewC},
-        {hg_dummy_provider, hg_dummy_blocker_provider, 3, #{<<"always_fail">> => <<"card_blocked">>}, NewC}
-    ]),
+    ok = start_proxies([{hg_dummy_provider, 1, NewC}, {hg_dummy_inspector, 2, NewC}]),
     NewC.
 
 -spec end_per_suite(config()) -> _.
@@ -1573,8 +1569,9 @@ routes_ruleset_w_different_failing_providers_fixture(Revision) ->
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
                 proxy = #domain_Proxy{
-                    ref = ?prx(3),
+                    ref = ?prx(1),
                     additional = #{
+                        <<"always_fail">> => <<"card_blocked">>,
                         <<"override">> => <<"duckblocker">>
                     }
                 },
@@ -1589,8 +1586,9 @@ routes_ruleset_w_different_failing_providers_fixture(Revision) ->
                 name = <<"Duck Blocker Younger">>,
                 description = <<"No rubber ducks for you! Even smaller">>,
                 proxy = #domain_Proxy{
-                    ref = ?prx(3),
+                    ref = ?prx(1),
                     additional = #{
+                        <<"always_fail">> => <<"card_blocked">>,
                         <<"override">> => <<"duckblocker_younger">>
                     }
                 },
@@ -1639,8 +1637,9 @@ routes_ruleset_w_failing_provider_fixture(Revision) ->
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
                 proxy = #domain_Proxy{
-                    ref = ?prx(3),
+                    ref = ?prx(1),
                     additional = #{
+                        <<"always_fail">> => <<"card_blocked">>,
                         <<"override">> => <<"duckblocker">>
                     }
                 },
@@ -5864,6 +5863,9 @@ filter_change(_) ->
 
 %%
 
+start_service_handler(Module, C, HandlerOpts) ->
+    start_service_handler(Module, Module, C, HandlerOpts).
+
 start_service_handler(Name, Module, C, HandlerOpts) ->
     IP = "127.0.0.1",
     Port = get_random_port(),
@@ -5877,11 +5879,9 @@ start_proxies(Proxies) ->
         lists:map(
             fun
                 Mapper({Module, ProxyID, Context}) ->
-                    Mapper({Module, Module, ProxyID, #{}, Context});
+                    Mapper({Module, ProxyID, #{}, Context});
                 Mapper({Module, ProxyID, ProxyOpts, Context}) ->
-                    Mapper({Module, Module, ProxyID, ProxyOpts, Context});
-                Mapper({Module, Name, ProxyID, ProxyOpts, Context}) ->
-                    construct_proxy(ProxyID, start_service_handler(Name, Module, Context, #{}), ProxyOpts)
+                    construct_proxy(ProxyID, start_service_handler(Module, Context, #{}), ProxyOpts)
             end,
             Proxies
         )
@@ -6990,7 +6990,6 @@ construct_domain_fixture() ->
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
-        hg_ct_fixture:construct_proxy(?prx(3), <<"Blocker proxy">>),
 
         hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{<<"risk_score">> => <<"low">>}),
         hg_ct_fixture:construct_inspector(?insp(2), <<"Skipper">>, ?prx(2), #{<<"risk_score">> => <<"high">>}),
