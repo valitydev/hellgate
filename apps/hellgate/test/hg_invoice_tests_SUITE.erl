@@ -5776,7 +5776,9 @@ payment_cascade_success(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] =
         next_changes(InvoiceID, 3, Client),
-    ok = payproc_errors:match('PreAuthorizationFailure', Failure, fun({card_blocked, _}) -> ok end),
+    %% TODO Patch error_type specs for `payproc_errors:match/3`
+    % ok = payproc_errors:match('PreAuthorizationFailure', Failure, fun({card_blocked, _}) -> ok end),
+    ?assertMatch(#domain_Failure{code = <<"card_blocked">>}, Failure),
     ?payment_ev(PaymentID, ?route_changed(Route)) = next_change(InvoiceID, Client),
     ?assertMatch(#domain_PaymentRoute{provider = ?prv(1)}, Route),
     ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow)) = next_change(InvoiceID, Client),
@@ -5806,7 +5808,9 @@ payment_cascade_fail_wo_available_attempt_limit(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] =
         next_changes(InvoiceID, 3, Client),
-    ok = payproc_errors:match('PreAuthorizationFailure', Failure, fun({card_blocked, _}) -> ok end),
+    %% TODO Patch error_type specs for `payproc_errors:match/3`
+    % ok = payproc_errors:match('PreAuthorizationFailure', Failure, fun({card_blocked, _}) -> ok end),
+    ?assertMatch(#domain_Failure{code = <<"card_blocked">>}, Failure),
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
 
 -spec payment_cascade_failures(config()) -> test_return().
@@ -5830,10 +5834,15 @@ payment_cascade_failures(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure1})))
     ] =
         next_changes(InvoiceID, 3, Client),
-    ok = payproc_errors:match(
-        'PreAuthorizationFailure',
-        Failure1,
-        fun({card_blocked, {{unknown_error, <<"sub failure by duckblocker">>}, _}}) -> ok end
+    %% TODO Patch error_type specs for `payproc_errors:match/3`
+    % ok = payproc_errors:match(
+    %     'PreAuthorizationFailure',
+    %     Failure1,
+    %     fun({card_blocked, {{unknown_error, <<"sub failure by duckblocker">>}, _}}) -> ok end
+    % ),
+    ?assertMatch(
+        #domain_Failure{code = <<"card_blocked">>, sub = #domain_SubFailure{code = <<"sub failure by duckblocker">>}},
+        Failure1
     ),
     ?payment_ev(PaymentID, ?route_changed(_Route)) = next_change(InvoiceID, Client),
     %% And again
@@ -5848,10 +5857,18 @@ payment_cascade_failures(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2})))
     ] =
         next_changes(InvoiceID, 3, Client),
-    ok = payproc_errors:match(
-        'PreAuthorizationFailure',
-        Failure2,
-        fun({card_blocked, {{unknown_error, <<"sub failure by duckblocker_younger">>}, _}}) -> ok end
+    %% TODO Patch error_type specs for `payproc_errors:match/3`
+    % ok = payproc_errors:match(
+    %     'PreAuthorizationFailure',
+    %     Failure2,
+    %     fun({card_blocked, {{unknown_error, <<"sub failure by duckblocker_younger">>}, _}}) -> ok end
+    % ),
+    ?assertMatch(
+        #domain_Failure{
+            code = <<"card_blocked">>,
+            sub = #domain_SubFailure{code = <<"sub failure by duckblocker_younger">>}
+        },
+        Failure2
     ).
 
 -spec payment_cascade_no_route(config()) -> test_return().
@@ -5875,10 +5892,15 @@ payment_cascade_no_route(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, CardBlockedFailure})))
     ] =
         next_changes(InvoiceID, 3, Client),
-    ok = payproc_errors:match(
-        'PreAuthorizationFailure',
-        CardBlockedFailure,
-        fun({card_blocked, {{unknown_error, <<"sub failure by duckblocker">>}, _}}) -> ok end
+    %% TODO Patch error_type specs for `payproc_errors:match/3`
+    % ok = payproc_errors:match(
+    %     'PreAuthorizationFailure',
+    %     CardBlockedFailure,
+    %     fun({card_blocked, {{unknown_error, <<"sub failure by duckblocker">>}, _}}) -> ok end
+    % ),
+    ?assertMatch(
+        #domain_Failure{code = <<"card_blocked">>, sub = #domain_SubFailure{code = <<"sub failure by duckblocker">>}},
+        CardBlockedFailure
     ),
     ?payment_ev(PaymentID, ?route_changed(_Route)) = next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_rollback_started({failure, CardBlockedFailure})) = next_change(InvoiceID, Client).
