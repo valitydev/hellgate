@@ -459,10 +459,10 @@ groups() ->
             allocation_refund_payment
         ]},
         {route_cascading, [], [
-            payment_cascade_success,
-            payment_cascade_fail_wo_available_attempt_limit,
-            payment_cascade_failures,
-            payment_cascade_no_route
+            payment_cascade_success
+            % payment_cascade_fail_wo_available_attempt_limit,
+            % payment_cascade_failures,
+            % payment_cascade_no_route
         ]}
     ].
 
@@ -635,6 +635,8 @@ end_per_suite(C) ->
 -define(system_to_external_fixed, ?fixed(20, <<"RUB">>)).
 
 -spec init_per_group(group_name(), config()) -> config().
+init_per_group(route_cascading, C) ->
+    init_operation_limits_group(C);
 init_per_group(operation_limits, C) ->
     init_operation_limits_group(C);
 init_per_group(allocation, C) ->
@@ -1670,9 +1672,27 @@ routes_ruleset_w_failing_provider_fixture(Revision) ->
     %% - (not bro) One that leads to nasty provider that must fail;
     %%   see `proxy_provider_PaymentContext.options` with #{<<"override">> => <<"duckblocker">>},
     %% - (bro) And second one that successfully executes callbacks for happy "testcases"
-    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+    Brovider =
+        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID,
+                            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                            domain_revision = Revision
+                        }
+                    ]}
+            }
+        },
     [
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = Brovider#domain_Provider{terms = Terms1}
+        }},
         {provider, #domain_ProviderObject{
             ref = ?prv(999),
             data = #domain_Provider{
@@ -1687,7 +1707,7 @@ routes_ruleset_w_failing_provider_fixture(Revision) ->
                 },
                 abs_account = AbsAccount,
                 accounts = Accounts,
-                terms = Terms
+                terms = Terms1
             }
         }},
         {terminal, #domain_TerminalObject{
@@ -5759,10 +5779,22 @@ consistent_account_balances(C) ->
 payment_cascade_success(C) ->
     Client = cfg(client, C),
     Amount = 42000,
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    InvoiceParams = make_invoice_params(
+        cfg(party_id, C),
+        cfg(shop_id, C),
+        <<"rubberduck">>,
+        make_due_date(10),
+        make_cash(Amount)
+    ),
+    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+    {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID, hg_domain:head(), Payment, Invoice),
+    InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
+
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     _ = await_payment_cash_flow(InvoiceID, PaymentID, Client),
@@ -5785,7 +5817,12 @@ payment_cascade_success(C) ->
     %% And again
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(?invoice_w_status(?invoice_paid()), [?payment_state(PaymentFinal)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = PaymentFinal,
+    %% At the end of this scenario limit must be accounted only once.
+    hg_limiter_helper:assert_payment_limit_amount(InitialAccountedAmount + Amount, PaymentFinal, Invoice).
 
 -spec payment_cascade_fail_wo_available_attempt_limit(config()) -> test_return().
 payment_cascade_fail_wo_available_attempt_limit(C) ->

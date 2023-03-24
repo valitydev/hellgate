@@ -15,11 +15,11 @@
 
 -export([get_turnover_limits/1]).
 -export([check_limits/4]).
--export([hold_payment_limits/4]).
+-export([hold_payment_limits/5]).
 -export([hold_refund_limits/5]).
--export([commit_payment_limits/5]).
+-export([commit_payment_limits/6]).
 -export([commit_refund_limits/5]).
--export([rollback_payment_limits/4]).
+-export([rollback_payment_limits/5]).
 -export([rollback_refund_limits/5]).
 
 -define(route(ProviderRef, TerminalRef), #domain_PaymentRoute{
@@ -70,9 +70,9 @@ check_limits_([T | TurnoverLimits], Context, Acc) ->
             throw(limit_overflow)
     end.
 
--spec hold_payment_limits([turnover_limit()], route(), invoice(), payment()) -> ok.
-hold_payment_limits(TurnoverLimits, Route, Invoice, Payment) ->
-    ChangeID = construct_payment_change_id(Route, Invoice, Payment),
+-spec hold_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment()) -> ok.
+hold_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment) ->
+    ChangeID = construct_payment_change_id(Route, Iter, Invoice, Payment),
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_context(Invoice, Payment, Route),
     hold(LimitChanges, get_latest_clock(), Context).
@@ -84,9 +84,9 @@ hold_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
     hold(LimitChanges, get_latest_clock(), Context).
 
--spec commit_payment_limits([turnover_limit()], route(), invoice(), payment(), cash() | undefined) -> ok.
-commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, CapturedCash) ->
-    ChangeID = construct_payment_change_id(Route, Invoice, Payment),
+-spec commit_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment(), cash() | undefined) -> ok.
+commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCash) ->
+    ChangeID = construct_payment_change_id(Route, Iter, Invoice, Payment),
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_context(Invoice, Payment, Route, CapturedCash),
     commit(LimitChanges, get_latest_clock(), Context).
@@ -98,9 +98,9 @@ commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
     commit(LimitChanges, get_latest_clock(), Context).
 
--spec rollback_payment_limits([turnover_limit()], route(), invoice(), payment()) -> ok.
-rollback_payment_limits(TurnoverLimits, Route, Invoice, Payment) ->
-    ChangeID = construct_payment_change_id(Route, Invoice, Payment),
+-spec rollback_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment()) -> ok.
+rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment) ->
+    ChangeID = construct_payment_change_id(Route, Iter, Invoice, Payment),
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeID),
     Context = gen_limit_context(Invoice, Payment, Route),
     rollback(LimitChanges, get_latest_clock(), Context).
@@ -176,12 +176,13 @@ gen_limit_changes(Limits, ChangeID) ->
      || #domain_TurnoverLimit{id = ID, domain_revision = Version} <- Limits
     ].
 
-construct_payment_change_id(?route(ProviderRef, TerminalRef), Invoice, Payment) ->
+construct_payment_change_id(?route(ProviderRef, TerminalRef), Iter, Invoice, Payment) ->
     hg_utils:construct_complex_id([
         genlib:to_binary(get_provider_id(ProviderRef)),
         genlib:to_binary(get_terminal_id(TerminalRef)),
         get_invoice_id(Invoice),
-        get_payment_id(Payment)
+        get_payment_id(Payment),
+        integer_to_binary(Iter)
     ]).
 
 construct_refund_change_id(Invoice, Payment, Refund) ->

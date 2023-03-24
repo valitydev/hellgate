@@ -162,7 +162,7 @@ get_invoice_adjustment(InvoiceID, ID, Client) ->
     Args = [InvoiceID, ID],
     map_result_error(gen_server:call(Client, {call, 'GetInvoiceAdjustment', Args})).
 
--spec start_payment(invoice_id(), payment_params(), pid()) -> payment() | woody_error:business_error().
+-spec start_payment(invoice_id(), payment_params(), pid()) -> payment_st() | woody_error:business_error().
 start_payment(InvoiceID, PaymentParams, Client) ->
     map_result_error(gen_server:call(Client, {call, 'StartPayment', [InvoiceID, PaymentParams]})).
 

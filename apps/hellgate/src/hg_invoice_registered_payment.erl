@@ -188,7 +188,8 @@ get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
 hold_payment_limits(Invoice, Payment, St) ->
     Route = hg_invoice_payment:get_route(St),
     TurnoverLimits = get_turnover_limits(Payment, Route, St),
-    hg_limiter:hold_payment_limits(TurnoverLimits, Route, Invoice, Payment).
+    Iter = hg_invoice_payment:get_iter(St),
+    hg_limiter:hold_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment).
 
 get_turnover_limits(Payment, Route, St) ->
     Route = hg_invoice_payment:get_route(St),
