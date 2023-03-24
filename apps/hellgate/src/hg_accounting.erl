@@ -45,6 +45,7 @@
 -type varset() :: hg_varset:varset().
 -type revision() :: hg_domain:revision().
 
+-export_type([plan_id/0]).
 -export_type([batch/0]).
 
 -type account() :: #{

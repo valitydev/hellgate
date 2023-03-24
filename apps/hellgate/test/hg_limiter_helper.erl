@@ -9,7 +9,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([init_per_suite/1]).
+-export([get_amount/1]).
 -export([assert_payment_limit_amount/3]).
+-export([assert_payment_limit_amount/4]).
 -export([get_payment_limit_amount/4]).
 
 -type config() :: ct_suite:ct_config().
@@ -17,16 +19,25 @@
 -define(LIMIT_ID, <<"ID">>).
 -define(LIMIT_ID2, <<"ID2">>).
 -define(LIMIT_ID3, <<"ID3">>).
+-define(LIMIT_ID4, <<"ID4">>).
 
 -spec init_per_suite(config()) -> _.
 init_per_suite(_Config) ->
     _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID)}),
     _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID2)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID3)}).
+    _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID3)}),
+    _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID4)}).
+
+-spec get_amount(_) -> pos_integer().
+get_amount(#limiter_Limit{amount = Amount}) ->
+    Amount.
 
 -spec assert_payment_limit_amount(_, _, _) -> _.
 assert_payment_limit_amount(AssertAmount, Payment, Invoice) ->
-    LimitID = ?LIMIT_ID,
+    assert_payment_limit_amount(?LIMIT_ID, AssertAmount, Payment, Invoice).
+
+-spec assert_payment_limit_amount(_, _, _, _) -> _.
+assert_payment_limit_amount(LimitID, AssertAmount, Payment, Invoice) ->
     L =
         dmt_client:checkout_versioned_object({'limit_config', #domain_LimitConfigRef{id = LimitID}}),
     #domain_conf_VersionedObject{version = Version} = L,

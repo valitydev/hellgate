@@ -163,15 +163,15 @@ process_processing_capture(Action, St) ->
     } = Payment = hg_invoice_payment:get_payment(St),
 
     ok = hold_payment_limits(Invoice, Payment, St),
-    ok = hold_payment_cashflow(Invoice, Payment, St),
+    ok = hold_payment_cashflow(St),
     Events = [
         hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost), hg_session:create()),
         hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost), ?session_finished(?session_succeeded()))
     ],
     {next, {Events, hg_machine_action:set_timeout(0, Action)}}.
 
-hold_payment_cashflow(Invoice, Payment, St) ->
-    PlanID = construct_payment_plan_id(Invoice, Payment),
+hold_payment_cashflow(St) ->
+    PlanID = hg_invoice_payment:construct_payment_plan_id(St),
     FinalCashflow = hg_invoice_payment:get_final_cashflow(St),
     _Clock = hg_accounting:hold(PlanID, {1, FinalCashflow}),
     ok.
@@ -188,7 +188,8 @@ get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
 hold_payment_limits(Invoice, Payment, St) ->
     Route = hg_invoice_payment:get_route(St),
     TurnoverLimits = get_turnover_limits(Payment, Route, St),
-    hg_limiter:hold_payment_limits(TurnoverLimits, Route, Invoice, Payment).
+    Iter = hg_invoice_payment:get_iter(St),
+    hg_limiter:hold_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment).
 
 get_turnover_limits(Payment, Route, St) ->
     Route = hg_invoice_payment:get_route(St),
@@ -257,14 +258,6 @@ collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore) ->
 
 %%
 
-construct_payment_plan_id(Invoice, Payment) ->
-    hg_utils:construct_complex_id([
-        get_invoice_id(Invoice),
-        get_payment_id(Payment)
-    ]).
-
-%%
-
 get_party(#{party := Party}) ->
     Party.
 
@@ -282,17 +275,11 @@ get_payment_institution_ref(Opts) ->
 get_invoice(#{invoice := Invoice}) ->
     Invoice.
 
-get_invoice_id(#domain_Invoice{id = ID}) ->
-    ID.
-
 get_invoice_cost(#domain_Invoice{cost = Cost}) ->
     Cost.
 
 get_invoice_shop_id(#domain_Invoice{shop_id = ShopID}) ->
     ShopID.
-
-get_payment_id(#domain_InvoicePayment{id = ID}) ->
-    ID.
 
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
     get_resource_payment_tool(PaymentResource);
