@@ -47,6 +47,7 @@
 
 -export_type([plan_id/0]).
 -export_type([batch/0]).
+-export_type([posting_plan_log/0]).
 
 -type account() :: #{
     account_id => account_id(),
