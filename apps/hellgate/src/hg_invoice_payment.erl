@@ -97,6 +97,7 @@
 -export([construct_payer/2]).
 
 -export([construct_payment_plan_id/1]).
+-export([construct_payment_plan_id/2]).
 
 %%
 
@@ -955,9 +956,18 @@ get_available_amount(AccountID) ->
 
 -spec construct_payment_plan_id(st()) -> payment_plan_id().
 construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}) ->
-    construct_payment_plan_id(get_invoice(Opts), Payment, Routes).
+    construct_payment_plan_id(get_invoice(Opts), Payment, Routes, normal).
 
-construct_payment_plan_id(Invoice, Payment, Routes) ->
+-spec construct_payment_plan_id(st(), legacy | normal) -> payment_plan_id().
+construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}, Mode) ->
+    construct_payment_plan_id(get_invoice(Opts), Payment, Routes, Mode).
+
+construct_payment_plan_id(Invoice, Payment, _Routes, legacy) ->
+    hg_utils:construct_complex_id([
+        get_invoice_id(Invoice),
+        get_payment_id(Payment)
+    ]);
+construct_payment_plan_id(Invoice, Payment, Routes, _Mode) ->
     AttemptNum = length(Routes),
     hg_utils:construct_complex_id([
         get_invoice_id(Invoice),
@@ -2850,10 +2860,40 @@ rollback_refund_limits(RefundSt, St) ->
     hg_limiter:rollback_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route).
 
 commit_payment_cashflow(St) ->
-    hg_accounting:commit(construct_payment_plan_id(St), get_cashflow_plan(St)).
+    Plan = get_cashflow_plan(St),
+    do_try_with_ids(
+        [
+            construct_payment_plan_id(St),
+            construct_payment_plan_id(St, legacy)
+        ],
+        fun(ID) ->
+            hg_accounting:commit(ID, Plan)
+        end
+    ).
 
 rollback_payment_cashflow(St) ->
-    hg_accounting:rollback(construct_payment_plan_id(St), get_cashflow_plan(St)).
+    Plan = get_cashflow_plan(St),
+    do_try_with_ids(
+        [
+            construct_payment_plan_id(St),
+            construct_payment_plan_id(St, legacy)
+        ],
+        fun(ID) ->
+            hg_accounting:rollback(ID, Plan)
+        end
+    ).
+
+-spec do_try_with_ids([payment_plan_id()], fun((payment_plan_id()) -> T)) -> T | no_return().
+do_try_with_ids([ID], Func) when is_function(Func, 1) ->
+    Func(ID);
+do_try_with_ids([ID | OtherIDs], Func) when is_function(Func, 1) ->
+    try
+        Func(ID)
+    catch
+        %% Very specific error to crutch around
+        error:{accounting, #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}} ->
+            do_try_with_ids(OtherIDs, Func)
+    end.
 
 get_cashflow_plan(St = #st{partial_cash_flow = PartialCashFlow}) when PartialCashFlow =/= undefined ->
     [
