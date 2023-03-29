@@ -2767,7 +2767,7 @@ get_limit_overflow_routes(Routes, VS, St, RejectedRoutes) ->
                 {ok, _} ->
                     {[Route | RoutesNoOverflowIn], RejectedIn};
                 {error, {limit_overflow, IDs}} ->
-                    RejectedRoute = hg_routing:to_limit_rejected_route(Route, IDs),
+                    RejectedRoute = hg_routing:to_rejected_route(Route, {'LimitOverflow', IDs}),
                     {RoutesNoOverflowIn, [RejectedRoute | RejectedIn]}
             end
         end,
@@ -2791,11 +2791,10 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
                 ok = hg_limiter:hold_payment_limits(TurnoverLimits, PaymentRoute, Iter, Invoice, Payment),
                 {[Route | LimitHeldRoutes], RejectedRoutes}
             catch
-                %% TODO: Discriminate exceptions from limiter service
-                error:#base_InvalidRequest{} ->
-                    TurnoverLimitIDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-                    %% If limit hold fails then we consider according route rejected
-                    RejectedRoute = hg_routing:to_limit_rejected_route(Route, TurnoverLimitIDs),
+                %% If limit hold fails then we consider according route rejected
+                error:#base_InvalidRequest{errors = Errors} ->
+                    Reason = {'LimitError', [T#domain_TurnoverLimit.id || T <- TurnoverLimits], Errors},
+                    RejectedRoute = hg_routing:to_rejected_route(Route, Reason),
                     {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}
             end
         end,

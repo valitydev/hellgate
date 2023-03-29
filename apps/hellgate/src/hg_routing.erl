@@ -17,7 +17,7 @@
 -export([new/4]).
 -export([new/5]).
 -export([to_payment_route/1]).
--export([to_limit_rejected_route/2]).
+-export([to_rejected_route/2]).
 -export([provider_ref/1]).
 -export([terminal_ref/1]).
 
@@ -173,11 +173,9 @@ from_payment_route(Route) ->
 to_payment_route(#route{} = Route) ->
     ?route(provider_ref(Route), terminal_ref(Route)).
 
--spec to_limit_rejected_route(route(), [binary()]) -> rejected_route().
-to_limit_rejected_route(Route, TurnoverLimitIDs) ->
-    PRef = provider_ref(Route),
-    TRef = terminal_ref(Route),
-    {PRef, TRef, {'LimitOverflow', TurnoverLimitIDs}}.
+-spec to_rejected_route(route(), term()) -> rejected_route().
+to_rejected_route(Route, Reason) ->
+    {provider_ref(Route), terminal_ref(Route), Reason}.
 
 -spec set_weight(integer(), route()) -> route().
 set_weight(Weight, Route) ->
