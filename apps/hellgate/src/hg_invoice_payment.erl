@@ -2746,14 +2746,14 @@ get_provider_terms(St, Revision) ->
 
 filter_limit_overflow_routes(Routes0, VS, Iter, St) ->
     {Routes1, RejectedRoutes} = hold_limit_routes(Routes0, VS, Iter, St),
-    case get_limit_overflow_routes(Routes1, VS, St, RejectedRoutes) of
+    case get_limit_overflow_routes(Routes1, RejectedRoutes, VS, St) of
         {[], _RejectedRoutesOut} ->
             {error, not_found};
         {RoutesNoOverflow, _} ->
             {ok, RoutesNoOverflow}
     end.
 
-get_limit_overflow_routes(Routes, VS, St, RejectedRoutes) ->
+get_limit_overflow_routes(Routes, RejectedRoutes, VS, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
@@ -2802,7 +2802,7 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
         Routes0
     ),
     %% Do we care about order?
-    {lists:reverse(Routes1), lists:reverse(Rejected)}.
+    {lists:reverse(Routes1), Rejected}.
 
 rollback_payment_limits(Routes, Iter, St) ->
     Opts = get_opts(St),
