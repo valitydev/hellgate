@@ -60,7 +60,9 @@ get_service(w2w_transfer_event_sink) ->
 get_service(w2w_transfer_repairer) ->
     {fistful_w2w_transfer_thrift, 'Repairer'};
 get_service(w2w_transfer_management) ->
-    {fistful_w2w_transfer_thrift, 'Management'}.
+    {fistful_w2w_transfer_thrift, 'Management'};
+get_service(ff_claim_committer) ->
+    {dmsl_claimmgmt_thrift, 'ClaimCommitter'}.
 
 -spec get_service_spec(service_name()) -> service_spec().
 get_service_spec(Name) ->
@@ -112,4 +114,6 @@ get_service_path(w2w_transfer_event_sink) ->
 get_service_path(w2w_transfer_repairer) ->
     "/v1/repair/w2w_transfer";
 get_service_path(w2w_transfer_management) ->
-    "/v1/w2w_transfer".
+    "/v1/w2w_transfer";
+get_service_path(ff_claim_committer) ->
+    "/v1/claim_committer".

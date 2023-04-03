@@ -71,10 +71,19 @@
     metadata => metadata()
 }.
 
+-type check_params() :: #{
+    party := ff_party:id(),
+    provider := ff_provider:id()
+}.
+
 -type create_error() ::
     {provider, notfound}
     | {party, notfound | ff_party:inaccessibility()}
     | invalid.
+
+-type check_error() ::
+    {provider, notfound}
+    | {party, notfound | ff_party:inaccessibility()}.
 
 -type get_terms_params() :: #{
     party_revision => ff_party:revision(),
@@ -108,6 +117,7 @@
 -export([get_withdrawal_methods/1]).
 -export([get_withdrawal_methods/2]).
 -export([get_terms/2]).
+-export([check_identity_creation/1]).
 
 -export([apply_event/2]).
 
@@ -178,8 +188,7 @@ set_blocking(Identity) ->
     | {error, create_error()}.
 create(Params = #{id := ID, name := Name, party := Party, provider := ProviderID}) ->
     do(fun() ->
-        accessible = unwrap(party, ff_party:is_accessible(Party)),
-        Provider = unwrap(provider, ff_provider:get(ProviderID)),
+        Provider = unwrap(check_identity_creation(#{party => Party, provider => ProviderID})),
         Contract = unwrap(
             ff_party:create_contract(Party, #{
                 payinst => ff_provider:payinst(Provider),
@@ -201,6 +210,16 @@ create(Params = #{id := ID, name := Name, party := Party, provider := ProviderID
                     metadata => maps:get(metadata, Params, undefined)
                 })}
         ]
+    end).
+
+-spec check_identity_creation(check_params()) ->
+    {ok, ff_provider:provider()}
+    | {error, check_error()}.
+
+check_identity_creation(#{party := Party, provider := ProviderID}) ->
+    do(fun() ->
+        accessible = unwrap(party, ff_party:is_accessible(Party)),
+        unwrap(provider, ff_provider:get(ProviderID))
     end).
 
 -spec get_withdrawal_methods(identity_state()) ->

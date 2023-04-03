@@ -14,7 +14,8 @@
         fistful,
         ff_transfer,
         w2w,
-        thrift
+        thrift,
+        ff_claim
     ]},
     {env, []},
     {modules, []},

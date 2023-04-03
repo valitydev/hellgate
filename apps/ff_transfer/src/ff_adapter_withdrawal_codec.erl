@@ -8,6 +8,8 @@
 
 -export([marshal/2]).
 -export([unmarshal/2]).
+-export([marshal_msgpack/1]).
+-export([unmarshal_msgpack/1]).
 
 -type type_name() :: atom() | {list, atom()}.
 -type codec() :: module().
@@ -17,6 +19,19 @@
 
 -type decoded_value() :: decoded_value(any()).
 -type decoded_value(T) :: T.
+
+%% as stolen from `machinery_msgpack`
+-type md() ::
+    nil
+    | boolean()
+    | integer()
+    | float()
+    %% string
+    | binary()
+    %% binary
+    | {binary, binary()}
+    | [md()]
+    | #{md() => md()}.
 
 -export_type([codec/0]).
 -export_type([type_name/0]).
@@ -377,6 +392,7 @@ maybe_unmarshal(_Type, undefined) ->
 maybe_unmarshal(Type, Value) ->
     unmarshal(Type, Value).
 
+-spec marshal_msgpack(md()) -> tuple().
 marshal_msgpack(nil) ->
     {nl, #msgpack_Nil{}};
 marshal_msgpack(V) when is_boolean(V) ->
@@ -395,6 +411,7 @@ marshal_msgpack(V) when is_list(V) ->
 marshal_msgpack(V) when is_map(V) ->
     {obj, maps:fold(fun(Key, Value, Map) -> Map#{marshal_msgpack(Key) => marshal_msgpack(Value)} end, #{}, V)}.
 
+-spec unmarshal_msgpack(tuple()) -> md().
 unmarshal_msgpack({nl, #msgpack_Nil{}}) ->
     nil;
 unmarshal_msgpack({b, V}) when is_boolean(V) ->

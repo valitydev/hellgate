@@ -41,10 +41,19 @@
     metadata => metadata()
 }.
 
+-type check_params() :: #{
+    identity := ff_identity_machine:id(),
+    currency := ff_currency:id()
+}.
+
 -type create_error() ::
     {identity, notfound}
     | {currency, notfound}
     | ff_account:create_error().
+
+-type check_error() ::
+    {identity, notfound}
+    | {currency, notfound}.
 
 -export_type([id/0]).
 -export_type([wallet/0]).
@@ -72,6 +81,7 @@
 -export([is_accessible/1]).
 -export([close/1]).
 -export([get_account_balance/1]).
+-export([check_creation/1]).
 
 -export([apply_event/2]).
 
@@ -133,11 +143,9 @@ metadata(Wallet) ->
 -spec create(params()) ->
     {ok, [event()]}
     | {error, create_error()}.
-create(Params = #{id := ID, identity := IdentityID, name := Name, currency := CurrencyID}) ->
+create(Params = #{id := ID, name := Name}) ->
     do(fun() ->
-        IdentityMachine = unwrap(identity, ff_identity_machine:get(IdentityID)),
-        Identity = ff_identity_machine:identity(IdentityMachine),
-        Currency = unwrap(currency, ff_currency:get(CurrencyID)),
+        {Identity, Currency} = unwrap(check_creation(maps:with([identity, currency], Params))),
         Wallet = genlib_map:compact(#{
             version => ?ACTUAL_FORMAT_VERSION,
             name => Name,
@@ -169,6 +177,18 @@ close(Wallet) ->
         accessible = unwrap(is_accessible(Wallet)),
         % TODO
         []
+    end).
+
+-spec check_creation(check_params()) ->
+    {ok, {ff_identity:identity_state(), ff_currency:currency()}}
+    | {error, check_error()}.
+
+check_creation(#{identity := IdentityID, currency := CurrencyID}) ->
+    do(fun() ->
+        IdentityMachine = unwrap(identity, ff_identity_machine:get(IdentityID)),
+        Identity = ff_identity_machine:identity(IdentityMachine),
+        Currency = unwrap(currency, ff_currency:get(CurrencyID)),
+        {Identity, Currency}
     end).
 
 %%

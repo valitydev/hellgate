@@ -96,7 +96,8 @@ init([]) ->
             {withdrawal_repairer, ff_withdrawal_repair},
             {deposit_repairer, ff_deposit_repair},
             {w2w_transfer_management, ff_w2w_transfer_handler},
-            {w2w_transfer_repairer, ff_w2w_transfer_repair}
+            {w2w_transfer_repairer, ff_w2w_transfer_repair},
+            {ff_claim_committer, ff_claim_committer_handler}
         ] ++ get_eventsink_handlers(),
     WoodyHandlers = [get_handler(Service, Handler, WrapperOpts) || {Service, Handler} <- Services],
 
