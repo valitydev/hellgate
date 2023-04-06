@@ -63,7 +63,7 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-3eff7dd
+    image: ghcr.io/valitydev/limiter:sha-5af0cc6
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:

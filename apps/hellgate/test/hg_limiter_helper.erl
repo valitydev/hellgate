@@ -13,6 +13,8 @@
 -export([assert_payment_limit_amount/3]).
 -export([assert_payment_limit_amount/4]).
 -export([get_payment_limit_amount/4]).
+-export([mk_config_object/2, mk_config_object/3]).
+-export([mk_context_type/1]).
 
 -type config() :: ct_suite:ct_config().
 
@@ -23,10 +25,10 @@
 
 -spec init_per_suite(config()) -> _.
 init_per_suite(_Config) ->
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID2)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID3)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object(?LIMIT_ID4)}).
+    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID)}),
+    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID2)}),
+    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID3)}),
+    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID4)}).
 
 -spec get_amount(_) -> pos_integer().
 get_amount(#limiter_Limit{amount = Amount}) ->
@@ -59,7 +61,15 @@ get_payment_limit_amount(LimitId, Version, Payment, Invoice) ->
     },
     hg_dummy_limiter:get(LimitId, Version, Context, hg_dummy_limiter:new()).
 
-limiter_mk_config_object(LimitID) ->
+mk_config_object(LimitID) ->
+    mk_config_object(LimitID, <<"RUB">>).
+
+-spec mk_config_object(_, _) -> _.
+mk_config_object(LimitID, Currency) ->
+    mk_config_object(LimitID, Currency, {payment_processing, #limiter_config_LimitContextTypePaymentProcessing{}}).
+
+-spec mk_config_object(_, _, _) -> _.
+mk_config_object(LimitID, Currency, ContextType) ->
     #domain_LimitConfigObject{
         ref = #domain_LimitConfigRef{id = LimitID},
         data = #limiter_config_LimitConfig{
@@ -68,10 +78,10 @@ limiter_mk_config_object(LimitID) ->
             started_at = <<"2000-01-01T00:00:00Z">>,
             shard_size = 12,
             time_range_type = {calendar, {month, #limiter_config_TimeRangeTypeCalendarMonth{}}},
-            context_type = {payment_processing, #limiter_config_LimitContextTypePaymentProcessing{}},
+            context_type = ContextType,
             type =
                 {turnover, #limiter_config_LimitTypeTurnover{
-                    metric = {amount, #limiter_config_LimitTurnoverAmount{currency = <<"RUB">>}}
+                    metric = {amount, #limiter_config_LimitTurnoverAmount{currency = Currency}}
                 }},
             scopes = [{shop, #limiter_config_LimitScopeEmptyDetails{}}],
             description = <<"description">>,
@@ -80,3 +90,9 @@ limiter_mk_config_object(LimitID) ->
             }
         }
     }.
+
+-spec mk_context_type(payment | withdrawal) -> _.
+mk_context_type(withdrawal) ->
+    {withdrawal_processing, #limiter_config_LimitContextTypeWithdrawalProcessing{}};
+mk_context_type(payment) ->
+    {payment_processing, #limiter_config_LimitContextTypePaymentProcessing{}}.

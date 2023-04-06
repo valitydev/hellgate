@@ -47,6 +47,8 @@
 -export([payment_partial_capture_limit_success/1]).
 -export([switch_provider_after_limit_overflow/1]).
 -export([limit_not_found/1]).
+-export([limit_hold_currency_error/1]).
+-export([limit_hold_operation_not_supported/1]).
 
 -export([processing_deadline_reached_test/1]).
 -export([payment_success_empty_cvv/1]).
@@ -381,7 +383,9 @@ groups() ->
             payment_partial_capture_limit_success,
             switch_provider_after_limit_overflow,
             limit_not_found,
-            refund_limit_success
+            refund_limit_success,
+            limit_hold_currency_error,
+            limit_hold_operation_not_supported
         ]},
 
         {refunds, [], [
@@ -686,6 +690,10 @@ init_per_testcase(payment_cascade_fail_wo_available_attempt_limit, C) ->
     override_domain_fixture(fun merchant_payments_service_terms_wo_attempt_limit/1, C);
 init_per_testcase(payment_cascade_success, C) ->
     override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
+init_per_testcase(limit_hold_currency_error, C) ->
+    override_domain_fixture(fun patch_limit_config_w_invalid_currency/1, C);
+init_per_testcase(limit_hold_operation_not_supported, C) ->
+    override_domain_fixture(fun patch_limit_config_for_withdrawal/1, C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
 
@@ -1272,6 +1280,37 @@ payment_limit_overflow(C) ->
         fun({no_route_found, {forbidden, _}}) -> ok end
     ).
 
+-spec limit_hold_currency_error(config()) -> test_return().
+limit_hold_currency_error(C) ->
+    payment_route_not_found(C).
+
+-spec limit_hold_operation_not_supported(config()) -> test_return().
+limit_hold_operation_not_supported(C) ->
+    payment_route_not_found(C).
+
+payment_route_not_found(C) ->
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    #{party_id := PartyID} = cfg(limits, C),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    Cash = make_cash(10000, <<"RUB">>),
+    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), Cash),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    _ = start_payment_ev(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
+        next_change(InvoiceID, Client),
+    ok = payproc_errors:match(
+        'PaymentFailure',
+        Failure,
+        fun({no_route_found, _}) -> ok end
+    ).
+
 -spec switch_provider_after_limit_overflow(config()) -> test_return().
 switch_provider_after_limit_overflow(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
@@ -1748,6 +1787,42 @@ merchant_payments_service_terms_wo_attempt_limit(Revision) ->
         }},
         routes_ruleset_w_failing_provider_fixture(Revision)
     ]).
+
+patch_limit_config_w_invalid_currency(Revision) ->
+    NewRevision = hg_domain:update({limit_config, hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"KEK">>)}),
+    [
+        change_terms_limit_config_version(NewRevision, Revision)
+    ].
+
+patch_limit_config_for_withdrawal(Revision) ->
+    NewRevision = hg_domain:update(
+        {limit_config,
+            hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal))}
+    ),
+    [
+        change_terms_limit_config_version(NewRevision, Revision)
+    ].
+
+change_terms_limit_config_version(LimitConfigRevision, OriginalRevision) ->
+    ProviderID = ?prv(5),
+    Brovider = #domain_Provider{terms = Terms} = hg_domain:get(OriginalRevision, {provider, ProviderID}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID,
+                            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                            domain_revision = LimitConfigRevision
+                        }
+                    ]}
+            }
+        },
+    {provider, #domain_ProviderObject{
+        ref = ProviderID,
+        data = Brovider#domain_Provider{terms = Terms1}
+    }}.
 
 -spec payment_capture_failed(config()) -> test_return().
 payment_capture_failed(C) ->

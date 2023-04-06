@@ -839,6 +839,20 @@ log_rejected_routes(no_route_found, RejectedRoutes, Varset) ->
         logger:get_process_metadata()
     ),
     ok;
+log_rejected_routes(limiter_hold_error_rejected, RejectedRoutes, Varset) ->
+    _ = logger:log(
+        warning,
+        "Limiter hold errors caused rejected routes for varset: ~p",
+        [Varset],
+        logger:get_process_metadata()
+    ),
+    _ = logger:log(
+        warning,
+        "Because of limiter hold error route candidates were rejected: ~p",
+        [RejectedRoutes],
+        logger:get_process_metadata()
+    ),
+    ok;
 log_rejected_routes(rejected_route_found, RejectedRoutes, Varset) ->
     _ = logger:log(
         info,
@@ -2791,9 +2805,12 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
                 ok = hg_limiter:hold_payment_limits(TurnoverLimits, PaymentRoute, Iter, Invoice, Payment),
                 {[Route | LimitHeldRoutes], RejectedRoutes}
             catch
-                %% If limit hold fails then we consider according route rejected
-                error:#base_InvalidRequest{errors = Errors} ->
-                    Reason = {'LimitError', [T#domain_TurnoverLimit.id || T <- TurnoverLimits], Errors},
+                error:LimiterError when
+                    is_record(LimiterError, 'limiter_InvalidOperationCurrency') orelse
+                        is_record(LimiterError, 'limiter_OperationContextNotSupported') orelse
+                        is_record(LimiterError, 'limiter_PaymentToolNotSupported')
+                ->
+                    Reason = {'LimitHoldError', [T#domain_TurnoverLimit.id || T <- TurnoverLimits], LimiterError},
                     RejectedRoute = hg_routing:to_rejected_route(Route, Reason),
                     {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}
             end
@@ -2801,6 +2818,8 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
         {[], []},
         Routes0
     ),
+    erlang:length(Rejected) > 0 andalso
+        log_rejected_routes(limiter_hold_error_rejected, Rejected, VS),
     %% Do we care about order?
     {lists:reverse(Routes1), Rejected}.
 
