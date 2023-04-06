@@ -21,6 +21,8 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
 
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
+
 -include_lib("hellgate/include/domain.hrl").
 -include_lib("hellgate/include/allocation.hrl").
 
