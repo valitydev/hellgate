@@ -20,6 +20,7 @@
 -export([to_rejected_route/2]).
 -export([provider_ref/1]).
 -export([terminal_ref/1]).
+-export([undefined_payment_route/0]).
 
 -export([prepare_log_message/1]).
 
@@ -172,6 +173,11 @@ from_payment_route(Route) ->
 -spec to_payment_route(route()) -> payment_route().
 to_payment_route(#route{} = Route) ->
     ?route(provider_ref(Route), terminal_ref(Route)).
+
+-spec undefined_payment_route() -> payment_route().
+undefined_payment_route() ->
+    %% DISCUSS
+    ?route(#domain_ProviderRef{id = 0}, #domain_TerminalRef{id = 0}).
 
 -spec to_rejected_route(route(), term()) -> rejected_route().
 to_rejected_route(Route, Reason) ->

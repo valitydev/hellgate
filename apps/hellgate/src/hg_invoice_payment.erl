@@ -2263,7 +2263,6 @@ process_routing(Action, St) ->
         %%      Here, in `filter_out_attempted_routes/2` and in `filter_limit_overflow_routes/3`.
         Events = handle_gathered_route_result(
             filter_limit_overflow_routes(AvailableRoutes, VS3, Iter, St),
-            [hg_routing:to_payment_route(R) || R <- AllRoutes],
             [hg_routing:to_payment_route(R) || R <- AvailableRoutes],
             Revision,
             St
@@ -2277,30 +2276,32 @@ process_routing(Action, St) ->
 filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
     Routes -- lists:map(fun hg_routing:from_payment_route/1, AttemptedRoutes).
 
-handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, Revision, _St) ->
+handle_gathered_route_result({ok, RoutesNoOverflow}, Routes, Revision, _St) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
-    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
-handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, #st{
+    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(Routes))];
+handle_gathered_route_result({error, not_found}, Routes, _Revision, #st{
     interim_payment_status = {failed, #domain_InvoicePaymentFailed{failure = InterimFailure}}
 }) ->
-    handle_gathered_route_result_(Routes, CandidateRoutes, InterimFailure);
-handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, _St) ->
+    handle_gathered_route_result_(Routes, InterimFailure);
+handle_gathered_route_result({error, not_found}, Routes, _Revision, _St) ->
     Failure =
         {failure,
             payproc_errors:construct(
                 'PaymentFailure',
                 {no_route_found, {forbidden, #payproc_error_GeneralFailure{}}}
             )},
-    handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
+    handle_gathered_route_result_(Routes, Failure).
 
-handle_gathered_route_result_(Routes, CandidateRoutes, Failure) ->
-    [Route | _] = Routes,
-    %% For protocol compatability we set choosen route in route_changed event.
+handle_gathered_route_result_(Routes, Failure) ->
+    %% For protocol compatability we set dummy route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be skipped. And all limit's 'hold' operations
     %% will be rolled back.
-    %% For same purpose in cascade routing we use route form unfiltered list of originally resolved candidates.
-    [?route_changed(Route, ordsets:from_list(CandidateRoutes)), ?payment_rollback_started(Failure)].
+    %% Since route candidates list can be empty (especially with cascading attempts) we can't rely on it.
+    [
+        ?route_changed(hg_routing:undefined_payment_route(), ordsets:from_list(Routes)),
+        ?payment_rollback_started(Failure)
+    ].
 
 handle_choose_route_error(
     _Reason,
@@ -2791,7 +2792,7 @@ get_limit_overflow_routes(Routes, RejectedRoutes, VS, St) ->
         Routes
     ).
 
--spec hold_limit_routes([route()], hg_varset:varset(), pos_integer(), st()) ->
+-spec hold_limit_routes([hg_routing:route()], hg_varset:varset(), pos_integer(), st()) ->
     {[hg_routing:route()], [hg_routing:rejected_route()]}.
 hold_limit_routes(Routes0, VS, Iter, St) ->
     Opts = get_opts(St),
