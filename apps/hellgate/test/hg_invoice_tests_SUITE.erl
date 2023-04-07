@@ -49,6 +49,7 @@
 -export([limit_not_found/1]).
 -export([limit_hold_currency_error/1]).
 -export([limit_hold_operation_not_supported/1]).
+-export([limit_hold_payment_tool_not_supported/1]).
 
 -export([processing_deadline_reached_test/1]).
 -export([payment_success_empty_cvv/1]).
@@ -385,7 +386,8 @@ groups() ->
             limit_not_found,
             refund_limit_success,
             limit_hold_currency_error,
-            limit_hold_operation_not_supported
+            limit_hold_operation_not_supported,
+            limit_hold_payment_tool_not_supported
         ]},
 
         {refunds, [], [
@@ -694,6 +696,8 @@ init_per_testcase(limit_hold_currency_error, C) ->
     override_domain_fixture(fun patch_limit_config_w_invalid_currency/1, C);
 init_per_testcase(limit_hold_operation_not_supported, C) ->
     override_domain_fixture(fun patch_limit_config_for_withdrawal/1, C);
+init_per_testcase(limit_hold_payment_tool_not_supported, C) ->
+    override_domain_fixture(fun patch_with_unsupported_payment_tool/1, C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
 
@@ -1288,7 +1292,17 @@ limit_hold_currency_error(C) ->
 limit_hold_operation_not_supported(C) ->
     payment_route_not_found(C).
 
+-spec limit_hold_payment_tool_not_supported(config()) -> test_return().
+limit_hold_payment_tool_not_supported(C) ->
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
+    payment_route_not_found(PaymentTool, Session, C).
+
 payment_route_not_found(C) ->
+    PmtSys = ?pmt_sys(<<"visa-ref">>),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
+    payment_route_not_found(PaymentTool, Session, C).
+
+payment_route_not_found(PaymentTool, Session, C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
@@ -1300,7 +1314,7 @@ payment_route_not_found(C) ->
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
-    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     _ = start_payment_ev(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
@@ -1803,25 +1817,59 @@ patch_limit_config_for_withdrawal(Revision) ->
         change_terms_limit_config_version(NewRevision, Revision)
     ].
 
-change_terms_limit_config_version(LimitConfigRevision, OriginalRevision) ->
-    ProviderID = ?prv(5),
-    Brovider = #domain_Provider{terms = Terms} = hg_domain:get(OriginalRevision, {provider, ProviderID}),
-    Terms1 =
-        Terms#domain_ProvisionTermSet{
-            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+patch_with_unsupported_payment_tool(Revision) ->
+    NewRevision = hg_domain:update(
+        {limit_config,
+            hg_limiter_helper:mk_config_object(
+                ?LIMIT_ID,
+                <<"RUB">>,
+                hg_limiter_helper:mk_context_type(payment),
+                hg_limiter_helper:mk_scopes([shop, payment_tool])
+            )}
+    ),
+    [
+        change_provider_payments_provision_terms(?prv(5), Revision, fun(PaymentsProvisionTerms) ->
+            PaymentsProvisionTerms#domain_PaymentsProvisionTerms{
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
                             id = ?LIMIT_ID,
                             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                            domain_revision = LimitConfigRevision
+                            domain_revision = NewRevision
                         }
-                    ]}
+                    ]},
+                payment_methods =
+                    {value,
+                        ?ordset([
+                            ?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>))
+                        ])}
             }
+        end)
+    ].
+
+change_terms_limit_config_version(LimitConfigRevision, Revision) ->
+    change_provider_payments_provision_terms(?prv(5), Revision, fun(PaymentsProvisionTerms) ->
+        PaymentsProvisionTerms#domain_PaymentsProvisionTerms{
+            turnover_limits =
+                {value, [
+                    #domain_TurnoverLimit{
+                        id = ?LIMIT_ID,
+                        upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                        domain_revision = LimitConfigRevision
+                    }
+                ]}
+        }
+    end).
+
+change_provider_payments_provision_terms(ProviderID, Revision, Changer) when is_function(Changer, 1) ->
+    Provider = #domain_Provider{terms = Terms} = hg_domain:get(Revision, {provider, ProviderID}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Changer(Terms#domain_ProvisionTermSet.payments)
         },
     {provider, #domain_ProviderObject{
         ref = ProviderID,
-        data = Brovider#domain_Provider{terms = Terms1}
+        data = Provider#domain_Provider{terms = Terms1}
     }}.
 
 -spec payment_capture_failed(config()) -> test_return().

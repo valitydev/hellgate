@@ -13,8 +13,9 @@
 -export([assert_payment_limit_amount/3]).
 -export([assert_payment_limit_amount/4]).
 -export([get_payment_limit_amount/4]).
--export([mk_config_object/2, mk_config_object/3]).
+-export([mk_config_object/2, mk_config_object/3, mk_config_object/4]).
 -export([mk_context_type/1]).
+-export([mk_scopes/1]).
 
 -type config() :: ct_suite:ct_config().
 
@@ -66,10 +67,14 @@ mk_config_object(LimitID) ->
 
 -spec mk_config_object(_, _) -> _.
 mk_config_object(LimitID, Currency) ->
-    mk_config_object(LimitID, Currency, {payment_processing, #limiter_config_LimitContextTypePaymentProcessing{}}).
+    mk_config_object(LimitID, Currency, mk_context_type(payment)).
 
 -spec mk_config_object(_, _, _) -> _.
 mk_config_object(LimitID, Currency, ContextType) ->
+    mk_config_object(LimitID, Currency, ContextType, mk_scopes([shop])).
+
+-spec mk_config_object(_, _, _, _) -> _.
+mk_config_object(LimitID, Currency, ContextType, Scopes) ->
     #domain_LimitConfigObject{
         ref = #domain_LimitConfigRef{id = LimitID},
         data = #limiter_config_LimitConfig{
@@ -83,7 +88,7 @@ mk_config_object(LimitID, Currency, ContextType) ->
                 {turnover, #limiter_config_LimitTypeTurnover{
                     metric = {amount, #limiter_config_LimitTurnoverAmount{currency = Currency}}
                 }},
-            scopes = [{shop, #limiter_config_LimitScopeEmptyDetails{}}],
+            scopes = Scopes,
             description = <<"description">>,
             op_behaviour = #limiter_config_OperationLimitBehaviour{
                 invoice_payment_refund = {subtraction, #limiter_config_Subtraction{}}
@@ -96,3 +101,7 @@ mk_context_type(withdrawal) ->
     {withdrawal_processing, #limiter_config_LimitContextTypeWithdrawalProcessing{}};
 mk_context_type(payment) ->
     {payment_processing, #limiter_config_LimitContextTypePaymentProcessing{}}.
+
+-spec mk_scopes(_) -> _.
+mk_scopes(ScopeTags) ->
+    ordsets:from_list([{Tag, #limiter_config_LimitScopeEmptyDetails{}} || Tag <- ScopeTags]).
