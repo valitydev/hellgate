@@ -841,16 +841,18 @@ log_rejected_routes(no_route_found, RejectedRoutes, Varset) ->
         logger:get_process_metadata()
     ),
     ok;
-log_rejected_routes(limiter_hold_error_rejected, RejectedRoutes, Varset) ->
+log_rejected_routes(limit_hold_reject, RejectedRoutes, _Varset) ->
     _ = logger:log(
         warning,
-        "Limiter hold errors caused rejected routes for varset: ~p",
-        [Varset],
+        "Limiter hold error caused route candidates to be rejected: ~p",
+        [RejectedRoutes],
         logger:get_process_metadata()
     ),
+    ok;
+log_rejected_routes(limit_overflow_reject, RejectedRoutes, _Varset) ->
     _ = logger:log(
-        warning,
-        "Because of limiter hold error route candidates were rejected: ~p",
+        info,
+        "Limit overflow caused route candidates to be rejected: ~p",
         [RejectedRoutes],
         logger:get_process_metadata()
     ),
@@ -2263,6 +2265,7 @@ process_routing(Action, St) ->
         %%      Here, in `filter_out_attempted_routes/2` and in `filter_limit_overflow_routes/3`.
         Events = handle_gathered_route_result(
             filter_limit_overflow_routes(AvailableRoutes, VS3, Iter, St),
+            [hg_routing:to_payment_route(R) || R <- AllRoutes],
             [hg_routing:to_payment_route(R) || R <- AvailableRoutes],
             Revision,
             St
@@ -2276,32 +2279,30 @@ process_routing(Action, St) ->
 filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
     Routes -- lists:map(fun hg_routing:from_payment_route/1, AttemptedRoutes).
 
-handle_gathered_route_result({ok, RoutesNoOverflow}, Routes, Revision, _St) ->
+handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, Revision, _St) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
-    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(Routes))];
-handle_gathered_route_result({error, not_found}, Routes, _Revision, #st{
+    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
+handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, #st{
     interim_payment_status = {failed, #domain_InvoicePaymentFailed{failure = InterimFailure}}
 }) ->
-    handle_gathered_route_result_(Routes, InterimFailure);
-handle_gathered_route_result({error, not_found}, Routes, _Revision, _St) ->
+    handle_gathered_route_result_(Routes, CandidateRoutes, InterimFailure);
+handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, _St) ->
     Failure =
         {failure,
             payproc_errors:construct(
                 'PaymentFailure',
                 {no_route_found, {forbidden, #payproc_error_GeneralFailure{}}}
             )},
-    handle_gathered_route_result_(Routes, Failure).
+    handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
 
-handle_gathered_route_result_(Routes, Failure) ->
-    %% For protocol compatability we set dummy route in route_changed event.
+handle_gathered_route_result_(Routes, CandidateRoutes, Failure) ->
+    [Route | _] = Routes,
+    %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be skipped. And all limit's 'hold' operations
     %% will be rolled back.
-    %% Since route candidates list can be empty (especially with cascading attempts) we can't rely on it.
-    [
-        ?route_changed(hg_routing:undefined_payment_route(), ordsets:from_list(Routes)),
-        ?payment_rollback_started(Failure)
-    ].
+    %% For same purpose in cascade routing we use route form unfiltered list of originally resolved candidates.
+    [?route_changed(Route, ordsets:from_list(CandidateRoutes)), ?payment_rollback_started(Failure)].
 
 handle_choose_route_error(
     _Reason,
@@ -2770,12 +2771,12 @@ filter_limit_overflow_routes(Routes0, VS, Iter, St) ->
             {ok, RoutesNoOverflow}
     end.
 
-get_limit_overflow_routes(Routes, RejectedRoutes, VS, St) ->
+get_limit_overflow_routes(Routes, RejectedRoutes0, VS, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
-    lists:foldl(
+    {_Routes, RejectedRoutes1} = Result = lists:foldl(
         fun(Route, {RoutesNoOverflowIn, RejectedIn}) ->
             PaymentRoute = hg_routing:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
@@ -2788,9 +2789,12 @@ get_limit_overflow_routes(Routes, RejectedRoutes, VS, St) ->
                     {RoutesNoOverflowIn, [RejectedRoute | RejectedIn]}
             end
         end,
-        {[], RejectedRoutes},
+        {[], RejectedRoutes0},
         Routes
-    ).
+    ),
+    erlang:length(RejectedRoutes1) > 0 andalso
+        log_rejected_routes(limit_overflow_reject, RejectedRoutes1, VS),
+    Result.
 
 -spec hold_limit_routes([hg_routing:route()], hg_varset:varset(), pos_integer(), st()) ->
     {[hg_routing:route()], [hg_routing:rejected_route()]}.
@@ -2808,23 +2812,25 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
                 ok = hg_limiter:hold_payment_limits(TurnoverLimits, PaymentRoute, Iter, Invoice, Payment),
                 {[Route | LimitHeldRoutes], RejectedRoutes}
             catch
-                error:LimiterError when
-                    is_record(LimiterError, 'limiter_InvalidOperationCurrency') orelse
-                        is_record(LimiterError, 'limiter_OperationContextNotSupported') orelse
-                        is_record(LimiterError, 'limiter_PaymentToolNotSupported')
-                ->
-                    Reason = {'LimitHoldError', [T#domain_TurnoverLimit.id || T <- TurnoverLimits], LimiterError},
-                    RejectedRoute = hg_routing:to_rejected_route(Route, Reason),
-                    {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}
+                error:(#limiter_InvalidOperationCurrency{} = LimiterError) ->
+                    do_reject_route(LimiterError, Route, TurnoverLimits, LimitHeldRoutes, RejectedRoutes);
+                error:(#limiter_OperationContextNotSupported{} = LimiterError) ->
+                    do_reject_route(LimiterError, Route, TurnoverLimits, LimitHeldRoutes, RejectedRoutes);
+                error:(#limiter_PaymentToolNotSupported{} = LimiterError) ->
+                    do_reject_route(LimiterError, Route, TurnoverLimits, LimitHeldRoutes, RejectedRoutes)
             end
         end,
         {[], []},
         Routes0
     ),
     erlang:length(Rejected) > 0 andalso
-        log_rejected_routes(limiter_hold_error_rejected, Rejected, VS),
-    %% Do we care about order?
+        log_rejected_routes(limit_hold_reject, Rejected, VS),
     {lists:reverse(Routes1), Rejected}.
+
+do_reject_route(LimiterError, Route, TurnoverLimits, LimitHeldRoutes, RejectedRoutes) ->
+    Reason = {'LimitHoldError', [T#domain_TurnoverLimit.id || T <- TurnoverLimits], LimiterError},
+    RejectedRoute = hg_routing:to_rejected_route(Route, Reason),
+    {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}.
 
 rollback_payment_limits(Routes, Iter, St) ->
     Opts = get_opts(St),
