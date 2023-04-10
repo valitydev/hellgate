@@ -2776,22 +2776,23 @@ get_limit_overflow_routes(Routes, RejectedRoutes0, VS, St) ->
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
-    {_Routes, RejectedRoutes1} = Result = lists:foldl(
-        fun(Route, {RoutesNoOverflowIn, RejectedIn}) ->
-            PaymentRoute = hg_routing:to_payment_route(Route),
-            ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
-            TurnoverLimits = get_turnover_limits(ProviderTerms),
-            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
-                {ok, _} ->
-                    {[Route | RoutesNoOverflowIn], RejectedIn};
-                {error, {limit_overflow, IDs}} ->
-                    RejectedRoute = hg_routing:to_rejected_route(Route, {'LimitOverflow', IDs}),
-                    {RoutesNoOverflowIn, [RejectedRoute | RejectedIn]}
-            end
-        end,
-        {[], RejectedRoutes0},
-        Routes
-    ),
+    {_Routes, RejectedRoutes1} =
+        Result = lists:foldl(
+            fun(Route, {RoutesNoOverflowIn, RejectedIn}) ->
+                PaymentRoute = hg_routing:to_payment_route(Route),
+                ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
+                TurnoverLimits = get_turnover_limits(ProviderTerms),
+                case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
+                    {ok, _} ->
+                        {[Route | RoutesNoOverflowIn], RejectedIn};
+                    {error, {limit_overflow, IDs}} ->
+                        RejectedRoute = hg_routing:to_rejected_route(Route, {'LimitOverflow', IDs}),
+                        {RoutesNoOverflowIn, [RejectedRoute | RejectedIn]}
+                end
+            end,
+            {[], RejectedRoutes0},
+            Routes
+        ),
     erlang:length(RejectedRoutes1) > 0 andalso
         log_rejected_routes(limit_overflow_reject, RejectedRoutes1, VS),
     Result.
