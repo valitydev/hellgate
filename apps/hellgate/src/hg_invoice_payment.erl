@@ -2261,7 +2261,7 @@ process_routing(Action, St) ->
         VerifiedCandidates = ViableCandidates -- FailedLimitHoldRoutes,
 
         Events = handle_gathered_route_result(
-            get_limit_overflow_routes(UsableRoutes, VS3, St),
+            filter_limit_overflow_routes(UsableRoutes, VS3, St),
             [hg_routing:to_payment_route(R) || R <- Candidates],
             [hg_routing:to_payment_route(R) || R <- VerifiedCandidates],
             Revision,
@@ -2758,6 +2758,14 @@ get_provider_terms(St, Revision) ->
     VS0 = reconstruct_payment_flow(Payment, #{}),
     VS1 = collect_validation_varset(get_party(Opts), get_shop(Opts), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
+
+filter_limit_overflow_routes(Routes, VS, St) ->
+    case get_limit_overflow_routes(Routes, VS, St) of
+        {[], _RejectedRoutesOut} ->
+            {error, not_found};
+        {RoutesNoOverflow, _} ->
+            {ok, RoutesNoOverflow}
+    end.
 
 get_limit_overflow_routes(Routes, VS, St) ->
     Opts = get_opts(St),
