@@ -123,7 +123,19 @@ rollback_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
 
 -spec hold([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context()) -> ok.
 hold(LimitChanges, Clock, Context) ->
-    process_changes(LimitChanges, fun hg_limiter_client:hold/3, Clock, Context).
+    transact_hold_process_changes(LimitChanges, Clock, Context, []).
+
+transact_hold_process_changes([], _Clock, _Context, _Held) ->
+    ok;
+transact_hold_process_changes([LimitChangesQueue | LimitChangesQueues], Clock, Context, Held) ->
+    try
+        _ = process_changes_try_wrap(LimitChangesQueue, fun hg_limiter_client:hold/3, Clock, Context),
+        transact_hold_process_changes(LimitChangesQueues, Clock, Context, [LimitChangesQueue | Held])
+    catch
+        Class:Reason:Stacktrace ->
+            rollback(Held, Clock, Context),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
 
 -spec commit([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context()) -> ok.
 commit(LimitChanges, Clock, Context) ->
