@@ -50,6 +50,7 @@
 -export([limit_hold_currency_error/1]).
 -export([limit_hold_operation_not_supported/1]).
 -export([limit_hold_payment_tool_not_supported/1]).
+-export([limit_hold_two_routes_failure/1]).
 
 -export([processing_deadline_reached_test/1]).
 -export([payment_success_empty_cvv/1]).
@@ -387,7 +388,8 @@ groups() ->
             refund_limit_success,
             limit_hold_currency_error,
             limit_hold_operation_not_supported,
-            limit_hold_payment_tool_not_supported
+            limit_hold_payment_tool_not_supported,
+            limit_hold_two_routes_failure
         ]},
 
         {refunds, [], [
@@ -698,6 +700,8 @@ init_per_testcase(limit_hold_operation_not_supported, C) ->
     override_domain_fixture(fun patch_limit_config_for_withdrawal/1, C);
 init_per_testcase(limit_hold_payment_tool_not_supported, C) ->
     override_domain_fixture(fun patch_with_unsupported_payment_tool/1, C);
+init_per_testcase(limit_hold_two_routes_failure, C) ->
+    override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/1, C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
 
@@ -1297,6 +1301,10 @@ limit_hold_payment_tool_not_supported(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
     payment_route_not_found(PaymentTool, Session, C).
 
+-spec limit_hold_two_routes_failure(config()) -> test_return().
+limit_hold_two_routes_failure(C) ->
+    payment_route_not_found(C).
+
 payment_route_not_found(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
@@ -1805,7 +1813,7 @@ merchant_payments_service_terms_wo_attempt_limit(Revision) ->
 patch_limit_config_w_invalid_currency(Revision) ->
     NewRevision = hg_domain:update({limit_config, hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"KEK">>)}),
     [
-        change_terms_limit_config_version(NewRevision, Revision)
+        change_terms_limit_config_version(Revision, NewRevision)
     ].
 
 patch_limit_config_for_withdrawal(Revision) ->
@@ -1814,7 +1822,7 @@ patch_limit_config_for_withdrawal(Revision) ->
             hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal))}
     ),
     [
-        change_terms_limit_config_version(NewRevision, Revision)
+        change_terms_limit_config_version(Revision, NewRevision)
     ].
 
 patch_with_unsupported_payment_tool(Revision) ->
@@ -1847,18 +1855,55 @@ patch_with_unsupported_payment_tool(Revision) ->
         end)
     ].
 
-change_terms_limit_config_version(LimitConfigRevision, Revision) ->
-    change_provider_payments_provision_terms(?prv(5), Revision, fun(PaymentsProvisionTerms) ->
-        PaymentsProvisionTerms#domain_PaymentsProvisionTerms{
-            turnover_limits =
-                {value, [
-                    #domain_TurnoverLimit{
-                        id = ?LIMIT_ID,
-                        upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                        domain_revision = LimitConfigRevision
-                    }
-                ]}
+patch_providers_limits_to_fail_and_overflow(Revision) ->
+    %% 1. Must have two routes to different providers.
+    %% 2. Each provider must have different turnover limit.
+    %% 3. First of those turnover limits must fail on hold operation with business error.
+    %% 4. Second must get rejected due limit overflow.
+    NewRevision = hg_domain:update([
+        {limit_config,
+            hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal))}
+    ]),
+    [
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(4),
+            <<"SubMain">>,
+            {candidates, [
+                %% Provider = ?prv(5)
+                ?candidate({constant, true}, ?trm(12)),
+                %% Provider = ?prv(6)
+                ?candidate({constant, true}, ?trm(13))
+            ]}
+        ),
+        change_terms_limit_config_version(Revision, ?prv(5), [
+            #domain_TurnoverLimit{
+                id = ?LIMIT_ID,
+                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                domain_revision = NewRevision
+            }
+        ]),
+        change_terms_limit_config_version(Revision, ?prv(6), [
+            #domain_TurnoverLimit{
+                id = ?LIMIT_ID2,
+                %% Every op will overflow!
+                upper_boundary = 0,
+                domain_revision = NewRevision
+            }
+        ])
+    ].
+
+change_terms_limit_config_version(Revision, LimitConfigRevision) ->
+    change_terms_limit_config_version(Revision, ?prv(5), [
+        #domain_TurnoverLimit{
+            id = ?LIMIT_ID,
+            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+            domain_revision = LimitConfigRevision
         }
+    ]).
+
+change_terms_limit_config_version(Revision, ProviderRef, TurnoverLimits) ->
+    change_provider_payments_provision_terms(ProviderRef, Revision, fun(PaymentsProvisionTerms) ->
+        PaymentsProvisionTerms#domain_PaymentsProvisionTerms{turnover_limits = {value, TurnoverLimits}}
     end).
 
 change_provider_payments_provision_terms(ProviderID, Revision, Changer) when is_function(Changer, 1) ->
