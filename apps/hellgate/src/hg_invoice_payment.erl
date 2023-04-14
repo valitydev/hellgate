@@ -2244,20 +2244,20 @@ process_routing(Action, St) ->
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
     try
         Payer = get_payment_payer(St),
-        Candidates =
+        AllRoutes =
             case get_predefined_route(Payer) of
                 {ok, PaymentRoute} ->
                     [hg_routing:from_payment_route(PaymentRoute)];
                 undefined ->
                     gather_routes(PaymentInstitution, VS3, Revision, St)
             end,
-        ViableCandidates = filter_out_attempted_routes(Candidates, St),
+        AvailableRoutes = filter_out_attempted_routes(AllRoutes, St),
         %% Since this is routing step then current attempt is not yet accounted for in `St`.
         Iter = get_iter(St) + 1,
         Events = handle_gathered_route_result(
-            filter_limit_overflow_routes(ViableCandidates, VS3, Iter, St),
-            [hg_routing:to_payment_route(R) || R <- Candidates],
-            [hg_routing:to_payment_route(R) || R <- ViableCandidates],
+            filter_limit_overflow_routes(AvailableRoutes, VS3, Iter, St),
+            [hg_routing:to_payment_route(R) || R <- AllRoutes],
+            [hg_routing:to_payment_route(R) || R <- AvailableRoutes],
             Revision,
             St
         ),
