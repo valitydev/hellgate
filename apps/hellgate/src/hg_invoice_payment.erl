@@ -2789,7 +2789,7 @@ get_limit_overflow_routes(Routes, VS, St) ->
     Result.
 
 -spec hold_limit_routes([hg_routing:route()], hg_varset:varset(), pos_integer(), st()) ->
-    {[hg_routing:route()], [hg_routing:route()], [hg_routing:rejected_route()]}.
+    {[hg_routing:route()], [hg_routing:rejected_route()]}.
 hold_limit_routes(Routes0, VS, Iter, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
