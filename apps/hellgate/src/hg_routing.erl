@@ -17,6 +17,7 @@
 -export([new/4]).
 -export([new/5]).
 -export([to_payment_route/1]).
+-export([to_rejected_route/2]).
 -export([provider_ref/1]).
 -export([terminal_ref/1]).
 
@@ -113,6 +114,7 @@
 
 -export_type([route/0]).
 -export_type([payment_route/0]).
+-export_type([rejected_route/0]).
 -export_type([route_predestination/0]).
 
 %% Route accessors
@@ -170,6 +172,10 @@ from_payment_route(Route) ->
 -spec to_payment_route(route()) -> payment_route().
 to_payment_route(#route{} = Route) ->
     ?route(provider_ref(Route), terminal_ref(Route)).
+
+-spec to_rejected_route(route(), term()) -> rejected_route().
+to_rejected_route(Route, Reason) ->
+    {provider_ref(Route), terminal_ref(Route), Reason}.
 
 -spec set_weight(integer(), route()) -> route().
 set_weight(Weight, Route) ->

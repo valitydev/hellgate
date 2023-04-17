@@ -39,7 +39,7 @@ services:
       retries: 10
 
   machinegun:
-    image: ghcr.io/valitydev/machinegun:sha-fb7fbf9
+    image: ghcr.io/valitydev/machinegun:sha-058bada
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
@@ -63,7 +63,7 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-3eff7dd
+    image: ghcr.io/valitydev/limiter:sha-2b8723b
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
