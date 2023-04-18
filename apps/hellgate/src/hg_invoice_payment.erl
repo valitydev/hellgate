@@ -3515,6 +3515,7 @@ merge_failure_with_new_routing_attempt(
     FailureCode,
     AttemptLimit
 ) when length(AttemptedRoutes) < AttemptLimit ->
+    log_cascade_attempt(AttemptLimit, St),
     St#st{
         interim_payment_status = genlib:define(InterimPaymentStatus, Status),
         activity = {payment, routing},
@@ -3526,6 +3527,14 @@ merge_failure_with_new_routing_attempt(St, Opts, _Status, _FailureCode, _Attempt
         failure = undefined,
         timings = accrue_status_timing(failed, Opts, St)
     }.
+
+log_cascade_attempt(AttemptLimit, #st{routes = AttemptedRoutes}) ->
+    _ = logger:log(
+        info,
+        "New cascade attempt, limit: ~p; attempted routes: ~p",
+        [AttemptLimit, AttemptedRoutes],
+        logger:get_process_metadata()
+    ).
 
 set_failure_payment_status(#st{payment = Payment, interim_payment_status = undefined} = St, Status) ->
     St#st{payment = Payment#domain_InvoicePayment{status = Status}};
@@ -3548,7 +3557,16 @@ get_routing_attempt_limit(
     VS = collect_validation_varset(Party, Shop, get_payment(St), #{}),
     Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS),
     #domain_TermSet{payments = PaymentTerms} = Terms,
+    log_payment_terms_attempt_limit(PaymentTerms),
     get_routing_attempt_limit_value(PaymentTerms#domain_PaymentsServiceTerms.attempt_limit).
+
+log_payment_terms_attempt_limit(#domain_PaymentsServiceTerms{attempt_limit = AttemptLimit}) ->
+    _ = logger:log(
+        info,
+        "Merchant payment terms' attempt limit: ~p",
+        [AttemptLimit],
+        logger:get_process_metadata()
+    ).
 
 get_routing_attempt_limit_value(undefined) ->
     1;
