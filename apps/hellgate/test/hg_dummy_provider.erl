@@ -255,7 +255,7 @@ process_payment(
     #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode},
     _
 ) ->
-    Failure = construct_failure_from_fully_qualified_code(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
+    Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
     result(?finish({failure, Failure}));
 process_payment(?processed(), undefined, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
@@ -835,12 +835,3 @@ set_transaction_state(Key, Value) ->
 
 get_transaction_state(Key) ->
     hg_kv_store:get(Key).
-
-construct_failure_from_fully_qualified_code(FullyQualifiedCode, FailureReason) ->
-    Codes = lists:reverse(binary:split(FullyQualifiedCode, <<$:>>)),
-    do_construct_failure(Codes, FailureReason, undefined).
-
-do_construct_failure([Code], FailureReason, SubFailure) ->
-    #domain_Failure{code = Code, reason = FailureReason, sub = SubFailure};
-do_construct_failure([SubCode | Codes], FailureReason, SubFailure) ->
-    do_construct_failure(Codes, FailureReason, #domain_SubFailure{code = SubCode, sub = SubFailure}).

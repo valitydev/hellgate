@@ -4060,22 +4060,15 @@ get_party_client() ->
     Context = hg_context:get_party_client_context(HgContext),
     {Client, Context}.
 
-check_if_can_attempt(
-    ?failed({failure, #domain_Failure{code = FailureCode, sub = SubFailure}}) = Status,
-    St
-) ->
-    FullyQualifiedCode = genlib_app:env(hellgate, card_blocked_failure, <<"preauthorization_failed:card_blocked">>),
-    case binary:split(FullyQualifiedCode, <<$:>>) of
-        [FailureCode | SubCodes] ->
-            case check_if_subfailures_match(SubFailure, SubCodes) of
-                true -> check_if_within_attempts_limit(Status, St);
-                false -> {false, Status}
-            end;
-        _Else ->
-            {false, Status}
-    end;
-check_if_can_attempt(_Status, _St) ->
-    false.
+check_if_can_attempt(?failed({failure, Failure}) = Status, St) ->
+    ExpectNotation = genlib_app:env(hellgate, card_blocked_failure, <<"preauthorization_failed:card_blocked">>),
+    payproc_errors:match_notation(Failure, fun
+        %% Expect exact dynamic error
+        (Notation) when Notation =:= ExpectNotation -> check_if_within_attempts_limit(Status, St);
+        (_) -> {false, Status}
+    end);
+check_if_can_attempt(Status, _St) ->
+    {false, Status}.
 
 check_if_within_attempts_limit(Status, St) ->
     AttemptLimit = get_routing_attempt_limit(St),
@@ -4093,10 +4086,3 @@ check_if_within_attempts_limit_(Status, AttemptLimit, #st{routes = AttemptedRout
     {true, Status};
 check_if_within_attempts_limit_(Status, _AttemptLimit, _St) ->
     {false, Status}.
-
-check_if_subfailures_match(_SubFailure, []) ->
-    true;
-check_if_subfailures_match(#domain_SubFailure{code = Code, sub = SubFailure}, [Code | Codes]) ->
-    check_if_subfailures_match(SubFailure, Codes);
-check_if_subfailures_match(#domain_SubFailure{code = _OtherCode}, _Codes) ->
-    false.
