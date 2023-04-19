@@ -255,10 +255,7 @@ process_payment(
     #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode},
     _
 ) ->
-    Failure = #domain_Failure{
-        code = FailureCode,
-        sub = #domain_SubFailure{code = <<"sub failure by ", ProviderCode/binary>>}
-    },
+    Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
     result(?finish({failure, Failure}));
 process_payment(?processed(), undefined, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of

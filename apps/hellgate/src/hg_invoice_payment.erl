@@ -3290,10 +3290,8 @@ merge_change(Change = ?payment_status_changed(?failed(_) = Status), St0, Opts) -
         St0,
         Opts
     ),
-    AttemptLimit = get_routing_attempt_limit(St0),
-    RouteBlockedFailureCode = genlib_app:env(hellgate, card_blocked_failure, <<"card_blocked">>),
     St1 = set_failure_payment_status(St0, Status),
-    merge_failure_with_new_routing_attempt(St1, Opts, Status, RouteBlockedFailureCode, AttemptLimit);
+    merge_failure_with_new_routing_attempt(check_if_can_attempt(Status, St1), Opts, St1);
 merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
     St#st{
@@ -3508,19 +3506,13 @@ merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity},
             St2
     end.
 
-merge_failure_with_new_routing_attempt(
-    #st{routes = AttemptedRoutes, interim_payment_status = InterimPaymentStatus} = St,
-    Opts,
-    ?failed({failure, #domain_Failure{code = FailureCode}}) = Status,
-    FailureCode,
-    AttemptLimit
-) when length(AttemptedRoutes) < AttemptLimit ->
+merge_failure_with_new_routing_attempt({true, Status}, Opts, #st{interim_payment_status = InterimPaymentStatus} = St) ->
     St#st{
         interim_payment_status = genlib:define(InterimPaymentStatus, Status),
         activity = {payment, routing},
         timings = accrue_status_timing(pending_attempt, Opts, St)
     };
-merge_failure_with_new_routing_attempt(St, Opts, _Status, _FailureCode, _AttemptLimit) ->
+merge_failure_with_new_routing_attempt(_Else, Opts, St) ->
     St#st{
         activity = idle,
         failure = undefined,
@@ -3548,7 +3540,16 @@ get_routing_attempt_limit(
     VS = collect_validation_varset(Party, Shop, get_payment(St), #{}),
     Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS),
     #domain_TermSet{payments = PaymentTerms} = Terms,
+    log_payment_terms_attempt_limit(PaymentTerms),
     get_routing_attempt_limit_value(PaymentTerms#domain_PaymentsServiceTerms.attempt_limit).
+
+log_payment_terms_attempt_limit(#domain_PaymentsServiceTerms{attempt_limit = AttemptLimit}) ->
+    _ = logger:log(
+        info,
+        "Merchant payment terms' attempt limit: ~p",
+        [AttemptLimit],
+        logger:get_process_metadata()
+    ).
 
 get_routing_attempt_limit_value(undefined) ->
     1;
@@ -4058,3 +4059,30 @@ get_party_client() ->
     Client = hg_context:get_party_client(HgContext),
     Context = hg_context:get_party_client_context(HgContext),
     {Client, Context}.
+
+check_if_can_attempt(?failed({failure, Failure}) = Status, St) ->
+    ExpectNotation = genlib_app:env(hellgate, card_blocked_failure, <<"preauthorization_failed:card_blocked">>),
+    payproc_errors:match_notation(Failure, fun
+        %% Expect exact dynamic error
+        (Notation) when Notation =:= ExpectNotation -> check_if_within_attempts_limit(Status, St);
+        (_) -> {false, Status}
+    end);
+check_if_can_attempt(Status, _St) ->
+    {false, Status}.
+
+check_if_within_attempts_limit(Status, St) ->
+    AttemptLimit = get_routing_attempt_limit(St),
+    check_if_within_attempts_limit_(Status, AttemptLimit, St).
+
+check_if_within_attempts_limit_(Status, AttemptLimit, #st{routes = AttemptedRoutes}) when
+    length(AttemptedRoutes) < AttemptLimit
+->
+    _ = logger:log(
+        info,
+        "New cascade attempt, limit: ~p; attempted routes: ~p",
+        [AttemptLimit, AttemptedRoutes],
+        logger:get_process_metadata()
+    ),
+    {true, Status};
+check_if_within_attempts_limit_(Status, _AttemptLimit, _St) ->
+    {false, Status}.
