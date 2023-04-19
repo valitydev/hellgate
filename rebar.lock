@@ -64,7 +64,7 @@
   0},
  {<<"payproc_errors">>,
   {git,"https://github.com/valitydev/payproc-errors-erlang.git",
-       {ref,"b843e7661da2f4fb8c974489ed3a1036973f44ed"}},
+       {ref,"8ae8586239ef68098398acf7eb8363d9ec3b3234"}},
   0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2},
  {<<"scoper">>,
