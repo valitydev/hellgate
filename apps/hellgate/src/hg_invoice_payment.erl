@@ -4073,7 +4073,9 @@ check_if_can_attempt(
             end;
         _Else ->
             {false, Status}
-    end.
+    end;
+check_if_can_attempt(_Status, _St) ->
+    false.
 
 check_if_within_attempts_limit(Status, St) ->
     AttemptLimit = get_routing_attempt_limit(St),
