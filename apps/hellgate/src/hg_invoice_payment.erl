@@ -2274,16 +2274,17 @@ handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, R
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
     [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
-handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, #st{
+handle_gathered_route_result({error, {not_found, _}}, Routes, CandidateRoutes, _Revision, #st{
     interim_payment_status = {failed, #domain_InvoicePaymentFailed{failure = InterimFailure}}
 }) ->
     handle_gathered_route_result_(Routes, CandidateRoutes, InterimFailure);
-handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, _St) ->
+handle_gathered_route_result({error, {not_found, RejectedRoutes}}, Routes, CandidateRoutes, _Revision, _St) ->
     Failure =
         {failure,
             payproc_errors:construct(
                 'PaymentFailure',
-                {no_route_found, {forbidden, #payproc_error_GeneralFailure{}}}
+                {no_route_found, {forbidden, #payproc_error_GeneralFailure{}}},
+                genlib:format(RejectedRoutes)
             )},
     handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
 
@@ -2770,8 +2771,8 @@ get_provider_terms(St, Revision) ->
 filter_limit_overflow_routes(Routes, VS, Iter, St) ->
     {UsableRoutes, _HoldRejectedRoutes} = hold_limit_routes(Routes, VS, Iter, St),
     case get_limit_overflow_routes(UsableRoutes, VS, St) of
-        {[], _RejectedRoutesOut} ->
-            {error, not_found};
+        {[], RejectedRoutesOut} ->
+            {error, {not_found, RejectedRoutesOut}};
         {RoutesNoOverflow, _} ->
             {ok, RoutesNoOverflow}
     end.
