@@ -644,6 +644,15 @@ end_per_suite(C) ->
 -define(system_to_provider_share_actual, ?share(16, 1000, operation_amount)).
 -define(system_to_external_fixed, ?fixed(20, <<"RUB">>)).
 
+-define(assertRouteNotFound(Failure, Sub, ReasonSubstring), begin
+    ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, Sub}) -> ok end),
+    Reason = Failure#domain_Failure.reason,
+    ?assert(
+        nomatch =/= binary:match(Reason, ReasonSubstring),
+        <<"Failure reason '", Reason/binary, "' for 'no_route_found' doesn't match '", ReasonSubstring/binary, "'">>
+    )
+end).
+
 -spec init_per_group(group_name(), config()) -> config().
 init_per_group(route_cascading, C) ->
     init_operation_limits_group(C);
@@ -1327,11 +1336,7 @@ payment_route_not_found(PaymentTool, Session, C) ->
     _ = start_payment_ev(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
         next_change(InvoiceID, Client),
-    ok = payproc_errors:match(
-        'PaymentFailure',
-        Failure,
-        fun({no_route_found, _}) -> ok end
-    ).
+    ?assertRouteNotFound(Failure, _, <<"{rejected_routes,[{">>).
 
 -spec switch_provider_after_limit_overflow(config()) -> test_return().
 switch_provider_after_limit_overflow(C) ->
@@ -1599,11 +1604,7 @@ payment_w_misconfigured_routing_failed(C) ->
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client),
-    ok = payproc_errors:match(
-        'PaymentFailure',
-        Failure,
-        fun({no_route_found, {unknown, _}}) -> ok end
-    ).
+    ?assertRouteNotFound(Failure, {unknown, _}, <<"{misconfiguration,{">>).
 
 payment_w_misconfigured_routing_failed_fixture(_Revision) ->
     [
