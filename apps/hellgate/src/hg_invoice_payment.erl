@@ -794,14 +794,14 @@ gather_routes(PaymentInstitution, VS, Revision, St) ->
     of
         {ok, {[], RejectedRoutes}} ->
             _ = log_rejected_routes(no_route_found, RejectedRoutes, VS),
-            throw({no_route_found, unknown});
+            throw({no_route_found, {routes_rejected, RejectedRoutes}});
         {ok, {Routes, RejectedRoutes}} ->
             erlang:length(RejectedRoutes) > 0 andalso
                 log_rejected_routes(rejected_route_found, RejectedRoutes, VS),
             Routes;
         {error, {misconfiguration, _Reason} = Error} ->
             _ = log_misconfigurations(Error),
-            throw({no_route_found, unknown})
+            throw({no_route_found, Error})
     end.
 
 -spec check_risk_score(risk_score()) -> ok | {error, risk_score_is_too_high}.
@@ -2302,12 +2302,26 @@ handle_choose_route_error(
     Action
 ) ->
     process_failure(get_activity(St), Events, Action, InterimFailure, St);
-handle_choose_route_error(Reason, Events, St, Action) ->
+handle_choose_route_error({routes_rejected, RejectedRoutes}, Events, St, Action) ->
+    ReasonDetails = genlib:format(RejectedRoutes),
+    do_handle_routing_error(unknown, ReasonDetails, Events, St, Action);
+handle_choose_route_error({misconfiguration, MisconfigDetails}, Events, St, Action) ->
+    ReasonDetails = genlib:format(MisconfigDetails),
+    do_handle_routing_error(unknown, ReasonDetails, Events, St, Action);
+handle_choose_route_error(Reason, Events, St, Action) when is_atom(Reason) ->
+    do_handle_routing_error(Reason, undefined, Events, St, Action).
+
+do_handle_routing_error(SubCode, Reason, Events, St, Action) when
+    SubCode =:= unknown orelse
+        SubCode =:= risk_score_is_too_high orelse
+        SubCode =:= forbidden
+->
     Failure =
         {failure,
             payproc_errors:construct(
                 'PaymentFailure',
-                {no_route_found, {Reason, #payproc_error_GeneralFailure{}}}
+                {no_route_found, {SubCode, #payproc_error_GeneralFailure{}}},
+                Reason
             )},
     process_failure(get_activity(St), Events, Action, Failure, St).
 
