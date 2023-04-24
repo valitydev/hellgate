@@ -794,14 +794,14 @@ gather_routes(PaymentInstitution, VS, Revision, St) ->
     of
         {ok, {[], RejectedRoutes}} ->
             _ = log_rejected_routes(no_route_found, RejectedRoutes, VS),
-            throw({no_route_found, unknown});
+            throw({no_route_found, {rejected_routes, RejectedRoutes}});
         {ok, {Routes, RejectedRoutes}} ->
             erlang:length(RejectedRoutes) > 0 andalso
                 log_rejected_routes(rejected_route_found, RejectedRoutes, VS),
             Routes;
         {error, {misconfiguration, _Reason} = Error} ->
             _ = log_misconfigurations(Error),
-            throw({no_route_found, unknown})
+            throw({no_route_found, Error})
     end.
 
 -spec check_risk_score(risk_score()) -> ok | {error, risk_score_is_too_high}.
@@ -2274,17 +2274,12 @@ handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, R
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
     [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
-handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, #st{
+handle_gathered_route_result({error, {not_found, _}}, Routes, CandidateRoutes, _Revision, #st{
     interim_payment_status = {failed, #domain_InvoicePaymentFailed{failure = InterimFailure}}
 }) ->
     handle_gathered_route_result_(Routes, CandidateRoutes, InterimFailure);
-handle_gathered_route_result({error, not_found}, Routes, CandidateRoutes, _Revision, _St) ->
-    Failure =
-        {failure,
-            payproc_errors:construct(
-                'PaymentFailure',
-                {no_route_found, {forbidden, #payproc_error_GeneralFailure{}}}
-            )},
+handle_gathered_route_result({error, {not_found, RejectedRoutes}}, Routes, CandidateRoutes, _Revision, _St) ->
+    Failure = construct_routing_failure(forbidden, genlib:format({rejected_routes, RejectedRoutes})),
     handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
 
 handle_gathered_route_result_(Routes, CandidateRoutes, Failure) ->
@@ -2302,14 +2297,24 @@ handle_choose_route_error(
     Action
 ) ->
     process_failure(get_activity(St), Events, Action, InterimFailure, St);
-handle_choose_route_error(Reason, Events, St, Action) ->
-    Failure =
-        {failure,
-            payproc_errors:construct(
-                'PaymentFailure',
-                {no_route_found, {Reason, #payproc_error_GeneralFailure{}}}
-            )},
+handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
+    do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
+handle_choose_route_error({misconfiguration, _Details} = Reason, Events, St, Action) ->
+    do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
+handle_choose_route_error(Reason, Events, St, Action) when is_atom(Reason) ->
+    do_handle_routing_error(Reason, undefined, Events, St, Action).
+
+do_handle_routing_error(SubCode, Reason, Events, St, Action) ->
+    Failure = construct_routing_failure(SubCode, Reason),
     process_failure(get_activity(St), Events, Action, Failure, St).
+
+construct_routing_failure(SubCode, Reason) ->
+    {failure,
+        payproc_errors:construct(
+            'PaymentFailure',
+            {no_route_found, {SubCode, #payproc_error_GeneralFailure{}}},
+            Reason
+        )}.
 
 -spec process_cash_flow_building(action(), st()) -> machine_result().
 process_cash_flow_building(Action, St) ->
@@ -2754,10 +2759,10 @@ get_provider_terms(St, Revision) ->
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
 filter_limit_overflow_routes(Routes, VS, Iter, St) ->
-    {UsableRoutes, _HoldRejectedRoutes} = hold_limit_routes(Routes, VS, Iter, St),
+    {UsableRoutes, HoldRejectedRoutes} = hold_limit_routes(Routes, VS, Iter, St),
     case get_limit_overflow_routes(UsableRoutes, VS, St) of
-        {[], _RejectedRoutesOut} ->
-            {error, not_found};
+        {[], RejectedRoutesOut} ->
+            {error, {not_found, RejectedRoutesOut ++ HoldRejectedRoutes}};
         {RoutesNoOverflow, _} ->
             {ok, RoutesNoOverflow}
     end.
