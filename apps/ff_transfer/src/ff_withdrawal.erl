@@ -1093,6 +1093,8 @@ make_final_cash_flow(DomainRevision, Withdrawal) ->
         {provider, settlement} => ProviderAccount
     }),
     {ok, FinalCashFlow} = ff_cash_flow:finalize(CashFlowPlan, Accounts, Constants),
+
+    logger:log("Created FinalCashFlow: ~p", [FinalCashFlow]),
     FinalCashFlow.
 
 -spec compute_fees(route(), party_varset(), domain_revision()) ->
