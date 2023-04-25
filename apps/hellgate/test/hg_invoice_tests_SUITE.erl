@@ -5959,7 +5959,17 @@ payment_cascade_success(C) ->
     ),
     ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    Context = #base_Content{
+        type = <<"application/x-erlang-binary">>,
+        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
+    },
+    PayerSessionInfo = #domain_PayerSessionInfo{
+        redirect_url = RedirectURL = <<"https://redirectly.io/merchant">>
+    },
+    PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
+        payer_session_info = PayerSessionInfo,
+        context = Context
+    },
     #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
@@ -5978,6 +5988,10 @@ payment_cascade_success(C) ->
     ] =
         next_changes(InvoiceID, 3, Client),
     ok = payproc_errors:match('PaymentFailure', Failure, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    %% Assert payment status is not failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(PaymentInterim)])
+        = hg_client_invoicing:get(InvoiceID, Client),
+    ?assertNotMatch(#domain_InvoicePayment{status = {failed, _}}, PaymentInterim),
     ?payment_ev(PaymentID, ?route_changed(Route)) = next_change(InvoiceID, Client),
     ?assertMatch(#domain_PaymentRoute{provider = ?prv(1)}, Route),
     ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow)) = next_change(InvoiceID, Client),
@@ -5985,9 +5999,25 @@ payment_cascade_success(C) ->
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    ?invoice_state(?invoice_w_status(?invoice_paid()), [?payment_state(PaymentFinal)]) =
+    ?invoice_state(?invoice_w_status(?invoice_paid()), [PaymentSt = ?payment_state(PaymentFinal)]) =
         hg_client_invoicing:get(InvoiceID, Client),
     ?payment_w_status(PaymentID, ?captured()) = PaymentFinal,
+    ?payment_last_trx(Trx) = PaymentSt,
+    ?assertMatch(
+        #domain_InvoicePayment{
+            payer_session_info = PayerSessionInfo,
+            context = Context
+        },
+        PaymentFinal
+    ),
+    ?assertMatch(
+        #domain_TransactionInfo{
+            extra = #{
+                <<"payment.payer_session_info.redirect_url">> := RedirectURL
+            }
+        },
+        Trx
+    ),
     %% At the end of this scenario limit must be accounted only once.
     hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
 
