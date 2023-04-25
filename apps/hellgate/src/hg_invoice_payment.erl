@@ -3311,7 +3311,9 @@ merge_change(
             St#st{
                 interim_payment_status = ActualStatus,
                 activity = {payment, routing},
-                timings = accrue_status_timing(pending_attempt, Opts, St)
+                timings = accrue_status_timing(pending_attempt, Opts, St),
+                %% Since next step is routing again, we won't need (previously rollbacked) cash flow
+                cash_flow = undefined
             };
         false ->
             St#st{
@@ -4076,9 +4078,7 @@ get_party_client() ->
 
 is_route_cascade_available(?failed(OperationFailure), #st{routes = AttemptedRoutes} = St) ->
     is_failure_cascade_trigger(OperationFailure) andalso
-        length(AttemptedRoutes) < get_routing_attempt_limit(St);
-is_route_cascade_available(_Status, _St) ->
-    false.
+        length(AttemptedRoutes) < get_routing_attempt_limit(St).
 
 is_failure_cascade_trigger({failure, Failure}) ->
     ExpectNotation = genlib_app:env(hellgate, card_blocked_failure, <<"preauthorization_failed:card_blocked">>),
