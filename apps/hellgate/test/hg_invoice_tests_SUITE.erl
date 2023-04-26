@@ -198,6 +198,7 @@
 -export([payment_cascade_fail_wo_available_attempt_limit/1]).
 -export([payment_cascade_failures/1]).
 -export([payment_cascade_no_route/1]).
+-export([payment_cascade_deadline_failures/1]).
 
 %%
 
@@ -472,7 +473,8 @@ groups() ->
             payment_cascade_success,
             payment_cascade_fail_wo_available_attempt_limit,
             payment_cascade_failures,
-            payment_cascade_no_route
+            payment_cascade_no_route,
+            payment_cascade_deadline_failures
         ]}
     ].
 
@@ -695,6 +697,8 @@ init_per_testcase(invalid_permit_partial_capture_in_service, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/1, C);
 init_per_testcase(invalid_permit_partial_capture_in_provider, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/1, C);
+init_per_testcase(payment_cascade_deadline_failures, C) ->
+    override_domain_fixture(fun routes_ruleset_w_different_failing_providers_fixture/1, C);
 init_per_testcase(payment_cascade_no_route, C) ->
     override_domain_fixture(fun routes_ruleset_w_one_failing_route_fixture/1, C);
 init_per_testcase(payment_cascade_failures, C) ->
@@ -1680,6 +1684,7 @@ routes_ruleset_w_different_failing_providers_fixture(Revision) ->
                     ref = ?prx(1),
                     additional = #{
                         <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+                        <<"sleep_ms">> => <<"2000">>,
                         <<"override">> => <<"duckblocker">>
                     }
                 },
@@ -6085,6 +6090,49 @@ payment_cascade_failures(C) ->
     ] =
         next_changes(InvoiceID, 3, Client),
     ok = payproc_errors:match('PaymentFailure', Failure2, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
+
+-spec payment_cascade_deadline_failures(config()) -> test_return().
+payment_cascade_deadline_failures(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
+        processing_deadline = hg_datetime:add_time_span(#base_TimeSpan{seconds = 2}, hg_datetime:format_now())
+    },
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    _ = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    [
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure1})))
+        ),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure1})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure1})))
+    ] =
+        next_changes(InvoiceID, 3, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    ?payment_ev(PaymentID, ?route_changed(_Route)) = next_change(InvoiceID, Client),
+    %% And again
+    ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow)) = next_change(InvoiceID, Client),
+    PaymentID = await_sessions_restarts(PaymentID, ?processed(), InvoiceID, Client, 0),
+    [
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure2})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2})))
+    ] = next_changes(InvoiceID, 2, Client),
+    ok = payproc_errors:match(
+        'PaymentFailure',
+        Failure2,
+        fun({authorization_failed, {processing_deadline_reached, _}}) -> ok end
+    ),
     %% Assert payment status IS failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
         hg_client_invoicing:get(InvoiceID, Client),
