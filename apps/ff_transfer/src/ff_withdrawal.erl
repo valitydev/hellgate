@@ -316,7 +316,7 @@
 
 -type fail_type() ::
     limit_check
-    | route_not_found
+    | ff_withdrawal_routing:route_not_found()
     | {inconsistent_quote_route, {provider_id, provider_id()} | {terminal_id, terminal_id()}}
     | session.
 
@@ -785,8 +785,8 @@ process_routing(Withdrawal) ->
             {continue, [
                 {route_changed, Route}
             ]};
-        {error, route_not_found} ->
-            Events = process_transfer_fail(route_not_found, Withdrawal),
+        {error, {route_not_found, _Rejected} = Reason} ->
+            Events = process_transfer_fail(Reason, Withdrawal),
             {continue, Events};
         {error, {inconsistent_quote_route, _Data} = Reason} ->
             Events = process_transfer_fail(Reason, Withdrawal),
@@ -799,7 +799,7 @@ process_rollback_routing(Withdrawal) ->
     {undefined, []}.
 
 -spec do_process_routing(withdrawal_state()) -> {ok, [route()]} | {error, Reason} when
-    Reason :: route_not_found | attempt_limit_exceeded | InconsistentQuote,
+    Reason :: ff_withdrawal_routing:route_not_found() | attempt_limit_exceeded | InconsistentQuote,
     InconsistentQuote :: {inconsistent_quote_route, {provider_id, provider_id()} | {terminal_id, terminal_id()}}.
 do_process_routing(Withdrawal) ->
     do(fun() ->
@@ -1237,7 +1237,8 @@ construct_payment_tool(
 
 %% Quote helpers
 
--spec get_quote(quote_params()) -> {ok, quote()} | {error, create_error() | {route, route_not_found}}.
+-spec get_quote(quote_params()) ->
+    {ok, quote()} | {error, create_error() | {route, ff_withdrawal_routing:route_not_found()}}.
 get_quote(Params = #{destination_id := DestinationID, body := Body, wallet_id := WalletID}) ->
     do(fun() ->
         Destination = unwrap(destination, get_destination(DestinationID)),
@@ -1716,7 +1717,7 @@ process_route_change(Withdrawal, Reason) ->
             case do_process_routing(Withdrawal) of
                 {ok, Routes} ->
                     do_process_route_change(Routes, Withdrawal, Reason);
-                {error, route_not_found} ->
+                {error, {route_not_found, _Rejected}} ->
                     %% No more routes, return last error
                     Events = process_transfer_fail(Reason, Withdrawal),
                     {continue, Events}
@@ -1846,9 +1847,14 @@ build_failure(limit_check, Withdrawal) ->
                 }
             }
     end;
-build_failure(route_not_found, _Withdrawal) ->
+build_failure({route_not_found, []}, _Withdrawal) ->
     #{
         code => <<"no_route_found">>
+    };
+build_failure({route_not_found, RejectedRoutes}, _Withdrawal) ->
+    #{
+        code => <<"no_route_found">>,
+        reason => genlib:format({rejected_routes, RejectedRoutes})
     };
 build_failure({inconsistent_quote_route, {Type, FoundID}}, Withdrawal) ->
     Details =

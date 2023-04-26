@@ -37,8 +37,11 @@
     reject_context := reject_context()
 }.
 
+-type route_not_found() :: {route_not_found, [ff_routing_rule:rejected_route()]}.
+
 -export_type([route/0]).
 -export_type([routing_context/0]).
+-export_type([route_not_found/0]).
 
 -type identity() :: ff_identity:identity_state().
 -type withdrawal() :: ff_withdrawal:withdrawal_state().
@@ -66,12 +69,12 @@
 %%
 
 -spec prepare_routes(party_varset(), identity(), domain_revision()) ->
-    {ok, [route()]} | {error, route_not_found}.
+    {ok, [route()]} | {error, route_not_found()}.
 prepare_routes(PartyVarset, Identity, DomainRevision) ->
     prepare_routes(PartyVarset, #{identity => Identity, domain_revision => DomainRevision, iteration => 1}).
 
 -spec prepare_routes(party_varset(), routing_context()) ->
-    {ok, [route()]} | {error, route_not_found}.
+    {ok, [route()]} | {error, route_not_found()}.
 prepare_routes(PartyVarset, Context) ->
     State = gather_routes(PartyVarset, Context),
     log_reject_context(State),
@@ -143,11 +146,18 @@ get_terminal(#{terminal_id := TerminalID}) ->
     TerminalID.
 
 -spec routes(routing_state()) ->
-    {ok, [route()]} | {error, route_not_found}.
+    {ok, [route()]} | {error, route_not_found()}.
 routes(#{routes := Routes = [_ | _]}) ->
     {ok, sort_routes(Routes)};
-routes(_) ->
-    {error, route_not_found}.
+routes(#{
+    routes := _Routes,
+    reject_context := #{
+        varset := _Varset,
+        accepted_routes := _Accepted,
+        rejected_routes := Rejected
+    }
+}) ->
+    {error, {route_not_found, Rejected}}.
 
 -spec get_routes(routing_state()) ->
     [route()].

@@ -67,6 +67,16 @@
 
 -define(FINAL_BALANCE(Amount, Currency), ?FINAL_BALANCE({Amount, Currency})).
 
+-define(assertRouteNotFound(Result, ReasonSubstring), begin
+    ?assertMatch({failed, #{code := <<"no_route_found">>, reason := _Reason}}, Result),
+    {failed, #{reason := FailureReason}} = Result,
+    ?assert(
+        nomatch =/= binary:match(FailureReason, ReasonSubstring),
+        <<"Failure reason '", FailureReason/binary, "' for 'no_route_found' doesn't match '", ReasonSubstring/binary,
+            "'">>
+    )
+end).
+
 %% API
 
 -spec all() -> [test_case_name() | {group, group_name()}].
@@ -273,7 +283,7 @@ misconfigured_terminal_fail_test(C) ->
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Result = await_final_withdrawal_status(WithdrawalID),
-    ?assertMatch({failed, #{code := <<"no_route_found">>}}, Result).
+    ?assertRouteNotFound(Result, <<"{terms_violation,{not_allowed_currency,">>).
 
 -spec limit_check_fail_test(config()) -> test_return().
 limit_check_fail_test(C) ->
