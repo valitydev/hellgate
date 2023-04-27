@@ -178,8 +178,7 @@
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_status() :: dmsl_domain_thrift:'InvoicePaymentStatus'().
--type payment_status_type() ::
-    pending_attempt | pending | processed | captured | cancelled | refunded | failed | charged_back.
+-type payment_status_type() :: pending | processed | captured | cancelled | refunded | failed | charged_back.
 -type domain_refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
 -type payment_refund() :: dmsl_payproc_thrift:'InvoicePaymentRefund'().
 -type refund_id() :: dmsl_domain_thrift:'InvoicePaymentRefundID'().
@@ -2155,13 +2154,12 @@ process_timeout({payment, Step}, _Action, St) when
 ->
     process_session(St);
 process_timeout({payment, Step}, Action, St) when
-    Step =:= routing_failure orelse
+    Step =:= processing_failure orelse
+        Step =:= routing_failure orelse
         Step =:= processing_accounter orelse
         Step =:= finalizing_accounter
 ->
     process_result(Action, St);
-process_timeout({payment, processing_failure}, Action, St) ->
-    process_processing_failure(Action, St);
 process_timeout({payment, updating_accounter}, Action, St) ->
     process_accounter_update(Action, St);
 process_timeout({chargeback, ID, Type}, Action, St) ->
@@ -2275,10 +2273,6 @@ handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, R
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
     [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
-handle_gathered_route_result({error, {not_found, _}}, Routes, CandidateRoutes, _Revision, #st{
-    interim_payment_status = {failed, #domain_InvoicePaymentFailed{failure = InterimFailure}}
-}) ->
-    handle_gathered_route_result_(Routes, CandidateRoutes, InterimFailure);
 handle_gathered_route_result({error, {not_found, RejectedRoutes}}, Routes, CandidateRoutes, _Revision, _St) ->
     Failure = construct_routing_failure(forbidden, genlib:format({rejected_routes, RejectedRoutes})),
     handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
@@ -2291,13 +2285,6 @@ handle_gathered_route_result_(Routes, CandidateRoutes, Failure) ->
     %% For same purpose in cascade routing we use route form unfiltered list of originally resolved candidates.
     [?route_changed(Route, ordsets:from_list(CandidateRoutes)), ?payment_rollback_started(Failure)].
 
-handle_choose_route_error(
-    _Reason,
-    Events,
-    St = #st{interim_payment_status = {failed, #domain_InvoicePaymentFailed{failure = InterimFailure}}},
-    Action
-) ->
-    process_failure(get_activity(St), Events, Action, InterimFailure, St);
 handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
     do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
 handle_choose_route_error({misconfiguration, _Details} = Reason, Events, St, Action) ->
@@ -2542,6 +2529,17 @@ process_result({payment, routing_failure}, Action, St = #st{failure = Failure}) 
     Routes = get_candidate_routes(St),
     _ = rollback_payment_limits(Routes, get_iter(St), St, [ignore_business_error]),
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
+process_result({payment, processing_failure}, Action, St = #st{failure = Failure}) ->
+    NewAction = hg_machine_action:set_timeout(0, Action),
+    %% We need to rollback only current route.
+    %% Previously used routes are supposed to have their limits already rolled back.
+    Routes = [get_route(St)],
+    _ = rollback_payment_limits(Routes, get_iter(St), St),
+    _ = rollback_payment_cashflow(St),
+    case is_route_cascade_available(?failed(Failure), St) of
+        true -> process_routing(NewAction, St);
+        false -> {done, {[?payment_status_changed(?failed(Failure))], NewAction}}
+    end;
 process_result({payment, finalizing_accounter}, Action, St) ->
     Target = get_target(St),
     _PostingPlanLog =
@@ -2580,19 +2578,6 @@ process_result({refund_accounter, ID}, Action, St) ->
                 []
         end,
     {done, {[?refund_ev(ID, ?refund_status_changed(?refund_succeeded())) | Events], Action}}.
-
-process_processing_failure(Action, St = #st{failure = Failure}) ->
-    NewAction = hg_machine_action:set_timeout(0, Action),
-    %% We need to rollback only current route.
-    %% Previously used routes are supposed to have their limits already rolled back.
-    Routes = [get_route(St)],
-    _ = rollback_payment_limits(Routes, get_iter(St), St),
-    _ = rollback_payment_cashflow(St),
-    Result = {[?payment_status_changed(?failed(Failure))], NewAction},
-    case is_failure_cascade_trigger(Failure) of
-        true -> {next, Result};
-        false -> {done, Result}
-    end.
 
 process_failure(Activity, Events, Action, Failure, St) ->
     process_failure(Activity, Events, Action, Failure, St, undefined).
@@ -3286,11 +3271,7 @@ merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
         activity = Activity,
         timings = accrue_status_timing(failed, Opts, St)
     };
-merge_change(
-    Change = ?payment_status_changed(?failed(_) = OriginalStatus),
-    #st{payment = Payment, interim_payment_status = InterimStatus} = St,
-    Opts
-) ->
+merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition(
         [
             {payment, S}
@@ -3305,24 +3286,12 @@ merge_change(
         St,
         Opts
     ),
-    ActualStatus = genlib:define(InterimStatus, OriginalStatus),
-    case is_route_cascade_available(OriginalStatus, St) of
-        true ->
             St#st{
-                interim_payment_status = ActualStatus,
-                activity = {payment, routing},
-                timings = accrue_status_timing(pending_attempt, Opts, St),
-                %% Since next step is routing again, we won't need (previously rollbacked) cash flow
-                cash_flow = undefined
-            };
-        false ->
-            St#st{
-                payment = Payment#domain_InvoicePayment{status = ActualStatus},
+        payment = Payment#domain_InvoicePayment{status = Status},
                 activity = idle,
                 failure = undefined,
                 timings = accrue_status_timing(failed, Opts, St)
-            }
-    end;
+    };
 merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
     St#st{
@@ -3813,12 +3782,12 @@ get_payment_state(InvoiceID, PaymentID) ->
     end.
 
 -spec get_session(target(), st()) -> session().
-get_session(Target, #st{sessions = Sessions, routes = [Route | _PreviousRoutes]}) ->
-    TargetSessions = maps:get(get_target_type(Target), Sessions, []),
-    MatchingRoute = fun(#{route := SR}) -> SR =:= Route end,
-    case lists:search(MatchingRoute, TargetSessions) of
-        {value, Session} -> Session;
-        _ -> undefined
+get_session(Target, #st{sessions = Sessions}) ->
+    case maps:get(get_target_type(Target), Sessions, []) of
+        [] ->
+            undefined;
+        [Session | _] ->
+            Session
     end.
 
 -spec add_session(target(), session(), st()) -> st().
