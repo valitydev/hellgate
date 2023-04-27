@@ -2273,6 +2273,11 @@ handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, R
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
     [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
+handle_gathered_route_result({error, _Reason}, Routes, CandidateRoutes, _Revision, #st{failure = Failure}) when
+    Failure =/= undefined
+->
+    %% Pass original failure if it is set
+    handle_gathered_route_result_(Routes, CandidateRoutes, Failure);
 handle_gathered_route_result({error, {not_found, RejectedRoutes}}, Routes, CandidateRoutes, _Revision, _St) ->
     Failure = construct_routing_failure(forbidden, genlib:format({rejected_routes, RejectedRoutes})),
     handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
@@ -2582,6 +2587,11 @@ process_result({refund_accounter, ID}, Action, St) ->
 process_failure(Activity, Events, Action, Failure, St) ->
     process_failure(Activity, Events, Action, Failure, St, undefined).
 
+process_failure({payment, processing_failure}, Events, Action, _Failure, #st{failure = Failure}, _RefundSt) when
+    Failure =/= undefined
+->
+    %% In case of cascade attempt we may catch and handle routing failure during 'processing_failure' activity
+    {done, {Events ++ [?payment_status_changed(?failed(Failure))], Action}};
 process_failure({payment, Step}, Events, Action, Failure, _St, _RefundSt) when
     Step =:= risk_scoring orelse
         Step =:= routing
@@ -3206,7 +3216,7 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
         activity = {payment, routing}
     };
 merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = St, Opts) ->
-    _ = validate_transition({payment, routing}, Change, St, Opts),
+    _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
     St#st{
         routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
@@ -3286,11 +3296,11 @@ merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment
         St,
         Opts
     ),
-            St#st{
+    St#st{
         payment = Payment#domain_InvoicePayment{status = Status},
-                activity = idle,
-                failure = undefined,
-                timings = accrue_status_timing(failed, Opts, St)
+        activity = idle,
+        failure = undefined,
+        timings = accrue_status_timing(failed, Opts, St)
     };
 merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
