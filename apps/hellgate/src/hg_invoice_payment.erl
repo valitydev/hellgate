@@ -3218,6 +3218,9 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
 merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = St, Opts) ->
     _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
     St#st{
+        %% On route change we expect cash flow from previous attempt to be rolled back.
+        %% So on `?payment_rollback_started(_)` event for routing failure we won't try to do it again.
+        cash_flow = undefined,
         routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building}
@@ -3792,12 +3795,12 @@ get_payment_state(InvoiceID, PaymentID) ->
     end.
 
 -spec get_session(target(), st()) -> session().
-get_session(Target, #st{sessions = Sessions}) ->
-    case maps:get(get_target_type(Target), Sessions, []) of
-        [] ->
-            undefined;
-        [Session | _] ->
-            Session
+get_session(Target, #st{sessions = Sessions, routes = [Route | _PreviousRoutes]}) ->
+    TargetSessions = maps:get(get_target_type(Target), Sessions, []),
+    MatchingRoute = fun(#{route := SR}) -> SR =:= Route end,
+    case lists:search(MatchingRoute, TargetSessions) of
+        {value, Session} -> Session;
+        _ -> undefined
     end.
 
 -spec add_session(target(), session(), st()) -> st().
