@@ -1,6 +1,7 @@
 -module(ff_withdrawal_routing).
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 
 -export([prepare_routes/2]).
 -export([prepare_routes/3]).
@@ -391,12 +392,21 @@ validate_cash_limit(_NotReducedSelector, _VS) ->
 validate_turnover_limits(undefined, _VS, _Route, _RoutingContext) ->
     {ok, valid};
 validate_turnover_limits({value, TurnoverLimits}, _VS, Route, #{withdrawal := Withdrawal, iteration := Iter}) ->
-    ok = ff_limiter:hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter),
-    case ff_limiter:check_limits(TurnoverLimits, Route, Withdrawal) of
-        {ok, _} ->
-            {ok, valid};
-        {error, Error} ->
-            {error, {terms_violation, Error}}
+    try
+        ok = ff_limiter:hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter),
+        case ff_limiter:check_limits(TurnoverLimits, Route, Withdrawal) of
+            {ok, _} ->
+                {ok, valid};
+            {error, Error} ->
+                {error, {terms_violation, Error}}
+        end
+    catch
+        error:(#limiter_InvalidOperationCurrency{} = LimitError) ->
+            {error, {limit_hold_error, LimitError}};
+        error:(#limiter_OperationContextNotSupported{} = LimitError) ->
+            {error, {limit_hold_error, LimitError}};
+        error:(#limiter_PaymentToolNotSupported{} = LimitError) ->
+            {error, {limit_hold_error, LimitError}}
     end;
 validate_turnover_limits(NotReducedSelector, _VS, _Route, _RoutingContext) ->
     {error, {misconfiguration, {'Could not reduce selector to a value', NotReducedSelector}}}.

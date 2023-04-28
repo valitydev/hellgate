@@ -65,7 +65,7 @@ check_limits_(T, {Limits, Errors}, Context) ->
             {Limits, [{LimitID, LimitAmount, UpperBoundary} | Errors]}
     end.
 
--spec hold_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
+-spec hold_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok | no_return().
 hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
     LimitChanges = gen_limit_changes(TurnoverLimits, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
@@ -83,7 +83,7 @@ rollback_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
     Context = gen_limit_context(Route, Withdrawal),
     rollback(LimitChanges, get_latest_clock(), Context).
 
--spec hold([limit_change()], clock(), context()) -> ok.
+-spec hold([limit_change()], clock(), context()) -> ok | no_return().
 hold(LimitChanges, Clock, Context) ->
     lists:foreach(
         fun(LimitChange) ->
@@ -204,11 +204,15 @@ get(LimitID, Version, Clock, Context) ->
             error({invalid_request, Errors})
     end.
 
--spec call_hold(limit_change(), clock(), context()) -> clock().
+-spec call_hold(limit_change(), clock(), context()) -> clock() | no_return().
 call_hold(LimitChange, Clock, Context) ->
     Args = {LimitChange, Clock, Context},
-    {ok, ClockUpdated} = call('Hold', Args),
-    ClockUpdated.
+    case call('Hold', Args) of
+        {ok, ClockUpdated} ->
+            ClockUpdated;
+        {exception, Exception} ->
+            error(Exception)
+    end.
 
 -spec call_commit(limit_change(), clock(), context()) -> clock().
 call_commit(LimitChange, Clock, Context) ->
@@ -219,8 +223,13 @@ call_commit(LimitChange, Clock, Context) ->
 -spec call_rollback(limit_change(), clock(), context()) -> clock().
 call_rollback(LimitChange, Clock, Context) ->
     Args = {LimitChange, Clock, Context},
-    {ok, ClockUpdated} = call('Rollback', Args),
-    ClockUpdated.
+    case call('Rollback', Args) of
+        {ok, ClockUpdated} -> ClockUpdated;
+        %% Always ignore business exceptions on rollback and compatibility return latest clock
+        {exception, #limiter_InvalidOperationCurrency{}} -> {latest, #limiter_LatestClock{}};
+        {exception, #limiter_OperationContextNotSupported{}} -> {latest, #limiter_LatestClock{}};
+        {exception, #limiter_PaymentToolNotSupported{}} -> {latest, #limiter_LatestClock{}}
+    end.
 
 call(Func, Args) ->
     Service = {limproto_limiter_thrift, 'Limiter'},
