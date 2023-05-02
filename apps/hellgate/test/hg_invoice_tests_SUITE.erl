@@ -1819,6 +1819,11 @@ big_routes_ruleset_w_failing_provider_fixture(Revision) ->
             }
         },
     ProviderProto = #domain_Provider{
+        name = <<"Provider Proto">>,
+        proxy = #domain_Proxy{
+            ref = ?prx(1),
+            additional = #{}
+        },
         description = <<"No rubber ducks for you!">>,
         abs_account = AbsAccount,
         accounts = Accounts,
