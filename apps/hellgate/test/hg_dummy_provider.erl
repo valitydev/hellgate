@@ -252,9 +252,10 @@ process_payment(
     ?processed(),
     undefined,
     _PaymentInfo,
-    #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode},
+    #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode} = Opts,
     _
 ) ->
+    _ = maybe_sleep(Opts),
     Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
     result(?finish({failure, Failure}));
 process_payment(?processed(), undefined, PaymentInfo, _Ctx, _) ->
@@ -835,3 +836,8 @@ set_transaction_state(Key, Value) ->
 
 get_transaction_state(Key) ->
     hg_kv_store:get(Key).
+
+maybe_sleep(#{<<"sleep_ms">> := TimeMs}) when is_binary(TimeMs) ->
+    timer:sleep(binary_to_integer(TimeMs));
+maybe_sleep(_Opts) ->
+    ok.
