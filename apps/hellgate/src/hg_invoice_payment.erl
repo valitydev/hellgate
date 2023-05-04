@@ -1545,7 +1545,6 @@ collect_cashflow(
     Revision
 ) ->
     Amount = get_context_source_amount(ContextSource),
-    PaymentInstitution = get_cashflow_payment_institution(Party, Shop, VS, Revision),
     CF = construct_transaction_cashflow(
         OpType,
         Party,
@@ -2315,7 +2314,6 @@ process_cash_flow_building(Action, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
-    Route = get_route(St),
     Timestamp = get_payment_created_at(Payment),
     VS0 = reconstruct_payment_flow(Payment, #{}),
     VS1 = collect_validation_varset(get_party(Opts), get_shop(Opts), Payment, VS0),
