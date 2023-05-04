@@ -200,7 +200,7 @@ do_process(active, Session) ->
 do_process(suspended, Session) ->
     process_callback_timeout(Session);
 do_process(finished, Session) ->
-    {[], Session}.
+    {{[], hg_machine_action:new()}, Session}.
 
 repair(Session = #{repair_scenario := {result, ProxyResult}}) ->
     Result = handle_proxy_result(ProxyResult, Session),

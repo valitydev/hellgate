@@ -160,11 +160,11 @@ handle_function(
     {#proxy_provider_PaymentContext{
         session = #proxy_provider_Session{target = Target, state = State},
         payment_info = PaymentInfo,
-        options = _
+        options = Ctx
     }},
     Opts
 ) ->
-    process_payment(Target, State, PaymentInfo, Opts);
+    process_payment(Target, State, PaymentInfo, Ctx, Opts);
 handle_function(
     'HandlePaymentCallback',
     {Payload, #proxy_provider_PaymentContext{
@@ -258,8 +258,17 @@ token_respond(Response, CallbackResult) ->
 %
 % Payments
 %
-
-process_payment(?processed(), undefined, PaymentInfo, _) ->
+process_payment(
+    ?processed(),
+    undefined,
+    _PaymentInfo,
+    #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode} = Opts,
+    _
+) ->
+    _ = maybe_sleep(Opts),
+    Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
+    result(?finish({failure, Failure}));
+process_payment(?processed(), undefined, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
@@ -316,7 +325,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         {temporary_unavailability, _Scenario} ->
             result(?sleep(0), <<"sleeping">>)
     end;
-process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
+process_payment(?processed(), <<"sleeping">>, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         unexpected_failure ->
             error(unexpected_failure);
@@ -325,7 +334,7 @@ process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
         _ ->
             finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
     end;
-process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, _) ->
+process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, _Ctx, _) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
     case get_transaction_state(Key) of
         processed ->
@@ -343,6 +352,7 @@ process_payment(
     ?captured(),
     undefined,
     PaymentInfo = #proxy_provider_PaymentInfo{capture = Capture},
+    _Ctx,
     _Opts
 ) when Capture =/= undefined ->
     case get_payment_info_scenario(PaymentInfo) of
@@ -351,7 +361,7 @@ process_payment(
         _ ->
             finish(success(PaymentInfo))
     end;
-process_payment(?cancelled(), _, PaymentInfo, _) ->
+process_payment(?cancelled(), _, PaymentInfo, _Ctx, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
@@ -848,3 +858,8 @@ set_transaction_state(Key, Value) ->
 
 get_transaction_state(Key) ->
     hg_kv_store:get(Key).
+
+maybe_sleep(#{<<"sleep_ms">> := TimeMs}) when is_binary(TimeMs) ->
+    timer:sleep(binary_to_integer(TimeMs));
+maybe_sleep(_Opts) ->
+    ok.

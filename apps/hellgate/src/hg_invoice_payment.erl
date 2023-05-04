@@ -21,6 +21,8 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
 
+-include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
+
 -include_lib("hellgate/include/domain.hrl").
 -include_lib("hellgate/include/allocation.hrl").
 
@@ -37,6 +39,7 @@
 -export([get_refund/2]).
 -export([get_refund_state/2]).
 -export([get_route/1]).
+-export([get_iter/1]).
 -export([get_adjustments/1]).
 -export([get_allocation/1]).
 -export([get_adjustment/2]).
@@ -96,6 +99,9 @@
 -export([validate_transition/4]).
 -export([construct_payer/2]).
 
+-export([construct_payment_plan_id/1]).
+-export([construct_payment_plan_id/2]).
+
 %%
 
 -export_type([payment_id/0]).
@@ -104,6 +110,7 @@
 -export_type([machine_result/0]).
 -export_type([opts/0]).
 -export_type([payment/0]).
+-export_type([payment_status/0]).
 -export_type([refund_id/0]).
 -export_type([refund_state/0]).
 -export_type([trx_info/0]).
@@ -197,6 +204,7 @@
 -type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
 -type recurrent_paytool_service_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
 -type session() :: hg_session:t().
+-type payment_plan_id() :: hg_accounting:plan_id().
 
 -type opts() :: #{
     party => party(),
@@ -243,8 +251,14 @@ get_risk_score(#st{risk_score = RiskScore}) ->
     RiskScore.
 
 -spec get_route(st()) -> route().
-get_route(#st{route = Route}) ->
+get_route(#st{routes = []}) ->
+    undefined;
+get_route(#st{routes = [Route | _AttemptedRoutes]}) ->
     Route.
+
+-spec get_iter(st()) -> pos_integer().
+get_iter(#st{routes = AttemptedRoutes}) ->
+    length(AttemptedRoutes).
 
 -spec get_candidate_routes(st()) -> [route()].
 get_candidate_routes(#st{candidate_routes = undefined}) ->
@@ -779,14 +793,14 @@ gather_routes(PaymentInstitution, VS, Revision, St) ->
     of
         {ok, {[], RejectedRoutes}} ->
             _ = log_rejected_routes(no_route_found, RejectedRoutes, VS),
-            throw({no_route_found, unknown});
+            throw({no_route_found, {rejected_routes, RejectedRoutes}});
         {ok, {Routes, RejectedRoutes}} ->
             erlang:length(RejectedRoutes) > 0 andalso
                 log_rejected_routes(rejected_route_found, RejectedRoutes, VS),
             Routes;
         {error, {misconfiguration, _Reason} = Error} ->
             _ = log_misconfigurations(Error),
-            throw({no_route_found, unknown})
+            throw({no_route_found, Error})
     end.
 
 -spec check_risk_score(risk_score()) -> ok | {error, risk_score_is_too_high}.
@@ -822,6 +836,22 @@ log_rejected_routes(no_route_found, RejectedRoutes, Varset) ->
     _ = logger:log(
         warning,
         "No route found, rejected routes: ~p",
+        [RejectedRoutes],
+        logger:get_process_metadata()
+    ),
+    ok;
+log_rejected_routes(limit_hold_reject, RejectedRoutes, _Varset) ->
+    _ = logger:log(
+        warning,
+        "Limiter hold error caused route candidates to be rejected: ~p",
+        [RejectedRoutes],
+        logger:get_process_metadata()
+    ),
+    ok;
+log_rejected_routes(limit_overflow_reject, RejectedRoutes, _Varset) ->
+    _ = logger:log(
+        info,
+        "Limit overflow caused route candidates to be rejected: ~p",
         [RejectedRoutes],
         logger:get_process_metadata()
     ),
@@ -934,13 +964,32 @@ collect_cash_flow_context(
         operation_amount => Cash
     }.
 
-construct_payment_plan_id(St) ->
-    construct_payment_plan_id(get_invoice(get_opts(St)), get_payment(St)).
+get_available_amount(AccountID) ->
+    #{
+        min_available_amount := AvailableAmount
+    } =
+        hg_accounting:get_balance(AccountID),
+    AvailableAmount.
 
-construct_payment_plan_id(Invoice, Payment) ->
+-spec construct_payment_plan_id(st()) -> payment_plan_id().
+construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}) ->
+    construct_payment_plan_id(get_invoice(Opts), Payment, Routes, normal).
+
+-spec construct_payment_plan_id(st(), legacy | normal) -> payment_plan_id().
+construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}, Mode) ->
+    construct_payment_plan_id(get_invoice(Opts), Payment, Routes, Mode).
+
+construct_payment_plan_id(Invoice, Payment, _Routes, legacy) ->
     hg_utils:construct_complex_id([
         get_invoice_id(Invoice),
         get_payment_id(Payment)
+    ]);
+construct_payment_plan_id(Invoice, Payment, Routes, _Mode) ->
+    AttemptNum = length(Routes),
+    hg_utils:construct_complex_id([
+        get_invoice_id(Invoice),
+        get_payment_id(Payment),
+        integer_to_binary(AttemptNum)
     ]).
 
 get_selector_value(Name, Selector) ->
@@ -2209,29 +2258,27 @@ process_routing(Action, St) ->
     CreatedAt = get_payment_created_at(Payment),
     PaymentInstitutionRef = get_payment_institution_ref(Opts),
     MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS1),
-    VS2 = collect_refund_varset(
-        MerchantTerms#domain_PaymentsServiceTerms.refunds,
-        PaymentTool,
-        VS1
-    ),
-    VS3 = collect_chargeback_varset(
-        MerchantTerms#domain_PaymentsServiceTerms.chargebacks,
-        VS2
-    ),
+    VS2 = collect_refund_varset(MerchantTerms#domain_PaymentsServiceTerms.refunds, PaymentTool, VS1),
+    VS3 = collect_chargeback_varset(MerchantTerms#domain_PaymentsServiceTerms.chargebacks, VS2),
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
     try
         Payer = get_payment_payer(St),
-        Routes =
+        AllRoutes =
             case get_predefined_route(Payer) of
                 {ok, PaymentRoute} ->
                     [hg_routing:from_payment_route(PaymentRoute)];
                 undefined ->
                     gather_routes(PaymentInstitution, VS3, Revision, St)
             end,
+        AvailableRoutes = filter_out_attempted_routes(AllRoutes, St),
+        %% Since this is routing step then current attempt is not yet accounted for in `St`.
+        Iter = get_iter(St) + 1,
         Events = handle_gathered_route_result(
-            filter_limit_overflow_routes(Routes, VS3, St),
-            [hg_routing:to_payment_route(R) || R <- Routes],
-            Revision
+            filter_limit_overflow_routes(AvailableRoutes, VS3, Iter, St),
+            [hg_routing:to_payment_route(R) || R <- AllRoutes],
+            [hg_routing:to_payment_route(R) || R <- AvailableRoutes],
+            Revision,
+            St
         ),
         {next, {Events, hg_machine_action:set_timeout(0, Action)}}
     catch
@@ -2239,31 +2286,48 @@ process_routing(Action, St) ->
             handle_choose_route_error(Reason, [], St, Action)
     end.
 
-handle_gathered_route_result({ok, RoutesNoOverflow}, Routes, Revision) ->
+filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
+    Routes -- lists:map(fun hg_routing:from_payment_route/1, AttemptedRoutes).
+
+handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, Revision, _St) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
-    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(Routes))];
-handle_gathered_route_result({error, not_found}, Routes, _) ->
-    Failure =
-        {failure,
-            payproc_errors:construct(
-                'PaymentFailure',
-                {no_route_found, {forbidden, #payproc_error_GeneralFailure{}}}
-            )},
+    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
+handle_gathered_route_result({error, _Reason}, Routes, CandidateRoutes, _Revision, #st{failure = Failure}) when
+    Failure =/= undefined
+->
+    %% Pass original failure if it is set
+    handle_gathered_route_result_(Routes, CandidateRoutes, Failure);
+handle_gathered_route_result({error, {not_found, RejectedRoutes}}, Routes, CandidateRoutes, _Revision, _St) ->
+    Failure = construct_routing_failure(forbidden, genlib:format({rejected_routes, RejectedRoutes})),
+    handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
+
+handle_gathered_route_result_(Routes, CandidateRoutes, Failure) ->
     [Route | _] = Routes,
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be skipped. And all limit's 'hold' operations
     %% will be rolled back.
-    [?route_changed(Route, ordsets:from_list(Routes)), ?payment_rollback_started(Failure)].
+    %% For same purpose in cascade routing we use route form unfiltered list of originally resolved candidates.
+    [?route_changed(Route, ordsets:from_list(CandidateRoutes)), ?payment_rollback_started(Failure)].
 
-handle_choose_route_error(Reason, Events, St, Action) ->
-    Failure =
-        {failure,
-            payproc_errors:construct(
-                'PaymentFailure',
-                {no_route_found, {Reason, #payproc_error_GeneralFailure{}}}
-            )},
+handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
+    do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
+handle_choose_route_error({misconfiguration, _Details} = Reason, Events, St, Action) ->
+    do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
+handle_choose_route_error(Reason, Events, St, Action) when is_atom(Reason) ->
+    do_handle_routing_error(Reason, undefined, Events, St, Action).
+
+do_handle_routing_error(SubCode, Reason, Events, St, Action) ->
+    Failure = construct_routing_failure(SubCode, Reason),
     process_failure(get_activity(St), Events, Action, Failure, St).
+
+construct_routing_failure(SubCode, Reason) ->
+    {failure,
+        payproc_errors:construct(
+            'PaymentFailure',
+            {no_route_found, {SubCode, #payproc_error_GeneralFailure{}}},
+            Reason
+        )}.
 
 -spec process_cash_flow_building(action(), st()) -> machine_result().
 process_cash_flow_building(Action, St) ->
@@ -2271,7 +2335,6 @@ process_cash_flow_building(Action, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
-    Invoice = get_invoice(Opts),
     Route = get_route(St),
     Timestamp = get_payment_created_at(Payment),
     VS0 = reconstruct_payment_flow(Payment, #{}),
@@ -2291,7 +2354,7 @@ process_cash_flow_building(Action, St) ->
     ),
     _ = rollback_unused_payment_limits(St),
     _Clock = hg_accounting:hold(
-        construct_payment_plan_id(Invoice, Payment),
+        construct_payment_plan_id(St),
         {1, FinalCashflow}
     ),
     Events = [?cash_flow_changed(FinalCashflow)],
@@ -2336,18 +2399,14 @@ process_adjustment_cashflow(ID, _Action, St) ->
     {next, {Events, hg_machine_action:instant()}}.
 
 process_accounter_update(Action, St = #st{partial_cash_flow = FinalCashflow, capture_data = CaptureData}) ->
-    Opts = get_opts(St),
     #payproc_InvoicePaymentCaptureData{
         reason = Reason,
         cash = Cost,
         cart = Cart,
         allocation = Allocation
     } = CaptureData,
-    Invoice = get_invoice(Opts),
-    Payment = get_payment(St),
-    Payment2 = Payment#domain_InvoicePayment{cost = Cost},
     _Clock = hg_accounting:plan(
-        construct_payment_plan_id(Invoice, Payment2),
+        construct_payment_plan_id(St),
         [
             {2, hg_cashflow:revert(get_cashflow(St))},
             {3, FinalCashflow}
@@ -2453,14 +2512,19 @@ process_result({payment, processing_accounter}, Action, St) ->
 process_result({payment, routing_failure}, Action, St = #st{failure = Failure}) ->
     NewAction = hg_machine_action:set_timeout(0, Action),
     Routes = get_candidate_routes(St),
-    _ = rollback_payment_limits(Routes, St),
+    _ = rollback_payment_limits(Routes, get_iter(St), St, [ignore_business_error]),
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
 process_result({payment, processing_failure}, Action, St = #st{failure = Failure}) ->
     NewAction = hg_machine_action:set_timeout(0, Action),
+    %% We need to rollback only current route.
+    %% Previously used routes are supposed to have their limits already rolled back.
     Routes = [get_route(St)],
-    _ = rollback_payment_limits(Routes, St),
+    _ = rollback_payment_limits(Routes, get_iter(St), St),
     _ = rollback_payment_cashflow(St),
-    {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
+    case is_route_cascade_available(?failed(Failure), St) of
+        true -> process_routing(NewAction, St);
+        false -> {done, {[?payment_status_changed(?failed(Failure))], NewAction}}
+    end;
 process_result({payment, finalizing_accounter}, Action, St) ->
     Target = get_target(St),
     _PostingPlanLog =
@@ -2470,7 +2534,7 @@ process_result({payment, finalizing_accounter}, Action, St) ->
                 commit_payment_cashflow(St);
             ?cancelled() ->
                 Route = get_route(St),
-                _ = rollback_payment_limits([Route], St),
+                _ = rollback_payment_limits([Route], get_iter(St), St),
                 rollback_payment_cashflow(St)
         end,
     check_recurrent_token(St),
@@ -2480,6 +2544,11 @@ process_result({payment, finalizing_accounter}, Action, St) ->
 process_failure(Activity, Events, Action, Failure, St) ->
     process_failure(Activity, Events, Action, Failure, St, undefined).
 
+process_failure({payment, processing_failure}, Events, Action, _Failure, #st{failure = Failure}, _RefundSt) when
+    Failure =/= undefined
+->
+    %% In case of cascade attempt we may catch and handle routing failure during 'processing_failure' activity
+    {done, {Events ++ [?payment_status_changed(?failed(Failure))], Action}};
 process_failure({payment, Step}, Events, Action, Failure, _St, _RefundSt) when
     Step =:= risk_scoring orelse
         Step =:= routing
@@ -2631,56 +2700,81 @@ get_provider_terms(St, Revision) ->
     VS1 = collect_validation_varset(get_party(Opts), get_shop(Opts), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
-filter_limit_overflow_routes(Routes, VS, St) ->
-    ok = hold_limit_routes(Routes, VS, St),
-    RejectedContext = #{rejected_routes => []},
-    case get_limit_overflow_routes(Routes, VS, St, RejectedContext) of
-        {[], _RejectedRoutesOut} ->
-            {error, not_found};
+filter_limit_overflow_routes(Routes, VS, Iter, St) ->
+    {UsableRoutes, HoldRejectedRoutes} = hold_limit_routes(Routes, VS, Iter, St),
+    case get_limit_overflow_routes(UsableRoutes, VS, St) of
+        {[], RejectedRoutesOut} ->
+            {error, {not_found, RejectedRoutesOut ++ HoldRejectedRoutes}};
         {RoutesNoOverflow, _} ->
             {ok, RoutesNoOverflow}
     end.
 
-get_limit_overflow_routes(Routes, VS, St, RejectedRoutes) ->
+get_limit_overflow_routes(Routes, VS, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
-    lists:foldl(
-        fun(Route, {RoutesNoOverflowIn, RejectedIn}) ->
+    {_Routes, RejectedRoutes} =
+        Result = lists:foldl(
+            fun(Route, {RoutesNoOverflowIn, RejectedIn}) ->
+                PaymentRoute = hg_routing:to_payment_route(Route),
+                ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
+                TurnoverLimits = get_turnover_limits(ProviderTerms),
+                case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
+                    {ok, _} ->
+                        {[Route | RoutesNoOverflowIn], RejectedIn};
+                    {error, {limit_overflow, IDs}} ->
+                        RejectedRoute = hg_routing:to_rejected_route(Route, {'LimitOverflow', IDs}),
+                        {RoutesNoOverflowIn, [RejectedRoute | RejectedIn]}
+                end
+            end,
+            {[], []},
+            Routes
+        ),
+    erlang:length(RejectedRoutes) > 0 andalso
+        log_rejected_routes(limit_overflow_reject, RejectedRoutes, VS),
+    Result.
+
+-spec hold_limit_routes([hg_routing:route()], hg_varset:varset(), pos_integer(), st()) ->
+    {[hg_routing:route()], [hg_routing:rejected_route()]}.
+hold_limit_routes(Routes0, VS, Iter, St) ->
+    Opts = get_opts(St),
+    Revision = get_payment_revision(St),
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    {Routes1, Rejected} = lists:foldl(
+        fun(Route, {LimitHeldRoutes, RejectedRoutes} = Acc) ->
             PaymentRoute = hg_routing:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
-                {ok, _} ->
-                    {[Route | RoutesNoOverflowIn], RejectedIn};
-                {error, {limit_overflow, IDs}} ->
-                    PRef = hg_routing:provider_ref(Route),
-                    TRef = hg_routing:terminal_ref(Route),
-                    RejectedOut = [{PRef, TRef, {'LimitOverflow', IDs}} | RejectedIn],
-                    {RoutesNoOverflowIn, RejectedOut}
+            try
+                ok = hg_limiter:hold_payment_limits(TurnoverLimits, PaymentRoute, Iter, Invoice, Payment),
+                {[Route | LimitHeldRoutes], RejectedRoutes}
+            catch
+                error:(#limiter_InvalidOperationCurrency{} = LimiterError) ->
+                    do_reject_route(LimiterError, Route, TurnoverLimits, Acc);
+                error:(#limiter_OperationContextNotSupported{} = LimiterError) ->
+                    do_reject_route(LimiterError, Route, TurnoverLimits, Acc);
+                error:(#limiter_PaymentToolNotSupported{} = LimiterError) ->
+                    do_reject_route(LimiterError, Route, TurnoverLimits, Acc)
             end
         end,
-        {[], RejectedRoutes},
-        Routes
-    ).
+        {[], []},
+        Routes0
+    ),
+    erlang:length(Rejected) > 0 andalso
+        log_rejected_routes(limit_hold_reject, Rejected, VS),
+    {lists:reverse(Routes1), Rejected}.
 
-hold_limit_routes(Routes, VS, St) ->
-    Opts = get_opts(St),
-    Revision = get_payment_revision(St),
-    Payment = get_payment(St),
-    Invoice = get_invoice(Opts),
-    lists:foreach(
-        fun(Route) ->
-            PaymentRoute = hg_routing:to_payment_route(Route),
-            ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
-            TurnoverLimits = get_turnover_limits(ProviderTerms),
-            ok = hg_limiter:hold_payment_limits(TurnoverLimits, PaymentRoute, Invoice, Payment)
-        end,
-        Routes
-    ).
+do_reject_route(LimiterError, Route, TurnoverLimits, {LimitHeldRoutes, RejectedRoutes}) ->
+    Reason = {'LimitHoldError', [T#domain_TurnoverLimit.id || T <- TurnoverLimits], LimiterError},
+    RejectedRoute = hg_routing:to_rejected_route(Route, Reason),
+    {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}.
 
-rollback_payment_limits(Routes, St) ->
+rollback_payment_limits(Routes, Iter, St) ->
+    rollback_payment_limits(Routes, Iter, St, []).
+
+rollback_payment_limits(Routes, Iter, St, Flags) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
@@ -2690,7 +2784,7 @@ rollback_payment_limits(Routes, St) ->
         fun(Route) ->
             ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Route, Invoice, Payment)
+            ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, Flags)
         end,
         Routes
     ).
@@ -2699,7 +2793,7 @@ rollback_unused_payment_limits(St) ->
     Route = get_route(St),
     Routes = get_candidate_routes(St),
     UnUsedRoutes = Routes -- [Route],
-    rollback_payment_limits(UnUsedRoutes, St).
+    rollback_payment_limits(UnUsedRoutes, get_iter(St), St, [ignore_business_error]).
 
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
@@ -2714,13 +2808,44 @@ commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     Route = get_route(St),
     ProviderTerms = get_provider_terms(St, Revision),
     TurnoverLimits = get_turnover_limits(ProviderTerms),
-    hg_limiter:commit_payment_limits(TurnoverLimits, Route, Invoice, Payment, CapturedCash).
+    Iter = get_iter(St),
+    hg_limiter:commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCash).
 
 commit_payment_cashflow(St) ->
-    hg_accounting:commit(construct_payment_plan_id(St), get_cashflow_plan(St)).
+    Plan = get_cashflow_plan(St),
+    do_try_with_ids(
+        [
+            construct_payment_plan_id(St),
+            construct_payment_plan_id(St, legacy)
+        ],
+        fun(ID) ->
+            hg_accounting:commit(ID, Plan)
+        end
+    ).
 
 rollback_payment_cashflow(St) ->
-    hg_accounting:rollback(construct_payment_plan_id(St), get_cashflow_plan(St)).
+    Plan = get_cashflow_plan(St),
+    do_try_with_ids(
+        [
+            construct_payment_plan_id(St),
+            construct_payment_plan_id(St, legacy)
+        ],
+        fun(ID) ->
+            hg_accounting:rollback(ID, Plan)
+        end
+    ).
+
+-spec do_try_with_ids([payment_plan_id()], fun((payment_plan_id()) -> T)) -> T | no_return().
+do_try_with_ids([ID], Func) when is_function(Func, 1) ->
+    Func(ID);
+do_try_with_ids([ID | OtherIDs], Func) when is_function(Func, 1) ->
+    try
+        Func(ID)
+    catch
+        %% Very specific error to crutch around
+        error:{accounting, #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}} ->
+            do_try_with_ids(OtherIDs, Func)
+    end.
 
 get_cashflow_plan(St = #st{partial_cash_flow = PartialCashFlow}) when PartialCashFlow =/= undefined ->
     [
@@ -2992,10 +3117,13 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
         risk_score = RiskScore,
         activity = {payment, routing}
     };
-merge_change(Change = ?route_changed(Route, Candidates), St, Opts) ->
-    _ = validate_transition({payment, routing}, Change, St, Opts),
+merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = St, Opts) ->
+    _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
     St#st{
-        route = Route,
+        %% On route change we expect cash flow from previous attempt to be rolled back.
+        %% So on `?payment_rollback_started(_)` event for routing failure we won't try to do it again.
+        cash_flow = undefined,
+        routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building}
     };
@@ -3278,6 +3406,43 @@ merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity},
             St2
     end.
 
+get_routing_attempt_limit(
+    St = #st{
+        payment = #domain_InvoicePayment{
+            owner_id = PartyID,
+            party_revision = PartyRevision,
+            shop_id = ShopID,
+            created_at = CreatedAt,
+            domain_revision = Revision
+        }
+    }
+) ->
+    Party = hg_party:checkout(PartyID, {revision, PartyRevision}),
+    Shop = hg_party:get_shop(ShopID, Party),
+    VS = collect_validation_varset(Party, Shop, get_payment(St), #{}),
+    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS),
+    #domain_TermSet{payments = PaymentTerms} = Terms,
+    log_cascade_attempt_context(PaymentTerms, St),
+    get_routing_attempt_limit_value(PaymentTerms#domain_PaymentsServiceTerms.attempt_limit).
+
+log_cascade_attempt_context(
+    #domain_PaymentsServiceTerms{attempt_limit = AttemptLimit},
+    #st{routes = AttemptedRoutes}
+) ->
+    _ = logger:log(
+        info,
+        "Cascade context: merchant payment terms' attempt limit '~p', attempted routes: ~p",
+        [AttemptLimit, AttemptedRoutes],
+        logger:get_process_metadata()
+    ).
+
+get_routing_attempt_limit_value(undefined) ->
+    1;
+get_routing_attempt_limit_value({decisions, _}) ->
+    get_routing_attempt_limit_value(undefined);
+get_routing_attempt_limit_value({value, #domain_AttemptLimit{attempts = Value}}) when is_integer(Value) ->
+    Value.
+
 save_retry_attempt(Target, #st{retry_attempts = Attempts} = St) ->
     St#st{retry_attempts = maps:update_with(get_target_type(Target), fun(N) -> N + 1 end, 0, Attempts)}.
 
@@ -3470,12 +3635,12 @@ get_payment_state(InvoiceID, PaymentID) ->
     end.
 
 -spec get_session(target(), st()) -> session().
-get_session(Target, #st{sessions = Sessions}) ->
-    case maps:get(get_target_type(Target), Sessions, []) of
-        [] ->
-            undefined;
-        [Session | _] ->
-            Session
+get_session(Target, #st{sessions = Sessions, routes = [Route | _PreviousRoutes]}) ->
+    TargetSessions = maps:get(get_target_type(Target), Sessions, []),
+    MatchingRoute = fun(#{route := SR}) -> SR =:= Route end,
+    case lists:search(MatchingRoute, TargetSessions) of
+        {value, Session} -> Session;
+        _ -> undefined
     end.
 
 -spec add_session(target(), session(), st()) -> st().
@@ -3729,3 +3894,17 @@ get_party_client() ->
     Client = hg_context:get_party_client(HgContext),
     Context = hg_context:get_party_client_context(HgContext),
     {Client, Context}.
+
+is_route_cascade_available(?failed(OperationFailure), #st{routes = AttemptedRoutes} = St) ->
+    is_failure_cascade_trigger(OperationFailure) andalso
+        length(AttemptedRoutes) < get_routing_attempt_limit(St).
+
+is_failure_cascade_trigger({failure, Failure}) ->
+    ExpectNotation = genlib_app:env(hellgate, card_blocked_failure, <<"preauthorization_failed:card_blocked">>),
+    payproc_errors:match_notation(Failure, fun
+        %% Expect exact dynamic error
+        (Notation) when Notation =:= ExpectNotation -> true;
+        (_) -> false
+    end);
+is_failure_cascade_trigger(_OtherFailure) ->
+    false.
