@@ -964,13 +964,6 @@ collect_cash_flow_context(
         operation_amount => Cash
     }.
 
-get_available_amount(AccountID) ->
-    #{
-        min_available_amount := AvailableAmount
-    } =
-        hg_accounting:get_balance(AccountID),
-    AvailableAmount.
-
 -spec construct_payment_plan_id(st()) -> payment_plan_id().
 construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}) ->
     construct_payment_plan_id(get_invoice(Opts), Payment, Routes, normal).
