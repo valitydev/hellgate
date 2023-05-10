@@ -4063,11 +4063,91 @@ is_route_cascade_available(?failed(OperationFailure), #st{routes = AttemptedRout
         length(AttemptedRoutes) < get_routing_attempt_limit(St).
 
 is_failure_cascade_trigger({failure, Failure}) ->
-    ExpectNotation = genlib_app:env(hellgate, card_blocked_failure, <<"preauthorization_failed:card_blocked">>),
-    payproc_errors:match_notation(Failure, fun
-        %% Expect exact dynamic error
-        (Notation) when Notation =:= ExpectNotation -> true;
-        (_) -> false
-    end);
+    failure_matches_any_transient(Failure, get_transient_errors_list());
 is_failure_cascade_trigger(_OtherFailure) ->
     false.
+
+get_transient_errors_list() ->
+    PaymentConfig = genlib_app:env(hellgate, payment, #{}),
+    maps:get(default_transient_errors, PaymentConfig, [<<"preauthorization_failed">>]).
+
+failure_matches_any_transient(Failure, TransientErrorsList) ->
+    lists:any(
+        fun(ExpectNotation) ->
+            payproc_errors:match_notation(Failure, fun
+                (Notation) when binary_part(Notation, {0, byte_size(ExpectNotation)}) =:= ExpectNotation -> true;
+                (_) -> false
+            end)
+        end,
+        TransientErrorsList
+    ).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+-spec test() -> _.
+
+-spec failure_matches_any_transient_test_() -> [_].
+failure_matches_any_transient_test_() ->
+    TransientErrors = [
+        %% 'preauthorization_failed' with all sub failure codes
+        <<"preauthorization_failed">>,
+        %% only 'rejected_by_inspector:*' sub failure codes
+        <<"rejected_by_inspector:">>,
+        %% 'authorization_failed:whatsgoingon' with sub failure codes
+        <<"authorization_failed:whatsgoingon">>
+    ],
+    [
+        %% Does match
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"preauthorization_failed">>},
+                TransientErrors
+            )
+        ),
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"preauthorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
+                TransientErrors
+            )
+        ),
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"rejected_by_inspector">>, sub = #domain_SubFailure{code = <<"whatever">>}},
+                TransientErrors
+            )
+        ),
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"whatsgoingon">>}},
+                TransientErrors
+            )
+        ),
+        %% Does NOT match
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"no_route_found">>},
+                TransientErrors
+            )
+        ),
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"no_route_found">>, sub = #domain_SubFailure{code = <<"unknown">>}},
+                TransientErrors
+            )
+        ),
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"rejected_by_inspector">>},
+                TransientErrors
+            )
+        ),
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
+                TransientErrors
+            )
+        )
+    ].
+
+-endif.
