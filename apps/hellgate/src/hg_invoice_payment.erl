@@ -2266,7 +2266,10 @@ process_routing(Action, St) ->
     end.
 
 filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
-    Routes -- lists:map(fun hg_routing:from_payment_route/1, AttemptedRoutes).
+    lists:filter(
+        fun(Route) -> not lists:member(hg_routing:to_payment_route(Route), AttemptedRoutes) end,
+        Routes
+    ).
 
 handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, Revision, _St) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
@@ -4084,6 +4087,93 @@ failure_matches_any_transient(Failure, TransientErrorsList) ->
 -include_lib("eunit/include/eunit.hrl").
 
 -spec test() -> _.
+
+-spec filter_out_attempted_routes_test_() -> [_].
+filter_out_attempted_routes_test_() ->
+    [R1, R2, R3] = [
+        hg_routing:new(
+            #domain_ProviderRef{id = 171},
+            #domain_TerminalRef{id = 307},
+            20,
+            1000,
+            #{client_ip => <<127, 0, 0, 1>>}
+        ),
+        hg_routing:new(
+            #domain_ProviderRef{id = 171},
+            #domain_TerminalRef{id = 344},
+            80,
+            1000,
+            #{}
+        ),
+        hg_routing:new(
+            #domain_ProviderRef{id = 162},
+            #domain_TerminalRef{id = 227},
+            1,
+            2000,
+            #{client_ip => undefined}
+        )
+    ],
+    [
+        ?_assert(
+            [] ==
+                filter_out_attempted_routes(
+                    [],
+                    #st{
+                        activity = idle,
+                        routes = [
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 162},
+                                terminal = #domain_TerminalRef{id = 227}
+                            }
+                        ]
+                    }
+                )
+        ),
+        ?_assert(
+            [] == filter_out_attempted_routes([], #st{activity = idle, routes = []})
+        ),
+        ?_assert(
+            [R1, R2, R3] == filter_out_attempted_routes([R1, R2, R3], #st{activity = idle, routes = []})
+        ),
+        ?_assert(
+            [R1, R2] ==
+                filter_out_attempted_routes(
+                    [R1, R2, R3],
+                    #st{
+                        activity = idle,
+                        routes = [
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 162},
+                                terminal = #domain_TerminalRef{id = 227}
+                            }
+                        ]
+                    }
+                )
+        ),
+        ?_assert(
+            [] ==
+                filter_out_attempted_routes(
+                    [R1, R2, R3],
+                    #st{
+                        activity = idle,
+                        routes = [
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 171},
+                                terminal = #domain_TerminalRef{id = 307}
+                            },
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 171},
+                                terminal = #domain_TerminalRef{id = 344}
+                            },
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 162},
+                                terminal = #domain_TerminalRef{id = 227}
+                            }
+                        ]
+                    }
+                )
+        )
+    ].
 
 -spec failure_matches_any_transient_test_() -> [_].
 failure_matches_any_transient_test_() ->
