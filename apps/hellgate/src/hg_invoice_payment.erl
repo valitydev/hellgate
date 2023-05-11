@@ -4119,6 +4119,7 @@ filter_out_attempted_routes_test_() ->
                 filter_out_attempted_routes(
                     [],
                     #st{
+                        activity = idle,
                         routes = [
                             #domain_PaymentRoute{
                                 provider = #domain_ProviderRef{id = 162},
@@ -4129,16 +4130,17 @@ filter_out_attempted_routes_test_() ->
                 )
         ),
         ?_assert(
-            [] == filter_out_attempted_routes([], #st{routes = []})
+            [] == filter_out_attempted_routes([], #st{activity = idle, routes = []})
         ),
         ?_assert(
-            [R1, R2, R3] == filter_out_attempted_routes([R1, R2, R3], #st{routes = []})
+            [R1, R2, R3] == filter_out_attempted_routes([R1, R2, R3], #st{activity = idle, routes = []})
         ),
         ?_assert(
             [R1, R2] ==
                 filter_out_attempted_routes(
                     [R1, R2, R3],
                     #st{
+                        activity = idle,
                         routes = [
                             #domain_PaymentRoute{
                                 provider = #domain_ProviderRef{id = 162},
@@ -4153,6 +4155,7 @@ filter_out_attempted_routes_test_() ->
                 filter_out_attempted_routes(
                     [R1, R2, R3],
                     #st{
+                        activity = idle,
                         routes = [
                             #domain_PaymentRoute{
                                 provider = #domain_ProviderRef{id = 171},
