@@ -279,18 +279,11 @@ handle_proxy_result(
     #proxy_provider_PaymentProxyResult{intent = {Type, Intent}, trx = Trx, next_state = ProxyState},
     Session
 ) ->
-    %% Must we bind trx of finished intent with failure status?
-    Events1 = maybe_bind_transaction({Type, Intent}, Trx, Session),
+    Events1 = hg_proxy_provider:bind_transaction(Trx, Session),
     Events2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
     Events3 = hg_proxy_provider:handle_interaction_intent({Type, Intent}, Session),
     {Events4, Action} = handle_proxy_intent(Intent, hg_machine_action:new(), Session),
     {lists:flatten([Events1, Events2, Events3, Events4]), Action}.
-
-maybe_bind_transaction({finish, #proxy_provider_FinishIntent{status = {failure, _}}}, _Trx, _Session) ->
-    %% Don't bind transaction when intent is finished with failure
-    [];
-maybe_bind_transaction(_Intent, Trx, Session) ->
-    hg_proxy_provider:bind_transaction(Trx, Session).
 
 handle_callback_result(
     #proxy_provider_PaymentCallbackResult{result = ProxyResult, response = Response},

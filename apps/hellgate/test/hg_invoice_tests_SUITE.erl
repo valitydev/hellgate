@@ -6097,7 +6097,7 @@ payment_cascade_success(C) ->
         next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?risk_score_changed(_)) =
         next_change(InvoiceID, Client),
-    {_Route1, _CashFlow1, Failure1} =
+    {_Route1, _CashFlow1, TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
     %% Assert payment status IS NOT failed
@@ -6112,7 +6112,12 @@ payment_cascade_success(C) ->
         next_changes(InvoiceID, 2, Client),
     ?assertMatch(#domain_PaymentRoute{provider = ?prv(1)}, Route2),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
-    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID2)))),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 3, Client),
+    ?assertNotEqual(TrxID1, TrxID2),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(?invoice_w_status(?invoice_paid()), [PaymentSt = ?payment_state(PaymentFinal)]) =
         hg_client_invoicing:get(InvoiceID, Client),
@@ -6183,7 +6188,7 @@ payment_big_cascade_success(C) ->
         next_change(InvoiceID, Client),
     [
         (fun() ->
-            {_Route, _CashFlow, Failure} =
+            {_Route, _CashFlow, _TrxID, Failure} =
                 await_cascade_triggering(InvoiceID, PaymentID, Client),
             ok = payproc_errors:match(
                 'PaymentFailure',
@@ -6241,7 +6246,7 @@ payment_cascade_fail_wo_available_attempt_limit(C) ->
         next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?risk_score_changed(_)) =
         next_change(InvoiceID, Client),
-    {_Route, _CashFlow, Failure} =
+    {_Route, _CashFlow, _TrxID, Failure} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
         next_change(InvoiceID, Client),
@@ -6264,11 +6269,11 @@ payment_cascade_failures(C) ->
         next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?risk_score_changed(_)) =
         next_change(InvoiceID, Client),
-    {_Route1, _CashFlow1, Failure1} =
+    {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
     %% And again
-    {_Route2, _CashFlow2, Failure2} =
+    {_Route2, _CashFlow2, _TrxID2, Failure2} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2}))) =
         next_change(InvoiceID, Client),
@@ -6293,7 +6298,7 @@ payment_cascade_deadline_failures(C) ->
         next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?risk_score_changed(_)) =
         next_change(InvoiceID, Client),
-    {_Route1, _CashFlow1, Failure1} =
+    {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
     %% And again
@@ -6327,7 +6332,7 @@ payment_cascade_no_route(C) ->
         next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?risk_score_changed(_)) =
         next_change(InvoiceID, Client),
-    {_Route1, _CashFlow1, CardBlockedFailure} =
+    {_Route1, _CashFlow1, _TrxID1, CardBlockedFailure} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match(
         'PaymentFailure',
@@ -6352,15 +6357,15 @@ await_cascade_triggering(InvoiceID, PaymentID, Client) ->
         ?payment_ev(PaymentID, ?route_changed(Route)),
         ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
-        %% FIXME optional trx bound
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID)))),
         ?payment_ev(
             PaymentID,
             ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
         ),
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
     ] =
-        next_changes(InvoiceID, 5, Client),
-    {Route, CashFlow, Failure}.
+        next_changes(InvoiceID, 6, Client),
+    {Route, CashFlow, TrxID, Failure}.
 
 next_changes(InvoiceID, Amount, Client) ->
     next_changes(InvoiceID, Amount, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
@@ -7054,7 +7059,8 @@ execute_payment_w_cascade(InvoiceID, Params, Client, CascadeCount) when CascadeC
         next_changes(InvoiceID, 2, Client),
     FailedRoutes = [
         begin
-            {Route, _CashFlow, _Failure} = await_cascade_triggering(InvoiceID, PaymentID, Client),
+            {Route, _CashFlow, _TrxID, _Failure} =
+                await_cascade_triggering(InvoiceID, PaymentID, Client),
             Route
         end
      || _I <- lists:seq(1, CascadeCount)
