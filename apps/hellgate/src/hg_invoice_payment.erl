@@ -3222,6 +3222,8 @@ merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = 
         %% On route change we expect cash flow from previous attempt to be rolled back.
         %% So on `?payment_rollback_started(_)` event for routing failure we won't try to do it again.
         cash_flow = undefined,
+        %% `trx` from previous session (if any) also must be considered obsolete.
+        trx = undefined,
         routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building}
