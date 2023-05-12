@@ -5183,10 +5183,9 @@ adhoc_repair_failed_succeeded(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID))))
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
     ] = next_changes(InvoiceID, 2, Client),
     % assume no more events here since machine is FUBAR already
     timeout = next_change(InvoiceID, 2000, Client),
@@ -5220,10 +5219,9 @@ adhoc_repair_invalid_changes_failed(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID))))
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
     ] = next_changes(InvoiceID, 2, Client),
     timeout = next_change(InvoiceID, 5000, Client),
     InvalidChanges1 = [
@@ -5404,10 +5402,9 @@ repair_fail_session_on_processed_succeeded(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID))))
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
     ] = next_changes(InvoiceID, 2, Client),
 
     timeout = next_change(InvoiceID, 2000, Client),
@@ -5516,10 +5513,9 @@ repair_complex_second_scenario_succeeded(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
-    TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID))))
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID))))
     ] = next_changes(InvoiceID, 2, Client),
 
     timeout = next_change(InvoiceID, 2000, Client),
@@ -6352,7 +6348,6 @@ await_cascade_triggering(InvoiceID, PaymentID, Client) ->
         ?payment_ev(PaymentID, ?route_changed(Route)),
         ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
-        %% FIXME optional trx bound
         ?payment_ev(
             PaymentID,
             ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
