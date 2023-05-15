@@ -169,6 +169,16 @@ handle_function(
 handle_function(
     'HandlePaymentCallback',
     {Payload, #proxy_provider_PaymentContext{
+        session = #proxy_provider_Session{target = ?refunded(), state = State},
+        payment_info = PaymentInfo,
+        options = _
+    }},
+    Opts
+) ->
+    handle_refund_callback(Payload, State, PaymentInfo, Opts);
+handle_function(
+    'HandlePaymentCallback',
+    {Payload, #proxy_provider_PaymentContext{
         session = #proxy_provider_Session{target = Target, state = State},
         payment_info = PaymentInfo,
         options = _
@@ -473,6 +483,10 @@ process_refund(_State, PaymentInfo, #{<<"always_fail">> := FailureCode, <<"overr
     result(?finish({failure, Failure}), undefined, mk_trx(TrxID, PaymentInfo));
 process_refund(undefined, PaymentInfo, CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
+        {preauth_3ds, Timeout} ->
+            Tag = generate_tag(<<"refund">>),
+            Uri = get_callback_url(),
+            result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
         {temporary_unavailability, Scenario} ->
             TrxID = hg_utils:construct_complex_id([
                 get_payment_id(PaymentInfo),
@@ -483,7 +497,10 @@ process_refund(undefined, PaymentInfo, CtxOpts, _) ->
         _ ->
             TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
             finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo))
-    end.
+    end;
+process_refund(<<"sleeping">>, PaymentInfo, CtxOpts, _) ->
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+    finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo)).
 
 process_failure_scenario(PaymentInfo, Scenario, TrxID) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
@@ -498,6 +515,12 @@ process_failure_scenario(PaymentInfo, Scenario, TrxID) ->
         error ->
             error(planned_scenario_error)
     end.
+
+handle_refund_callback(_Tag, <<"suspended">>, _PaymentInfo, _Opts) ->
+    respond(<<"sure">>, #proxy_provider_PaymentCallbackProxyResult{
+        intent = ?sleep(1, undefined, ?completed),
+        next_state = <<"sleeping">>
+    }).
 
 result(Intent, NextState) ->
     result(Intent, NextState, undefined).
