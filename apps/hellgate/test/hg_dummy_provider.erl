@@ -17,6 +17,7 @@
 -export([construct_silent_callback/1]).
 
 -export([make_payment_tool/2]).
+-export([mk_trx/1]).
 
 %% cowboy http callbacks
 -export([init/2]).
@@ -261,14 +262,16 @@ token_respond(Response, CallbackResult) ->
 process_payment(
     ?processed(),
     undefined,
-    _PaymentInfo,
+    PaymentInfo,
     #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode} = CtxOpts,
     _
 ) ->
     _ = maybe_sleep(CtxOpts),
+    Reason = <<"sub failure by ", ProviderCode/binary>>,
     Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
-    result(?finish({failure, Failure}));
-process_payment(?processed(), undefined, PaymentInfo, _CtxOpts, _) ->
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+    result(?finish({failure, Failure}), <<"state: ", Reason/binary>>, mk_trx(TrxID, PaymentInfo));
+process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
@@ -316,7 +319,9 @@ process_payment(?processed(), undefined, PaymentInfo, _CtxOpts, _) ->
             %% simple workflow without 3DS
             result(?sleep(0), <<"sleeping">>);
         unexpected_failure ->
-            sleep(1, <<"sleeping">>, undefined, get_payment_id(PaymentInfo));
+            TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+            Trx = mk_trx(TrxID, PaymentInfo),
+            result(?sleep(1, undefined), <<"sleeping">>, Trx);
         unexpected_failure_when_suspended ->
             Intent = ?suspend(generate_tag(<<"payment">>), 0, undefined, {callback, <<"failure">>}),
             result(Intent, <<"suspended">>);
@@ -325,22 +330,25 @@ process_payment(?processed(), undefined, PaymentInfo, _CtxOpts, _) ->
         {temporary_unavailability, _Scenario} ->
             result(?sleep(0), <<"sleeping">>)
     end;
-process_payment(?processed(), <<"sleeping">>, PaymentInfo, _CtxOpts, _) ->
+process_payment(?processed(), <<"sleeping">>, PaymentInfo, CtxOpts, _) ->
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
     case get_payment_info_scenario(PaymentInfo) of
         unexpected_failure ->
             error(unexpected_failure);
         {temporary_unavailability, Scenario} ->
-            process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
+            process_failure_scenario(PaymentInfo, Scenario, TrxID);
         _ ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
+            finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo))
     end;
-process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, _CtxOpts, _) ->
+process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, CtxOpts, _) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+    Trx = mk_trx(TrxID, PaymentInfo),
     case get_transaction_state(Key) of
         processed ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo));
+            finish(success(PaymentInfo), Trx);
         {pending, Count} when Count > 2 ->
-            finish(failure(authorization_failed));
+            finish(failure(authorization_failed), undefined);
         {pending, Count} ->
             set_transaction_state(Key, {pending, Count + 1}),
             result(?sleep(1), <<"sleeping_with_user_interaction">>);
@@ -352,21 +360,23 @@ process_payment(
     ?captured(),
     undefined,
     PaymentInfo = #proxy_provider_PaymentInfo{capture = Capture},
-    _CtxOpts,
+    CtxOpts,
     _Opts
 ) when Capture =/= undefined ->
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
     case get_payment_info_scenario(PaymentInfo) of
         {temporary_unavailability, Scenario} ->
-            process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
+            process_failure_scenario(PaymentInfo, Scenario, TrxID);
         _ ->
-            finish(success(PaymentInfo))
+            finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo))
     end;
-process_payment(?cancelled(), _, PaymentInfo, _CtxOpts, _) ->
+process_payment(?cancelled(), _, PaymentInfo, CtxOpts, _) ->
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
     case get_payment_info_scenario(PaymentInfo) of
         {temporary_unavailability, Scenario} ->
-            process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
+            process_failure_scenario(PaymentInfo, Scenario, TrxID);
         _ ->
-            finish(success(PaymentInfo))
+            finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo))
     end.
 
 handle_payment_callback(?LAY_LOW_BUDDY, ?processed(), <<"suspended">>, _PaymentInfo, _Opts) ->
@@ -467,33 +477,41 @@ get_failure_scenario_step(Scenario, Step) when Step > length(Scenario) ->
 get_failure_scenario_step(Scenario, Step) ->
     lists:nth(Step, Scenario).
 
-process_refund(_State, _PaymentInfo, #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode}, _) ->
+process_refund(_State, PaymentInfo, #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode} = CtxOpts, _) ->
     Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
-    result(?finish({failure, Failure}));
-process_refund(undefined, PaymentInfo, _CtxOpts, _) ->
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+    result(?finish({failure, Failure}), undefined, mk_trx(TrxID, PaymentInfo));
+process_refund(undefined, PaymentInfo, CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"refund">>),
             Uri = get_callback_url(),
             result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
         {temporary_unavailability, Scenario} ->
-            PaymentId = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_refund_id(PaymentInfo)]),
-            process_failure_scenario(PaymentInfo, Scenario, PaymentId);
+            TrxID = hg_utils:construct_complex_id([
+                get_payment_id(PaymentInfo),
+                get_refund_id(PaymentInfo),
+                get_ctx_opts_override(CtxOpts)
+            ]),
+            process_failure_scenario(PaymentInfo, Scenario, TrxID);
         _ ->
-            finish(success(PaymentInfo), get_payment_id(PaymentInfo))
+            TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+            finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo))
     end;
-process_refund(<<"sleeping">>, PaymentInfo, _CtxOpts, _) ->
-    finish(success(PaymentInfo), get_payment_id(PaymentInfo)).
+process_refund(<<"sleeping">>, PaymentInfo, CtxOpts, _) ->
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+    finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo)).
 
-process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
+process_failure_scenario(PaymentInfo, Scenario, TrxID) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
+    Trx = mk_trx(TrxID, PaymentInfo),
     case do_failure_scenario_step(Scenario, Key) of
         good ->
-            finish(success(PaymentInfo), PaymentId);
+            finish(success(PaymentInfo), Trx);
         temp ->
-            finish(failure(authorization_failed, temporarily_unavailable));
+            finish(failure(authorization_failed, temporarily_unavailable), undefined);
         fail ->
-            finish(failure(authorization_failed));
+            finish(failure(authorization_failed), Trx);
         error ->
             error(planned_scenario_error)
     end.
@@ -503,9 +521,6 @@ handle_refund_callback(_Tag, <<"suspended">>, _PaymentInfo, _Opts) ->
         intent = ?sleep(1, undefined, ?completed),
         next_state = <<"sleeping">>
     }).
-
-result(Intent) ->
-    result(Intent, undefined).
 
 result(Intent, NextState) ->
     result(Intent, NextState, undefined).
@@ -517,21 +532,20 @@ result(Intent, NextState, Trx) ->
         trx = Trx
     }.
 
-finish(Status) ->
-    result(?finish(Status)).
+-spec mk_trx(binary()) -> dmsl_domain_thrift:'TransactionInfo'().
+mk_trx(TrxID) ->
+    mk_trx_w_extra(TrxID, #{}).
 
-finish(Status, TrxID) ->
-    finish(Status, TrxID, #{}).
+mk_trx(TrxID, PaymentInfo) ->
+    Extra = mk_trx_extra(PaymentInfo),
+    mk_trx_w_extra(TrxID, Extra).
 
-finish(Status, TrxID, Extra) ->
+mk_trx_w_extra(TrxID, Extra) ->
     AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
-    Trx = #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo},
+    #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo}.
+
+finish(Status, Trx) ->
     result(?finish(Status), undefined, Trx).
-
-sleep(Timeout, State, UserInteraction, TrxID) ->
-    AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
-    Trx = #domain_TransactionInfo{id = TrxID, extra = #{}, additional_info = AdditionalInfo},
-    result(?sleep(Timeout, UserInteraction), State, Trx).
 
 respond(Response, CallbackResult) ->
     #proxy_provider_PaymentCallbackResult{
@@ -866,3 +880,6 @@ maybe_sleep(#{<<"sleep_ms">> := TimeMs}) when is_binary(TimeMs) ->
     timer:sleep(binary_to_integer(TimeMs));
 maybe_sleep(_Opts) ->
     ok.
+
+get_ctx_opts_override(CtxOpts) ->
+    maps:get(<<"override">>, CtxOpts, <<"">>).
