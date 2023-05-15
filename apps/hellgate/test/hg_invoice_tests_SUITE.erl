@@ -196,6 +196,7 @@
 -export([allocation_refund_payment/1]).
 
 -export([payment_cascade_success/1]).
+-export([payment_cascade_success_w_refund/1]).
 -export([payment_big_cascade_success/1]).
 -export([payment_cascade_fail_wo_available_attempt_limit/1]).
 -export([payment_cascade_failures/1]).
@@ -474,6 +475,7 @@ groups() ->
         ]},
         {route_cascading, [], [
             payment_cascade_success,
+            payment_cascade_success_w_refund,
             payment_big_cascade_success,
             payment_cascade_fail_wo_available_attempt_limit,
             payment_cascade_failures,
@@ -710,6 +712,8 @@ init_per_testcase(payment_cascade_failures, C) ->
 init_per_testcase(payment_cascade_fail_wo_available_attempt_limit, C) ->
     override_domain_fixture(fun merchant_payments_service_terms_wo_attempt_limit/1, C);
 init_per_testcase(payment_cascade_success, C) ->
+    override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
+init_per_testcase(payment_cascade_success_w_refund, C) ->
     override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
 init_per_testcase(payment_big_cascade_success, C) ->
     override_domain_fixture(fun big_routes_ruleset_w_failing_provider_fixture/1, C);
@@ -6186,6 +6190,19 @@ payment_cascade_success(C) ->
     %% At the end of this scenario limit must be accounted only once.
     hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
 
+-spec payment_cascade_success_w_refund(config()) -> test_return().
+payment_cascade_success_w_refund(C) ->
+    Client = cfg(client, C),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(cfg(shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    {PaymentID, [_FailedRoute, _UsedRoute]} = execute_payment_w_cascade(InvoiceID, PaymentParams, Client, 1),
+    % top up merchant account
+    InvoiceID2 = start_invoice(cfg(shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    {_PaymentID2, _Routes} = execute_payment_w_cascade(InvoiceID2, PaymentParams, Client, 1),
+    RefundID = execute_payment_refund(InvoiceID, PaymentID, make_refund_params(), Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
+
 -spec payment_big_cascade_success(config()) -> test_return().
 payment_big_cascade_success(C) ->
     Client = cfg(client, C),
@@ -7080,6 +7097,30 @@ execute_payment(InvoiceID, Params, Client) ->
     PaymentID = process_payment(InvoiceID, Params, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     PaymentID.
+
+execute_payment_w_cascade(InvoiceID, Params, Client, CascadeCount) when CascadeCount > 0 ->
+    #payproc_InvoicePayment{payment = _Payment} = hg_client_invoicing:start_payment(InvoiceID, Params, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] =
+        next_changes(InvoiceID, 2, Client),
+    FailedRoutes = [
+        begin
+            {Route, _CashFlow, _Failure} = await_cascade_triggering(InvoiceID, PaymentID, Client),
+            Route
+        end
+     || _I <- lists:seq(1, CascadeCount)
+    ],
+    [
+        ?payment_ev(PaymentID, ?route_changed(FinalRoute)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow))
+    ] =
+        next_changes(InvoiceID, 2, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    {PaymentID, FailedRoutes ++ [FinalRoute]}.
 
 execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     ?adjustment(AdjustmentID, ?adjustment_pending()) =

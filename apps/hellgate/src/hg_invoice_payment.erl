@@ -1541,7 +1541,6 @@ collect_cashflow(
     Revision
 ) ->
     Amount = get_context_source_amount(ContextSource),
-    PaymentInstitution = get_cashflow_payment_institution(Party, Shop, VS, Revision),
     CF = construct_transaction_cashflow(
         OpType,
         Party,
@@ -2280,7 +2279,10 @@ process_routing(Action, St) ->
     end.
 
 filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
-    Routes -- lists:map(fun hg_routing:from_payment_route/1, AttemptedRoutes).
+    lists:filter(
+        fun(Route) -> not lists:member(hg_routing:to_payment_route(Route), AttemptedRoutes) end,
+        Routes
+    ).
 
 handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, Revision, _St) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
@@ -2328,7 +2330,6 @@ process_cash_flow_building(Action, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
-    Route = get_route(St),
     Timestamp = get_payment_created_at(Payment),
     VS0 = reconstruct_payment_flow(Payment, #{}),
     VS1 = collect_validation_varset(get_party(Opts), get_shop(Opts), Payment, VS0),
@@ -3116,6 +3117,8 @@ merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = 
         %% On route change we expect cash flow from previous attempt to be rolled back.
         %% So on `?payment_rollback_started(_)` event for routing failure we won't try to do it again.
         cash_flow = undefined,
+        %% `trx` from previous session (if any) also must be considered obsolete.
+        trx = undefined,
         routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building}
@@ -3893,11 +3896,178 @@ is_route_cascade_available(?failed(OperationFailure), #st{routes = AttemptedRout
         length(AttemptedRoutes) < get_routing_attempt_limit(St).
 
 is_failure_cascade_trigger({failure, Failure}) ->
-    ExpectNotation = genlib_app:env(hellgate, card_blocked_failure, <<"preauthorization_failed:card_blocked">>),
-    payproc_errors:match_notation(Failure, fun
-        %% Expect exact dynamic error
-        (Notation) when Notation =:= ExpectNotation -> true;
-        (_) -> false
-    end);
+    failure_matches_any_transient(Failure, get_transient_errors_list());
 is_failure_cascade_trigger(_OtherFailure) ->
     false.
+
+get_transient_errors_list() ->
+    PaymentConfig = genlib_app:env(hellgate, payment, #{}),
+    maps:get(default_transient_errors, PaymentConfig, [<<"preauthorization_failed">>]).
+
+failure_matches_any_transient(Failure, TransientErrorsList) ->
+    lists:any(
+        fun(ExpectNotation) ->
+            payproc_errors:match_notation(Failure, fun
+                (Notation) when binary_part(Notation, {0, byte_size(ExpectNotation)}) =:= ExpectNotation -> true;
+                (_) -> false
+            end)
+        end,
+        TransientErrorsList
+    ).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+-spec test() -> _.
+
+-spec filter_out_attempted_routes_test_() -> [_].
+filter_out_attempted_routes_test_() ->
+    [R1, R2, R3] = [
+        hg_routing:new(
+            #domain_ProviderRef{id = 171},
+            #domain_TerminalRef{id = 307},
+            20,
+            1000,
+            #{client_ip => <<127, 0, 0, 1>>}
+        ),
+        hg_routing:new(
+            #domain_ProviderRef{id = 171},
+            #domain_TerminalRef{id = 344},
+            80,
+            1000,
+            #{}
+        ),
+        hg_routing:new(
+            #domain_ProviderRef{id = 162},
+            #domain_TerminalRef{id = 227},
+            1,
+            2000,
+            #{client_ip => undefined}
+        )
+    ],
+    [
+        ?_assert(
+            [] ==
+                filter_out_attempted_routes(
+                    [],
+                    #st{
+                        activity = idle,
+                        routes = [
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 162},
+                                terminal = #domain_TerminalRef{id = 227}
+                            }
+                        ]
+                    }
+                )
+        ),
+        ?_assert(
+            [] == filter_out_attempted_routes([], #st{activity = idle, routes = []})
+        ),
+        ?_assert(
+            [R1, R2, R3] == filter_out_attempted_routes([R1, R2, R3], #st{activity = idle, routes = []})
+        ),
+        ?_assert(
+            [R1, R2] ==
+                filter_out_attempted_routes(
+                    [R1, R2, R3],
+                    #st{
+                        activity = idle,
+                        routes = [
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 162},
+                                terminal = #domain_TerminalRef{id = 227}
+                            }
+                        ]
+                    }
+                )
+        ),
+        ?_assert(
+            [] ==
+                filter_out_attempted_routes(
+                    [R1, R2, R3],
+                    #st{
+                        activity = idle,
+                        routes = [
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 171},
+                                terminal = #domain_TerminalRef{id = 307}
+                            },
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 171},
+                                terminal = #domain_TerminalRef{id = 344}
+                            },
+                            #domain_PaymentRoute{
+                                provider = #domain_ProviderRef{id = 162},
+                                terminal = #domain_TerminalRef{id = 227}
+                            }
+                        ]
+                    }
+                )
+        )
+    ].
+
+-spec failure_matches_any_transient_test_() -> [_].
+failure_matches_any_transient_test_() ->
+    TransientErrors = [
+        %% 'preauthorization_failed' with all sub failure codes
+        <<"preauthorization_failed">>,
+        %% only 'rejected_by_inspector:*' sub failure codes
+        <<"rejected_by_inspector:">>,
+        %% 'authorization_failed:whatsgoingon' with sub failure codes
+        <<"authorization_failed:whatsgoingon">>
+    ],
+    [
+        %% Does match
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"preauthorization_failed">>},
+                TransientErrors
+            )
+        ),
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"preauthorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
+                TransientErrors
+            )
+        ),
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"rejected_by_inspector">>, sub = #domain_SubFailure{code = <<"whatever">>}},
+                TransientErrors
+            )
+        ),
+        ?_assert(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"whatsgoingon">>}},
+                TransientErrors
+            )
+        ),
+        %% Does NOT match
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"no_route_found">>},
+                TransientErrors
+            )
+        ),
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"no_route_found">>, sub = #domain_SubFailure{code = <<"unknown">>}},
+                TransientErrors
+            )
+        ),
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"rejected_by_inspector">>},
+                TransientErrors
+            )
+        ),
+        ?_assertNot(
+            failure_matches_any_transient(
+                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
+                TransientErrors
+            )
+        )
+    ].
+
+-endif.
