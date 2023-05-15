@@ -47,6 +47,10 @@
 -export([payment_partial_capture_limit_success/1]).
 -export([switch_provider_after_limit_overflow/1]).
 -export([limit_not_found/1]).
+-export([limit_hold_currency_error/1]).
+-export([limit_hold_operation_not_supported/1]).
+-export([limit_hold_payment_tool_not_supported/1]).
+-export([limit_hold_two_routes_failure/1]).
 
 -export([processing_deadline_reached_test/1]).
 -export([payment_success_empty_cvv/1]).
@@ -191,6 +195,14 @@
 -export([allocation_capture_payment/1]).
 -export([allocation_refund_payment/1]).
 
+-export([payment_cascade_success/1]).
+-export([payment_cascade_success_w_refund/1]).
+-export([payment_big_cascade_success/1]).
+-export([payment_cascade_fail_wo_available_attempt_limit/1]).
+-export([payment_cascade_failures/1]).
+-export([payment_cascade_no_route/1]).
+-export([payment_cascade_deadline_failures/1]).
+
 %%
 
 -behaviour(supervisor).
@@ -214,7 +226,9 @@ init([]) ->
 -define(LIMIT_ID, <<"ID">>).
 -define(LIMIT_ID2, <<"ID2">>).
 -define(LIMIT_ID3, <<"ID3">>).
+-define(LIMIT_ID4, <<"ID4">>).
 -define(LIMIT_UPPER_BOUNDARY, 100000).
+-define(BIG_LIMIT_UPPER_BOUNDARY, 1000000).
 -define(DEFAULT_NEXT_CHANGE_TIMEOUT, 12000).
 
 cfg(Key, C) ->
@@ -272,7 +286,9 @@ groups() ->
 
             {group, repair_scenarios},
 
-            {group, allocation}
+            {group, allocation},
+
+            {group, route_cascading}
         ]},
 
         {base_payments, [], [
@@ -373,7 +389,11 @@ groups() ->
             payment_partial_capture_limit_success,
             switch_provider_after_limit_overflow,
             limit_not_found,
-            refund_limit_success
+            refund_limit_success,
+            limit_hold_currency_error,
+            limit_hold_operation_not_supported,
+            limit_hold_payment_tool_not_supported,
+            limit_hold_two_routes_failure
         ]},
 
         {refunds, [], [
@@ -452,6 +472,15 @@ groups() ->
             allocation_create_invoice,
             allocation_capture_payment,
             allocation_refund_payment
+        ]},
+        {route_cascading, [], [
+            payment_cascade_success,
+            payment_cascade_success_w_refund,
+            payment_big_cascade_success,
+            payment_cascade_fail_wo_available_attempt_limit,
+            payment_cascade_failures,
+            payment_cascade_no_route,
+            payment_cascade_deadline_failures
         ]}
     ].
 
@@ -476,8 +505,8 @@ init_per_suite(C) ->
         {cowboy, CowboySpec}
     ]),
 
-    _ = hg_domain:insert(construct_domain_fixture()),
     _ = hg_limiter_helper:init_per_suite(C),
+    _ = hg_domain:insert(construct_domain_fixture()),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -623,7 +652,18 @@ end_per_suite(C) ->
 -define(system_to_provider_share_actual, ?share(16, 1000, operation_amount)).
 -define(system_to_external_fixed, ?fixed(20, <<"RUB">>)).
 
+-define(assertRouteNotFound(Failure, Sub, ReasonSubstring), begin
+    ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, Sub}) -> ok end),
+    Reason = Failure#domain_Failure.reason,
+    ?assert(
+        nomatch =/= binary:match(Reason, ReasonSubstring),
+        <<"Failure reason '", Reason/binary, "' for 'no_route_found' doesn't match '", ReasonSubstring/binary, "'">>
+    )
+end).
+
 -spec init_per_group(group_name(), config()) -> config().
+init_per_group(route_cascading, C) ->
+    init_operation_limits_group(C);
 init_per_group(operation_limits, C) ->
     init_operation_limits_group(C);
 init_per_group(allocation, C) ->
@@ -663,6 +703,28 @@ init_per_testcase(invalid_permit_partial_capture_in_service, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/1, C);
 init_per_testcase(invalid_permit_partial_capture_in_provider, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/1, C);
+init_per_testcase(payment_cascade_deadline_failures, C) ->
+    override_domain_fixture(fun routes_ruleset_w_different_failing_providers_fixture/1, C);
+init_per_testcase(payment_cascade_no_route, C) ->
+    override_domain_fixture(fun routes_ruleset_w_one_failing_route_fixture/1, C);
+init_per_testcase(payment_cascade_failures, C) ->
+    override_domain_fixture(fun routes_ruleset_w_different_failing_providers_fixture/1, C);
+init_per_testcase(payment_cascade_fail_wo_available_attempt_limit, C) ->
+    override_domain_fixture(fun merchant_payments_service_terms_wo_attempt_limit/1, C);
+init_per_testcase(payment_cascade_success, C) ->
+    override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
+init_per_testcase(payment_cascade_success_w_refund, C) ->
+    override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
+init_per_testcase(payment_big_cascade_success, C) ->
+    override_domain_fixture(fun big_routes_ruleset_w_failing_provider_fixture/1, C);
+init_per_testcase(limit_hold_currency_error, C) ->
+    override_domain_fixture(fun patch_limit_config_w_invalid_currency/1, C);
+init_per_testcase(limit_hold_operation_not_supported, C) ->
+    override_domain_fixture(fun patch_limit_config_for_withdrawal/1, C);
+init_per_testcase(limit_hold_payment_tool_not_supported, C) ->
+    override_domain_fixture(fun patch_with_unsupported_payment_tool/1, C);
+init_per_testcase(limit_hold_two_routes_failure, C) ->
+    override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/1, C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
 
@@ -1249,6 +1311,47 @@ payment_limit_overflow(C) ->
         fun({no_route_found, {forbidden, _}}) -> ok end
     ).
 
+-spec limit_hold_currency_error(config()) -> test_return().
+limit_hold_currency_error(C) ->
+    payment_route_not_found(C).
+
+-spec limit_hold_operation_not_supported(config()) -> test_return().
+limit_hold_operation_not_supported(C) ->
+    payment_route_not_found(C).
+
+-spec limit_hold_payment_tool_not_supported(config()) -> test_return().
+limit_hold_payment_tool_not_supported(C) ->
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
+    payment_route_not_found(PaymentTool, Session, C).
+
+-spec limit_hold_two_routes_failure(config()) -> test_return().
+limit_hold_two_routes_failure(C) ->
+    payment_route_not_found(C).
+
+payment_route_not_found(C) ->
+    PmtSys = ?pmt_sys(<<"visa-ref">>),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
+    payment_route_not_found(PaymentTool, Session, C).
+
+payment_route_not_found(PaymentTool, Session, C) ->
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    #{party_id := PartyID} = cfg(limits, C),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    Cash = make_cash(10000, <<"RUB">>),
+    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), Cash),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    _ = start_payment_ev(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
+        next_change(InvoiceID, Client),
+    ?assertRouteNotFound(Failure, _, <<"{rejected_routes,[{">>).
+
 -spec switch_provider_after_limit_overflow(config()) -> test_return().
 switch_provider_after_limit_overflow(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
@@ -1294,7 +1397,7 @@ limit_not_found(C) ->
         [?payment_state(Payment)]
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
-    {exception, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, Payment, Invoice).
+    {exception, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, 0, Payment, Invoice).
 
 -spec refund_limit_success(config()) -> test_return().
 refund_limit_success(C) ->
@@ -1515,11 +1618,7 @@ payment_w_misconfigured_routing_failed(C) ->
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client),
-    ok = payproc_errors:match(
-        'PaymentFailure',
-        Failure,
-        fun({no_route_found, {unknown, _}}) -> ok end
-    ).
+    ?assertRouteNotFound(Failure, {unknown, _}, <<"{misconfiguration,{">>).
 
 payment_w_misconfigured_routing_failed_fixture(_Revision) ->
     [
@@ -1543,6 +1642,398 @@ payment_w_misconfigured_routing_failed_fixture(_Revision) ->
             ]}
         )
     ].
+
+routes_ruleset_w_one_failing_route_fixture(Revision) ->
+    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    [
+        {provider, #domain_ProviderObject{
+            ref = ?prv(999),
+            data = #domain_Provider{
+                name = <<"Duck Blocker">>,
+                description = <<"No rubber ducks for you!">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+                        <<"override">> => <<"duckblocker">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(999),
+            data = #domain_Terminal{
+                name = <<"Not-Brominal">>,
+                description = <<"Not-Brominal">>,
+                provider_ref = ?prv(999)
+            }
+        }},
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"Main with cascading one route">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999))
+            ]}
+        )
+    ].
+
+routes_ruleset_w_different_failing_providers_fixture(Revision) ->
+    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    [
+        {provider, #domain_ProviderObject{
+            ref = ?prv(999),
+            data = #domain_Provider{
+                name = <<"Duck Blocker">>,
+                description = <<"No rubber ducks for you!">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+                        <<"sleep_ms">> => <<"2000">>,
+                        <<"override">> => <<"duckblocker">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        {provider, #domain_ProviderObject{
+            ref = ?prv(998),
+            data = #domain_Provider{
+                name = <<"Duck Blocker Younger">>,
+                description = <<"No rubber ducks for you! Even smaller">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+                        <<"override">> => <<"duckblocker_younger">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(999),
+            data = #domain_Terminal{
+                name = <<"Not-Brominal">>,
+                description = <<"Not-Brominal">>,
+                provider_ref = ?prv(999)
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(998),
+            data = #domain_Terminal{
+                name = <<"Not-Brominal Younger">>,
+                description = <<"Not-Brominal Younger">>,
+                provider_ref = ?prv(998)
+            }
+        }},
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"Main with cascading">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999)),
+                ?candidate({constant, true}, ?trm(998))
+            ]}
+        )
+    ].
+
+routes_ruleset_w_failing_provider_fixture(Revision) ->
+    %% This setups a ruleset to resolve to two routes:
+    %% - (not bro) One that leads to nasty provider that must fail;
+    %%   see `proxy_provider_PaymentContext.options` with #{<<"override">> => <<"duckblocker">>},
+    %% - (bro) And second one that successfully executes callbacks for happy "testcases"
+    Brovider =
+        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID4,
+                            upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
+                            domain_revision = Revision
+                        }
+                    ]}
+            }
+        },
+    [
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = Brovider#domain_Provider{terms = Terms1}
+        }},
+        {provider, #domain_ProviderObject{
+            ref = ?prv(999),
+            data = #domain_Provider{
+                name = <<"Duck Blocker">>,
+                description = <<"No rubber ducks for you!">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+                        <<"override">> => <<"duckblocker">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                terms = Terms1
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(999),
+            data = #domain_Terminal{
+                name = <<"Not-Brominal">>,
+                description = <<"Not-Brominal">>,
+                provider_ref = ?prv(999)
+            }
+        }},
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"Main with cascading">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999)),
+                ?candidate({constant, true}, ?trm(1))
+            ]}
+        )
+    ].
+
+big_routes_ruleset_w_failing_provider_fixture(Revision) ->
+    Brovider =
+        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID4,
+                            upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
+                            domain_revision = Revision
+                        }
+                    ]}
+            }
+        },
+    ProviderProto = #domain_Provider{
+        name = <<"Provider Proto">>,
+        proxy = #domain_Proxy{
+            ref = ?prx(1),
+            additional = #{}
+        },
+        description = <<"No rubber ducks for you!">>,
+        abs_account = AbsAccount,
+        accounts = Accounts,
+        terms = Terms1
+    },
+    lists:flatten([
+        set_merchant_terms_attempt_limit(?trms(1), 10, Revision),
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = Brovider#domain_Provider{terms = Terms1}
+        }},
+        mk_provider_w_term(?trm(999), <<"Not-Brominal #999">>, ?prv(999), <<"Duck Blocker #999">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_999">>
+        }),
+        mk_provider_w_term(?trm(998), <<"Not-Brominal #998">>, ?prv(998), <<"Duck Blocker #998">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_998">>
+        }),
+        mk_provider_w_term(?trm(997), <<"Not-Brominal #997">>, ?prv(997), <<"Duck Blocker #997">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_997">>
+        }),
+        mk_provider_w_term(?trm(996), <<"Not-Brominal #996">>, ?prv(996), <<"Duck Blocker #996">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_996">>
+        }),
+        mk_provider_w_term(?trm(995), <<"Not-Brominal #995">>, ?prv(995), <<"Duck Blocker #995">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_995">>
+        }),
+        mk_provider_w_term(?trm(994), <<"Not-Brominal #994">>, ?prv(994), <<"Duck Blocker #994">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_994">>
+        }),
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"Big Main with cascading">>,
+            %% 7 route candidates, 6 to fail
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999)),
+                ?candidate({constant, true}, ?trm(998)),
+                ?candidate({constant, true}, ?trm(997)),
+                ?candidate({constant, true}, ?trm(996)),
+                ?candidate({constant, true}, ?trm(995)),
+                ?candidate({constant, true}, ?trm(994)),
+                ?candidate({constant, true}, ?trm(1))
+            ]}
+        )
+    ]).
+
+mk_provider_w_term(TerminalRef, TerminalName, ProviderRef, ProviderName, Provider0, ProxyAdds) ->
+    Provider1 = Provider0#domain_Provider{
+        name = ProviderName,
+        proxy = #domain_Proxy{
+            ref = ?prx(1),
+            additional = ProxyAdds
+        }
+    },
+    [
+        {provider, #domain_ProviderObject{
+            ref = ProviderRef,
+            data = Provider1
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = TerminalRef,
+            data = #domain_Terminal{
+                name = TerminalName,
+                description = TerminalName,
+                provider_ref = ProviderRef
+            }
+        }}
+    ].
+
+merchant_payments_service_terms_wo_attempt_limit(Revision) ->
+    lists:flatten([
+        set_merchant_terms_attempt_limit(?trms(1), 1, Revision),
+        routes_ruleset_w_failing_provider_fixture(Revision)
+    ]).
+
+set_merchant_terms_attempt_limit(TermSetHierarchyRef, Attempts, Revision) ->
+    #domain_TermSetHierarchy{term_sets = [BaseTermSet0]} =
+        hg_domain:get(Revision, {term_set_hierarchy, TermSetHierarchyRef}),
+    #domain_TimedTermSet{terms = TermsSet} = BaseTermSet0,
+    #domain_TermSet{payments = PaymentsTerms0} = TermsSet,
+    PaymentsTerms1 = PaymentsTerms0#domain_PaymentsServiceTerms{
+        attempt_limit = {value, #domain_AttemptLimit{attempts = Attempts}}
+    },
+    BaseTermSet1 = BaseTermSet0#domain_TimedTermSet{
+        terms = TermsSet#domain_TermSet{payments = PaymentsTerms1}
+    },
+    [
+        {term_set_hierarchy, #domain_TermSetHierarchyObject{
+            ref = TermSetHierarchyRef,
+            data = #domain_TermSetHierarchy{term_sets = [BaseTermSet1]}
+        }}
+    ].
+
+patch_limit_config_w_invalid_currency(Revision) ->
+    NewRevision = hg_domain:update({limit_config, hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"KEK">>)}),
+    [
+        change_terms_limit_config_version(Revision, NewRevision)
+    ].
+
+patch_limit_config_for_withdrawal(Revision) ->
+    NewRevision = hg_domain:update(
+        {limit_config,
+            hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal))}
+    ),
+    [
+        change_terms_limit_config_version(Revision, NewRevision)
+    ].
+
+patch_with_unsupported_payment_tool(Revision) ->
+    NewRevision = hg_domain:update(
+        {limit_config,
+            hg_limiter_helper:mk_config_object(
+                ?LIMIT_ID,
+                <<"RUB">>,
+                hg_limiter_helper:mk_context_type(payment),
+                hg_limiter_helper:mk_scopes([shop, payment_tool])
+            )}
+    ),
+    [
+        change_provider_payments_provision_terms(?prv(5), Revision, fun(PaymentsProvisionTerms) ->
+            PaymentsProvisionTerms#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID,
+                            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                            domain_revision = NewRevision
+                        }
+                    ]},
+                payment_methods =
+                    {value,
+                        ?ordset([
+                            ?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>))
+                        ])}
+            }
+        end)
+    ].
+
+patch_providers_limits_to_fail_and_overflow(Revision) ->
+    %% 1. Must have two routes to different providers.
+    %% 2. Each provider must have different turnover limit.
+    %% 3. First of those turnover limits must fail on hold operation with business error.
+    %% 4. Second must get rejected due limit overflow.
+    NewRevision = hg_domain:update([
+        {limit_config,
+            hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal))}
+    ]),
+    [
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(4),
+            <<"SubMain">>,
+            {candidates, [
+                %% Provider = ?prv(5)
+                ?candidate({constant, true}, ?trm(12)),
+                %% Provider = ?prv(6)
+                ?candidate({constant, true}, ?trm(13))
+            ]}
+        ),
+        change_terms_limit_config_version(Revision, ?prv(5), [
+            #domain_TurnoverLimit{
+                id = ?LIMIT_ID,
+                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                domain_revision = NewRevision
+            }
+        ]),
+        change_terms_limit_config_version(Revision, ?prv(6), [
+            #domain_TurnoverLimit{
+                id = ?LIMIT_ID2,
+                %% Every op will overflow!
+                upper_boundary = 0,
+                domain_revision = NewRevision
+            }
+        ])
+    ].
+
+change_terms_limit_config_version(Revision, LimitConfigRevision) ->
+    change_terms_limit_config_version(Revision, ?prv(5), [
+        #domain_TurnoverLimit{
+            id = ?LIMIT_ID,
+            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+            domain_revision = LimitConfigRevision
+        }
+    ]).
+
+change_terms_limit_config_version(Revision, ProviderRef, TurnoverLimits) ->
+    change_provider_payments_provision_terms(ProviderRef, Revision, fun(PaymentsProvisionTerms) ->
+        PaymentsProvisionTerms#domain_PaymentsProvisionTerms{turnover_limits = {value, TurnoverLimits}}
+    end).
+
+change_provider_payments_provision_terms(ProviderID, Revision, Changer) when is_function(Changer, 1) ->
+    Provider = #domain_Provider{terms = Terms} = hg_domain:get(Revision, {provider, ProviderID}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Changer(Terms#domain_ProvisionTermSet.payments)
+        },
+    {provider, #domain_ProviderObject{
+        ref = ProviderID,
+        data = Provider#domain_Provider{terms = Terms1}
+    }}.
 
 -spec payment_capture_failed(config()) -> test_return().
 payment_capture_failed(C) ->
@@ -5628,7 +6119,301 @@ consistent_account_balances(C) ->
     ],
     ok.
 
+-spec payment_cascade_success(config()) -> test_return().
+payment_cascade_success(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceParams = make_invoice_params(
+        cfg(party_id, C),
+        cfg(shop_id, C),
+        <<"rubberduck">>,
+        make_due_date(10),
+        make_cash(Amount)
+    ),
+    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    Context = #base_Content{
+        type = <<"application/x-erlang-binary">>,
+        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
+    },
+    PayerSessionInfo = #domain_PayerSessionInfo{
+        redirect_url = RedirectURL = <<"https://redirectly.io/merchant">>
+    },
+    PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
+        payer_session_info = PayerSessionInfo,
+        context = Context
+    },
+    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+    {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
+    InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {_Route1, _CashFlow1, Failure1} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    %% Assert payment status IS NOT failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(PaymentInterim)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertNotMatch(#domain_InvoicePayment{status = {failed, _}}, PaymentInterim),
+    %% And again
+    [
+        ?payment_ev(PaymentID, ?route_changed(Route2)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow2))
+    ] =
+        next_changes(InvoiceID, 2, Client),
+    ?assertMatch(#domain_PaymentRoute{provider = ?prv(1)}, Route2),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(?invoice_w_status(?invoice_paid()), [PaymentSt = ?payment_state(PaymentFinal)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = PaymentFinal,
+    ?payment_last_trx(Trx) = PaymentSt,
+    ?assertMatch(
+        #domain_InvoicePayment{
+            payer_session_info = PayerSessionInfo,
+            context = Context
+        },
+        PaymentFinal
+    ),
+    ?assertMatch(
+        #domain_TransactionInfo{
+            extra = #{
+                <<"payment.payer_session_info.redirect_url">> := RedirectURL
+            }
+        },
+        Trx
+    ),
+    %% At the end of this scenario limit must be accounted only once.
+    hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
+
+-spec payment_cascade_success_w_refund(config()) -> test_return().
+payment_cascade_success_w_refund(C) ->
+    Client = cfg(client, C),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(cfg(shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    {PaymentID, [_FailedRoute, _UsedRoute]} = execute_payment_w_cascade(InvoiceID, PaymentParams, Client, 1),
+    % top up merchant account
+    InvoiceID2 = start_invoice(cfg(shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    {_PaymentID2, _Routes} = execute_payment_w_cascade(InvoiceID2, PaymentParams, Client, 1),
+    RefundID = execute_payment_refund(InvoiceID, PaymentID, make_refund_params(), Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
+
+-spec payment_big_cascade_success(config()) -> test_return().
+payment_big_cascade_success(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceParams = make_invoice_params(
+        cfg(party_id, C),
+        cfg(shop_id, C),
+        <<"rubberduck">>,
+        make_due_date(10),
+        make_cash(Amount)
+    ),
+    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    Context = #base_Content{
+        type = <<"application/x-erlang-binary">>,
+        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
+    },
+    PayerSessionInfo = #domain_PayerSessionInfo{
+        redirect_url = RedirectURL = <<"https://redirectly.io/merchant">>
+    },
+    PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
+        payer_session_info = PayerSessionInfo,
+        context = Context
+    },
+    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+    {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
+    InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    [
+        (fun() ->
+            {_Route, _CashFlow, Failure} =
+                await_cascade_triggering(InvoiceID, PaymentID, Client),
+            ok = payproc_errors:match(
+                'PaymentFailure',
+                Failure,
+                fun({preauthorization_failed, {card_blocked, _}}) -> ok end
+            ),
+            %% Assert payment status IS NOT failed
+            ?invoice_state(?invoice_w_status(_), [?payment_state(PaymentInterim)]) =
+                hg_client_invoicing:get(InvoiceID, Client),
+            ?assertNotMatch(#domain_InvoicePayment{status = {failed, _}}, PaymentInterim)
+        end)()
+     || _I <- lists:seq(1, 6)
+    ],
+    %% And again
+    [
+        ?payment_ev(PaymentID, ?route_changed(RouteFinal)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow2))
+    ] =
+        next_changes(InvoiceID, 2, Client),
+    ?assertMatch(#domain_PaymentRoute{provider = ?prv(1)}, RouteFinal),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(?invoice_w_status(?invoice_paid()), [PaymentSt = ?payment_state(PaymentFinal)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = PaymentFinal,
+    ?payment_last_trx(Trx) = PaymentSt,
+    ?assertMatch(
+        #domain_InvoicePayment{
+            payer_session_info = PayerSessionInfo,
+            context = Context
+        },
+        PaymentFinal
+    ),
+    ?assertMatch(
+        #domain_TransactionInfo{
+            extra = #{
+                <<"payment.payer_session_info.redirect_url">> := RedirectURL
+            }
+        },
+        Trx
+    ),
+    %% At the end of this scenario limit must be accounted only once.
+    hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
+
+-spec payment_cascade_fail_wo_available_attempt_limit(config()) -> test_return().
+payment_cascade_fail_wo_available_attempt_limit(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {_Route, _CashFlow, Failure} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
+        next_change(InvoiceID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
+
+-spec payment_cascade_failures(config()) -> test_return().
+payment_cascade_failures(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {_Route1, _CashFlow1, Failure1} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    %% And again
+    {_Route2, _CashFlow2, Failure2} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2}))) =
+        next_change(InvoiceID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure2, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
+
+-spec payment_cascade_deadline_failures(config()) -> test_return().
+payment_cascade_deadline_failures(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
+        processing_deadline = hg_datetime:add_time_span(#base_TimeSpan{seconds = 2}, hg_datetime:format_now())
+    },
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {_Route1, _CashFlow1, Failure1} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    %% And again
+    [
+        ?payment_ev(PaymentID, ?route_changed(_Route2)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow2)),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure2})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2})))
+    ] =
+        next_changes(InvoiceID, 4, Client),
+    ok = payproc_errors:match(
+        'PaymentFailure',
+        Failure2,
+        fun({authorization_failed, {processing_deadline_reached, _}}) -> ok end
+    ),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
+
+-spec payment_cascade_no_route(config()) -> test_return().
+payment_cascade_no_route(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {_Route1, _CashFlow1, CardBlockedFailure} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ok = payproc_errors:match(
+        'PaymentFailure',
+        CardBlockedFailure,
+        fun({preauthorization_failed, {card_blocked, _}}) -> ok end
+    ),
+    [
+        ?payment_ev(PaymentID, ?route_changed(_Route2)),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, CardBlockedFailure})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, CardBlockedFailure})))
+    ] = next_changes(InvoiceID, 3, Client),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
+
 %%
+
+await_cascade_triggering(InvoiceID, PaymentID, Client) ->
+    [
+        ?payment_ev(PaymentID, ?route_changed(Route)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
+        ),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
+    ] =
+        next_changes(InvoiceID, 5, Client),
+    {Route, CashFlow, Failure}.
 
 next_changes(InvoiceID, Amount, Client) ->
     next_changes(InvoiceID, Amount, ?DEFAULT_NEXT_CHANGE_TIMEOUT, Client).
@@ -6313,6 +7098,30 @@ execute_payment(InvoiceID, Params, Client) ->
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     PaymentID.
 
+execute_payment_w_cascade(InvoiceID, Params, Client, CascadeCount) when CascadeCount > 0 ->
+    #payproc_InvoicePayment{payment = _Payment} = hg_client_invoicing:start_payment(InvoiceID, Params, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] =
+        next_changes(InvoiceID, 2, Client),
+    FailedRoutes = [
+        begin
+            {Route, _CashFlow, _Failure} = await_cascade_triggering(InvoiceID, PaymentID, Client),
+            Route
+        end
+     || _I <- lists:seq(1, CascadeCount)
+    ],
+    [
+        ?payment_ev(PaymentID, ?route_changed(FinalRoute)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow))
+    ] =
+        next_changes(InvoiceID, 2, Client),
+    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    {PaymentID, FailedRoutes ++ [FinalRoute]}.
+
 execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     ?adjustment(AdjustmentID, ?adjustment_pending()) =
         Adjustment = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
@@ -6614,7 +7423,8 @@ construct_domain_fixture() ->
             },
             allocations = #domain_PaymentAllocationServiceTerms{
                 allow = {constant, true}
-            }
+            },
+            attempt_limit = {value, #domain_AttemptLimit{attempts = 2}}
         },
         recurrent_paytools = #domain_RecurrentPaytoolsServiceTerms{
             payment_methods =
@@ -7783,7 +8593,8 @@ construct_domain_fixture() ->
                             {value, [
                                 #domain_TurnoverLimit{
                                     id = ?LIMIT_ID,
-                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                    domain_revision = dmt_client:get_last_version()
                                 }
                             ]}
                     }
@@ -7835,7 +8646,8 @@ construct_domain_fixture() ->
                         {value, [
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID2,
-                                upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                domain_revision = dmt_client:get_last_version()
                             }
                         ]}
                 }
@@ -7879,7 +8691,8 @@ construct_domain_fixture() ->
                         {value, [
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID3,
-                                upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                                upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                domain_revision = dmt_client:get_last_version()
                             }
                         ]}
                 }

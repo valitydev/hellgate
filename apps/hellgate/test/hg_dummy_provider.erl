@@ -150,21 +150,31 @@ handle_function(
     {#proxy_provider_PaymentContext{
         session = #proxy_provider_Session{target = ?refunded(), state = State},
         payment_info = PaymentInfo,
-        options = _
+        options = CtxOpts
     }},
     Opts
 ) ->
-    process_refund(State, PaymentInfo, Opts);
+    process_refund(State, PaymentInfo, CtxOpts, Opts);
 handle_function(
     'ProcessPayment',
     {#proxy_provider_PaymentContext{
         session = #proxy_provider_Session{target = Target, state = State},
         payment_info = PaymentInfo,
+        options = CtxOpts
+    }},
+    Opts
+) ->
+    process_payment(Target, State, PaymentInfo, CtxOpts, Opts);
+handle_function(
+    'HandlePaymentCallback',
+    {Payload, #proxy_provider_PaymentContext{
+        session = #proxy_provider_Session{target = ?refunded(), state = State},
+        payment_info = PaymentInfo,
         options = _
     }},
     Opts
 ) ->
-    process_payment(Target, State, PaymentInfo, Opts);
+    handle_refund_callback(Payload, State, PaymentInfo, Opts);
 handle_function(
     'HandlePaymentCallback',
     {Payload, #proxy_provider_PaymentContext{
@@ -258,8 +268,17 @@ token_respond(Response, CallbackResult) ->
 %
 % Payments
 %
-
-process_payment(?processed(), undefined, PaymentInfo, _) ->
+process_payment(
+    ?processed(),
+    undefined,
+    _PaymentInfo,
+    #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode} = CtxOpts,
+    _
+) ->
+    _ = maybe_sleep(CtxOpts),
+    Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
+    result(?finish({failure, Failure}));
+process_payment(?processed(), undefined, PaymentInfo, _CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
@@ -316,7 +335,7 @@ process_payment(?processed(), undefined, PaymentInfo, _) ->
         {temporary_unavailability, _Scenario} ->
             result(?sleep(0), <<"sleeping">>)
     end;
-process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
+process_payment(?processed(), <<"sleeping">>, PaymentInfo, _CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         unexpected_failure ->
             error(unexpected_failure);
@@ -325,7 +344,7 @@ process_payment(?processed(), <<"sleeping">>, PaymentInfo, _) ->
         _ ->
             finish(success(PaymentInfo), get_payment_id(PaymentInfo), mk_trx_extra(PaymentInfo))
     end;
-process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, _) ->
+process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, _CtxOpts, _) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
     case get_transaction_state(Key) of
         processed ->
@@ -343,6 +362,7 @@ process_payment(
     ?captured(),
     undefined,
     PaymentInfo = #proxy_provider_PaymentInfo{capture = Capture},
+    _CtxOpts,
     _Opts
 ) when Capture =/= undefined ->
     case get_payment_info_scenario(PaymentInfo) of
@@ -351,7 +371,7 @@ process_payment(
         _ ->
             finish(success(PaymentInfo))
     end;
-process_payment(?cancelled(), _, PaymentInfo, _) ->
+process_payment(?cancelled(), _, PaymentInfo, _CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, get_payment_id(PaymentInfo));
@@ -457,7 +477,10 @@ get_failure_scenario_step(Scenario, Step) when Step > length(Scenario) ->
 get_failure_scenario_step(Scenario, Step) ->
     lists:nth(Step, Scenario).
 
-process_refund(undefined, PaymentInfo, _) ->
+process_refund(_State, _PaymentInfo, #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode}, _) ->
+    Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
+    result(?finish({failure, Failure}));
+process_refund(undefined, PaymentInfo, _CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"refund">>),
@@ -469,7 +492,7 @@ process_refund(undefined, PaymentInfo, _) ->
         _ ->
             finish(success(PaymentInfo), get_payment_id(PaymentInfo))
     end;
-process_refund(<<"sleeping">>, PaymentInfo, _) ->
+process_refund(<<"sleeping">>, PaymentInfo, _CtxOpts, _) ->
     finish(success(PaymentInfo), get_payment_id(PaymentInfo)).
 
 process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
@@ -848,3 +871,8 @@ set_transaction_state(Key, Value) ->
 
 get_transaction_state(Key) ->
     hg_kv_store:get(Key).
+
+maybe_sleep(#{<<"sleep_ms">> := TimeMs}) when is_binary(TimeMs) ->
+    timer:sleep(binary_to_integer(TimeMs));
+maybe_sleep(_Opts) ->
+    ok.
