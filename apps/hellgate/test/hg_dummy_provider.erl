@@ -17,6 +17,7 @@
 -export([construct_silent_callback/1]).
 
 -export([make_payment_tool/2]).
+-export([mk_trx/1]).
 
 %% cowboy http callbacks
 -export([init/2]).
@@ -337,7 +338,7 @@ process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo,
         processed ->
             finish(success(PaymentInfo), Trx);
         {pending, Count} when Count > 2 ->
-            finish(failure(authorization_failed), Trx);
+            finish(failure(authorization_failed), undefined);
         {pending, Count} ->
             set_transaction_state(Key, {pending, Count + 1}),
             result(?sleep(1), <<"sleeping_with_user_interaction">>);
@@ -491,7 +492,7 @@ process_failure_scenario(PaymentInfo, Scenario, TrxID) ->
         good ->
             finish(success(PaymentInfo), Trx);
         temp ->
-            finish(failure(authorization_failed, temporarily_unavailable), Trx);
+            finish(failure(authorization_failed, temporarily_unavailable), undefined);
         fail ->
             finish(failure(authorization_failed), Trx);
         error ->
@@ -508,8 +509,15 @@ result(Intent, NextState, Trx) ->
         trx = Trx
     }.
 
+-spec mk_trx(binary()) -> dmsl_domain_thrift:'TransactionInfo'().
+mk_trx(TrxID) ->
+    mk_trx_w_extra(TrxID, #{}).
+
 mk_trx(TrxID, PaymentInfo) ->
     Extra = mk_trx_extra(PaymentInfo),
+    mk_trx_w_extra(TrxID, Extra).
+
+mk_trx_w_extra(TrxID, Extra) ->
     AdditionalInfo = hg_ct_fixture:construct_dummy_additional_info(),
     #domain_TransactionInfo{id = TrxID, extra = Extra, additional_info = AdditionalInfo}.
 

@@ -4417,10 +4417,11 @@ payment_refund_failure(C) ->
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID, Client),
     [
+        ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?trx_bound(?trx_info(_TrxID))))),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure))),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure))))
-    ] = next_changes(InvoiceID, 3, Client),
+    ] = next_changes(InvoiceID, 4, Client),
     #domain_InvoicePaymentRefund{status = ?refund_failed(Failure)} =
         hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client).
 
@@ -5592,7 +5593,8 @@ repair_fulfill_session_on_processed_succeeded(C) ->
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 2, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
+    TrxID = <<PaymentID/binary, ".brovider">>,
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, ?timeout_reason(), TrxID, Client).
 
 -spec repair_fulfill_suspended_session_succeeded(config()) -> test_return().
 repair_fulfill_suspended_session_succeeded(C) ->
@@ -5614,7 +5616,8 @@ repair_fulfill_suspended_session_succeeded(C) ->
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 2, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
+    TrxID = <<PaymentID/binary, ".brovider">>,
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, ?timeout_reason(), TrxID, Client).
 
 -spec repair_fulfill_session_on_captured_succeeded(config()) -> test_return().
 repair_fulfill_session_on_captured_succeeded(C) ->
@@ -5671,10 +5674,12 @@ repair_fulfill_session_with_trx_succeeded(C) ->
         next_change(InvoiceID, Client),
 
     timeout = next_change(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, {fulfill_session, ?trx_info(PaymentID, #{})}, Client),
+    TrxID = <<PaymentID/binary, ".brovider">>,
+    Trx = hg_dummy_provider:mk_trx(TrxID),
+    ok = repair_invoice_with_scenario(InvoiceID, {fulfill_session, Trx}, Client),
 
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(PaymentID)))),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID)))),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 3, Client),
@@ -6839,11 +6844,17 @@ await_payment_capture(InvoiceID, PaymentID, Client) ->
     await_payment_capture(InvoiceID, PaymentID, ?timeout_reason(), Client).
 
 await_payment_capture(InvoiceID, PaymentID, Reason, Client) ->
+    await_payment_capture(InvoiceID, PaymentID, Reason, undefined, Client).
+
+await_payment_capture(InvoiceID, PaymentID, Reason, TrxID, Client) ->
     Cost = get_payment_cost(InvoiceID, PaymentID, Client),
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
     ] = next_changes(InvoiceID, 2, Client),
+    TrxID =/= undefined andalso
+        (?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, _Cart, _), ?trx_bound(?trx_info(TrxID)))) =
+            next_change(InvoiceID, Client)),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
 await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client) ->
