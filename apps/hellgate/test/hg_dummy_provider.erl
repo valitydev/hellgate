@@ -482,7 +482,7 @@ process_refund(undefined, PaymentInfo, _CtxOpts, _) ->
         _ ->
             finish(success(PaymentInfo), get_payment_id(PaymentInfo))
     end;
-process_refund(<<"sleeping">>, PaymentInfo, _) ->
+process_refund(<<"sleeping">>, PaymentInfo, _CtxOpts, _) ->
     finish(success(PaymentInfo), get_payment_id(PaymentInfo)).
 
 process_failure_scenario(PaymentInfo, Scenario, PaymentId) ->
