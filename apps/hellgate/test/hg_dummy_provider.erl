@@ -178,16 +178,6 @@ handle_function(
 handle_function(
     'HandlePaymentCallback',
     {Payload, #proxy_provider_PaymentContext{
-        session = #proxy_provider_Session{target = ?refunded(), state = State},
-        payment_info = PaymentInfo,
-        options = _
-    }},
-    Opts
-) ->
-    handle_refund_callback(Payload, State, PaymentInfo, Opts);
-handle_function(
-    'HandlePaymentCallback',
-    {Payload, #proxy_provider_PaymentContext{
         session = #proxy_provider_Session{target = Target, state = State},
         payment_info = PaymentInfo,
         options = _

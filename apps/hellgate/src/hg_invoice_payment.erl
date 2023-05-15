@@ -934,22 +934,6 @@ collect_validation_varset(Party, Shop, Payment, VS) ->
 
 %%
 
-construct_final_cashflow(Cashflow, Context, AccountMap) ->
-    hg_cashflow:finalize(Cashflow, Context, AccountMap).
-
-collect_cash_flow_context(
-    #domain_InvoicePayment{cost = Cost}
-) ->
-    #{
-        operation_amount => Cost
-    };
-collect_cash_flow_context(
-    #domain_InvoicePaymentRefund{cash = Cash}
-) ->
-    #{
-        operation_amount => Cash
-    }.
-
 -spec construct_payment_plan_id(st()) -> payment_plan_id().
 construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}) ->
     construct_payment_plan_id(get_invoice(Opts), Payment, Routes, normal).
@@ -3137,7 +3121,7 @@ get_routing_attempt_limit(
     Party = hg_party:checkout(PartyID, {revision, PartyRevision}),
     Shop = hg_party:get_shop(ShopID, Party),
     VS = collect_validation_varset(Party, Shop, get_payment(St), #{}),
-    Terms = get_merchant_terms(Party, Shop, Revision, CreatedAt, VS),
+    Terms = hg_invoice_utils:get_merchant_terms(Party, Shop, Revision, CreatedAt, VS),
     #domain_TermSet{payments = PaymentTerms} = Terms,
     log_cascade_attempt_context(PaymentTerms, St),
     get_routing_attempt_limit_value(PaymentTerms#domain_PaymentsServiceTerms.attempt_limit).
