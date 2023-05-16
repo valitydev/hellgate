@@ -2143,8 +2143,10 @@ process_timeout({chargeback, ID, Type}, Action, St) ->
 process_timeout({refund, ID}, _Action, St) ->
     process_refund(ID, St);
 process_timeout({adjustment_new, ID}, Action, St) ->
+    erlang:error({kill_adjustments, on_new}),
     process_adjustment_cashflow(ID, Action, St);
 process_timeout({adjustment_pending, ID}, Action, St) ->
+    erlang:error({kill_adjustments, on_pending}),
     process_adjustment_capture(ID, Action, St);
 process_timeout({payment, flow_waiting}, Action, St) ->
     finalize_payment(Action, St).
