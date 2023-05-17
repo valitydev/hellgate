@@ -83,6 +83,7 @@
 -export([create_session_event_context/3]).
 -export([add_session/3]).
 -export([accrue_status_timing/3]).
+-export([get_limits/1]).
 
 %% Machine like
 
@@ -205,6 +206,7 @@
 -type recurrent_paytool_service_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
 -type session() :: hg_session:t().
 -type payment_plan_id() :: hg_accounting:plan_id().
+-type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 
 -type opts() :: #{
     party => party(),
@@ -2243,16 +2245,17 @@ process_risk_score(Action, St) ->
 
 -spec process_routing(action(), st()) -> machine_result().
 process_routing(Action, St) ->
-    Opts = get_opts(St),
-    Revision = get_payment_revision(St),
-    Payment = get_payment(St),
-    #{payment_tool := PaymentTool} = VS1 = get_varset(St, #{risk_score => get_risk_score(St)}),
-    CreatedAt = get_payment_created_at(Payment),
-    PaymentInstitutionRef = get_payment_institution_ref(Opts),
-    MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS1),
-    VS2 = collect_refund_varset(MerchantTerms#domain_PaymentsServiceTerms.refunds, PaymentTool, VS1),
-    VS3 = collect_chargeback_varset(MerchantTerms#domain_PaymentsServiceTerms.chargebacks, VS2),
-    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
+%    Opts = get_opts(St),
+%    Revision = get_payment_revision(St),
+%    Payment = get_payment(St),
+%    #{payment_tool := PaymentTool} = VS1 = get_varset(St, #{risk_score => get_risk_score(St)}),
+%    CreatedAt = get_payment_created_at(Payment),
+%    PaymentInstitutionRef = get_payment_institution_ref(Opts),
+%    MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS1),
+%    VS2 = collect_refund_varset(MerchantTerms#domain_PaymentsServiceTerms.refunds, PaymentTool, VS1),
+%    VS3 = collect_chargeback_varset(MerchantTerms#domain_PaymentsServiceTerms.chargebacks, VS2),
+%    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
+    {PaymentInstitution, VS3, Revision} = route_args(St),
     try
         Payer = get_payment_payer(St),
         AllRoutes =
@@ -2277,6 +2280,19 @@ process_routing(Action, St) ->
         throw:{no_route_found, Reason} ->
             handle_choose_route_error(Reason, [], St, Action)
     end.
+
+route_args(St) ->
+    Opts = get_opts(St),
+    Revision = get_payment_revision(St),
+    Payment = get_payment(St),
+    #{payment_tool := PaymentTool} = VS1 = get_varset(St, #{risk_score => get_risk_score(St)}),
+    CreatedAt = get_payment_created_at(Payment),
+    PaymentInstitutionRef = get_payment_institution_ref(Opts),
+    MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS1),
+    VS2 = collect_refund_varset(MerchantTerms#domain_PaymentsServiceTerms.refunds, PaymentTool, VS1),
+    VS3 = collect_chargeback_varset(MerchantTerms#domain_PaymentsServiceTerms.chargebacks, VS2),
+    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
+    {PaymentInstitution, VS3, Revision}.
 
 filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
     lists:filter(
@@ -3501,6 +3517,30 @@ is_transition_valid(Allowed, #st{activity = Activity}) ->
 accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
     EventTime = define_event_timestamp(Opts),
     hg_timings:mark(Name, EventTime, hg_timings:accrue(Name, started, EventTime, Timings)).
+
+
+-spec get_limits(st()) -> [turnover_limit()].
+get_limits(St) ->
+    {PaymentInstitution, VS, Revision} = route_args(St),
+    try
+        Payer = get_payment_payer(St),
+        Routes =
+            case get_predefined_route(Payer) of
+                {ok, PmntRoute} ->
+                    [hg_routing:from_payment_route(PmntRoute)];
+                undefined ->
+                    gather_routes(PaymentInstitution, VS, Revision, St)
+            end,
+        lists:foldl(fun(Route, Acc) ->
+            PaymentRoute = hg_routing:to_payment_route(Route),
+            ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
+            TurnoverLimits = get_turnover_limits(ProviderTerms),
+            TurnoverLimits ++ Acc
+        end, [], Routes)
+    catch
+        _:_ ->
+            throw(#base_InvalidRequest{errors = [<<"Can`t find limits">>]})
+    end.
 
 try_accrue_waiting_timing(Opts, #st{payment = Payment, timings = Timings}) ->
     case get_payment_flow(Payment) of
