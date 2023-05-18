@@ -1249,10 +1249,23 @@ payment_limit_success(C) ->
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
+    Invoice = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
-    ) = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)).
+    ) = Invoice,
+
+    % check limit getting
+    #payproc_Invoice{
+        invoice = #domain_Invoice{id = InvoiceId},
+        payments = [
+            #payproc_InvoicePayment{payment = #domain_InvoicePayment{id = PaymentId}}
+        ]
+    } = Invoice,
+    [#domain_TurnoverLimit{
+        id = ?LIMIT_ID,
+        upper_boundary = ?LIMIT_UPPER_BOUNDARY
+    }] = hg_client_invoicing:get_limits(InvoiceId, PaymentId, Client).
 
 -spec register_payment_limit_success(config()) -> test_return().
 register_payment_limit_success(C0) ->

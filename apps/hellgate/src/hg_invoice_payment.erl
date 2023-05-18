@@ -84,6 +84,7 @@
 -export([add_session/3]).
 -export([accrue_status_timing/3]).
 -export([get_limits/1]).
+-export([get_limits/2]).
 
 %% Machine like
 
@@ -2245,17 +2246,7 @@ process_risk_score(Action, St) ->
 
 -spec process_routing(action(), st()) -> machine_result().
 process_routing(Action, St) ->
-%    Opts = get_opts(St),
-%    Revision = get_payment_revision(St),
-%    Payment = get_payment(St),
-%    #{payment_tool := PaymentTool} = VS1 = get_varset(St, #{risk_score => get_risk_score(St)}),
-%    CreatedAt = get_payment_created_at(Payment),
-%    PaymentInstitutionRef = get_payment_institution_ref(Opts),
-%    MerchantTerms = get_merchant_payments_terms(Opts, Revision, CreatedAt, VS1),
-%    VS2 = collect_refund_varset(MerchantTerms#domain_PaymentsServiceTerms.refunds, PaymentTool, VS1),
-%    VS3 = collect_chargeback_varset(MerchantTerms#domain_PaymentsServiceTerms.chargebacks, VS2),
-%    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
-    {PaymentInstitution, VS3, Revision} = route_args(St),
+    {PaymentInstitution, VS, Revision} = route_args(St),
     try
         Payer = get_payment_payer(St),
         AllRoutes =
@@ -2263,13 +2254,13 @@ process_routing(Action, St) ->
                 {ok, PaymentRoute} ->
                     [hg_routing:from_payment_route(PaymentRoute)];
                 undefined ->
-                    gather_routes(PaymentInstitution, VS3, Revision, St)
+                    gather_routes(PaymentInstitution, VS, Revision, St)
             end,
         AvailableRoutes = filter_out_attempted_routes(AllRoutes, St),
         %% Since this is routing step then current attempt is not yet accounted for in `St`.
         Iter = get_iter(St) + 1,
         Events = handle_gathered_route_result(
-            filter_limit_overflow_routes(AvailableRoutes, VS3, Iter, St),
+            filter_limit_overflow_routes(AvailableRoutes, VS, Iter, St),
             [hg_routing:to_payment_route(R) || R <- AllRoutes],
             [hg_routing:to_payment_route(R) || R <- AvailableRoutes],
             Revision,
@@ -3526,8 +3517,8 @@ get_limits(St) ->
         Payer = get_payment_payer(St),
         Routes =
             case get_predefined_route(Payer) of
-                {ok, PmntRoute} ->
-                    [hg_routing:from_payment_route(PmntRoute)];
+                {ok, PR} ->
+                    [hg_routing:from_payment_route(PR)];
                 undefined ->
                     gather_routes(PaymentInstitution, VS, Revision, St)
             end,
@@ -3541,6 +3532,10 @@ get_limits(St) ->
         _:_ ->
             throw(#base_InvalidRequest{errors = [<<"Can`t find limits">>]})
     end.
+
+-spec get_limits(st(), opts()) -> [turnover_limit()].
+get_limits(St, Opts) ->
+    get_limits(St#st{opts = Opts}).
 
 try_accrue_waiting_timing(Opts, #st{payment = Payment, timings = Timings}) ->
     case get_payment_flow(Payment) of
