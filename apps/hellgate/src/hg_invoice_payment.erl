@@ -207,7 +207,7 @@
 -type recurrent_paytool_service_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
 -type session() :: hg_session:t().
 -type payment_plan_id() :: hg_accounting:plan_id().
--type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
+-type route_limit_context() :: dmsl_payproc_thrift:'RouteLimitContext'().
 
 -type opts() :: #{
     party => party(),
@@ -3511,7 +3511,7 @@ accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
     EventTime = define_event_timestamp(Opts),
     hg_timings:mark(Name, EventTime, hg_timings:accrue(Name, started, EventTime, Timings)).
 
--spec get_limits(st()) -> [turnover_limit()].
+-spec get_limits(st()) -> route_limit_context().
 get_limits(St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
     Routes = get_candidates(PaymentInstitution, VS, Revision, St),
@@ -3529,7 +3529,7 @@ get_limits(St) ->
         Routes
     ).
 
--spec get_limits(st(), opts()) -> [turnover_limit()].
+-spec get_limits(st(), opts()) -> route_limit_context().
 get_limits(St, Opts) ->
     get_limits(St#st{opts = Opts}).
 
