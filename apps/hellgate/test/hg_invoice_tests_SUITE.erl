@@ -1249,11 +1249,10 @@ payment_limit_success(C) ->
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
-    Invoice = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
-    ) = Invoice,
+    ) = Invoice = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)),
 
     % check limit getting
     #payproc_Invoice{
@@ -1633,6 +1632,7 @@ payment_w_misconfigured_routing_failed(C) ->
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client),
+    {exception, #base_InvalidRequest{}} = hg_client_invoicing:get_limits(InvoiceID, PaymentID, Client),
     ?assertRouteNotFound(Failure, {unknown, _}, <<"{misconfiguration,{">>).
 
 payment_w_misconfigured_routing_failed_fixture(_Revision) ->

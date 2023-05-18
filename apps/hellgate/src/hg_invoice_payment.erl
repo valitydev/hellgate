@@ -2248,14 +2248,7 @@ process_risk_score(Action, St) ->
 process_routing(Action, St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
     try
-        Payer = get_payment_payer(St),
-        AllRoutes =
-            case get_predefined_route(Payer) of
-                {ok, PaymentRoute} ->
-                    [hg_routing:from_payment_route(PaymentRoute)];
-                undefined ->
-                    gather_routes(PaymentInstitution, VS, Revision, St)
-            end,
+        AllRoutes = get_candidates(PaymentInstitution, VS, Revision, St),
         AvailableRoutes = filter_out_attempted_routes(AllRoutes, St),
         %% Since this is routing step then current attempt is not yet accounted for in `St`.
         Iter = get_iter(St) + 1,
@@ -2284,6 +2277,15 @@ route_args(St) ->
     VS3 = collect_chargeback_varset(MerchantTerms#domain_PaymentsServiceTerms.chargebacks, VS2),
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
     {PaymentInstitution, VS3, Revision}.
+
+get_candidates(PaymentInstitution, VS, Revision, St) ->
+    Payer = get_payment_payer(St),
+    case get_predefined_route(Payer) of
+        {ok, PaymentRoute} ->
+            [hg_routing:from_payment_route(PaymentRoute)];
+        undefined ->
+            gather_routes(PaymentInstitution, VS, Revision, St)
+    end.
 
 filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
     lists:filter(
@@ -3513,14 +3515,7 @@ accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
 get_limits(St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
     try
-        Payer = get_payment_payer(St),
-        Routes =
-            case get_predefined_route(Payer) of
-                {ok, PR} ->
-                    [hg_routing:from_payment_route(PR)];
-                undefined ->
-                    gather_routes(PaymentInstitution, VS, Revision, St)
-            end,
+        Routes = get_candidates(PaymentInstitution, VS, Revision, St),
         lists:foldl(
             fun(Route, Acc) ->
                 PaymentRoute = hg_routing:to_payment_route(Route),
