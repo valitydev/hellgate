@@ -3514,22 +3514,20 @@ accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
 -spec get_limits(st()) -> [turnover_limit()].
 get_limits(St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
-    try
-        Routes = get_candidates(PaymentInstitution, VS, Revision, St),
-        lists:foldl(
-            fun(Route, Acc) ->
-                PaymentRoute = hg_routing:to_payment_route(Route),
-                ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
-                TurnoverLimits = get_turnover_limits(ProviderTerms),
-                TurnoverLimits ++ Acc
-            end,
-            [],
-            Routes
-        )
-    catch
-        _:_ ->
-            throw(#base_InvalidRequest{errors = [<<"Can`t find limits">>]})
-    end.
+    Routes = get_candidates(PaymentInstitution, VS, Revision, St),
+    Payment = get_payment(St),
+    Invoice = get_invoice(get_opts(St)),
+    lists:foldl(
+        fun(Route, Acc) ->
+            PaymentRoute = hg_routing:to_payment_route(Route),
+            ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
+            TurnoverLimits = get_turnover_limits(ProviderTerms),
+            TurnoverLimitsValues = hg_limiter:get_value_limits(TurnoverLimits, Invoice, Payment, PaymentRoute),
+            Acc#{PaymentRoute => TurnoverLimitsValues}
+        end,
+        #{},
+        Routes
+    ).
 
 -spec get_limits(st(), opts()) -> [turnover_limit()].
 get_limits(St, Opts) ->

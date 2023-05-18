@@ -1261,12 +1261,15 @@ payment_limit_success(C) ->
             #payproc_InvoicePayment{payment = #domain_InvoicePayment{id = PaymentId}}
         ]
     } = Invoice,
-    [
-        #domain_TurnoverLimit{
-            id = ?LIMIT_ID,
-            upper_boundary = ?LIMIT_UPPER_BOUNDARY
-        }
-    ] = hg_client_invoicing:get_limits(InvoiceId, PaymentId, Client).
+    Route = ?route(?prv(5), ?trm(12)),
+    #{
+        Route := [
+            #payproc_TurnoverLimitValue{
+                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                value = 10000
+            }
+        ]
+    } = hg_client_invoicing:get_limits(InvoiceId, PaymentId, Client).
 
 -spec register_payment_limit_success(config()) -> test_return().
 register_payment_limit_success(C0) ->
@@ -1632,7 +1635,6 @@ payment_w_misconfigured_routing_failed(C) ->
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client),
-    {exception, #base_InvalidRequest{}} = hg_client_invoicing:get_limits(InvoiceID, PaymentID, Client),
     ?assertRouteNotFound(Failure, {unknown, _}, <<"{misconfiguration,{">>).
 
 payment_w_misconfigured_routing_failed_fixture(_Revision) ->
