@@ -1262,10 +1262,12 @@ payment_limit_success(C) ->
             #payproc_InvoicePayment{payment = #domain_InvoicePayment{id = PaymentId}}
         ]
     } = Invoice,
-    [#domain_TurnoverLimit{
-        id = ?LIMIT_ID,
-        upper_boundary = ?LIMIT_UPPER_BOUNDARY
-    }] = hg_client_invoicing:get_limits(InvoiceId, PaymentId, Client).
+    [
+        #domain_TurnoverLimit{
+            id = ?LIMIT_ID,
+            upper_boundary = ?LIMIT_UPPER_BOUNDARY
+        }
+    ] = hg_client_invoicing:get_limits(InvoiceId, PaymentId, Client).
 
 -spec register_payment_limit_success(config()) -> test_return().
 register_payment_limit_success(C0) ->

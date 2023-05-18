@@ -3509,7 +3509,6 @@ accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
     EventTime = define_event_timestamp(Opts),
     hg_timings:mark(Name, EventTime, hg_timings:accrue(Name, started, EventTime, Timings)).
 
-
 -spec get_limits(st()) -> [turnover_limit()].
 get_limits(St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
@@ -3522,12 +3521,16 @@ get_limits(St) ->
                 undefined ->
                     gather_routes(PaymentInstitution, VS, Revision, St)
             end,
-        lists:foldl(fun(Route, Acc) ->
-            PaymentRoute = hg_routing:to_payment_route(Route),
-            ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
-            TurnoverLimits = get_turnover_limits(ProviderTerms),
-            TurnoverLimits ++ Acc
-        end, [], Routes)
+        lists:foldl(
+            fun(Route, Acc) ->
+                PaymentRoute = hg_routing:to_payment_route(Route),
+                ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
+                TurnoverLimits = get_turnover_limits(ProviderTerms),
+                TurnoverLimits ++ Acc
+            end,
+            [],
+            Routes
+        )
     catch
         _:_ ->
             throw(#base_InvalidRequest{errors = [<<"Can`t find limits">>]})
