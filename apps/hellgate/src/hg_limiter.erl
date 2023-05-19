@@ -27,7 +27,7 @@
 -export([commit_refund_limits/5]).
 -export([rollback_payment_limits/6]).
 -export([rollback_refund_limits/5]).
--export([get_value_limits/4]).
+-export([get_limit_values/4]).
 
 -define(route(ProviderRef, TerminalRef), #domain_PaymentRoute{
     provider = ProviderRef,
@@ -42,8 +42,8 @@ get_turnover_limits({value, Limits}) ->
 get_turnover_limits(Ambiguous) ->
     error({misconfiguration, {'Could not reduce selector to a value', Ambiguous}}).
 
--spec get_value_limits([turnover_limit()], invoice(), payment(), route()) -> [turnover_limit_value()].
-get_value_limits(TurnoverLimits, Invoice, Payment, Route) ->
+-spec get_limit_values([turnover_limit()], invoice(), payment(), route()) -> [turnover_limit_value()].
+get_limit_values(TurnoverLimits, Invoice, Payment, Route) ->
     Context = gen_limit_context(Invoice, Payment, Route),
     lists:foldl(
         fun(TurnoverLimit, Acc) ->

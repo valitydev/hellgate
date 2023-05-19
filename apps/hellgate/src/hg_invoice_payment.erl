@@ -83,8 +83,7 @@
 -export([create_session_event_context/3]).
 -export([add_session/3]).
 -export([accrue_status_timing/3]).
--export([get_limits/1]).
--export([get_limits/2]).
+-export([get_limit_values/2]).
 
 %% Machine like
 
@@ -3511,8 +3510,8 @@ accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
     EventTime = define_event_timestamp(Opts),
     hg_timings:mark(Name, EventTime, hg_timings:accrue(Name, started, EventTime, Timings)).
 
--spec get_limits(st()) -> route_limit_context().
-get_limits(St) ->
+-spec get_limit_values(st()) -> route_limit_context().
+get_limit_values(St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
     Routes = get_candidates(PaymentInstitution, VS, Revision, St),
     Payment = get_payment(St),
@@ -3522,16 +3521,16 @@ get_limits(St) ->
             PaymentRoute = hg_routing:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            TurnoverLimitsValues = hg_limiter:get_value_limits(TurnoverLimits, Invoice, Payment, PaymentRoute),
-            Acc#{PaymentRoute => TurnoverLimitsValues}
+            TurnoverLimitValues = hg_limiter:get_limit_values(TurnoverLimits, Invoice, Payment, PaymentRoute),
+            Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
         Routes
     ).
 
--spec get_limits(st(), opts()) -> route_limit_context().
-get_limits(St, Opts) ->
-    get_limits(St#st{opts = Opts}).
+-spec get_limit_values(st(), opts()) -> route_limit_context().
+get_limit_values(St, Opts) ->
+    get_limit_values(St#st{opts = Opts}).
 
 try_accrue_waiting_timing(Opts, #st{payment = Payment, timings = Timings}) ->
     case get_payment_flow(Payment) of
