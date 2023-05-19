@@ -13,3 +13,4 @@ tags
 # make stuff
 /.image.*
 Makefile.env
+*.iml

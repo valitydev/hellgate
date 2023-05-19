@@ -15,6 +15,7 @@
 -export([rescind/3]).
 -export([repair/5]).
 -export([repair_scenario/3]).
+-export([get_limit_values/3]).
 
 -export([create_invoice_adjustment/3]).
 -export([get_invoice_adjustment/3]).
@@ -98,6 +99,8 @@
 -type event_range() :: dmsl_payproc_thrift:'EventRange'().
 -type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
 
+-type route_limit_context() :: dmsl_payproc_thrift:'RouteLimitContext'().
+
 -spec start(hg_client_api:t()) -> pid().
 start(ApiClient) ->
     start(start, ApiClient).
@@ -149,6 +152,10 @@ repair(InvoiceID, Changes, Action, Params, Client) ->
 -spec repair_scenario(invoice_id(), hg_invoice_repair:scenario(), pid()) -> ok | woody_error:business_error().
 repair_scenario(InvoiceID, Scenario, Client) ->
     map_result_error(gen_server:call(Client, {call, 'RepairWithScenario', [InvoiceID, Scenario]})).
+
+-spec get_limit_values(invoice_id(), payment_id(), pid()) -> route_limit_context() | woody_error:business_error().
+get_limit_values(InvoiceID, PaymentID, Client) ->
+    map_result_error(gen_server:call(Client, {call, 'GetPaymentRoutesLimitValues', [InvoiceID, PaymentID]})).
 
 -spec create_invoice_adjustment(invoice_id(), invoice_adjustment_params(), pid()) ->
     invoice_adjustment() | woody_error:business_error().
