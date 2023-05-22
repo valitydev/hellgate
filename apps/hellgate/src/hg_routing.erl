@@ -99,7 +99,7 @@
 
 -type varset() :: hg_varset:varset().
 -type revision() :: hg_domain:revision().
--type fd_overrides() :: dmsl_domain_thrift:'TerminalFaultDetectorOverrides'().
+-type fd_overrides() :: dmsl_domain_thrift:'RouteFaultDetectorOverrides'().
 
 -record(route_scores, {
     availability_condition :: condition_score(),
@@ -138,9 +138,11 @@ new(ProviderRef, TerminalRef, Weight, Priority) ->
 new(ProviderRef, TerminalRef, undefined, Priority, Pin) ->
     new(ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, Priority, Pin);
 new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
-    new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_TerminalFaultDetectorOverrides{is_override = false}).
+    new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{}).
 
 -spec new(provider_ref(), terminal_ref(), integer(), integer(), pin(), fd_overrides()) -> route().
+new(ProviderRef, TerminalRef, Weight, Priority, Pin, undefined) ->
+    new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{});
 new(ProviderRef, TerminalRef, Weight, Priority, Pin, FdOverrides) ->
     #route{
         provider_ref = ProviderRef,
@@ -271,7 +273,7 @@ collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
             % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
             #domain_Terminal{
                 provider_ref = ProviderRef,
-                terminal_fd_overrides = FdOverrides
+                route_fd_overrides = FdOverrides
             } = hg_domain:get(Revision, {terminal, TerminalRef}),
             GatheredPinInfo = gather_pin_info(Pin, Ctx),
             try
@@ -541,7 +543,7 @@ get_provider_status(Route, FDStats) ->
     ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
     {AvailabilityStatus, ConversionStatus}.
 
-get_provider_availability_status(#domain_TerminalFaultDetectorOverrides{is_override = true}, _FDID, _Stats) ->
+get_provider_availability_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {alive, 0.0};
 get_provider_availability_status(_, FDID, Stats) ->
@@ -556,7 +558,7 @@ get_provider_availability_status(_, FDID, Stats) ->
             {alive, 0.0}
     end.
 
-get_provider_conversion_status(#domain_TerminalFaultDetectorOverrides{is_override = true}, _FDID, _Stats) ->
+get_provider_conversion_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {normal, 0.0};
 get_provider_conversion_status(_, FDID, Stats) ->
