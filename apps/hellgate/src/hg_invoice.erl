@@ -249,7 +249,11 @@ handle_function_('Repair', {InvoiceID, Changes, Action, Params}, _Opts) ->
     repair(InvoiceID, {changes, Changes, Action, Params});
 handle_function_('RepairWithScenario', {InvoiceID, Scenario}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
-    repair(InvoiceID, {scenario, Scenario}).
+    repair(InvoiceID, {scenario, Scenario});
+handle_function_('GetPaymentRoutesLimitValues', {InvoiceID, PaymentID}, _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, PaymentID),
+    St = get_state(InvoiceID),
+    hg_invoice_payment:get_limit_values(get_payment_session(PaymentID, St), get_payment_opts(St)).
 
 maybe_allocation(undefined, _Cost, _MerchantTerms, _Party, _Shop) ->
     undefined;

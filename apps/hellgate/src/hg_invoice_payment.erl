@@ -82,6 +82,7 @@
 -export([create_session_event_context/3]).
 -export([add_session/3]).
 -export([accrue_status_timing/3]).
+-export([get_limit_values/2]).
 
 %% Machine like
 
@@ -205,6 +206,7 @@
 -type recurrent_paytool_service_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
 -type session() :: hg_session:t().
 -type payment_plan_id() :: hg_accounting:plan_id().
+-type route_limit_context() :: dmsl_payproc_thrift:'RouteLimitContext'().
 
 -type opts() :: #{
     party => party(),
@@ -1949,6 +1951,26 @@ process_risk_score(Action, St) ->
 
 -spec process_routing(action(), st()) -> machine_result().
 process_routing(Action, St) ->
+    {PaymentInstitution, VS, Revision} = route_args(St),
+    try
+        AllRoutes = get_candidates(PaymentInstitution, VS, Revision, St),
+        AvailableRoutes = filter_out_attempted_routes(AllRoutes, St),
+        %% Since this is routing step then current attempt is not yet accounted for in `St`.
+        Iter = get_iter(St) + 1,
+        Events = handle_gathered_route_result(
+            filter_limit_overflow_routes(AvailableRoutes, VS, Iter, St),
+            [hg_routing:to_payment_route(R) || R <- AllRoutes],
+            [hg_routing:to_payment_route(R) || R <- AvailableRoutes],
+            Revision,
+            St
+        ),
+        {next, {Events, hg_machine_action:set_timeout(0, Action)}}
+    catch
+        throw:{no_route_found, Reason} ->
+            handle_choose_route_error(Reason, [], St, Action)
+    end.
+
+route_args(St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
@@ -1959,29 +1981,15 @@ process_routing(Action, St) ->
     VS2 = collect_refund_varset(MerchantTerms#domain_PaymentsServiceTerms.refunds, PaymentTool, VS1),
     VS3 = collect_chargeback_varset(MerchantTerms#domain_PaymentsServiceTerms.chargebacks, VS2),
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
-    try
-        Payer = get_payment_payer(St),
-        AllRoutes =
-            case get_predefined_route(Payer) of
-                {ok, PaymentRoute} ->
-                    [hg_routing:from_payment_route(PaymentRoute)];
-                undefined ->
-                    gather_routes(PaymentInstitution, VS3, Revision, St)
-            end,
-        AvailableRoutes = filter_out_attempted_routes(AllRoutes, St),
-        %% Since this is routing step then current attempt is not yet accounted for in `St`.
-        Iter = get_iter(St) + 1,
-        Events = handle_gathered_route_result(
-            filter_limit_overflow_routes(AvailableRoutes, VS3, Iter, St),
-            [hg_routing:to_payment_route(R) || R <- AllRoutes],
-            [hg_routing:to_payment_route(R) || R <- AvailableRoutes],
-            Revision,
-            St
-        ),
-        {next, {Events, hg_machine_action:set_timeout(0, Action)}}
-    catch
-        throw:{no_route_found, Reason} ->
-            handle_choose_route_error(Reason, [], St, Action)
+    {PaymentInstitution, VS3, Revision}.
+
+get_candidates(PaymentInstitution, VS, Revision, St) ->
+    Payer = get_payment_payer(St),
+    case get_predefined_route(Payer) of
+        {ok, PaymentRoute} ->
+            [hg_routing:from_payment_route(PaymentRoute)];
+        undefined ->
+            gather_routes(PaymentInstitution, VS, Revision, St)
     end.
 
 filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
@@ -3206,6 +3214,28 @@ is_transition_valid(Allowed, #st{activity = Activity}) ->
 accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
     EventTime = define_event_timestamp(Opts),
     hg_timings:mark(Name, EventTime, hg_timings:accrue(Name, started, EventTime, Timings)).
+
+-spec get_limit_values(st()) -> route_limit_context().
+get_limit_values(St) ->
+    {PaymentInstitution, VS, Revision} = route_args(St),
+    Routes = get_candidates(PaymentInstitution, VS, Revision, St),
+    Payment = get_payment(St),
+    Invoice = get_invoice(get_opts(St)),
+    lists:foldl(
+        fun(Route, Acc) ->
+            PaymentRoute = hg_routing:to_payment_route(Route),
+            ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
+            TurnoverLimits = get_turnover_limits(ProviderTerms),
+            TurnoverLimitValues = hg_limiter:get_limit_values(TurnoverLimits, Invoice, Payment, PaymentRoute),
+            Acc#{PaymentRoute => TurnoverLimitValues}
+        end,
+        #{},
+        Routes
+    ).
+
+-spec get_limit_values(st(), opts()) -> route_limit_context().
+get_limit_values(St, Opts) ->
+    get_limit_values(St#st{opts = Opts}).
 
 try_accrue_waiting_timing(Opts, #st{payment = Payment, timings = Timings}) ->
     case get_payment_flow(Payment) of

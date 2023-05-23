@@ -1,5 +1,6 @@
 -module(hg_limiter).
 
+-include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_base_thrift.hrl").
@@ -14,6 +15,7 @@
 -type refund() :: hg_invoice_payment:domain_refund().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type handling_flag() :: ignore_business_error.
+-type turnover_limit_value() :: dmsl_payproc_thrift:'TurnoverLimitValue'().
 
 -type change_queue() :: [hg_limiter_client:limit_change()].
 
@@ -25,6 +27,7 @@
 -export([commit_refund_limits/5]).
 -export([rollback_payment_limits/6]).
 -export([rollback_refund_limits/5]).
+-export([get_limit_values/4]).
 
 -define(route(ProviderRef, TerminalRef), #domain_PaymentRoute{
     provider = ProviderRef,
@@ -38,6 +41,23 @@ get_turnover_limits({value, Limits}) ->
     Limits;
 get_turnover_limits(Ambiguous) ->
     error({misconfiguration, {'Could not reduce selector to a value', Ambiguous}}).
+
+-spec get_limit_values([turnover_limit()], invoice(), payment(), route()) -> [turnover_limit_value()].
+get_limit_values(TurnoverLimits, Invoice, Payment, Route) ->
+    Context = gen_limit_context(Invoice, Payment, Route),
+    lists:foldl(
+        fun(TurnoverLimit, Acc) ->
+            #domain_TurnoverLimit{id = LimitID, domain_revision = Version} = TurnoverLimit,
+            Clock = get_latest_clock(),
+            Limit = hg_limiter_client:get(LimitID, Version, Clock, Context),
+            #limiter_Limit{
+                amount = LimiterAmount
+            } = Limit,
+            [#payproc_TurnoverLimitValue{limit = TurnoverLimit, value = LimiterAmount} | Acc]
+        end,
+        [],
+        TurnoverLimits
+    ).
 
 -spec check_limits([turnover_limit()], invoice(), payment(), route()) ->
     {ok, [hg_limiter_client:limit()]}
