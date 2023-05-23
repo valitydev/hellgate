@@ -16,6 +16,7 @@
 -export([new/2]).
 -export([new/4]).
 -export([new/5]).
+-export([new/6]).
 -export([to_payment_route/1]).
 -export([to_rejected_route/2]).
 -export([provider_ref/1]).
@@ -140,7 +141,7 @@ new(ProviderRef, TerminalRef, undefined, Priority, Pin) ->
 new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
     new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{}).
 
--spec new(provider_ref(), terminal_ref(), integer(), integer(), pin(), fd_overrides()) -> route().
+-spec new(provider_ref(), terminal_ref(), integer(), integer(), pin(), fd_overrides() | undefined) -> route().
 new(ProviderRef, TerminalRef, Weight, Priority, Pin, undefined) ->
     new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{});
 new(ProviderRef, TerminalRef, Weight, Priority, Pin, FdOverrides) ->
