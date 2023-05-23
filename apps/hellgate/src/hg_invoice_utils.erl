@@ -15,6 +15,7 @@
 -export([assert_shop_operable/1]).
 -export([assert_cost_payable/2]).
 -export([compute_shop_terms/5]).
+-export([get_merchant_terms/5]).
 -export([get_shop_currency/1]).
 -export([get_cart_amount/1]).
 -export([check_deadline/1]).
@@ -110,6 +111,30 @@ compute_shop_terms(PartyID, ShopID, Timestamp, PartyRevision, Varset) ->
     {ok, TermSet} =
         party_client_thrift:compute_shop_terms(PartyID, ShopID, Timestamp, PartyRevision, Varset, Client, Context),
     TermSet.
+
+-spec get_merchant_terms(party(), shop(), hg_domain:revision(), hg_datetime:timestamp(), hg_varset:varset()) ->
+    term_set().
+get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
+    ContractID = Shop#domain_Shop.contract_id,
+    Contract = hg_party:get_contract(ContractID, Party),
+    ok = assert_contract_active(Contract),
+    {Client, Context} = get_party_client(),
+    {ok, Terms} = party_client_thrift:compute_contract_terms(
+        Party#domain_Party.id,
+        ContractID,
+        Timestamp,
+        {revision, Party#domain_Party.revision},
+        DomainRevision,
+        hg_varset:prepare_contract_terms_varset(VS),
+        Client,
+        Context
+    ),
+    Terms.
+
+assert_contract_active(#domain_Contract{status = {active, _}}) ->
+    ok;
+assert_contract_active(#domain_Contract{status = Status}) ->
+    throw(#payproc_InvalidContractStatus{status = Status}).
 
 validate_currency_(Currency, Currency) ->
     ok;

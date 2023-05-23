@@ -11,7 +11,7 @@
 -export([get_balance/1]).
 -export([create_account/1]).
 -export([create_account/2]).
--export([collect_account_map/8]).
+-export([collect_account_map/1]).
 -export([collect_merchant_account_map/3]).
 -export([collect_provider_account_map/4]).
 -export([collect_system_account_map/4]).
@@ -45,8 +45,20 @@
 -type varset() :: hg_varset:varset().
 -type revision() :: hg_domain:revision().
 
+-type collect_account_context() :: #{
+    payment := payment(),
+    party := party(),
+    shop := shop(),
+    route := route(),
+    payment_institution := payment_institution(),
+    provider := provider(),
+    varset := varset(),
+    revision := revision()
+}.
+
 -export_type([plan_id/0]).
 -export_type([batch/0]).
+-export_type([collect_account_context/0]).
 -export_type([posting_plan_log/0]).
 
 -type account() :: #{
@@ -85,17 +97,17 @@ create_account(CurrencyCode, Description) ->
             error({accounting, Exception})
     end.
 
--spec collect_account_map(
-    payment(),
-    party(),
-    shop(),
-    route(),
-    payment_institution(),
-    provider(),
-    varset(),
-    revision()
-) -> map().
-collect_account_map(Payment, Party, Shop, Route, PaymentInstitution, Provider, VS, Revision) ->
+-spec collect_account_map(collect_account_context()) -> map().
+collect_account_map(#{
+    payment := Payment,
+    party := Party,
+    shop := Shop,
+    route := Route,
+    payment_institution := PaymentInstitution,
+    provider := Provider,
+    varset := VS,
+    revision := Revision
+}) ->
     Map0 = collect_merchant_account_map(Party, Shop, #{}),
     Map1 = collect_provider_account_map(Payment, Provider, Route, Map0),
     Map2 = collect_system_account_map(Payment, PaymentInstitution, Revision, Map1),
