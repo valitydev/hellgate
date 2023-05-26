@@ -31,6 +31,7 @@
 -export([terminal_priority_for_shop/1]).
 -export([gather_pinned_route/1]).
 -export([choose_pinned_route/1]).
+-export([choose_route_w_override/1]).
 
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
 -define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
@@ -72,7 +73,8 @@ groups() ->
             terminal_priority_for_shop,
 
             gather_pinned_route,
-            choose_pinned_route
+            choose_pinned_route,
+            choose_route_w_override
         ]}
     ].
 
@@ -820,6 +822,26 @@ choose_pinned_route(_C) ->
     ],
     [ChosenRoute | _] = lists:sort(Routes),
     {ChosenRoute, _} = hg_routing:choose_route(Routes).
+
+-spec choose_route_w_override(config()) -> test_return().
+choose_route_w_override(_C) ->
+    %% without overrides
+    Route1 = hg_routing:new(?prv(1), ?trm(1)),
+    Route2 = hg_routing:new(?prv(2), ?trm(2)),
+    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Routes = [Route1, Route2, Route3],
+    {
+        Route2,
+        #{
+            preferable_route := Route3,
+            reject_reason := availability
+        }
+    } = hg_routing:choose_route(Routes),
+
+    %% with overrides
+    Route3WithOV = hg_routing:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
+    RoutesWithOV = [Route1, Route2, Route3WithOV],
+    {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
 
 %%% Domain config fixtures
 

@@ -16,6 +16,7 @@
 -export([new/2]).
 -export([new/4]).
 -export([new/5]).
+-export([new/6]).
 -export([to_payment_route/1]).
 -export([to_rejected_route/2]).
 -export([provider_ref/1]).
@@ -32,7 +33,8 @@
     terminal_ref :: dmsl_domain_thrift:'TerminalRef'(),
     weight :: integer(),
     priority :: integer(),
-    pin :: pin()
+    pin :: pin(),
+    fd_overrides :: fd_overrides()
 }).
 
 -type pin() :: #{
@@ -98,6 +100,7 @@
 
 -type varset() :: hg_varset:varset().
 -type revision() :: hg_domain:revision().
+-type fd_overrides() :: dmsl_domain_thrift:'RouteFaultDetectorOverrides'().
 
 -record(route_scores, {
     availability_condition :: condition_score(),
@@ -136,12 +139,19 @@ new(ProviderRef, TerminalRef, Weight, Priority) ->
 new(ProviderRef, TerminalRef, undefined, Priority, Pin) ->
     new(ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, Priority, Pin);
 new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
+    new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{}).
+
+-spec new(provider_ref(), terminal_ref(), integer(), integer(), pin(), fd_overrides() | undefined) -> route().
+new(ProviderRef, TerminalRef, Weight, Priority, Pin, undefined) ->
+    new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{});
+new(ProviderRef, TerminalRef, Weight, Priority, Pin, FdOverrides) ->
     #route{
         provider_ref = ProviderRef,
         terminal_ref = TerminalRef,
         weight = Weight,
         priority = Priority,
-        pin = Pin
+        pin = Pin,
+        fd_overrides = FdOverrides
     }.
 
 -spec provider_ref(route()) -> provider_ref().
@@ -163,6 +173,9 @@ weight(#route{weight = Weight}) ->
 -spec pin(route()) -> pin() | undefined.
 pin(#route{pin = Pin}) ->
     Pin.
+
+fd_overrides(#route{fd_overrides = FdOverrides}) ->
+    FdOverrides.
 
 -spec from_payment_route(payment_route()) -> route().
 from_payment_route(Route) ->
@@ -260,12 +273,13 @@ collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
             % Looks like overhead, we got Terminal only for provider_ref. Maybe we can remove provider_ref from route().
             % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
             #domain_Terminal{
-                provider_ref = ProviderRef
+                provider_ref = ProviderRef,
+                route_fd_overrides = FdOverrides
             } = hg_domain:get(Revision, {terminal, TerminalRef}),
             GatheredPinInfo = gather_pin_info(Pin, Ctx),
             try
                 true = acceptable_terminal(Predestination, ProviderRef, TerminalRef, VS, Revision),
-                Route = new(ProviderRef, TerminalRef, Weight, Priority, GatheredPinInfo),
+                Route = new(ProviderRef, TerminalRef, Weight, Priority, GatheredPinInfo, FdOverrides),
                 {[Route | Accepted], Rejected}
             catch
                 {rejected, Reason} ->
@@ -518,17 +532,22 @@ score_routes_with_fault_detector([]) ->
 score_routes_with_fault_detector(Routes) ->
     IDs = build_ids(Routes),
     FDStats = hg_fault_detector_client:get_statistics(IDs),
-    [{R, get_provider_status(provider_ref(R), FDStats)} || R <- Routes].
+    [{R, get_provider_status(R, FDStats)} || R <- Routes].
 
--spec get_provider_status(provider_ref(), [fd_service_stats()]) -> provider_status().
-get_provider_status(ProviderRef, FDStats) ->
+-spec get_provider_status(route(), [fd_service_stats()]) -> provider_status().
+get_provider_status(Route, FDStats) ->
+    ProviderRef = provider_ref(Route),
+    FdOverrides = fd_overrides(Route),
     AvailabilityServiceID = build_fd_availability_service_id(ProviderRef),
     ConversionServiceID = build_fd_conversion_service_id(ProviderRef),
-    AvailabilityStatus = get_provider_availability_status(AvailabilityServiceID, FDStats),
-    ConversionStatus = get_provider_conversion_status(ConversionServiceID, FDStats),
+    AvailabilityStatus = get_provider_availability_status(FdOverrides, AvailabilityServiceID, FDStats),
+    ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
     {AvailabilityStatus, ConversionStatus}.
 
-get_provider_availability_status(FDID, Stats) ->
+get_provider_availability_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
+    %% ignore fd statistic if set override
+    {alive, 0.0};
+get_provider_availability_status(_, FDID, Stats) ->
     AvailabilityConfig = maps:get(availability, genlib_app:env(hellgate, fault_detector, #{}), #{}),
     CriticalFailRate = maps:get(critical_fail_rate, AvailabilityConfig, 0.7),
     case lists:keysearch(FDID, #fault_detector_ServiceStatistics.service_id, Stats) of
@@ -540,7 +559,10 @@ get_provider_availability_status(FDID, Stats) ->
             {alive, 0.0}
     end.
 
-get_provider_conversion_status(FDID, Stats) ->
+get_provider_conversion_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
+    %% ignore fd statistic if set override
+    {normal, 0.0};
+get_provider_conversion_status(_, FDID, Stats) ->
     ConversionConfig = maps:get(conversion, genlib_app:env(hellgate, fault_detector, #{}), #{}),
     CriticalFailRate = maps:get(critical_fail_rate, ConversionConfig, 0.7),
     case lists:keysearch(FDID, #fault_detector_ServiceStatistics.service_id, Stats) of

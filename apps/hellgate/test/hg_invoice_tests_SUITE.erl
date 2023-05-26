@@ -40,6 +40,7 @@
 -export([register_payment_customer_payer_success/1]).
 
 -export([payment_limit_success/1]).
+-export([payment_routes_limit_values/1]).
 -export([register_payment_limit_success/1]).
 -export([payment_limit_other_shop_success/1]).
 -export([payment_limit_overflow/1]).
@@ -383,6 +384,7 @@ groups() ->
 
         {operation_limits, [], [
             payment_limit_success,
+            payment_routes_limit_values,
             register_payment_limit_success,
             payment_limit_other_shop_success,
             payment_limit_overflow,
@@ -1253,6 +1255,30 @@ payment_limit_success(C) ->
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
     ) = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)).
+
+-spec payment_routes_limit_values(config()) -> test_return().
+payment_routes_limit_values(C) ->
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    #{party_id := PartyID} = cfg(limits, C),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    #payproc_Invoice{
+        invoice = #domain_Invoice{id = InvoiceId},
+        payments = [
+            #payproc_InvoicePayment{payment = #domain_InvoicePayment{id = PaymentId}}
+        ]
+    } = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)),
+    Route = ?route(?prv(5), ?trm(12)),
+    #{
+        Route := [
+            #payproc_TurnoverLimitValue{
+                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                value = 10000
+            }
+        ]
+    } = hg_client_invoicing:get_limit_values(InvoiceId, PaymentId, Client).
 
 -spec register_payment_limit_success(config()) -> test_return().
 register_payment_limit_success(C0) ->

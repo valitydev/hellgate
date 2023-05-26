@@ -72,18 +72,16 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
 
     MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt1, VS),
     ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS, Revision),
-    FinalCashflow = hg_invoice_payment:calculate_cashflow(
-        Route,
-        Payment,
-        PaymentInstitution,
-        ProviderTerms,
-        MerchantTerms,
-        VS,
-        Revision,
-        Opts,
-        CreatedAt1,
-        undefined
-    ),
+    CashflowContext = #{
+        provision_terms => ProviderTerms,
+        merchant_terms => MerchantTerms,
+        route => Route,
+        payment => Payment,
+        timestamp => CreatedAt1,
+        varset => VS,
+        revision => Revision
+    },
+    FinalCashflow = hg_invoice_payment:calculate_cashflow(PaymentInstitution, CashflowContext, Opts),
 
     Events =
         [
@@ -182,7 +180,7 @@ maybe_risk_score_event_list(RiskScore) ->
     [?risk_score_changed(RiskScore)].
 
 get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
-    TermSet = hg_invoice_payment:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
+    TermSet = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
     TermSet#domain_TermSet.payments.
 
 hold_payment_limits(Invoice, Payment, St) ->

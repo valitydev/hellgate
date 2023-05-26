@@ -147,7 +147,11 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     Party = hg_party:get_party(PartyID),
     Shop = assert_shop_exists(hg_party:get_shop(ShopID, Party)),
     _ = assert_party_shop_operable(Shop, Party),
-    MerchantTerms = get_merchant_terms(Party, DomainRevision, Shop, hg_datetime:format_now(), InvoiceParams),
+    VS = #{
+        cost => InvoiceParams#payproc_InvoiceParams.cost,
+        shop_id => Shop#domain_Shop.id
+    },
+    MerchantTerms = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, hg_datetime:format_now(), VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
     Cost = InvoiceParams#payproc_InvoiceParams.cost,
@@ -160,7 +164,11 @@ handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
     TplID = Params#payproc_InvoiceWithTemplateParams.template_id,
     {Party, Shop, InvoiceParams} = make_invoice_params(Params),
-    MerchantTerms = get_merchant_terms(Party, DomainRevision, Shop, hg_datetime:format_now(), InvoiceParams),
+    VS = #{
+        cost => InvoiceParams#payproc_InvoiceParams.cost,
+        shop_id => Shop#domain_Shop.id
+    },
+    MerchantTerms = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, hg_datetime:format_now(), VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
     Cost = InvoiceParams#payproc_InvoiceParams.cost,
@@ -241,7 +249,11 @@ handle_function_('Repair', {InvoiceID, Changes, Action, Params}, _Opts) ->
     repair(InvoiceID, {changes, Changes, Action, Params});
 handle_function_('RepairWithScenario', {InvoiceID, Scenario}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
-    repair(InvoiceID, {scenario, Scenario}).
+    repair(InvoiceID, {scenario, Scenario});
+handle_function_('GetPaymentRoutesLimitValues', {InvoiceID, PaymentID}, _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, PaymentID),
+    St = get_state(InvoiceID),
+    hg_invoice_payment:get_limit_values(get_payment_session(PaymentID, St), get_payment_opts(St)).
 
 maybe_allocation(undefined, _Cost, _MerchantTerms, _Party, _Shop) ->
     undefined;
@@ -1312,24 +1324,6 @@ validate_invoice_cost(Cost, Shop, #domain_TermSet{payments = PaymentTerms}) ->
     _ = hg_invoice_utils:assert_cost_payable(Cost, PaymentTerms),
     ok.
 
-get_merchant_terms(#domain_Party{id = PartyId, revision = PartyRevision}, Revision, Shop, Timestamp, Params) ->
-    VS = #{
-        cost => Params#payproc_InvoiceParams.cost,
-        shop_id => Shop#domain_Shop.id
-    },
-    {Client, Context} = get_party_client(),
-    {ok, TermSet} = party_client_thrift:compute_contract_terms(
-        PartyId,
-        Shop#domain_Shop.contract_id,
-        Timestamp,
-        {revision, PartyRevision},
-        Revision,
-        hg_varset:prepare_contract_terms_varset(VS),
-        Client,
-        Context
-    ),
-    TermSet.
-
 make_invoice_cart(_, {cart, Cart}, _Shop) ->
     Cart;
 make_invoice_cart(Cost, {product, TplProduct}, Shop) ->
@@ -1396,10 +1390,6 @@ make_invoice_context(Context, _) ->
     Context.
 
 %%
-
-get_party_client() ->
-    Ctx = hg_context:load(),
-    {hg_context:get_party_client(Ctx), hg_context:get_party_client_context(Ctx)}.
 
 log_changes(Changes, St) ->
     lists:foreach(fun(C) -> log_change(C, St) end, Changes).
