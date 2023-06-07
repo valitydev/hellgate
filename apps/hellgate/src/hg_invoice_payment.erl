@@ -1901,6 +1901,13 @@ process_refund_result(Changes, Refund0, St) ->
 
 repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
     case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
+        {result, Result} when Activity =:= {payment, routing} ->
+            rollback_broken_payment_limits(St),
+            Result;
+        {result, Result} when Activity =:= {payment, cash_flow_building} ->
+            rollback_broken_payment_limits(St),
+            _ = try_rollback_payment_cashflow(St),
+            Result;
         {result, Result} ->
             Result;
         call ->
@@ -2496,6 +2503,33 @@ rollback_payment_limits(Routes, Iter, St, Flags) ->
         Routes
     ).
 
+rollback_broken_payment_limits(St) ->
+    Opts = get_opts(St),
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    LimitValues = get_limit_values(St),
+    Iter = maps:size(LimitValues),
+    maps:fold(
+        fun
+            (_Route, [], Acc) ->
+                Acc;
+            (Route, Values, _Acc) ->
+                TurnoverLimits =
+                    lists:foldl(
+                        fun(#payproc_TurnoverLimitValue{limit = TurnoverLimit}, Acc1) ->
+                            [TurnoverLimit | Acc1]
+                        end,
+                        [],
+                        Values
+                    ),
+                ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, [
+                    ignore_business_error
+                ])
+        end,
+        ok,
+        LimitValues
+    ).
+
 rollback_unused_payment_limits(St) ->
     Route = get_route(St),
     Routes = get_candidate_routes(St),
@@ -2529,6 +2563,11 @@ commit_payment_cashflow(St) ->
             hg_accounting:commit(ID, Plan)
         end
     ).
+
+try_rollback_payment_cashflow(#st{cash_flow = undefined}) ->
+    skip;
+try_rollback_payment_cashflow(St) ->
+    rollback_payment_cashflow(St).
 
 rollback_payment_cashflow(St) ->
     Plan = get_cashflow_plan(St),
@@ -2902,6 +2941,7 @@ merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment
          || S <- [
                 risk_scoring,
                 routing,
+                cash_flow_building,
                 routing_failure,
                 processing_failure
             ]
