@@ -741,22 +741,24 @@ init_per_testcase(repair_fail_routing_succeeded, C) ->
     meck:expect(
         hg_limiter,
         check_limits,
-        fun(_, _, _, _) ->
-            throw(unknown)
-        end
+        fun override_check_limits/4
     ),
     init_per_testcase(C);
 init_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
     meck:expect(
         hg_cashflow_utils,
         collect_cashflow,
-        fun(_) ->
-            throw(unknown)
-        end
+        fun override_collect_cashflow/1
     ),
     init_per_testcase(C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
+
+override_check_limits(_, _, _, _) -> throw(unknown).
+-dialyzer({nowarn_function, override_check_limits/4}).
+
+override_collect_cashflow(_) -> throw(unknown).
+-dialyzer({nowarn_function, override_collect_cashflow/1}).
 
 override_domain_fixture(Fixture, C) ->
     Revision = hg_domain:head(),
