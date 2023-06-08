@@ -1901,12 +1901,11 @@ process_refund_result(Changes, Refund0, St) ->
 
 repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) ->
     case hg_invoice_repair:check_for_action(fail_pre_processing, Scenario) of
-        {result, Result} when Activity =:= {payment, routing} ->
+        {result, Result} when
+            Activity =:= {payment, routing} orelse
+                Activity =:= {payment, cash_flow_building}
+        ->
             rollback_broken_payment_limits(St),
-            Result;
-        {result, Result} when Activity =:= {payment, cash_flow_building} ->
-            rollback_broken_payment_limits(St),
-            _ = try_rollback_payment_cashflow(St),
             Result;
         {result, Result} ->
             Result;
@@ -2563,11 +2562,6 @@ commit_payment_cashflow(St) ->
             hg_accounting:commit(ID, Plan)
         end
     ).
-
-try_rollback_payment_cashflow(#st{cash_flow = undefined}) ->
-    skip;
-try_rollback_payment_cashflow(St) ->
-    rollback_payment_cashflow(St).
 
 rollback_payment_cashflow(St) ->
     Plan = get_cashflow_plan(St),
