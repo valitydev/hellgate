@@ -190,6 +190,9 @@
 -export([repair_fulfill_session_on_refund_succeeded/1]).
 -export([repair_fulfill_session_on_captured_succeeded/1]).
 
+-export([repair_fail_routing_succeeded/1]).
+-export([repair_fail_cash_flow_building_succeeded/1]).
+
 -export([consistent_account_balances/1]).
 
 -export([allocation_create_invoice/1]).
@@ -254,6 +257,7 @@ all() ->
         {group, chargebacks},
         rounding_cashflow_volume,
         terms_retrieval,
+        {group, repair_preproc_w_limits},
 
         consistent_account_balances
     ].
@@ -470,6 +474,10 @@ groups() ->
             repair_fulfill_session_on_refund_succeeded,
             repair_fulfill_session_on_captured_succeeded
         ]},
+        {repair_preproc_w_limits, [], [
+            repair_fail_routing_succeeded,
+            repair_fail_cash_flow_building_succeeded
+        ]},
         {allocation, [parallel], [
             allocation_create_invoice,
             allocation_capture_payment,
@@ -668,6 +676,8 @@ init_per_group(route_cascading, C) ->
     init_operation_limits_group(C);
 init_per_group(operation_limits, C) ->
     init_operation_limits_group(C);
+init_per_group(repair_preproc_w_limits, C) ->
+    init_operation_limits_group(C);
 init_per_group(allocation, C) ->
     init_allocation_group(C);
 init_per_group(_, C) ->
@@ -727,8 +737,28 @@ init_per_testcase(limit_hold_payment_tool_not_supported, C) ->
     override_domain_fixture(fun patch_with_unsupported_payment_tool/1, C);
 init_per_testcase(limit_hold_two_routes_failure, C) ->
     override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/1, C);
+init_per_testcase(repair_fail_routing_succeeded, C) ->
+    meck:expect(
+        hg_limiter,
+        check_limits,
+        fun override_check_limits/4
+    ),
+    init_per_testcase(C);
+init_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
+    meck:expect(
+        hg_cashflow_utils,
+        collect_cashflow,
+        fun override_collect_cashflow/1
+    ),
+    init_per_testcase(C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
+
+override_check_limits(_, _, _, _) -> throw(unknown).
+-dialyzer({nowarn_function, override_check_limits/4}).
+
+override_collect_cashflow(_) -> throw(unknown).
+-dialyzer({nowarn_function, override_collect_cashflow/1}).
 
 override_domain_fixture(Fixture, C) ->
     Revision = hg_domain:head(),
@@ -743,6 +773,12 @@ init_per_testcase(C) ->
     [{client, Client}, {client_tpl, ClientTpl} | C].
 
 -spec end_per_testcase(test_case_name(), config()) -> _.
+end_per_testcase(repair_fail_routing_succeeded, C) ->
+    meck:unload(hg_limiter),
+    end_per_testcase(default, C);
+end_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
+    meck:unload(hg_cashflow_utils),
+    end_per_testcase(default, C);
 end_per_testcase(_Name, C) ->
     ok = hg_context:cleanup(),
     _ =
@@ -5430,6 +5466,108 @@ payment_with_tokenized_bank_card(C) ->
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(?payment_w_status(PaymentID, ?captured()))]
     ) = hg_client_invoicing:get(InvoiceID, Client).
+
+-spec repair_fail_routing_succeeded(config()) -> test_return().
+repair_fail_routing_succeeded(C) ->
+    RootUrl = cfg(root_url, C),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+    PartyClient = cfg(party_client, C),
+    #{party_id := PartyID} = cfg(limits, C),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+
+    %% Invoice
+    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+    %% Payment
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) = next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_RS)) = next_change(InvoiceID, Client),
+    %% routing broken
+    timeout = next_change(InvoiceID, 2000, Client),
+
+    %% Limits hold
+    Route = ?route(?prv(5), ?trm(12)),
+    #{
+        Route := [
+            #payproc_TurnoverLimitValue{
+                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                value = 10000
+            }
+        ]
+    } = hg_client_invoicing:get_limit_values(InvoiceID, PaymentID, Client),
+
+    %% Repair with rollback limits
+    ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
+
+    %% Check final status
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(InvoiceID, Client),
+
+    %% Check limits rolled back
+    #{
+        Route := [
+            #payproc_TurnoverLimitValue{
+                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                value = 0
+            }
+        ]
+    } = hg_client_invoicing:get_limit_values(InvoiceID, PaymentID, Client),
+
+    %% Check duplicate repair
+    {exception, {base_InvalidRequest, [<<"No need to repair">>]}} = repair_invoice_with_scenario(
+        InvoiceID, fail_pre_processing, Client
+    ).
+
+%% fail cash_flow_building before accounting hold
+-spec repair_fail_cash_flow_building_succeeded(config()) -> test_return().
+repair_fail_cash_flow_building_succeeded(C) ->
+    RootUrl = cfg(root_url, C),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+    PartyClient = cfg(party_client, C),
+    #{party_id := PartyID} = cfg(limits, C),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+
+    %% Invoice
+    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+    %% Payment
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) = next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_RS)) = next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?route_changed(Route)) = next_change(InvoiceID, Client),
+    %% cash_flow_building broken
+    timeout = next_change(InvoiceID, 2000, Client),
+
+    %% Limits hold
+    #{
+        Route := [
+            #payproc_TurnoverLimitValue{
+                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                value = 10000
+            }
+        ]
+    } = hg_client_invoicing:get_limit_values(InvoiceID, PaymentID, Client),
+
+    %% Repair
+    ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
+
+    %% Check final status
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(InvoiceID, Client),
+
+    %% Check limits rolled back
+    #{
+        Route := [
+            #payproc_TurnoverLimitValue{
+                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                value = 0
+            }
+        ]
+    } = hg_client_invoicing:get_limit_values(InvoiceID, PaymentID, Client).
 
 -spec repair_fail_pre_processing_succeeded(config()) -> test_return().
 repair_fail_pre_processing_succeeded(C) ->

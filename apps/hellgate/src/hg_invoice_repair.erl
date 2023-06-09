@@ -81,15 +81,11 @@ get_repair_state(Activity, Scenario, St) ->
     ok = check_activity_compatibility(Scenario, Activity),
     hg_invoice_payment:set_repair_scenario(Scenario, St).
 
--define(SCENARIO_COMPLEX(Scenarios), {complex, #payproc_InvoiceRepairComplex{scenarios = Scenarios}}).
 -define(SCENARIO_FAIL_PRE_PROCESSING, {fail_pre_processing, #payproc_InvoiceRepairFailPreProcessing{}}).
 -define(SCENARIO_SKIP_INSPECTOR, {skip_inspector, #payproc_InvoiceRepairSkipInspector{}}).
 -define(SCENARIO_FAIL_SESSION, {fail_session, #payproc_InvoiceRepairFailSession{}}).
 -define(SCENARIO_FULFILL_SESSION, {fulfill_session, #payproc_InvoiceRepairFulfillSession{}}).
-% TODO(TD-221): This case is not used anywhere? hg_invoice:repair_complex applies scenarios one by one earlier.
-check_activity_compatibility(?SCENARIO_COMPLEX(Scenarios), Activity) ->
-    lists:foreach(fun(Sc) -> check_activity_compatibility(Sc, Activity) end, Scenarios);
-% TODO(TD-221): {payment, new}, routing and cash_flow_building are untested
+% TODO(TD-221): {payment, new} is untested
 check_activity_compatibility(?SCENARIO_FAIL_PRE_PROCESSING, Activity) when
     Activity =:= {payment, new} orelse
         Activity =:= {payment, risk_scoring} orelse
