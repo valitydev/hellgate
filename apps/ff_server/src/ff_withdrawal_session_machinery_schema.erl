@@ -171,7 +171,7 @@ maybe_migrate({created, #{version := 2} = Session}, Context) when not is_map_key
     } = Session,
     #{
         url := Url,
-        event_handler := scoper_woody_event_handler
+        event_handler := ff_woody_event_handler
     } = Client,
     LegacyUrls = #{
         <<"http://adapter-royalpay:8022/adapter/royalpay/p2p-credit">> => <<"royalpay">>,
@@ -788,7 +788,7 @@ created_v0_unknown_with_binary_provider_decoding_test() ->
                                 {arr, [
                                     {str, <<"map">>},
                                     {obj, #{
-                                        {str, <<"event_handler">>} => {str, <<"scoper_woody_event_handler">>},
+                                        {str, <<"event_handler">>} => {str, <<"ff_woody_event_handler">>},
                                         {str, <<"url">>} =>
                                             {bin, <<"http://adapter-royalpay:8022/adapter/royalpay/p2p-credit">>}
                                     }}
@@ -951,7 +951,7 @@ created_v0_unknown_without_provider_decoding_test() ->
                                 {arr, [
                                     {str, <<"map">>},
                                     {obj, #{
-                                        {str, <<"event_handler">>} => {str, <<"scoper_woody_event_handler">>},
+                                        {str, <<"event_handler">>} => {str, <<"ff_woody_event_handler">>},
                                         {str, <<"url">>} =>
                                             {bin, <<"http://proxy-mocketbank:8022/proxy/mocketbank/p2p-credit">>}
                                     }}

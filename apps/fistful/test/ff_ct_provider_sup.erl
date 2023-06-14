@@ -18,7 +18,7 @@ init(Opts) ->
             handlers => [
                 {Path, {{dmsl_wthd_provider_thrift, 'Adapter'}, {ff_ct_provider_thrift, []}}}
             ],
-            event_handler => scoper_woody_event_handler,
+            event_handler => ff_woody_event_handler,
             ip => proplists:get_value(ip, Opts, "::"),
             port => proplists:get_value(port, Opts, 8022),
             net_opts => proplists:get_value(net_opts, Opts, [])

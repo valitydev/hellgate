@@ -238,7 +238,7 @@ get_shifted_create_identity_events_ok(C) ->
                 ip => {0, 0, 0, 0},
                 port => 8040,
                 handlers => [],
-                event_handler => scoper_woody_event_handler,
+                event_handler => ff_woody_event_handler,
                 additional_routes => IdentityRoute
             }
         )
@@ -456,7 +456,7 @@ call_handler(Function, ServiceName, Args, Port) ->
     Request = {Service, Function, Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:", Port/binary, Path/binary>>,
-        event_handler => scoper_woody_event_handler
+        event_handler => ff_woody_event_handler
     }),
     ff_woody_client:call(Client, Request).
 
@@ -465,7 +465,7 @@ create_sink_route(ServiceName, {Handler, Cfg}) ->
     Path = ff_services:get_service_path(ServiceName),
     NewCfg = Cfg#{
         client => #{
-            event_handler => scoper_woody_event_handler,
+            event_handler => ff_woody_event_handler,
             url => "http://machinegun:8022/v1/event_sink"
         }
     },
@@ -477,7 +477,7 @@ create_sink_route(ServiceName, {Handler, Cfg}) ->
     woody_server_thrift_http_handler:get_routes(
         genlib_map:compact(#{
             handlers => [{Path, {Service, {ff_woody_wrapper, WrapperOptions}}}],
-            event_handler => scoper_woody_event_handler
+            event_handler => ff_woody_event_handler
         })
     ).
 

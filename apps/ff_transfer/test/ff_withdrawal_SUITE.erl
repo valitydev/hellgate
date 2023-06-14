@@ -1059,7 +1059,7 @@ call_session_repair(SessionID, Scenario) ->
     Request = {Service, 'Repair', {SessionID, Scenario}},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/repair/withdrawal/session">>,
-        event_handler => scoper_woody_event_handler
+        event_handler => ff_woody_event_handler
     }),
     ff_woody_client:call(Client, Request).
 
@@ -1068,7 +1068,7 @@ call_withdrawal_repair(SessionID, Scenario) ->
     Request = {Service, 'Repair', {SessionID, Scenario}},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022/v1/repair/withdrawal">>,
-        event_handler => scoper_woody_event_handler
+        event_handler => ff_woody_event_handler
     }),
     ff_woody_client:call(Client, Request).
 

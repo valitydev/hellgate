@@ -64,7 +64,7 @@ init([]) ->
     {ok, Ip} = inet:parse_address(IpEnv),
     WoodyOpts = maps:with([net_opts, handler_limits], WoodyOptsEnv),
     EventHandlerOpts = genlib_app:env(?MODULE, scoper_event_handler_options, #{}),
-    RouteOpts = RouteOptsEnv#{event_handler => {scoper_woody_event_handler, EventHandlerOpts}},
+    RouteOpts = RouteOptsEnv#{event_handler => {ff_woody_event_handler, EventHandlerOpts}},
 
     % TODO
     %  - Make it palatable
@@ -109,7 +109,7 @@ init([]) ->
                 ip => Ip,
                 port => Port,
                 handlers => WoodyHandlers,
-                event_handler => scoper_woody_event_handler,
+                event_handler => ff_woody_event_handler,
                 additional_routes =>
                     get_prometheus_routes() ++
                     machinery_mg_backend:get_routes(MachineHandlers, RouteOpts) ++

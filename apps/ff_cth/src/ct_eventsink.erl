@@ -89,6 +89,6 @@ call_handler(Function, ServiceName, Args) ->
     Request = {Service, Function, Args},
     Client = ff_woody_client:new(#{
         url => <<"http://localhost:8022", Path/binary>>,
-        event_handler => scoper_woody_event_handler
+        event_handler => ff_woody_event_handler
     }),
     ff_woody_client:call(Client, Request).

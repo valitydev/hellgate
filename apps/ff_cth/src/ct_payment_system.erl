@@ -123,7 +123,7 @@ start_processing_apps(Options) ->
                         {{binbase_binbase_thrift, 'Binbase'}, {ff_ct_binbase_handler, []}}
                     }
                 ],
-                event_handler => scoper_woody_event_handler
+                event_handler => ff_woody_event_handler
             }
         )
     ),

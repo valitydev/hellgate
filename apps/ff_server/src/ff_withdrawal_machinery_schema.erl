@@ -256,7 +256,7 @@ maybe_migrate_route(Route) when is_map_key(adapter, Route) ->
     #{
         adapter := #{
             url := Url,
-            event_handler := scoper_woody_event_handler
+            event_handler := ff_woody_event_handler
         },
         adapter_opts := #{}
     } = Route,
@@ -396,7 +396,7 @@ created_v0_0_without_provider_migration_test() ->
                                         {arr, [
                                             {str, <<"map">>},
                                             {obj, #{
-                                                {str, <<"event_handler">>} => {str, <<"scoper_woody_event_handler">>},
+                                                {str, <<"event_handler">>} => {str, <<"ff_woody_event_handler">>},
                                                 {str, <<"url">>} =>
                                                     {bin,
                                                         <<"http://proxy-mocketbank:8022/proxy/mocketbank/p2p-credit">>}

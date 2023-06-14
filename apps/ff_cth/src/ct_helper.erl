@@ -91,7 +91,7 @@ start_app(dmt_client = AppName) ->
                 memory => 52428800
             }},
             {woody_event_handlers, [
-                {scoper_woody_event_handler, #{}}
+                {ff_woody_event_handler, #{}}
             ]},
             {service_urls, #{
                 'Repository' => <<"http://dominant:8022/v1/domain/repository">>,
@@ -110,7 +110,7 @@ start_app(party_client = AppName) ->
                 cache_mode => safe,
                 options => #{
                     woody_client => #{
-                        event_handler => {scoper_woody_event_handler, #{}}
+                        event_handler => {ff_woody_event_handler, #{}}
                     }
                 }
             }}
