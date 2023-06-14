@@ -66,7 +66,8 @@ start_kv_store(SupPid) ->
 
 -spec stop_kv_store(_) -> _.
 stop_kv_store(SupPid) ->
-    supervisor:terminate_child(SupPid, hg_kv_store).
+    _ = supervisor:terminate_child(SupPid, hg_kv_store),
+    ok.
 
 -spec start_proxies(_) -> _.
 start_proxies(Proxies) ->
@@ -215,14 +216,14 @@ make_payment_params(PaymentTool, Session, FlowType) ->
         end,
     #payproc_InvoicePaymentParams{
         payer =
-        {payment_resource, #payproc_PaymentResourcePayerParams{
-            resource = #domain_DisposablePaymentResource{
-                payment_tool = PaymentTool,
-                payment_session_id = Session,
-                client_info = #domain_ClientInfo{}
-            },
-            contact_info = ?contact_info()
-        }},
+            {payment_resource, #payproc_PaymentResourcePayerParams{
+                resource = #domain_DisposablePaymentResource{
+                    payment_tool = PaymentTool,
+                    payment_session_id = Session,
+                    client_info = #domain_ClientInfo{}
+                },
+                contact_info = ?contact_info()
+            }},
         flow = Flow
     }.
 
@@ -266,7 +267,7 @@ start_payment_ev_no_risk_scoring(InvoiceID, Client) ->
     ] = next_changes(InvoiceID, 2, Client),
     Route.
 
--spec await_payment_session_started(_,_,_,_) -> _.
+-spec await_payment_session_started(_, _, _, _) -> _.
 await_payment_session_started(InvoiceID, PaymentID, Client, Target) ->
     ?payment_ev(PaymentID, ?session_ev(Target, ?session_started())) =
         next_change(InvoiceID, Client),
@@ -339,7 +340,7 @@ get_cashflow_volume(Source, Destination, CF, CFContext) ->
     TAD = convert_transaction_account(Destination, CFContext),
     [Volume] = [
         V
-        || #domain_FinalCashFlowPosting{
+     || #domain_FinalCashFlowPosting{
             source = #domain_FinalCashFlowAccount{
                 account_type = ST,
                 transaction_account = SA

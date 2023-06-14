@@ -39,7 +39,7 @@ init([]) ->
     {ok, {#{strategy => one_for_all, intensity => 1, period => 1}, []}}.
 
 %% Tests
--spec all() -> [test_case_name()].
+-spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
     [
         {group, payments}
@@ -207,14 +207,14 @@ register_payment_success(C) ->
     OccurredAt = hg_datetime:format_now(),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
-        {payment_resource, #payproc_PaymentResourcePayerParams{
-            resource = #domain_DisposablePaymentResource{
-                payment_tool = PaymentTool,
-                payment_session_id = Session,
-                client_info = #domain_ClientInfo{}
-            },
-            contact_info = ?contact_info()
-        }},
+            {payment_resource, #payproc_PaymentResourcePayerParams{
+                resource = #domain_DisposablePaymentResource{
+                    payment_tool = PaymentTool,
+                    payment_session_id = Session,
+                    client_info = #domain_ClientInfo{}
+                },
+                contact_info = ?contact_info()
+            }},
         route = Route,
         payer_session_info = PayerSessionInfo,
         context = Context,
@@ -259,9 +259,9 @@ register_payment_customer_payer_success(C) ->
     ),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
-        {customer, #payproc_CustomerPayerParams{
-            customer_id = CustomerID
-        }},
+            {customer, #payproc_CustomerPayerParams{
+                customer_id = CustomerID
+            }},
         route = Route,
         transaction_info = ?trx_info(<<"1">>, #{})
     },
@@ -409,8 +409,6 @@ payment_last_trx_correct(C) ->
     ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?payment_last_trx(TrxInfo0) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
-
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Internals
@@ -649,16 +647,17 @@ construct_domain_fixture() ->
                     policies = ?ruleset(1),
                     prohibitions = ?ruleset(3)
                 },
-                inspector = {decisions, [
-                    #domain_InspectorDecision{
-                        if_ = {condition, {category_is, ?cat(1)}},
-                        then_ = {value, ?insp(1)}
-                    },
-                    #domain_InspectorDecision{
-                        if_ = {condition, {category_is, ?cat(2)}},
-                        then_ = {value, ?insp(1)}
-                    }
-                ]},
+                inspector =
+                    {decisions, [
+                        #domain_InspectorDecision{
+                            if_ = {condition, {category_is, ?cat(1)}},
+                            then_ = {value, ?insp(1)}
+                        },
+                        #domain_InspectorDecision{
+                            if_ = {condition, {category_is, ?cat(2)}},
+                            then_ = {value, ?insp(1)}
+                        }
+                    ]},
                 residences = [],
                 realm = test
             }

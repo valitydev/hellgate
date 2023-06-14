@@ -536,7 +536,7 @@ init_per_suite(C) ->
 end_per_suite(C) ->
     _ = hg_domain:cleanup(),
     _ = [application:stop(App) || App <- cfg(apps, C)],
-    hg_invoice_helper:stop_kv_store(cfg(test_sup, C)),
+    _ = hg_invoice_helper:stop_kv_store(cfg(test_sup, C)),
     exit(cfg(test_sup, C), shutdown).
 
 %% tests
