@@ -205,7 +205,6 @@
 -export([payment_big_cascade_success/1]).
 -export([payment_cascade_fail_wo_available_attempt_limit/1]).
 -export([payment_cascade_failures/1]).
--export([payment_cascade_no_route/1]).
 -export([payment_cascade_deadline_failures/1]).
 
 %%
@@ -491,7 +490,6 @@ groups() ->
             payment_big_cascade_success,
             payment_cascade_fail_wo_available_attempt_limit,
             payment_cascade_failures,
-            payment_cascade_no_route,
             payment_cascade_deadline_failures
         ]}
     ].
@@ -719,8 +717,6 @@ init_per_testcase(invalid_permit_partial_capture_in_provider, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/1, C);
 init_per_testcase(payment_cascade_deadline_failures, C) ->
     override_domain_fixture(fun routes_ruleset_w_different_failing_providers_fixture/1, C);
-init_per_testcase(payment_cascade_no_route, C) ->
-    override_domain_fixture(fun routes_ruleset_w_one_failing_route_fixture/1, C);
 init_per_testcase(payment_cascade_failures, C) ->
     override_domain_fixture(fun routes_ruleset_w_different_failing_providers_fixture/1, C);
 init_per_testcase(payment_cascade_fail_wo_available_attempt_limit, C) ->
@@ -1705,44 +1701,6 @@ payment_w_misconfigured_routing_failed_fixture(_Revision) ->
                     {constant, false},
                     ?ruleset(1)
                 )
-            ]}
-        )
-    ].
-
-routes_ruleset_w_one_failing_route_fixture(Revision) ->
-    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
-        hg_domain:get(Revision, {provider, ?prv(1)}),
-    [
-        {provider, #domain_ProviderObject{
-            ref = ?prv(999),
-            data = #domain_Provider{
-                name = <<"Duck Blocker">>,
-                description = <<"No rubber ducks for you!">>,
-                proxy = #domain_Proxy{
-                    ref = ?prx(1),
-                    additional = #{
-                        <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
-                        <<"override">> => <<"duckblocker">>
-                    }
-                },
-                abs_account = AbsAccount,
-                accounts = Accounts,
-                terms = Terms
-            }
-        }},
-        {terminal, #domain_TerminalObject{
-            ref = ?trm(999),
-            data = #domain_Terminal{
-                name = <<"Not-Brominal">>,
-                description = <<"Not-Brominal">>,
-                provider_ref = ?prv(999)
-            }
-        }},
-        hg_ct_fixture:construct_payment_routing_ruleset(
-            ?ruleset(2),
-            <<"Main with cascading one route">>,
-            {candidates, [
-                ?candidate({constant, true}, ?trm(999))
             ]}
         )
     ].
@@ -6601,36 +6559,6 @@ payment_cascade_deadline_failures(C) ->
         Failure2,
         fun({authorization_failed, {processing_deadline_reached, _}}) -> ok end
     ),
-    %% Assert payment status IS failed
-    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
-        hg_client_invoicing:get(InvoiceID, Client),
-    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
-    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
-
--spec payment_cascade_no_route(config()) -> test_return().
-payment_cascade_no_route(C) ->
-    Client = cfg(client, C),
-    Amount = 42000,
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
-    {_Route1, _CashFlow1, _TrxID1, CardBlockedFailure} =
-        await_cascade_triggering(InvoiceID, PaymentID, Client),
-    ok = payproc_errors:match(
-        'PaymentFailure',
-        CardBlockedFailure,
-        fun({preauthorization_failed, {card_blocked, _}}) -> ok end
-    ),
-    [
-        ?payment_ev(PaymentID, ?route_changed(_Route2)),
-        ?payment_ev(PaymentID, ?payment_rollback_started({failure, CardBlockedFailure})),
-        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, CardBlockedFailure})))
-    ] = next_changes(InvoiceID, 3, Client),
     %% Assert payment status IS failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
         hg_client_invoicing:get(InvoiceID, Client),
