@@ -200,6 +200,7 @@
 -export([allocation_refund_payment/1]).
 
 -export([payment_cascade_success/1]).
+-export([payment_cascade_fail_wo_route_candidates/1]).
 -export([payment_cascade_success_w_refund/1]).
 -export([payment_big_cascade_success/1]).
 -export([payment_cascade_fail_wo_available_attempt_limit/1]).
@@ -485,6 +486,7 @@ groups() ->
         ]},
         {route_cascading, [], [
             payment_cascade_success,
+            payment_cascade_fail_wo_route_candidates,
             payment_cascade_success_w_refund,
             payment_big_cascade_success,
             payment_cascade_fail_wo_available_attempt_limit,
@@ -725,6 +727,8 @@ init_per_testcase(payment_cascade_fail_wo_available_attempt_limit, C) ->
     override_domain_fixture(fun merchant_payments_service_terms_wo_attempt_limit/1, C);
 init_per_testcase(payment_cascade_success, C) ->
     override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
+init_per_testcase(payment_cascade_fail_wo_route_candidates, C) ->
+    override_domain_fixture(fun two_failing_routes_w_three_attempt_limits/1, C);
 init_per_testcase(payment_cascade_success_w_refund, C) ->
     override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
 init_per_testcase(payment_big_cascade_success, C) ->
@@ -1965,6 +1969,58 @@ mk_provider_w_term(TerminalRef, TerminalName, ProviderRef, ProviderName, Provide
             }
         }}
     ].
+
+two_failing_routes_w_three_attempt_limits(Revision) ->
+    Brovider =
+        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID4,
+                            upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
+                            domain_revision = Revision
+                        }
+                    ]}
+            }
+        },
+    ProviderProto = #domain_Provider{
+        name = <<"Provider Proto">>,
+        proxy = #domain_Proxy{
+            ref = ?prx(1),
+            additional = #{}
+        },
+        description = <<"No rubber ducks for you!">>,
+        abs_account = AbsAccount,
+        accounts = Accounts,
+        terms = Terms1
+    },
+    lists:flatten([
+        set_merchant_terms_attempt_limit(?trms(1), 3, Revision),
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = Brovider#domain_Provider{terms = Terms1}
+        }},
+        mk_provider_w_term(?trm(999), <<"Not-Brominal #999">>, ?prv(999), <<"Duck Blocker #999">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_999">>
+        }),
+        mk_provider_w_term(?trm(998), <<"Not-Brominal #998">>, ?prv(998), <<"Duck Blocker #998">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_998">>
+        }),
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"2 routes with failing providers">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999)),
+                ?candidate({constant, true}, ?trm(998))
+            ]}
+        )
+    ]).
 
 merchant_payments_service_terms_wo_attempt_limit(Revision) ->
     lists:flatten([
@@ -6460,6 +6516,10 @@ payment_big_cascade_success(C) ->
     ),
     %% At the end of this scenario limit must be accounted only once.
     hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
+
+-spec payment_cascade_fail_wo_route_candidates(config()) -> test_return().
+payment_cascade_fail_wo_route_candidates(C) ->
+    payment_cascade_failures(C).
 
 -spec payment_cascade_fail_wo_available_attempt_limit(config()) -> test_return().
 payment_cascade_fail_wo_available_attempt_limit(C) ->
