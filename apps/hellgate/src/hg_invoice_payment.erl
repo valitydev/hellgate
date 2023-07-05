@@ -3662,6 +3662,9 @@ get_party_client() ->
 
 is_route_cascade_available(?failed(OperationFailure), #st{routes = AttemptedRoutes} = St) ->
     is_failure_cascade_trigger(OperationFailure) andalso
+        %% For cascade viability we require at least one more route candidate
+        %% provided by recent routing.
+        length(get_candidate_routes(St)) > 1 andalso
         length(AttemptedRoutes) < get_routing_attempt_limit(St).
 
 is_failure_cascade_trigger({failure, Failure}) ->

@@ -98,6 +98,7 @@ init_per_suite(C) ->
     _ = unlink(SupPid),
     _ = mock_dominant(SupPid),
     _ = mock_party_management(SupPid),
+    _ = mock_fault_detector(SupPid),
     [
         {apps, Apps},
         {suite_test_sup, SupPid},
@@ -649,9 +650,7 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
 
 -spec choice_context_formats_ok(config()) -> test_return().
-choice_context_formats_ok(C) ->
-    _ = mock_fault_detector(?config(suite_test_sup, C)),
-
+choice_context_formats_ok(_C) ->
     Route1 = hg_routing:new(?prv(1), ?trm(1)),
     Route2 = hg_routing:new(?prv(2), ?trm(2)),
     Route3 = hg_routing:new(?prv(3), ?trm(3)),
