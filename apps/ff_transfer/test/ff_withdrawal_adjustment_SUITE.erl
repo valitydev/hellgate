@@ -26,6 +26,7 @@
 -export([no_pending_withdrawal_adjustments_test/1]).
 -export([unknown_withdrawal_test/1]).
 -export([adjustment_can_not_change_domain_revision_to_same/1]).
+-export([adjustment_can_not_change_domain_revision_with_failed_status/1]).
 -export([adjustment_can_change_domain_revision_test/1]).
 
 %% Internal types
@@ -62,7 +63,8 @@ groups() ->
             no_parallel_adjustments_test,
             no_pending_withdrawal_adjustments_test,
             unknown_withdrawal_test,
-            adjustment_can_not_change_domain_revision_to_same
+            adjustment_can_not_change_domain_revision_to_same,
+            adjustment_can_not_change_domain_revision_with_failed_status
         ]},
         {non_parallel, [sequence], [
             adjustment_can_change_domain_revision_test
@@ -315,6 +317,27 @@ adjustment_can_not_change_domain_revision_to_same(C) ->
         change => {change_cash_flow, DomainRevision}
     }),
     ?assertMatch({error, {invalid_cash_flow_change, {already_has_domain_revision, DomainRevision}}}, Result).
+
+-spec adjustment_can_not_change_domain_revision_with_failed_status(config()) -> test_return().
+adjustment_can_not_change_domain_revision_with_failed_status(C) ->
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment({100, <<"RUB">>}, C),
+    WithdrawalID = generate_id(),
+    Params = #{
+        id => WithdrawalID,
+        wallet_id => WalletID,
+        destination_id => DestinationID,
+        body => {1000, <<"RUB">>}
+    },
+    ok = ff_withdrawal_machine:create(Params, ff_entity_context:new()),
+    ?assertMatch({failed, _}, await_final_withdrawal_status(WithdrawalID)),
+    Result = ff_withdrawal_machine:start_adjustment(WithdrawalID, #{
+        id => generate_id(),
+        change => {change_cash_flow, ct_domain_config:head() - 1}
+    }),
+    ?assertMatch({error, {invalid_cash_flow_change, {unavailable_status, {failed, #{code := _}}}}}, Result).
 
 -spec adjustment_can_change_domain_revision_test(config()) -> test_return().
 adjustment_can_change_domain_revision_test(C) ->

@@ -158,7 +158,9 @@
     invalid_withdrawal_status_error()
     | invalid_status_change_error()
     | {another_adjustment_in_progress, adjustment_id()}
-    | {invalid_cash_flow_change, {already_has_domain_revision, domain_revision()}}
+    | {invalid_cash_flow_change,
+        {already_has_domain_revision, domain_revision()}
+        | {unavailable_status, status()}}
     | ff_adjustment:create_error().
 
 -type finalize_session_error() ::
@@ -1601,13 +1603,17 @@ validate_change_same_status(Status, Status) ->
 
 -spec validate_domain_revision_change(adjustment_params(), withdrawal_state()) ->
     {ok, valid}
-    | {error, {invalid_cash_flow_change, {already_has_domain_revision, domain_revision()}}}.
+    | {error,
+        {invalid_cash_flow_change,
+            {already_has_domain_revision, domain_revision()}
+            | {unavailable_status, status()}}}.
 validate_domain_revision_change(#{change := {change_cash_flow, DomainRevision}}, Withdrawal) ->
     do(fun() ->
         valid = unwrap(
             invalid_cash_flow_change,
             validate_change_same_domain_revision(DomainRevision, final_domain_revision(Withdrawal))
-        )
+        ),
+        valid = unwrap(invalid_cash_flow_change, validate_current_status(status(Withdrawal)))
     end);
 validate_domain_revision_change(_Params, _Withdrawal) ->
     {ok, valid}.
@@ -1621,6 +1627,16 @@ validate_change_same_domain_revision(NewDomainRevision, OldDomainRevision) when
     {ok, valid};
 validate_change_same_domain_revision(DomainRevision, DomainRevision) ->
     {error, {already_has_domain_revision, DomainRevision}}.
+
+-spec validate_current_status(status()) ->
+    {ok, valid}
+    | {error, {unavailable_status, status()}}.
+validate_current_status(succeeded) ->
+    {ok, valid};
+validate_current_status(Status = {failed, _Failure}) ->
+    {error, {unavailable_status, Status}};
+validate_current_status(Status) ->
+    {error, {unavailable_status, Status}}.
 
 %% Adjustment helpers
 
