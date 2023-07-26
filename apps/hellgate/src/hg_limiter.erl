@@ -149,7 +149,16 @@ hold(LimitChanges, Clock, Context) ->
 
 -spec commit([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context()) -> ok.
 commit(LimitChanges, Clock, Context) ->
-    process_changes(LimitChanges, fun hg_limiter_client:commit/3, Clock, Context, []).
+    process_changes(
+        LimitChanges,
+        fun(LimitChange, LimClock, LimContext) ->
+            _Clock = hg_limiter_client:commit(LimitChange, LimClock, LimContext),
+            ok = log_limit_change(LimitChange, Context)
+        end,
+        Clock,
+        Context,
+        []
+    ).
 
 -spec rollback([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context(), [handling_flag()]) -> ok.
 rollback(LimitChanges, Clock, Context, Flags) ->
@@ -285,3 +294,20 @@ convert_to_limit_route(#domain_PaymentRoute{provider = Provider, terminal = Term
         provider = Provider,
         terminal = Terminal
     }.
+
+log_limit_change(
+    #limiter_LimitChange{id = LimitConfigID},
+    #limiter_LimitContext{payment_processing = #context_payproc_Context{invoice = CtxInvoice}}
+) ->
+    #context_payproc_Invoice{
+        invoice = #domain_Invoice{owner_id = PartyID, shop_id = ShopID},
+        payment = #context_payproc_InvoicePayment{
+            route = #base_Route{provider = Provider, terminal = Terminal}
+        }
+    } = CtxInvoice,
+    ok = logger:log(notice, "Limit change commited", [], #{
+        limit_config_id => LimitConfigID,
+        terminal_id => Terminal#domain_TerminalRef.id,
+        provider_id => Provider#domain_ProviderRef.id,
+        shop_id => <<PartyID/binary, "/", ShopID/binary>>
+    }).
