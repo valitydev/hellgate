@@ -116,14 +116,16 @@ commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCas
     ],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_context(Invoice, Payment, Route, CapturedCash),
-    commit(LimitChanges, get_latest_clock(), Context).
+    ok = commit(LimitChanges, get_latest_clock(), Context),
+    ok = log_limit_changes(LimitChanges, TurnoverLimits, Context).
 
 -spec commit_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
 commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     ChangeIDs = [construct_refund_change_id(Invoice, Payment, Refund)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
-    commit(LimitChanges, get_latest_clock(), Context).
+    ok = commit(LimitChanges, get_latest_clock(), Context),
+    ok = log_limit_changes(LimitChanges, TurnoverLimits, Context).
 
 -spec rollback_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment(), [handling_flag()]) ->
     ok.
@@ -149,16 +151,7 @@ hold(LimitChanges, Clock, Context) ->
 
 -spec commit([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context()) -> ok.
 commit(LimitChanges, Clock, Context) ->
-    process_changes(
-        LimitChanges,
-        fun(LimitChange, LimClock, LimContext) ->
-            _Clock = hg_limiter_client:commit(LimitChange, LimClock, LimContext),
-            ok = log_limit_change(LimitChange, Context)
-        end,
-        Clock,
-        Context,
-        []
-    ).
+    process_changes(LimitChanges, fun hg_limiter_client:commit/3, Clock, Context, []).
 
 -spec rollback([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context(), [handling_flag()]) -> ok.
 rollback(LimitChanges, Clock, Context, Flags) ->
@@ -295,19 +288,60 @@ convert_to_limit_route(#domain_PaymentRoute{provider = Provider, terminal = Term
         terminal = Terminal
     }.
 
-log_limit_change(
-    #limiter_LimitChange{id = LimitConfigID},
-    #limiter_LimitContext{payment_processing = #context_payproc_Context{invoice = CtxInvoice}}
-) ->
+log_limit_changes(LimitChanges, TurnoverLimits, Context) ->
+    Boundaries = get_turnover_boundaries(TurnoverLimits),
+    Attrs = mk_limit_log_attributes(Context),
+    lists:foreach(
+        fun(#limiter_LimitChange{id = ID}) ->
+            ok = logger:log(notice, "Limit change commited", [], #{
+                limit => Attrs#{
+                    config_id => ID,
+                    boundary => maps:get(ID, Boundaries, undefined)
+                }
+            })
+        end,
+        LimitChanges
+    ).
+
+get_turnover_boundaries(TurnoverLimits) ->
+    maps:from_list(
+        lists:map(
+            fun(#domain_TurnoverLimit{id = ID, upper_boundary = UpperBoundary}) ->
+                {ID, UpperBoundary}
+            end,
+            TurnoverLimits
+        )
+    ).
+
+mk_limit_log_attributes(#limiter_LimitContext{
+    payment_processing = #context_payproc_Context{op = Op, invoice = CtxInvoice}
+}) ->
     #context_payproc_Invoice{
         invoice = #domain_Invoice{owner_id = PartyID, shop_id = ShopID},
         payment = #context_payproc_InvoicePayment{
+            payment = Payment,
+            refund = Refund,
             route = #base_Route{provider = Provider, terminal = Terminal}
         }
     } = CtxInvoice,
-    ok = logger:log(notice, "Limit change commited", [], #{
-        limit_config_id => LimitConfigID,
-        terminal_id => Terminal#domain_TerminalRef.id,
-        provider_id => Provider#domain_ProviderRef.id,
-        shop_id => <<PartyID/binary, "/", ShopID/binary>>
-    }).
+    #domain_Cash{amount = Amount, currency = Currency} =
+        case Op of
+            {invoice_payment, #context_payproc_OperationInvoicePayment{}} ->
+                Payment#domain_InvoicePayment.cost;
+            {invoice_payment_refund, #context_payproc_OperationInvoicePaymentRefund{}} ->
+                Refund#domain_InvoicePaymentRefund.cash
+        end,
+    #{
+        config_id => undefined,
+        boundary => undefined,
+        route => #{
+            provider_id => Provider#domain_ProviderRef.id,
+            terminal_id => Terminal#domain_TerminalRef.id
+        },
+        party_id => PartyID,
+        shop_id => ShopID,
+        change => #{
+            amount => Amount,
+            currency => Currency
+        }
+    }.
