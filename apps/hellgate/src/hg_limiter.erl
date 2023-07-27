@@ -117,7 +117,7 @@ commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCas
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_context(Invoice, Payment, Route, CapturedCash),
     ok = commit(LimitChanges, get_latest_clock(), Context),
-    ok = log_limit_changes(LimitChanges, TurnoverLimits, Context).
+    ok = log_limit_changes(TurnoverLimits, Context).
 
 -spec commit_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
 commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
@@ -125,7 +125,7 @@ commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
     ok = commit(LimitChanges, get_latest_clock(), Context),
-    ok = log_limit_changes(LimitChanges, TurnoverLimits, Context).
+    ok = log_limit_changes(TurnoverLimits, Context).
 
 -spec rollback_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment(), [handling_flag()]) ->
     ok.
@@ -288,29 +288,15 @@ convert_to_limit_route(#domain_PaymentRoute{provider = Provider, terminal = Term
         terminal = Terminal
     }.
 
-log_limit_changes(LimitChanges, TurnoverLimits, Context) ->
-    Boundaries = get_turnover_boundaries(TurnoverLimits),
+log_limit_changes(TurnoverLimits, Context) ->
     Attrs = mk_limit_log_attributes(Context),
     lists:foreach(
-        fun(#limiter_LimitChange{id = ID}) ->
+        fun(#domain_TurnoverLimit{id = ID, upper_boundary = UpperBoundary}) ->
             ok = logger:log(notice, "Limit change commited", [], #{
-                limit => Attrs#{
-                    config_id => ID,
-                    boundary => maps:get(ID, Boundaries, undefined)
-                }
+                limit => Attrs#{config_id => ID, boundary => UpperBoundary}
             })
         end,
-        LimitChanges
-    ).
-
-get_turnover_boundaries(TurnoverLimits) ->
-    maps:from_list(
-        lists:map(
-            fun(#domain_TurnoverLimit{id = ID, upper_boundary = UpperBoundary}) ->
-                {ID, UpperBoundary}
-            end,
-            TurnoverLimits
-        )
+        TurnoverLimits
     ).
 
 mk_limit_log_attributes(#limiter_LimitContext{
