@@ -75,7 +75,9 @@ hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
 commit_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
     LimitChanges = gen_limit_changes(TurnoverLimits, Route, Withdrawal, Iter),
     Context = gen_limit_context(Route, Withdrawal),
-    commit(LimitChanges, get_latest_clock(), Context).
+    Clock = get_latest_clock(),
+    ok = commit(LimitChanges, Clock, Context),
+    ok = log_limit_changes(TurnoverLimits, Clock, Context).
 
 -spec rollback_withdrawal_limits([turnover_limit()], route(), withdrawal(), pos_integer()) -> ok.
 rollback_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter) ->
@@ -235,3 +237,42 @@ call(Func, Args) ->
     Service = {limproto_limiter_thrift, 'Limiter'},
     Request = {Service, Func, Args},
     ff_woody_client:call(limiter, Request).
+
+log_limit_changes(TurnoverLimits, Clock, Context) ->
+    Attrs = mk_limit_log_attributes(Context),
+    lists:foreach(
+        fun(#domain_TurnoverLimit{id = ID, upper_boundary = UpperBoundary, domain_revision = DomainRevision}) ->
+            #limiter_Limit{amount = LimitAmount} = get(ID, DomainRevision, Clock, Context),
+            ok = logger:log(notice, "Limit change commited", [], #{
+                limit => Attrs#{config_id => ID, boundary => UpperBoundary, amount => LimitAmount}
+            })
+        end,
+        TurnoverLimits
+    ).
+
+mk_limit_log_attributes(#limiter_LimitContext{
+    withdrawal_processing = #context_withdrawal_Context{withdrawal = Wthd}
+}) ->
+    #context_withdrawal_Withdrawal{
+        withdrawal = #wthd_domain_Withdrawal{
+            body = #domain_Cash{amount = Amount, currency = Currency}
+        },
+        wallet_id = WalletID,
+        route = #base_Route{provider = Provider, terminal = Terminal}
+    } = Wthd,
+    #{
+        config_id => undefined,
+        %% Limit boundary amount
+        boundary => undefined,
+        %% Current amount with accounted change
+        amount => undefined,
+        route => #{
+            provider_id => Provider#domain_ProviderRef.id,
+            terminal_id => Terminal#domain_TerminalRef.id
+        },
+        wallet_id => WalletID,
+        change => #{
+            amount => Amount,
+            currency => Currency
+        }
+    }.

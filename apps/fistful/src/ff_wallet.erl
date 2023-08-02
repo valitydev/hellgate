@@ -4,7 +4,8 @@
 
 -module(ff_wallet).
 
--type id() :: ff_account:id().
+-type id() :: binary().
+-type account_id() :: ff_account:id().
 -type external_id() :: id() | undefined.
 -type metadata() :: ff_entity_context:md().
 
@@ -14,7 +15,7 @@
     name := binary(),
     blocking := blocking(),
     account => account(),
-    external_id => id(),
+    external_id => account_id(),
     metadata => metadata(),
     created_at => ff_time:timestamp_ms()
 }.
@@ -23,7 +24,7 @@
     version := ?ACTUAL_FORMAT_VERSION,
     name := binary(),
     blocking := blocking(),
-    external_id => id(),
+    external_id => account_id(),
     metadata => metadata(),
     created_at => ff_time:timestamp_ms()
 }.
@@ -33,11 +34,11 @@
     | {account, ff_account:event()}.
 
 -type params() :: #{
-    id := id(),
+    id := account_id(),
     identity := ff_identity_machine:id(),
     name := binary(),
     currency := ff_currency:id(),
-    external_id => id(),
+    external_id => account_id(),
     metadata => metadata()
 }.
 
@@ -56,6 +57,7 @@
     | {currency, notfound}.
 
 -export_type([id/0]).
+-export_type([account_id/0]).
 -export_type([wallet/0]).
 -export_type([wallet_state/0]).
 -export_type([event/0]).
@@ -82,6 +84,7 @@
 -export([close/1]).
 -export([get_account_balance/1]).
 -export([check_creation/1]).
+-export([log_balance/1]).
 
 -export([apply_event/2]).
 
@@ -100,7 +103,7 @@
 
 -spec account(wallet_state()) -> account().
 
--spec id(wallet_state()) -> id().
+-spec id(wallet_state()) -> account_id().
 -spec identity(wallet_state()) -> identity().
 -spec name(wallet_state()) -> binary().
 -spec currency(wallet_state()) -> currency().
@@ -190,6 +193,26 @@ check_creation(#{identity := IdentityID, currency := CurrencyID}) ->
         Currency = unwrap(currency, ff_currency:get(CurrencyID)),
         {Identity, Currency}
     end).
+
+-spec log_balance(id()) -> ok.
+log_balance(WalletID) ->
+    case ff_wallet_machine:get(WalletID) of
+        {ok, Machine} ->
+            Wallet = ff_wallet_machine:wallet(Machine),
+            {ok, {Amounts, Currency}} = ff_accounting:balance(account(Wallet)),
+            logger:log(notice, "Wallet balance", [], #{
+                wallet => #{
+                    id => WalletID,
+                    balance => #{
+                        amount => ff_indef:current(Amounts),
+                        currency => Currency
+                    }
+                }
+            }),
+            ok;
+        {error, notfound} ->
+            ok
+    end.
 
 %%
 

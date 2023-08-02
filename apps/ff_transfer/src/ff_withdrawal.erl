@@ -759,6 +759,7 @@ do_process_transfer(p_transfer_commit, Withdrawal) ->
     ok = commit_routes_limits([route(Withdrawal)], Withdrawal),
     Tr = ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)),
     {ok, Events} = ff_postings_transfer:commit(Tr),
+    ok = ff_wallet:log_balance(wallet_id(Withdrawal)),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
 do_process_transfer(p_transfer_cancel, Withdrawal) ->
     ok = rollback_routes_limits([route(Withdrawal)], Withdrawal),
@@ -1023,6 +1024,7 @@ handle_child_result({undefined, Events} = Result, Withdrawal) ->
         true ->
             {continue, Events};
         false ->
+            ok = ff_wallet:log_balance(wallet_id(Withdrawal)),
             Result
     end;
 handle_child_result({_OtherAction, _Events} = Result, _Withdrawal) ->
