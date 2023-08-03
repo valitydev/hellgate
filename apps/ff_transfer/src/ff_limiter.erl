@@ -273,6 +273,6 @@ mk_limit_log_attributes(#limiter_LimitContext{
         wallet_id => WalletID,
         change => #{
             amount => Amount,
-            currency => Currency
+            currency => Currency#domain_CurrencyRef.symbolic_code
         }
     }.
