@@ -334,6 +334,6 @@ mk_limit_log_attributes(#limiter_LimitContext{
         shop_id => ShopID,
         change => #{
             amount => Amount,
-            currency => Currency
+            currency => Currency#domain_CurrencyRef.symbolic_code
         }
     }.
