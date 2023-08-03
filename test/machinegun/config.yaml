@@ -68,3 +68,7 @@ storage:
 woody_server:
     max_concurrent_connections: 8000
     http_keep_alive_timeout: 15S
+
+logging:
+    out_type: stdout
+    level: info

@@ -116,14 +116,18 @@ commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCas
     ],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_context(Invoice, Payment, Route, CapturedCash),
-    commit(LimitChanges, get_latest_clock(), Context).
+    Clock = get_latest_clock(),
+    ok = commit(LimitChanges, Clock, Context),
+    ok = log_limit_changes(TurnoverLimits, Clock, Context).
 
 -spec commit_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
 commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     ChangeIDs = [construct_refund_change_id(Invoice, Payment, Refund)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
-    commit(LimitChanges, get_latest_clock(), Context).
+    Clock = get_latest_clock(),
+    ok = commit(LimitChanges, Clock, Context),
+    ok = log_limit_changes(TurnoverLimits, Clock, Context).
 
 -spec rollback_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment(), [handling_flag()]) ->
     ok.
@@ -284,4 +288,52 @@ convert_to_limit_route(#domain_PaymentRoute{provider = Provider, terminal = Term
     #base_Route{
         provider = Provider,
         terminal = Terminal
+    }.
+
+log_limit_changes(TurnoverLimits, Clock, Context) ->
+    Attrs = mk_limit_log_attributes(Context),
+    lists:foreach(
+        fun(#domain_TurnoverLimit{id = ID, upper_boundary = UpperBoundary, domain_revision = DomainRevision}) ->
+            #limiter_Limit{amount = LimitAmount} = hg_limiter_client:get(ID, DomainRevision, Clock, Context),
+            ok = logger:log(notice, "Limit change commited", [], #{
+                limit => Attrs#{config_id => ID, boundary => UpperBoundary, amount => LimitAmount}
+            })
+        end,
+        TurnoverLimits
+    ).
+
+mk_limit_log_attributes(#limiter_LimitContext{
+    payment_processing = #context_payproc_Context{op = Op, invoice = CtxInvoice}
+}) ->
+    #context_payproc_Invoice{
+        invoice = #domain_Invoice{owner_id = PartyID, shop_id = ShopID},
+        payment = #context_payproc_InvoicePayment{
+            payment = Payment,
+            refund = Refund,
+            route = #base_Route{provider = Provider, terminal = Terminal}
+        }
+    } = CtxInvoice,
+    #domain_Cash{amount = Amount, currency = Currency} =
+        case Op of
+            {invoice_payment, #context_payproc_OperationInvoicePayment{}} ->
+                Payment#domain_InvoicePayment.cost;
+            {invoice_payment_refund, #context_payproc_OperationInvoicePaymentRefund{}} ->
+                Refund#domain_InvoicePaymentRefund.cash
+        end,
+    #{
+        config_id => undefined,
+        %% Limit boundary amount
+        boundary => undefined,
+        %% Current amount with accounted change
+        amount => undefined,
+        route => #{
+            provider_id => Provider#domain_ProviderRef.id,
+            terminal_id => Terminal#domain_TerminalRef.id
+        },
+        party_id => PartyID,
+        shop_id => ShopID,
+        change => #{
+            amount => Amount,
+            currency => Currency
+        }
     }.
