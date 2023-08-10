@@ -86,8 +86,7 @@
 -type session_result() :: ff_withdrawal_session:session_result().
 
 -type call() ::
-    {start_adjustment, adjustment_params()}
-    | {session_finished, session_id(), session_result()}.
+    {start_adjustment, adjustment_params()}.
 
 -define(NS, 'ff/withdrawal_v2').
 
@@ -184,8 +183,6 @@ process_timeout(Machine, _, _Opts) ->
 -spec process_call(call(), machine(), handler_args(), handler_opts()) -> no_return().
 process_call({start_adjustment, Params}, Machine, _, _Opts) ->
     do_start_adjustment(Params, Machine);
-process_call({session_finished, SessionID, SessionResult}, Machine, _, _Opts) ->
-    do_process_session_finished(SessionID, SessionResult, Machine);
 process_call(CallArgs, _Machine, _, _Opts) ->
     erlang:error({unexpected_call, CallArgs}).
 
@@ -209,17 +206,6 @@ process_notification({session_finished, SessionID, SessionResult}, Machine, _Han
 do_start_adjustment(Params, Machine) ->
     St = ff_machine:collapse(ff_withdrawal, Machine),
     case ff_withdrawal:start_adjustment(Params, withdrawal(St)) of
-        {ok, Result} ->
-            {ok, process_result(Result, St)};
-        {error, _Reason} = Error ->
-            {Error, #{}}
-    end.
-
--spec do_process_session_finished(session_id(), session_result(), machine()) -> {Response, result()} when
-    Response :: ok | {error, session_not_found | old_session | result_mismatch}.
-do_process_session_finished(SessionID, SessionResult, Machine) ->
-    St = ff_machine:collapse(ff_withdrawal, Machine),
-    case ff_withdrawal:process_session_finished(SessionID, SessionResult, withdrawal(St)) of
         {ok, Result} ->
             {ok, process_result(Result, St)};
         {error, _Reason} = Error ->

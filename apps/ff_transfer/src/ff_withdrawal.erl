@@ -163,9 +163,6 @@
         | {unavailable_status, status()}}
     | ff_adjustment:create_error().
 
--type finalize_session_error() ::
-    {wrong_session_id, session_id()}.
-
 -type unknown_adjustment_error() :: ff_adjustment_utils:unknown_adjustment_error().
 
 -type invalid_status_change_error() ::
@@ -200,7 +197,7 @@
 
 %%
 
--export([process_session_finished/3]).
+-export([finalize_session/3]).
 
 %% Accessors
 
@@ -227,8 +224,6 @@
 -export([gen/1]).
 -export([get_quote/1]).
 -export([is_finished/1]).
-
--export([finalize_session/3]).
 
 -export([start_adjustment/2]).
 -export([find_adjustment/2]).
@@ -573,9 +568,9 @@ format_activity(Activity) ->
 
 %%
 
--spec process_session_finished(session_id(), session_result(), withdrawal_state()) ->
+-spec finalize_session(session_id(), session_result(), withdrawal_state()) ->
     {ok, process_result()} | {error, session_not_found | old_session | result_mismatch}.
-process_session_finished(SessionID, SessionResult, Withdrawal) ->
+finalize_session(SessionID, SessionResult, Withdrawal) ->
     case get_session_by_id(SessionID, Withdrawal) of
         #{id := SessionID, result := SessionResult} ->
             {ok, {undefined, []}};
@@ -990,18 +985,6 @@ create_session(ID, TransferData, SessionParams) ->
             ok;
         {error, exists} ->
             ok
-    end.
-
--spec finalize_session(session_id(), session_result(), withdrawal_state()) ->
-    {ok, process_result()} | {error, finalize_session_error()}.
-finalize_session(SessionID, Result, Withdrawal) ->
-    case {session_id(Withdrawal), get_current_session_status(Withdrawal)} of
-        {SessionID, pending} ->
-            {ok, {continue, [{session_finished, {SessionID, Result}}]}};
-        {SessionID, _} ->
-            {ok, {undefined, []}};
-        _OtherSessionID ->
-            {error, {wrong_session_id, SessionID}}
     end.
 
 -spec process_session_sleep(withdrawal_state()) -> process_result().
