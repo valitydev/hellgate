@@ -574,7 +574,8 @@ finalize_session(SessionID, SessionResult, Withdrawal) ->
     case get_session_by_id(SessionID, Withdrawal) of
         #{id := SessionID, result := SessionResult} ->
             {ok, {undefined, []}};
-        #{id := SessionID, result := _OtherSessionResult} ->
+        #{id := SessionID, result := OtherSessionResult} ->
+            logger:warning("Session result mismatch - current: ~p, new: ~p", [OtherSessionResult, SessionResult]),
             {error, result_mismatch};
         #{id := SessionID} ->
             try_finish_session(SessionID, SessionResult, Withdrawal);
