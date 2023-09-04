@@ -1,0 +1,29 @@
+-include("invoice_events.hrl").
+-include("payment_events.hrl").
+-include("customer_events.hrl").
+
+-define(invoice(ID), #domain_Invoice{id = ID}).
+-define(payment(ID), #domain_InvoicePayment{id = ID}).
+-define(payment(ID, Revision), #domain_InvoicePayment{id = ID, party_revision = Revision}).
+-define(adjustment(ID), #domain_InvoicePaymentAdjustment{id = ID}).
+-define(adjustment(ID, Status), #domain_InvoicePaymentAdjustment{id = ID, status = Status}).
+-define(adjustment_revision(Revision), #domain_InvoicePaymentAdjustment{party_revision = Revision}).
+-define(adjustment_reason(Reason), #domain_InvoicePaymentAdjustment{reason = Reason}).
+-define(invoice_state(Invoice), #payproc_Invoice{invoice = Invoice}).
+-define(invoice_state(Invoice, Payments), #payproc_Invoice{invoice = Invoice, payments = Payments}).
+-define(payment_state(Payment), #payproc_InvoicePayment{payment = Payment}).
+-define(payment_state(Payment, Refunds), #payproc_InvoicePayment{payment = Payment, refunds = Refunds}).
+-define(payment_route(Route), #payproc_InvoicePayment{route = Route}).
+-define(refund_state(Refund), #payproc_InvoicePaymentRefund{refund = Refund}).
+-define(payment_cashflow(CashFlow), #payproc_InvoicePayment{cash_flow = CashFlow}).
+-define(payment_last_trx(Trx), #payproc_InvoicePayment{last_transaction_info = Trx}).
+-define(invoice_w_status(Status), #domain_Invoice{status = Status}).
+-define(invoice_w_revision(Revision), #domain_Invoice{party_revision = Revision}).
+-define(payment_w_status(Status), #domain_InvoicePayment{status = Status}).
+-define(payment_w_status(ID, Status), #domain_InvoicePayment{id = ID, status = Status}).
+-define(invoice_payment_refund(Cash, Status), #domain_InvoicePaymentRefund{cash = Cash, status = Status}).
+-define(trx_info(ID), #domain_TransactionInfo{id = ID}).
+-define(trx_info(ID, Extra), #domain_TransactionInfo{id = ID, extra = Extra}).
+-define(refund_id(RefundID), #domain_InvoicePaymentRefund{id = RefundID}).
+-define(refund_id(RefundID, ExternalID), #domain_InvoicePaymentRefund{id = RefundID, external_id = ExternalID}).
+-define(contact_info(), ?contact_info(undefined)).
