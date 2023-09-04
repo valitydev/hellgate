@@ -18,7 +18,7 @@ jobs:
       thrift-version: ${{ steps.thrift-version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
       - run: grep -v '^#' .env >> $GITHUB_ENV
       - id: otp-version
         run: echo "::set-output name=version::$OTP_VERSION"
