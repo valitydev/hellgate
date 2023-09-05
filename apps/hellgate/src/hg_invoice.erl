@@ -17,12 +17,19 @@
 -include("payment_events.hrl").
 -include("invoice_events.hrl").
 -include("domain.hrl").
+-include("hg_invoice.hrl").
 
 -include_lib("damsel/include/dmsl_repair_thrift.hrl").
 
 -define(NS, <<"invoice">>).
 
 -export([process_callback/2]).
+
+-export_type([activity/0]).
+-export_type([invoice/0]).
+-export_type([payment_id/0]).
+-export_type([payment_st/0]).
+-export_type([party/0]).
 
 %% Public interface
 
@@ -31,6 +38,8 @@
 -export([get_payment_opts/1]).
 -export([create/5]).
 -export([marshal_invoice/1]).
+-export([unmarshal_history/1]).
+-export([collapse_history/1]).
 
 %% Machine callbacks
 
@@ -58,13 +67,6 @@
 
 -define(invalid_invoice_status(Status), #payproc_InvalidInvoiceStatus{status = Status}).
 -define(payment_pending(PaymentID), #payproc_InvoicePaymentPending{id = PaymentID}).
-
--record(st, {
-    activity :: undefined | activity(),
-    invoice :: undefined | invoice(),
-    payments = [] :: [{payment_id(), payment_st()}],
-    party :: undefined | party()
-}).
 
 -type st() :: #st{}.
 

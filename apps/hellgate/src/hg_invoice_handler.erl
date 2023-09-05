@@ -3,6 +3,7 @@
 -include("payment_events.hrl").
 -include("invoice_events.hrl").
 -include("domain.hrl").
+-include("hg_invoice.hrl").
 
 %% Woody handler called by hg_woody_service_wrapper
 
@@ -17,25 +18,6 @@
     assert_shop_operable/1,
     assert_shop_exists/1
 ]).
-
-%% Internal types
-
--define(invalid_invoice_status(Status), #payproc_InvalidInvoiceStatus{status = Status}).
-
--record(st, {
-    activity :: undefined | activity(),
-    invoice :: undefined | invoice(),
-    payments = [] :: [{payment_id(), payment_st()}],
-    party :: undefined | party()
-}).
-
--type st() :: #st{}.
-
--type invoice_change() :: dmsl_payproc_thrift:'InvoiceChange'().
-
--type activity() ::
-    invoice
-    | {payment, payment_id()}.
 
 %% API
 
@@ -91,11 +73,6 @@ handle_function_('CapturePaymentNew', Args, Opts) ->
 handle_function_('Get', {InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
     St = get_state(InvoiceID, AfterID, Limit),
-    get_invoice_state(St);
-%% TODO Удалить после перехода на новый протокол
-handle_function_('Get', {InvoiceID, undefined}, _Opts) ->
-    _ = set_invoicing_meta(InvoiceID),
-    St = get_state(InvoiceID),
     get_invoice_state(St);
 handle_function_('GetEvents', {InvoiceID, Range}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
@@ -275,19 +252,19 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 
 %%
 
+get_state(ID) ->
+    hg_invoice:collapse_history(get_history(ID)).
+
+get_state(ID, AfterID, Limit) ->
+    hg_invoice:collapse_history(get_history(ID, AfterID, Limit)).
+
 get_history(ID) ->
     History = hg_machine:get_history(hg_invoice:namespace(), ID),
-    unmarshal_history(map_history_error(History)).
+    hg_invoice:unmarshal_history(map_history_error(History)).
 
 get_history(ID, AfterID, Limit) ->
     History = hg_machine:get_history(hg_invoice:namespace(), ID, AfterID, Limit),
-    unmarshal_history(map_history_error(History)).
-
-get_state(ID) ->
-    collapse_history(get_history(ID)).
-
-get_state(ID, AfterID, Limit) ->
-    collapse_history(get_history(ID, AfterID, Limit)).
+    hg_invoice:unmarshal_history(map_history_error(History)).
 
 get_public_history(InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_invoice_event(InvoiceID, Ev) || Ev <- get_history(InvoiceID, AfterID, Limit)].
@@ -306,69 +283,6 @@ map_history_error({error, notfound}) ->
     throw(#payproc_InvoiceNotFound{}).
 
 %%
-
--type invoice() :: dmsl_domain_thrift:'Invoice'().
--type party() :: dmsl_domain_thrift:'Party'().
-
--type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
--type payment_st() :: hg_invoice_payment:st().
-
--define(payment_pending(PaymentID), #payproc_InvoicePaymentPending{id = PaymentID}).
-
-%%
-
--spec collapse_history([hg_machine:event()]) -> st().
-collapse_history(History) ->
-    lists:foldl(
-        fun({_ID, Dt, Changes}, St0) ->
-            collapse_changes(Changes, St0, #{timestamp => Dt})
-        end,
-        #st{},
-        History
-    ).
-
-collapse_changes(Changes, St0, Opts) ->
-    lists:foldl(fun(C, St) -> merge_change(C, St, Opts) end, St0, Changes).
-
-merge_change(?invoice_created(Invoice), St, _Opts) ->
-    St#st{activity = invoice, invoice = Invoice};
-merge_change(?invoice_status_changed(Status), St = #st{invoice = I}, _Opts) ->
-    St#st{invoice = I#domain_Invoice{status = Status}};
-merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts) ->
-    PaymentSession = try_get_payment_session(PaymentID, St),
-    PaymentSession1 = merge_payment_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
-    St1 = set_payment_session(PaymentID, PaymentSession1, St),
-    case hg_invoice_payment:get_activity(PaymentSession1) of
-        A when A =/= idle ->
-            % TODO Shouldn't we have here some kind of stack instead?
-            St1#st{activity = {payment, PaymentID}};
-        idle ->
-            check_non_idle_payments(St1)
-    end.
-
-merge_payment_change(Change, PaymentSession, Opts) ->
-    case hg_maybe:apply(fun(PS) -> hg_invoice_payment:get_origin(PS) end, PaymentSession) of
-        undefined ->
-            hg_invoice_payment:merge_change(Change, PaymentSession, Opts);
-        ?invoice_payment_merchant_reg_origin() ->
-            hg_invoice_payment:merge_change(Change, PaymentSession, Opts);
-        ?invoice_payment_provider_reg_origin() ->
-            hg_invoice_registered_payment:merge_change(Change, PaymentSession, Opts)
-    end.
-
--spec check_non_idle_payments(st()) -> st().
-check_non_idle_payments(#st{payments = Payments} = St) ->
-    check_non_idle_payments_(Payments, St).
-
-check_non_idle_payments_([], St) ->
-    St#st{activity = invoice};
-check_non_idle_payments_([{PaymentID, PaymentSession} | Rest], St) ->
-    case hg_invoice_payment:get_activity(PaymentSession) of
-        A when A =/= idle ->
-            St#st{activity = {payment, PaymentID}};
-        idle ->
-            check_non_idle_payments_(Rest, St)
-    end.
 
 get_party_id(#st{invoice = #domain_Invoice{owner_id = PartyID}}) ->
     PartyID.
@@ -397,9 +311,6 @@ try_get_payment_session(PaymentID, #st{payments = Payments}) ->
         false ->
             undefined
     end.
-
-set_payment_session(PaymentID, PaymentSession, St = #st{payments = Payments}) ->
-    St#st{payments = lists:keystore(PaymentID, 1, Payments, {PaymentID, PaymentSession})}.
 
 %%
 
@@ -517,19 +428,3 @@ make_invoice_context(undefined, TplContext) ->
     TplContext;
 make_invoice_context(Context, _) ->
     Context.
-
-%% Unmarshalling
-
--spec unmarshal_history([hg_machine:event()]) -> [hg_machine:event([invoice_change()])].
-unmarshal_history(Events) ->
-    [unmarshal_event(Event) || Event <- Events].
-
--spec unmarshal_event(hg_machine:event()) -> hg_machine:event([invoice_change()]).
-unmarshal_event({ID, Dt, Payload}) ->
-    {ID, Dt, unmarshal_event_payload(Payload)}.
-
--spec unmarshal_event_payload(hg_machine:event_payload()) -> [invoice_change()].
-unmarshal_event_payload(#{format_version := 1, data := {bin, Changes}}) ->
-    Type = {struct, union, {dmsl_payproc_thrift, 'EventPayload'}},
-    {invoice_changes, Buf} = hg_proto_utils:deserialize(Type, Changes),
-    Buf.
