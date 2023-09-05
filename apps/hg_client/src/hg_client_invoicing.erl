@@ -17,9 +17,6 @@
 -export([repair_scenario/3]).
 -export([get_limit_values/3]).
 
--export([create_invoice_adjustment/3]).
--export([get_invoice_adjustment/3]).
-
 -export([start_payment/3]).
 -export([register_payment/3]).
 -export([get_payment/3]).
@@ -69,9 +66,6 @@
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
 -type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
-
--type invoice_adjustment() :: dmsl_domain_thrift:'InvoiceAdjustment'().
--type invoice_adjustment_params() :: dmsl_payproc_thrift:'InvoiceAdjustmentParams'().
 
 -type payment_params() :: dmsl_payproc_thrift:'InvoicePaymentParams'().
 -type register_payment_params() :: dmsl_payproc_thrift:'RegisterInvoicePaymentParams'().
@@ -156,18 +150,6 @@ repair_scenario(InvoiceID, Scenario, Client) ->
 -spec get_limit_values(invoice_id(), payment_id(), pid()) -> route_limit_context() | woody_error:business_error().
 get_limit_values(InvoiceID, PaymentID, Client) ->
     map_result_error(gen_server:call(Client, {call, 'GetPaymentRoutesLimitValues', [InvoiceID, PaymentID]})).
-
--spec create_invoice_adjustment(invoice_id(), invoice_adjustment_params(), pid()) ->
-    invoice_adjustment() | woody_error:business_error().
-create_invoice_adjustment(InvoiceID, Params, Client) ->
-    Args = [InvoiceID, Params],
-    map_result_error(gen_server:call(Client, {call, 'CreateInvoiceAdjustment', Args})).
-
--spec get_invoice_adjustment(invoice_id(), invoice_adjustment_params(), pid()) ->
-    invoice_adjustment() | woody_error:business_error().
-get_invoice_adjustment(InvoiceID, ID, Client) ->
-    Args = [InvoiceID, ID],
-    map_result_error(gen_server:call(Client, {call, 'GetInvoiceAdjustment', Args})).
 
 -spec start_payment(invoice_id(), payment_params(), pid()) -> payment_st() | woody_error:business_error().
 start_payment(InvoiceID, PaymentParams, Client) ->
