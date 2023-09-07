@@ -191,7 +191,8 @@ digital_wallet_resource_test() ->
             digital_wallet => #{
                 id => <<"a30e277c07400c9940628828949efd48">>,
                 token => <<"a30e277c07400c9940628828949efd48">>,
-                payment_service => #{id => <<"webmoney">>}
+                payment_service => #{id => <<"webmoney">>},
+                account_name => <<"accountName">>
             }
         }},
     ?assertEqual(Resource, unmarshal(resource, marshal(resource, Resource))).
