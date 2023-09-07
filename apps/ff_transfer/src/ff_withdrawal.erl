@@ -1220,7 +1220,8 @@ construct_payment_tool(
     {digital_wallet, #domain_DigitalWallet{
         id = ID,
         payment_service = ff_dmsl_codec:marshal(payment_service, PaymentService),
-        token = Token
+        token = Token,
+        account_name = maps:get(account_name, Wallet, undefined)
     }}.
 
 %% Quote helpers

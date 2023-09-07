@@ -236,7 +236,8 @@ marshal(
     {digital_wallet, #domain_DigitalWallet{
         id = DigitalWalletID,
         token = Token,
-        payment_service = marshal(payment_service, PaymentService)
+        payment_service = marshal(payment_service, PaymentService),
+        account_name = maps:get(account_name, Wallet, undefined)
     }};
 marshal(resource, Resource = {generic, _}) ->
     ff_dmsl_codec:marshal(payment_tool, Resource);
