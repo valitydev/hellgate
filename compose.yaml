@@ -114,7 +114,7 @@ services:
       retries: 10
 
   shumway-db:
-    image: docker.io/library/postgres:9.6
+    image: docker.io/library/postgres:15.4
     environment:
       - POSTGRES_DB=shumway
       - POSTGRES_USER=postgres
