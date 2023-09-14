@@ -83,10 +83,23 @@
     ?contact_info(EMail, undefined)
 ).
 
--define(contact_info(EMail, Phone), #domain_ContactInfo{
-    email = EMail,
-    phone_number = Phone
-}).
+-define(contact_info(EMail, Phone),
+    ?contact_info(EMail, Phone, undefined, undefined, undefined, undefined, undefined, undefined, undefined)
+).
+
+-define(contact_info(EMail, Phone, FirstName, LastName, Country, State, City, Address, PostalCode),
+    #domain_ContactInfo{
+        email = EMail,
+        phone_number = Phone,
+        first_name = FirstName,
+        last_name = LastName,
+        country = Country,
+        state = State,
+        city = City,
+        address = Address,
+        postal_code = PostalCode
+    }
+).
 
 -define(timeout_reason(), <<"Timeout">>).
 

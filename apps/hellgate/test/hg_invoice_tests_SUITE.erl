@@ -2721,6 +2721,7 @@ registered_payment_adjustment_success(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     Route = ?route(?prv(100), ?trm(1)),
+    String = <<"STRING">>,
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
             {payment_resource, #payproc_PaymentResourcePayerParams{
@@ -2729,7 +2730,7 @@ registered_payment_adjustment_success(C) ->
                     payment_session_id = Session,
                     client_info = #domain_ClientInfo{}
                 },
-                contact_info = ?contact_info()
+                contact_info = ?contact_info(String, String, String, String, String, String, String, String, String)
             }},
         route = Route,
         transaction_info = ?trx_info(<<"1">>, #{})
