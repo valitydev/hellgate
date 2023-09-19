@@ -177,6 +177,7 @@
 
 -define(payment_terms, #domain_PaymentsProvisionTerms{
     allow = {constant, true},
+    global_allow = {constant, true},
     currencies =
         {value,
             ?ordset([
