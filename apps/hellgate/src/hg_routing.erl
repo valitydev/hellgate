@@ -725,7 +725,6 @@ acceptable_partial_refunds_terms(
 acceptable_partial_refunds_terms(undefined, _RVS) ->
     throw(?rejected({'PartialRefundsProvisionTerms', undefined})).
 
--spec acceptable_allow(atom(), atom(), term()) -> true | no_return().
 acceptable_allow(_ParentName, _Type, undefined) ->
     true;
 acceptable_allow(_ParentName, _Type, {constant, true}) ->
