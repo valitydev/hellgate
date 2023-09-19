@@ -655,13 +655,12 @@ acceptable_payment_terms(
         holds = HoldsTerms,
         refunds = RefundsTerms,
         risk_coverage = RiskCoverageSelector
-    } = Terms,
+    },
     VS
 ) ->
     % TODO varsets getting mixed up
     %      it seems better to pass down here hierarchy of contexts w/ appropriate module accessors
     ParentName = 'PaymentsProvisionTerms',
-    ct:log("acceptable_payment_terms: ~p", [Terms]),
     _ = acceptable_allow(ParentName, global_allow, GlobalAllow),
     _ = acceptable_allow(ParentName, allow, Allow),
     _ = try_accept_term(ParentName, currency, getv(currency, VS), CurrenciesSelector),
