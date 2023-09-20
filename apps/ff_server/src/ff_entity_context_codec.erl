@@ -7,7 +7,6 @@
 -export([marshal/1]).
 -export([unmarshal/1]).
 
-%% snatch from https://github.com/rbkmoney/erlang_capi/blob/v2/apps/capi/src/capi_msgpack.erl
 -spec unmarshal(map()) -> ctx().
 unmarshal(Ctx) when is_map(Ctx) ->
     maps:map(fun(_NS, V) -> unwrap_(V) end, Ctx).

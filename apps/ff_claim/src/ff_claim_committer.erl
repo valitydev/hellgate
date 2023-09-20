@@ -186,7 +186,7 @@ maybe_unmarshal_metadata(Metadata) when is_map(Metadata) ->
 create_context(PartyID, Metadata) ->
     #{
         %% same as used in wapi lib
-        <<"com.rbkmoney.wapi">> => genlib_map:compact(#{
+        <<"com.valitydev.wapi">> => genlib_map:compact(#{
             <<"owner">> => PartyID,
             <<"metadata">> => maybe_unmarshal_metadata(Metadata)
         })

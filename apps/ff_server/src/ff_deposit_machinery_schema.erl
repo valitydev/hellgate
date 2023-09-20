@@ -265,7 +265,7 @@ created_v1_3_decoding_test() ->
             ]},
             LegacyChange
         ]},
-    C = make_legacy_context(#{ctx => #{<<"com.rbkmoney.wapi">> => #{<<"metadata">> => #{<<"foo">> => <<"bar">>}}}}),
+    C = make_legacy_context(#{ctx => #{<<"com.valitydev.wapi">> => #{<<"metadata">> => #{<<"foo">> => <<"bar">>}}}}),
     {DecodedLegacy, _Context} = unmarshal({event, undefined}, LegacyEvent, C),
     ModernizedBinary = marshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, DecodedLegacy),
     Decoded = unmarshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, ModernizedBinary),
@@ -387,7 +387,7 @@ created_v2_3_decoding_test() ->
             ]},
             LegacyChange
         ]},
-    C = make_legacy_context(#{ctx => #{<<"com.rbkmoney.wapi">> => #{<<"metadata">> => #{<<"foo">> => <<"bar">>}}}}),
+    C = make_legacy_context(#{ctx => #{<<"com.valitydev.wapi">> => #{<<"metadata">> => #{<<"foo">> => <<"bar">>}}}}),
     {DecodedLegacy, _Context} = unmarshal({event, undefined}, LegacyEvent, C),
     ModernizedBinary = marshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, DecodedLegacy),
     Decoded = unmarshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, ModernizedBinary),
@@ -397,7 +397,7 @@ created_v2_3_decoding_test() ->
 created_v2_3_saved_metadata_decoding_test() ->
     AuxState = #{
         ctx => #{
-            <<"com.rbkmoney.wapi">> => #{
+            <<"com.valitydev.wapi">> => #{
                 <<"metadata">> => #{
                     <<"foo">> => <<"bar">>
                 }

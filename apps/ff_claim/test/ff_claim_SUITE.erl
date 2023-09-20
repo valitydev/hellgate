@@ -209,7 +209,7 @@ create_identity(Party) ->
     ID = genlib:unique(),
     ok = ff_identity_machine:create(
         #{id => ID, name => Name, party => Party, provider => <<"good-one">>},
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name, <<"owner">> => Party}}
+        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name, <<"owner">> => Party}}
     ),
     ID.
 

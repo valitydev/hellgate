@@ -21,14 +21,14 @@ services:
       limiter:
         condition: service_healthy
       shumway:
-        condition: service_healthy
+        condition: service_started
       bender:
         condition: service_healthy
     working_dir: $PWD
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-fdf5277
+    image: ghcr.io/valitydev/dominant:sha-486d2ef
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -58,7 +58,7 @@ services:
       machinegun:
         condition: service_healthy
       shumway:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: "/opt/limiter/bin/limiter ping"
       interval: 5s
@@ -66,8 +66,12 @@ services:
       retries: 20
 
   shumway:
-    image: docker.io/rbkmoney/shumway:44eb989065b27be619acd16b12ebdb2288b46c36
+    image: ghcr.io/valitydev/shumway:sha-658587c
     restart: unless-stopped
+    depends_on:
+      - shumway-db
+    ports:
+      - "8022"
     entrypoint:
       - java
       - -Xmx512m
@@ -76,18 +80,13 @@ services:
       - --spring.datasource.url=jdbc:postgresql://shumway-db:5432/shumway
       - --spring.datasource.username=postgres
       - --spring.datasource.password=postgres
-      - --management.metrics.export.statsd.enabled=false
-    depends_on:
-      shumway-db:
-        condition: service_healthy
+      - --management.endpoint.metrics.enabled=false
+      - --management.endpoint.prometheus.enabled=false
     healthcheck:
-      test: "curl http://localhost:8023/actuator/health"
-      interval: 5s
-      timeout: 1s
-      retries: 20
+      disable: true
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-18bba50
+    image: ghcr.io/valitydev/party-management:sha-21752a9
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
@@ -95,7 +94,7 @@ services:
       dominant:
         condition: service_started
       shumway:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: "/opt/party-management/bin/party-management ping"
       interval: 10s
@@ -115,14 +114,10 @@ services:
       retries: 10
 
   shumway-db:
-    image: docker.io/library/postgres:9.6
+    image: docker.io/library/postgres:13.10
+    ports:
+      - "5432"
     environment:
       - POSTGRES_DB=shumway
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - SERVICE_NAME=shumway-db
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5

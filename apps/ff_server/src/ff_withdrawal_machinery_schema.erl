@@ -422,7 +422,7 @@ created_v0_0_without_provider_migration_test() ->
         LegacyEvent,
         make_legacy_context(#{
             ctx => #{
-                <<"com.rbkmoney.wapi">> => #{
+                <<"com.valitydev.wapi">> => #{
                     <<"metadata">> => #{
                         <<"some key">> => <<"some val">>
                     }
@@ -490,7 +490,7 @@ created_v0_0_migration_test() ->
         LegacyEvent,
         make_legacy_context(#{
             ctx => #{
-                <<"com.rbkmoney.wapi">> => #{
+                <<"com.valitydev.wapi">> => #{
                     <<"metadata">> => #{
                         <<"some key">> => <<"some val">>
                     }
@@ -584,7 +584,7 @@ created_v0_1_migration_test() ->
         LegacyEvent,
         make_legacy_context(#{
             ctx => #{
-                <<"com.rbkmoney.wapi">> => #{
+                <<"com.valitydev.wapi">> => #{
                     <<"metadata">> => #{
                         <<"some key">> => <<"some val">>
                     }
@@ -744,7 +744,7 @@ created_v0_2_migration_test() ->
         LegacyEvent,
         make_legacy_context(#{
             ctx => #{
-                <<"com.rbkmoney.wapi">> => #{
+                <<"com.valitydev.wapi">> => #{
                     <<"metadata">> => #{
                         <<"some key">> => <<"some val">>
                     }
@@ -871,7 +871,7 @@ created_v0_3_migration_test() ->
         LegacyEvent,
         make_legacy_context(#{
             ctx => #{
-                <<"com.rbkmoney.wapi">> => #{
+                <<"com.valitydev.wapi">> => #{
                     <<"metadata">> => #{
                         <<"some key">> => <<"some val">>
                     }

@@ -319,6 +319,7 @@ do_validate_terms(CombinedTerms, PartyVarset, _Route, _RoutingContext) ->
     do(fun() ->
         #domain_WithdrawalProvisionTerms{
             allow = Allow,
+            global_allow = GAllow,
             currencies = CurrenciesSelector,
             %% PayoutMethodsSelector is useless for withdrawals
             %% so we can just ignore it
@@ -326,7 +327,8 @@ do_validate_terms(CombinedTerms, PartyVarset, _Route, _RoutingContext) ->
             cash_limit = CashLimitSelector
         } = CombinedTerms,
         valid = unwrap(validate_selectors_defined(CombinedTerms)),
-        valid = unwrap(validate_allow(Allow)),
+        valid = unwrap(validate_allow(global_allow, GAllow)),
+        valid = unwrap(validate_allow(allow, Allow)),
         valid = unwrap(validate_currencies(CurrenciesSelector, PartyVarset)),
         valid = unwrap(validate_cash_limit(CashLimitSelector, PartyVarset))
     end).
@@ -348,7 +350,7 @@ validate_selectors_defined(Terms) ->
             {error, terms_undefined}
     end.
 
-validate_allow(Constant) ->
+validate_allow(Type, Constant) ->
     case Constant of
         undefined ->
             {ok, valid};
@@ -357,7 +359,7 @@ validate_allow(Constant) ->
         {constant, false} ->
             {error, {terms_violation, terminal_forbidden}};
         Ambiguous ->
-            {error, {misconfiguration, {'Could not reduce predicate to a value', {allow, Ambiguous}}}}
+            {error, {misconfiguration, {'Could not reduce predicate to a value', {Type, Ambiguous}}}}
     end.
 
 -spec validate_currencies(currency_selector(), party_varset()) ->

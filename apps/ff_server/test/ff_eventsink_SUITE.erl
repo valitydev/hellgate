@@ -98,7 +98,7 @@ get_identity_events_ok(C) ->
             party => Party,
             provider => <<"good-one">>
         },
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name}}
+        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
     ),
 
     {ok, RawEvents} = ff_identity_machine:events(ID, {undefined, 1000}),
@@ -280,7 +280,7 @@ create_identity(Party, Name, ProviderID, _C) ->
     ID = genlib:unique(),
     ok = ff_identity_machine:create(
         #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name}}
+        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
     ),
     ID.
 

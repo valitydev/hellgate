@@ -172,7 +172,7 @@ fetch_entity_context(MachineID, MigrateContext) ->
             Data
     end.
 
-get_legacy_name(#{<<"com.rbkmoney.wapi">> := #{<<"name">> := Name}}) ->
+get_legacy_name(#{<<"com.valitydev.wapi">> := #{<<"name">> := Name}}) ->
     Name.
 
 -ifdef(TEST).
@@ -251,7 +251,7 @@ created_v0_decoding_test() ->
             ]},
             LegacyChange
         ]},
-    C = make_legacy_context(#{ctx => #{<<"com.rbkmoney.wapi">> => #{<<"name">> => <<"Name">>}}}),
+    C = make_legacy_context(#{ctx => #{<<"com.valitydev.wapi">> => #{<<"name">> => <<"Name">>}}}),
     {DecodedLegacy, _} = unmarshal({event, undefined}, LegacyEvent, C),
     ModernizedBinary = marshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, DecodedLegacy),
     {Decoded, _} = unmarshal({event, ?CURRENT_EVENT_FORMAT_VERSION}, ModernizedBinary, C),
@@ -450,7 +450,7 @@ created_v1_decoding_test() ->
                 "QYXJ0eUlECwACAAAACGdvb2Qtb25lCwADAAAABWNsYXNzCwAEAAAACkNvbnRyYWN0SUQLAAoAAA"
                 "AYMjAyMC0wNi0xOVQxNDoyOTowMy43NjJaDQALCwwAAAABAAAACHNvbWUga2V5CwAFAAAACHNvbWUgdmFsAAAAAA=="
             >>)},
-    C = make_legacy_context(#{ctx => #{<<"com.rbkmoney.wapi">> => #{<<"name">> => <<"Name">>}}}),
+    C = make_legacy_context(#{ctx => #{<<"com.valitydev.wapi">> => #{<<"name">> => <<"Name">>}}}),
     {DecodedLegacy, _} = unmarshal({event, 1}, LegacyEvent, C),
     ?assertEqual(Event, DecodedLegacy).
 

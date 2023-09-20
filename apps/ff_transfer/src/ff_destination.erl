@@ -335,7 +335,7 @@ v2_created_migration_test() ->
         }},
     {created, #{version := Version, metadata := Metadata}} = maybe_migrate(LegacyEvent, #{
         ctx => #{
-            <<"com.rbkmoney.wapi">> => #{
+            <<"com.valitydev.wapi">> => #{
                 <<"metadata">> => #{
                     <<"some key">> => <<"some val">>
                 }

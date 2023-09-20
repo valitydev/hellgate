@@ -204,7 +204,7 @@ create_identity(PartyID, ProviderID) ->
 create_identity(ID, Name, PartyID, ProviderID) ->
     ok = ff_identity_machine:create(
         #{id => ID, name => Name, party => PartyID, provider => ProviderID},
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name}}
+        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
     ),
     ID.
 
@@ -497,6 +497,10 @@ domain_config(Options) ->
                     ?ruleset(?PAYINST1_ROUTING_POLICIES + 32)
                 ),
                 delegate(
+                    condition(cost_in, {940000, <<"RUB">>}),
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 33)
+                ),
+                delegate(
                     {condition,
                         {payment_tool,
                             {bank_card, #domain_BankCardCondition{
@@ -675,6 +679,13 @@ domain_config(Options) ->
             ?ruleset(?PAYINST1_ROUTING_POLICIES + 32),
             {candidates, [
                 candidate({constant, true}, ?trm(3200))
+            ]}
+        ),
+
+        routing_ruleset(
+            ?ruleset(?PAYINST1_ROUTING_POLICIES + 33),
+            {candidates, [
+                candidate({constant, true}, ?trm(3300))
             ]}
         ),
 
@@ -1119,6 +1130,18 @@ domain_config(Options) ->
                 wallet = #domain_WalletProvisionTerms{
                     withdrawals = #domain_WithdrawalProvisionTerms{
                         allow = {condition, {category_is, ?cat(1)}}
+                    }
+                }
+            }
+        ),
+
+        ct_domain:withdrawal_terminal(
+            ?trm(3300),
+            ?prv(1),
+            #domain_ProvisionTermSet{
+                wallet = #domain_WalletProvisionTerms{
+                    withdrawals = #domain_WithdrawalProvisionTerms{
+                        global_allow = {constant, false}
                     }
                 }
             }

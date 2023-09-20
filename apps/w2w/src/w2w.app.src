@@ -14,5 +14,5 @@
         ff_transfer
     ]},
     {licenses, ["Apache 2.0"]},
-    {links, ["https://github.com/rbkmoney/fistful-server"]}
+    {links, ["https://github.com/valitydev/fistful-server"]}
 ]}.

@@ -40,7 +40,7 @@ get(Ns, Ctx) ->
     ff_map:find(Ns, Ctx).
 
 -spec try_get_legacy_metadata(context() | undefined) -> md() | undefined.
-try_get_legacy_metadata(#{<<"com.rbkmoney.wapi">> := #{<<"metadata">> := Metadata}}) ->
+try_get_legacy_metadata(#{<<"com.valitydev.wapi">> := #{<<"metadata">> := Metadata}}) ->
     Metadata;
 try_get_legacy_metadata(_) ->
     undefined.

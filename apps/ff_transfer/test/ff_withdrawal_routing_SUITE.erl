@@ -35,6 +35,7 @@
 -export([allow_route_test/1]).
 -export([not_allow_route_test/1]).
 -export([not_reduced_allow_route_test/1]).
+-export([not_global_allow_route_test/1]).
 -export([adapter_unreachable_route_test/1]).
 -export([adapter_unreachable_route_retryable_test/1]).
 -export([adapter_unreachable_quote_test/1]).
@@ -76,6 +77,7 @@ groups() ->
             allow_route_test,
             not_allow_route_test,
             not_reduced_allow_route_test,
+            not_global_allow_route_test,
             adapter_unreachable_route_test,
             adapter_unreachable_route_retryable_test,
             adapter_unreachable_quote_test,
@@ -167,6 +169,28 @@ not_allow_route_test(C) ->
 not_reduced_allow_route_test(C) ->
     Currency = <<"RUB">>,
     Cash = {930000, Currency},
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, C),
+    WithdrawalID = generate_id(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        body => Cash,
+        external_id => WithdrawalID
+    },
+    ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
+    ?assertMatch(
+        {failed, #{code := <<"no_route_found">>}},
+        await_final_withdrawal_status(WithdrawalID)
+    ).
+
+-spec not_global_allow_route_test(config()) -> test_return().
+not_global_allow_route_test(C) ->
+    Currency = <<"RUB">>,
+    Cash = {940000, Currency},
     #{
         wallet_id := WalletID,
         destination_id := DestinationID
@@ -374,7 +398,7 @@ create_identity(Party, Name, ProviderID, _C) ->
     ID = genlib:unique(),
     ok = ff_identity_machine:create(
         #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name}}
+        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
     ),
     ID.
 

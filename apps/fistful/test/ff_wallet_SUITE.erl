@@ -180,7 +180,7 @@ create_identity(Party, ProviderID, _C) ->
             party => Party,
             provider => ProviderID
         },
-        #{<<"com.rbkmoney.wapi">> => #{<<"name">> => Name}}
+        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
     ),
     ID.
 

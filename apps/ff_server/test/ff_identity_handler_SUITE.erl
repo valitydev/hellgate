@@ -82,7 +82,7 @@ create_identity_ok(_C) ->
     unblocked = Identity1#identity_IdentityState.blocking,
     Metadata = Identity1#identity_IdentityState.metadata,
     Ctx0 = Ctx#{
-        <<"com.rbkmoney.wapi">> => #{<<"name">> => Name}
+        <<"com.valitydev.wapi">> => #{<<"name">> => Name}
     },
     Ctx0 = ff_entity_context_codec:unmarshal(Identity1#identity_IdentityState.context),
     ok.
@@ -134,7 +134,7 @@ create_identity(EID, Name, PartyID, ProvID, Ctx, Metadata) ->
         metadata = Metadata
     },
     Context = ff_entity_context_codec:marshal(Ctx#{
-        <<"com.rbkmoney.wapi">> => #{<<"name">> => Name}
+        <<"com.valitydev.wapi">> => #{<<"name">> => Name}
     }),
     {ok, IdentityState} = call_api('Create', {Params, Context}),
     IdentityState.
