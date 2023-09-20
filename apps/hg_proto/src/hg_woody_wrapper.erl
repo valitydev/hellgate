@@ -36,7 +36,7 @@ call(ServiceName, Function, Args, Opts, Deadline) ->
         Request,
         Opts#{
             event_handler => {
-                scoper_woody_event_handler,
+                hg_woody_event_handler,
                 genlib_app:env(hellgate, scoper_event_handler_options, #{})
             }
         },

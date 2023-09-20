@@ -20,7 +20,12 @@
         bender_client,
         payproc_errors,
         erl_health,
-        limiter_proto
+        limiter_proto,
+        % OTEL deps
+        opentelemetry_api,
+        % Exporter must start _before_ main OTel app
+        opentelemetry_exporter,
+        opentelemetry
     ]},
     {env, []},
     {modules, []},
