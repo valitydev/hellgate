@@ -85,12 +85,12 @@
        {ref,"7f3183df279bc8181efe58dafd9cae164f495e6f"}},
   0},
  {<<"snowflake">>,
-  {git,"https://github.com/rbkmoney/snowflake.git",
+  {git,"https://github.com/valitydev/snowflake.git",
        {ref,"de159486ef40cec67074afe71882bdc7f7deab72"}},
   1},
  {<<"ssl_verify_fun">>,{pkg,<<"ssl_verify_fun">>,<<"1.1.6">>},2},
  {<<"thrift">>,
-  {git,"https://github.com/rbkmoney/thrift_erlang.git",
+  {git,"https://github.com/valitydev/thrift_erlang.git",
        {ref,"c280ff266ae1c1906fb0dcee8320bb8d8a4a3c75"}},
   1},
  {<<"tls_certificate_check">>,
@@ -99,7 +99,7 @@
  {<<"unicode_util_compat">>,{pkg,<<"unicode_util_compat">>,<<"0.7.0">>},2},
  {<<"woody">>,
   {git,"https://github.com/valitydev/woody_erlang.git",
-       {ref,"6f818c57e3b19f96260b1f968115c9bc5bcad4d2"}},
+       {ref,"037fc5713ccbf91b10ebd4346f986bb5b5d3bc1d"}},
   0}]}.
 [
 {pkg_hash,[
