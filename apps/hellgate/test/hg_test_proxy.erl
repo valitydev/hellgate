@@ -23,7 +23,7 @@ get_child_spec(Name, Module, IPStr, Port, Args) ->
         #{
             ip => IP,
             port => Port,
-            event_handler => {scoper_woody_event_handler, #{}},
+            event_handler => {hg_woody_event_handler, #{}},
             handlers => [{Path, {Service, {hg_woody_service_wrapper, Args#{handler => Module}}}}]
         }
     ).

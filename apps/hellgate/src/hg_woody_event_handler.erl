@@ -20,48 +20,54 @@ handle_event(
     Meta = #{service := Service, function := Function},
     Opts
 ) ->
-    _ = proc_span_start(
-        WoodySpanId, <<"client ", (atom_to_binary(Service))/binary, ":", (atom_to_binary(Function))/binary>>, #{
-            kind => ?SPAN_KIND_CLIENT
-        }
-    ),
+    SpanName = <<"client ", (atom_to_binary(Service))/binary, ":", (atom_to_binary(Function))/binary>>,
+    ok = proc_span_start(WoodySpanId, SpanName, #{kind => ?SPAN_KIND_CLIENT}),
     scoper_woody_event_handler:handle_event(Event, RpcID, Meta, Opts);
 handle_event(Event = ?EV_SERVICE_RESULT, RpcID = #{span_id := WoodySpanId}, Meta, Opts) ->
     scoper_woody_event_handler:handle_event(Event, RpcID, Meta, Opts),
-    _ = proc_span_end(WoodySpanId),
-    ok;
+    proc_span_end(WoodySpanId);
 handle_event(
     Event = ?EV_INVOKE_SERVICE_HANDLER,
     RpcID = #{span_id := WoodySpanId},
     Meta = #{service := Service, function := Function},
     Opts
 ) ->
-    _ = proc_span_start(
-        WoodySpanId, <<"server ", (atom_to_binary(Service))/binary, ":", (atom_to_binary(Function))/binary>>, #{
-            kind => ?SPAN_KIND_SERVER
-        }
-    ),
+    SpanName = <<"server ", (atom_to_binary(Service))/binary, ":", (atom_to_binary(Function))/binary>>,
+    ok = proc_span_start(WoodySpanId, SpanName, #{kind => ?SPAN_KIND_SERVER}),
     scoper_woody_event_handler:handle_event(Event, RpcID, Meta, Opts);
 handle_event(Event = ?EV_SERVICE_HANDLER_RESULT, RpcID = #{span_id := WoodySpanId}, Meta, Opts) ->
     scoper_woody_event_handler:handle_event(Event, RpcID, Meta, Opts),
-    _ = proc_span_end(WoodySpanId),
-    ok;
+    proc_span_end(WoodySpanId);
 handle_event(Event, RpcID, Meta, Opts) ->
     scoper_woody_event_handler:handle_event(Event, RpcID, Meta, Opts).
 
 %%
 
+-define(SPANS_STACK, 'spans_ctx_stack').
+
 proc_span_start(SpanKey, SpanName, Opts) ->
     Tracer = opentelemetry:get_application_tracer(?MODULE),
-    SpanCtx = otel_tracer:set_current_span(otel_tracer:start_span(Tracer, SpanName, Opts)),
-    _ = erlang:put({proc_span_ctx, SpanKey}, SpanCtx),
+    Ctx = otel_ctx:get_current(),
+    SpanCtx = otel_tracer:start_span(Ctx, Tracer, SpanName, Opts),
+    Ctx1 = record_current_span_ctx(SpanKey, SpanCtx, Ctx),
+    Ctx2 = otel_tracer:set_current_span(Ctx1, SpanCtx),
+    _ = otel_ctx:attach(Ctx2),
     ok.
 
+record_current_span_ctx(Key, SpanCtx, Ctx) ->
+    Stack = otel_ctx:get_value(Ctx, ?SPANS_STACK, []),
+    otel_ctx:set_value(Ctx, ?SPANS_STACK, [{Key, SpanCtx, otel_tracer:current_span_ctx(Ctx)} | Stack]).
+
 proc_span_end(SpanKey) ->
-    case erlang:erase({proc_span_ctx, SpanKey}) of
-        undefined ->
+    Ctx = otel_ctx:get_current(),
+    Stack = otel_ctx:get_value(Ctx, ?SPANS_STACK, []),
+    case lists:keytake(SpanKey, 1, Stack) of
+        false ->
             ok;
-        #span_ctx{} = SpanCtx ->
-            _ = otel_tracer:set_current_span(otel_span:end_span(SpanCtx, undefined)),
+        {value, {_Key, SpanCtx, ParentSpanCtx}, Stack1} ->
+            _ = otel_span:end_span(SpanCtx, undefined),
+            Ctx1 = otel_ctx:set_value(Ctx, ?SPANS_STACK, Stack1),
+            Ctx2 = otel_tracer:set_current_span(Ctx1, ParentSpanCtx),
+            _ = otel_ctx:attach(Ctx2),
             ok
     end.
