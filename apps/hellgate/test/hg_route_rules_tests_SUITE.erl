@@ -249,7 +249,8 @@ mock_party_management(SupPid) ->
                                 ?candidate({constant, true}, ?trm(1)),
                                 ?candidate({constant, true}, ?trm(2)),
                                 ?candidate({constant, true}, ?trm(3)),
-                                ?candidate({constant, true}, ?trm(4))
+                                ?candidate({constant, true}, ?trm(4)),
+                                ?candidate({constant, true}, ?trm(7))
                             ]}
                     }};
                 ('ComputeRoutingRuleset', {?ruleset(1), ?base_routing_rule_domain_revision, _}) ->
@@ -332,6 +333,13 @@ mock_party_management(SupPid) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = ?payment_terms#domain_PaymentsProvisionTerms{
                             allow = {constant, false}
+                        }
+                    }};
+                ('ComputeProviderTerminalTerms', {?prv(7), _, ?base_routing_rule_domain_revision, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                            allow = {constant, true},
+                            global_allow = {constant, false}
                         }
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(1), _, ?routing_with_risk_coverage_set_domain_revision, _}) ->
@@ -455,7 +463,8 @@ no_route_found_for_payment(_C) ->
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', cost}},
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
             {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
-            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}},
+            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}}
         ],
         RejectedRoutes1
     ),
@@ -474,7 +483,8 @@ no_route_found_for_payment(_C) ->
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', currency}},
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
             {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
-            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}},
+            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}}
         ],
         RejectedRoutes2
     ).
@@ -513,7 +523,8 @@ gather_route_success(_C) ->
         [
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
             {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
-            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}},
+            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}}
         ],
         RejectedRoutes
     ).
@@ -553,7 +564,8 @@ rejected_by_table_prohibitions(_C) ->
             {?prv(3), ?trm(3), {'RoutingRule', undefined}},
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', payment_tool}},
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
-            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}}
+            {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}},
+            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}}
         ],
         RejectedRoutes
     ),
@@ -620,11 +632,11 @@ ruleset_misconfig(_C) ->
 
 -spec routes_selected_for_low_risk_score(config()) -> test_return().
 routes_selected_for_low_risk_score(C) ->
-    routes_selected_with_risk_score(C, low, [?prv(1), ?prv(2), ?prv(3), ?prv(4)]).
+    routes_selected_with_risk_score(C, low, [?prv(1), ?prv(2), ?prv(3), ?prv(4), ?prv(7)]).
 
 -spec routes_selected_for_high_risk_score(config()) -> test_return().
 routes_selected_for_high_risk_score(C) ->
-    routes_selected_with_risk_score(C, high, [?prv(2), ?prv(3), ?prv(4)]).
+    routes_selected_with_risk_score(C, high, [?prv(2), ?prv(3), ?prv(4), ?prv(7)]).
 
 routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     Currency = ?cur(<<"RUB">>),
@@ -879,6 +891,7 @@ construct_domain_fixture() ->
         {terminal, ?trm(4)} => {terminal, ?terminal_obj(?trm(4), ?prv(4))},
         {terminal, ?trm(5)} => {terminal, ?terminal_obj(?trm(5), ?prv(5))},
         {terminal, ?trm(6)} => {terminal, ?terminal_obj(?trm(6), ?prv(6))},
+        {terminal, ?trm(7)} => {terminal, ?terminal_obj(?trm(7), ?prv(7))},
         {terminal, ?trm(11)} => {terminal, ?terminal_obj(?trm(11), ?prv(11))},
         {terminal, ?trm(12)} => {terminal, ?terminal_obj(?trm(12), ?prv(12))},
         {payment_institution, ?pinst(1)} =>
