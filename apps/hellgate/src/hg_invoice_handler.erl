@@ -74,6 +74,10 @@ handle_function_('Get', {InvoiceID, #payproc_EventRange{'after' = AfterID, limit
     _ = set_invoicing_meta(InvoiceID),
     St = get_state(InvoiceID, AfterID, Limit),
     get_invoice_state(St);
+handle_function_('Get', {InvoiceID, undefined}, _Opts) ->
+    _ = set_invoicing_meta(InvoiceID),
+    St = get_state(InvoiceID),
+    get_invoice_state(St);
 handle_function_('GetEvents', {InvoiceID, Range}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
     get_public_history(InvoiceID, Range);
