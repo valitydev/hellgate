@@ -41,7 +41,7 @@ services:
       retries: 10
 
   machinegun:
-    image: machinegun:sha-7b11fae-epic-opentelemetry_adoption
+    image: ghcr.io/valitydev/machinegun:sha-7b11fae-epic-opentelemetry_adoption
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
