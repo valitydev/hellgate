@@ -27,7 +27,7 @@ services:
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-486d2ef
+    image: ghcr.io/valitydev/dominant:sha-92c427c
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:

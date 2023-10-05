@@ -2231,10 +2231,14 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     NewAction = hg_machine_action:set_timeout(0, Action),
     %% We need to rollback only current route.
     %% Previously used routes are supposed to have their limits already rolled back.
-    Routes = [get_route(St)],
+    Route = get_route(St),
+    Routes = [Route],
     _ = rollback_payment_limits(Routes, get_iter(St), St),
     _ = rollback_payment_cashflow(St),
-    case is_route_cascade_available(?failed(Failure), St) of
+    Revision = get_payment_revision(St),
+    ProviderRef = hg_routing:provider_ref(Route),
+    #domain_Provider{cascade_behaviour = Behaviour} = hg_domain:get(Revision, {provider, ProviderRef}),
+    case is_route_cascade_available(Behaviour, ?failed(Failure), St) of
         true -> process_routing(NewAction, St);
         false -> {done, {[?payment_status_changed(?failed(Failure))], NewAction}}
     end;
@@ -3660,21 +3664,54 @@ get_party_client() ->
     Context = hg_context:get_party_client_context(HgContext),
     {Client, Context}.
 
-is_route_cascade_available(?failed(OperationFailure), #st{routes = AttemptedRoutes} = St) ->
-    is_failure_cascade_trigger(OperationFailure) andalso
+is_route_cascade_available(
+    Behaviour, ?failed(OperationFailure), #st{routes = AttemptedRoutes, sessions = Sessions} = St
+) ->
+    %% We don't care what type of UserInteraction was initiated, as long as there was none
+    UserInteractions = hg_session:collect_user_interactions(maps:values(Sessions)),
+    FailureTrigger =
+        is_failure_cascade_enabled(Behaviour) andalso
+            is_failure_cascade_trigger(Behaviour, OperationFailure),
+    UITrigger =
+        is_user_interaction_cascade_enabled(Behaviour) andalso
+            is_user_interaction_cascade_trigger(UserInteractions),
+    Trigger = FailureTrigger orelse UITrigger,
+    Trigger andalso
         %% For cascade viability we require at least one more route candidate
         %% provided by recent routing.
         length(get_candidate_routes(St)) > 1 andalso
         length(AttemptedRoutes) < get_routing_attempt_limit(St).
 
-is_failure_cascade_trigger({failure, Failure}) ->
-    failure_matches_any_transient(Failure, get_transient_errors_list());
-is_failure_cascade_trigger(_OtherFailure) ->
+is_failure_cascade_enabled(#domain_CascadeBehaviour{mapped_errors = #domain_CascadeOnMappedErrors{}}) ->
+    true;
+is_failure_cascade_enabled(_OtherBehaviour) ->
     false.
 
-get_transient_errors_list() ->
-    PaymentConfig = genlib_app:env(hellgate, payment, #{}),
-    maps:get(default_transient_errors, PaymentConfig, [<<"preauthorization_failed">>]).
+is_failure_cascade_trigger(
+    #domain_CascadeBehaviour{mapped_errors = #domain_CascadeOnMappedErrors{error_signatures = Signatures}},
+    {failure, Failure}
+) ->
+    failure_matches_any_transient(Failure, ordsets:to_list(Signatures));
+is_failure_cascade_trigger(
+    #domain_CascadeBehaviour{mapped_errors = undefined},
+    _Failure
+) ->
+    true;
+is_failure_cascade_trigger(_OtherBehaviour, _Failure) ->
+    false.
+
+%% User Interaction Cascade is enabled by default
+is_user_interaction_cascade_enabled(#domain_CascadeBehaviour{no_user_interaction = #domain_CascadeWhenNoUI{}}) ->
+    true;
+is_user_interaction_cascade_enabled(undefined) ->
+    true;
+is_user_interaction_cascade_enabled(_OtherBehaviour) ->
+    false.
+
+is_user_interaction_cascade_trigger([]) ->
+    true;
+is_user_interaction_cascade_trigger(_UserInteractions) ->
+    false.
 
 failure_matches_any_transient(Failure, TransientErrorsList) ->
     lists:any(
