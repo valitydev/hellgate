@@ -2236,7 +2236,7 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     _ = rollback_payment_limits(Routes, get_iter(St), St),
     _ = rollback_payment_cashflow(St),
     Revision = get_payment_revision(St),
-    ProviderRef = hg_routing:provider_ref(Route),
+    ProviderRef = get_route_provider(Route),
     #domain_Provider{cascade_behaviour = Behaviour} = hg_domain:get(Revision, {provider, ProviderRef}),
     case is_route_cascade_available(Behaviour, ?failed(Failure), St) of
         true -> process_routing(NewAction, St);
@@ -3668,7 +3668,7 @@ is_route_cascade_available(
     Behaviour, ?failed(OperationFailure), #st{routes = AttemptedRoutes, sessions = Sessions} = St
 ) ->
     %% We don't care what type of UserInteraction was initiated, as long as there was none
-    UserInteractions = hg_session:collect_user_interactions(maps:values(Sessions)),
+    UserInteractions = hg_session:collect_user_interactions(lists:flatten(maps:values(Sessions))),
     FailureTrigger =
         is_failure_cascade_enabled(Behaviour) andalso
             is_failure_cascade_trigger(Behaviour, OperationFailure),
