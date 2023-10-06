@@ -474,6 +474,31 @@ groups() ->
 
 -spec init_per_suite(config()) -> config().
 init_per_suite(C) ->
+    ok = application:set_env([
+        {opentelemetry, [
+            {span_processor, batch},
+            {traces_exporter, otlp},
+            % {traces_exporter, {otel_exporter_stdout, []}},
+            {sampler,
+                {parent_based, #{
+                    %% NOTE: Equivalent to 'always_on' trace root sampling
+                    root => {trace_id_ratio_based, 1.0},
+                    remote_parent_sampled => always_on,
+                    remote_parent_not_sampled => always_off,
+                    local_parent_sampled => always_on,
+                    local_parent_not_sampled => always_off
+                }}},
+            {resource, [
+                {service, #{name => <<"hellgate">>}}
+            ]}
+        ]},
+
+        {opentelemetry_exporter, [
+            {otlp_protocol, http_protobuf},
+            {otlp_endpoint, "http://jaeger:4318"}
+        ]}
+    ]),
+
     % _ = dbg:tracer(),
     % _ = dbg:p(all, c),
     % _ = dbg:tpl({'hg_invoice_payment', 'p', '_'}, x),
