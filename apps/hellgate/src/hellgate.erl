@@ -72,7 +72,7 @@ get_api_child_spec(MachineHandlers, Opts) ->
             event_handler => {hg_woody_event_handler, EventHandlerOpts},
             handlers => hg_machine:get_service_handlers(MachineHandlers, Opts) ++
                 [
-                    construct_service_handler(invoicing, hg_invoice, Opts),
+                    construct_service_handler(invoicing, hg_invoice_handler, Opts),
                     construct_service_handler(invoice_templating, hg_invoice_template, Opts),
                     construct_service_handler(customer_management, hg_customer, Opts),
                     construct_service_handler(recurrent_paytool, hg_recurrent_paytool, Opts),
