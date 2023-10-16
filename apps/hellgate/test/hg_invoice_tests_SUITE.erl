@@ -6172,7 +6172,7 @@ payment_cascade_fail_provider_error(C) ->
 
 -spec payment_cascade_fail_ui(config()) -> test_return().
 payment_cascade_fail_ui(_C) ->
-%%    TODO teach hg_dummy_provider how to fail after receiving user_interaction
+    %%    TODO teach hg_dummy_provider how to fail after receiving user_interaction
     ok.
 
 -spec payment_cascade_fail_wo_route_candidates(config()) -> test_return().
