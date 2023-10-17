@@ -2236,8 +2236,7 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     _ = rollback_payment_limits(Routes, get_iter(St), St),
     _ = rollback_payment_cashflow(St),
     Revision = get_payment_revision(St),
-    ProviderRef = get_route_provider(Route),
-    #domain_Provider{cascade_behaviour = Behaviour} = hg_domain:get(Revision, {provider, ProviderRef}),
+    Behaviour = get_route_cascade_behaviour(Route, Revision),
     case is_route_cascade_available(Behaviour, Route, ?failed(Failure), St) of
         true -> process_routing(NewAction, St);
         false -> {done, {[?payment_status_changed(?failed(Failure))], NewAction}}
@@ -3677,6 +3676,11 @@ is_route_cascade_available(
         %% provided by recent routing.
         length(get_candidate_routes(St)) > 1 andalso
         length(AttemptedRoutes) < get_routing_attempt_limit(St).
+
+get_route_cascade_behaviour(Route, Revision) ->
+    ProviderRef = get_route_provider(Route),
+    #domain_Provider{cascade_behaviour = Behaviour} = hg_domain:get(Revision, {provider, ProviderRef}),
+    Behaviour.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
