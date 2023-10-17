@@ -2238,7 +2238,7 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     Revision = get_payment_revision(St),
     ProviderRef = get_route_provider(Route),
     #domain_Provider{cascade_behaviour = Behaviour} = hg_domain:get(Revision, {provider, ProviderRef}),
-    case is_route_cascade_available(Behaviour, ?failed(Failure), St) of
+    case is_route_cascade_available(Behaviour, Route, ?failed(Failure), St) of
         true -> process_routing(NewAction, St);
         false -> {done, {[?payment_status_changed(?failed(Failure))], NewAction}}
     end;
@@ -3665,64 +3665,18 @@ get_party_client() ->
     {Client, Context}.
 
 is_route_cascade_available(
-    Behaviour, ?failed(OperationFailure), #st{routes = AttemptedRoutes, sessions = Sessions} = St
+    Behaviour,
+    Route,
+    ?failed(OperationFailure),
+    #st{routes = AttemptedRoutes, sessions = Sessions} = St
 ) ->
     %% We don't care what type of UserInteraction was initiated, as long as there was none
-    UserInteractions = hg_session:collect_user_interactions(lists:flatten(maps:values(Sessions))),
-    FailureTrigger =
-        is_failure_cascade_enabled(Behaviour) andalso
-            is_failure_cascade_trigger(Behaviour, OperationFailure),
-    UITrigger =
-        is_user_interaction_cascade_enabled(Behaviour) andalso
-            is_user_interaction_cascade_trigger(UserInteractions),
-    Trigger = FailureTrigger orelse UITrigger,
-    Trigger andalso
+    SessionsList = lists:flatten(maps:values(Sessions)),
+    hg_cascade:is_triggered(Behaviour, OperationFailure, Route, SessionsList) andalso
         %% For cascade viability we require at least one more route candidate
         %% provided by recent routing.
         length(get_candidate_routes(St)) > 1 andalso
         length(AttemptedRoutes) < get_routing_attempt_limit(St).
-
-is_failure_cascade_enabled(#domain_CascadeBehaviour{mapped_errors = #domain_CascadeOnMappedErrors{}}) ->
-    true;
-is_failure_cascade_enabled(_OtherBehaviour) ->
-    false.
-
-is_failure_cascade_trigger(
-    #domain_CascadeBehaviour{mapped_errors = #domain_CascadeOnMappedErrors{error_signatures = Signatures}},
-    {failure, Failure}
-) ->
-    failure_matches_any_transient(Failure, ordsets:to_list(Signatures));
-is_failure_cascade_trigger(
-    #domain_CascadeBehaviour{mapped_errors = undefined},
-    _Failure
-) ->
-    true;
-is_failure_cascade_trigger(_OtherBehaviour, _Failure) ->
-    false.
-
-%% User Interaction Cascade is enabled by default
-is_user_interaction_cascade_enabled(#domain_CascadeBehaviour{no_user_interaction = #domain_CascadeWhenNoUI{}}) ->
-    true;
-is_user_interaction_cascade_enabled(undefined) ->
-    true;
-is_user_interaction_cascade_enabled(_OtherBehaviour) ->
-    false.
-
-is_user_interaction_cascade_trigger([]) ->
-    true;
-is_user_interaction_cascade_trigger(_UserInteractions) ->
-    false.
-
-failure_matches_any_transient(Failure, TransientErrorsList) ->
-    lists:any(
-        fun(ExpectNotation) ->
-            payproc_errors:match_notation(Failure, fun
-                (Notation) when binary_part(Notation, {0, byte_size(ExpectNotation)}) =:= ExpectNotation -> true;
-                (_) -> false
-            end)
-        end,
-        TransientErrorsList
-    ).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -3813,69 +3767,6 @@ filter_out_attempted_routes_test_() ->
                         ]
                     }
                 )
-        )
-    ].
-
--spec failure_matches_any_transient_test_() -> [_].
-failure_matches_any_transient_test_() ->
-    TransientErrors = [
-        %% 'preauthorization_failed' with all sub failure codes
-        <<"preauthorization_failed">>,
-        %% only 'rejected_by_inspector:*' sub failure codes
-        <<"rejected_by_inspector:">>,
-        %% 'authorization_failed:whatsgoingon' with sub failure codes
-        <<"authorization_failed:whatsgoingon">>
-    ],
-    [
-        %% Does match
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"preauthorization_failed">>},
-                TransientErrors
-            )
-        ),
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"preauthorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
-                TransientErrors
-            )
-        ),
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"rejected_by_inspector">>, sub = #domain_SubFailure{code = <<"whatever">>}},
-                TransientErrors
-            )
-        ),
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"whatsgoingon">>}},
-                TransientErrors
-            )
-        ),
-        %% Does NOT match
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"no_route_found">>},
-                TransientErrors
-            )
-        ),
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"no_route_found">>, sub = #domain_SubFailure{code = <<"unknown">>}},
-                TransientErrors
-            )
-        ),
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"rejected_by_inspector">>},
-                TransientErrors
-            )
-        ),
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
-                TransientErrors
-            )
         )
     ].
 
