@@ -2231,10 +2231,13 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     NewAction = hg_machine_action:set_timeout(0, Action),
     %% We need to rollback only current route.
     %% Previously used routes are supposed to have their limits already rolled back.
-    Routes = [get_route(St)],
+    Route = get_route(St),
+    Routes = [Route],
     _ = rollback_payment_limits(Routes, get_iter(St), St),
     _ = rollback_payment_cashflow(St),
-    case is_route_cascade_available(?failed(Failure), St) of
+    Revision = get_payment_revision(St),
+    Behaviour = get_route_cascade_behaviour(Route, Revision),
+    case is_route_cascade_available(Behaviour, Route, ?failed(Failure), St) of
         true -> process_routing(NewAction, St);
         false -> {done, {[?payment_status_changed(?failed(Failure))], NewAction}}
     end;
@@ -3660,32 +3663,24 @@ get_party_client() ->
     Context = hg_context:get_party_client_context(HgContext),
     {Client, Context}.
 
-is_route_cascade_available(?failed(OperationFailure), #st{routes = AttemptedRoutes} = St) ->
-    is_failure_cascade_trigger(OperationFailure) andalso
+is_route_cascade_available(
+    Behaviour,
+    Route,
+    ?failed(OperationFailure),
+    #st{routes = AttemptedRoutes, sessions = Sessions} = St
+) ->
+    %% We don't care what type of UserInteraction was initiated, as long as there was none
+    SessionsList = lists:flatten(maps:values(Sessions)),
+    hg_cascade:is_triggered(Behaviour, OperationFailure, Route, SessionsList) andalso
         %% For cascade viability we require at least one more route candidate
         %% provided by recent routing.
         length(get_candidate_routes(St)) > 1 andalso
         length(AttemptedRoutes) < get_routing_attempt_limit(St).
 
-is_failure_cascade_trigger({failure, Failure}) ->
-    failure_matches_any_transient(Failure, get_transient_errors_list());
-is_failure_cascade_trigger(_OtherFailure) ->
-    false.
-
-get_transient_errors_list() ->
-    PaymentConfig = genlib_app:env(hellgate, payment, #{}),
-    maps:get(default_transient_errors, PaymentConfig, [<<"preauthorization_failed">>]).
-
-failure_matches_any_transient(Failure, TransientErrorsList) ->
-    lists:any(
-        fun(ExpectNotation) ->
-            payproc_errors:match_notation(Failure, fun
-                (Notation) when binary_part(Notation, {0, byte_size(ExpectNotation)}) =:= ExpectNotation -> true;
-                (_) -> false
-            end)
-        end,
-        TransientErrorsList
-    ).
+get_route_cascade_behaviour(Route, Revision) ->
+    ProviderRef = get_route_provider(Route),
+    #domain_Provider{cascade_behaviour = Behaviour} = hg_domain:get(Revision, {provider, ProviderRef}),
+    Behaviour.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -3776,69 +3771,6 @@ filter_out_attempted_routes_test_() ->
                         ]
                     }
                 )
-        )
-    ].
-
--spec failure_matches_any_transient_test_() -> [_].
-failure_matches_any_transient_test_() ->
-    TransientErrors = [
-        %% 'preauthorization_failed' with all sub failure codes
-        <<"preauthorization_failed">>,
-        %% only 'rejected_by_inspector:*' sub failure codes
-        <<"rejected_by_inspector:">>,
-        %% 'authorization_failed:whatsgoingon' with sub failure codes
-        <<"authorization_failed:whatsgoingon">>
-    ],
-    [
-        %% Does match
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"preauthorization_failed">>},
-                TransientErrors
-            )
-        ),
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"preauthorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
-                TransientErrors
-            )
-        ),
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"rejected_by_inspector">>, sub = #domain_SubFailure{code = <<"whatever">>}},
-                TransientErrors
-            )
-        ),
-        ?_assert(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"whatsgoingon">>}},
-                TransientErrors
-            )
-        ),
-        %% Does NOT match
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"no_route_found">>},
-                TransientErrors
-            )
-        ),
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"no_route_found">>, sub = #domain_SubFailure{code = <<"unknown">>}},
-                TransientErrors
-            )
-        ),
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"rejected_by_inspector">>},
-                TransientErrors
-            )
-        ),
-        ?_assertNot(
-            failure_matches_any_transient(
-                #domain_Failure{code = <<"authorization_failed">>, sub = #domain_SubFailure{code = <<"unknown">>}},
-                TransientErrors
-            )
         )
     ].
 
