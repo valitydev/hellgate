@@ -99,7 +99,7 @@ start_app(dmt_client = AppName) ->
                 memory => 52428800
             }},
             {woody_event_handlers, [
-                {hg_woody_event_handler, #{
+                {scoper_woody_event_handler, #{
                     event_handler_opts => #{
                         formatter_opts => #{
                             max_length => 1000
@@ -232,7 +232,7 @@ start_app(party_client = AppName) ->
                 options => #{
                     woody_client => #{
                         event_handler =>
-                            {hg_woody_event_handler, #{
+                            {scoper_woody_event_handler, #{
                                 event_handler_opts => #{
                                     formatter_opts => #{
                                         max_length => 1000

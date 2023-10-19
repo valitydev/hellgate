@@ -104,7 +104,7 @@ mock_services_(Services, SupPid) when is_pid(SupPid) ->
             WoodyOpts = #{
                 ip => IP,
                 port => 0,
-                event_handler => hg_woody_event_handler,
+                event_handler => scoper_woody_event_handler,
                 handlers => [mock_service_handler(Service)]
             },
             ChildSpec = woody_server:child_spec(ServerID, WoodyOpts),

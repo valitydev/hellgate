@@ -1361,6 +1361,7 @@ create_payment_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
 
 -spec payment_success_ruleset(config()) -> test_return().
 payment_success_ruleset(C) ->
+    SpanCtx = otel_tracer:start_span(opentelemetry:get_application_tracer(?MODULE), <<"TEST">>, #{}),
     PartyID = cfg(party_id_big_merch, C),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
@@ -1368,6 +1369,8 @@ payment_success_ruleset(C) ->
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
+
+otel_span:end_span(SpanCtx),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
