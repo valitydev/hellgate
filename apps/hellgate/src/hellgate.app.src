@@ -20,7 +20,10 @@
         bender_client,
         payproc_errors,
         erl_health,
-        limiter_proto
+        limiter_proto,
+        opentelemetry_api,
+        opentelemetry_exporter,
+        opentelemetry
     ]},
     {env, []},
     {modules, []},
