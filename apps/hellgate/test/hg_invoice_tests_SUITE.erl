@@ -194,6 +194,8 @@
 -export([payment_cascade_fail_wo_available_attempt_limit/1]).
 -export([payment_cascade_failures/1]).
 -export([payment_cascade_deadline_failures/1]).
+-export([payment_cascade_fail_provider_error/1]).
+-export([payment_cascade_fail_ui/1]).
 
 %%
 
@@ -466,7 +468,9 @@ groups() ->
             payment_big_cascade_success,
             payment_cascade_fail_wo_available_attempt_limit,
             payment_cascade_failures,
-            payment_cascade_deadline_failures
+            payment_cascade_deadline_failures,
+            payment_cascade_fail_provider_error,
+            payment_cascade_fail_ui
         ]}
     ].
 
@@ -698,6 +702,10 @@ init_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
         fun override_collect_cashflow/1
     ),
     init_per_testcase(C);
+init_per_testcase(payment_cascade_fail_provider_error, C) ->
+    override_domain_fixture(fun two_failing_routes_w_three_attempt_limits_new_behaviour/1, C);
+init_per_testcase(payment_cascade_fail_ui, C) ->
+    override_domain_fixture(fun routes_ruleset_w_failing_provider_fixture/1, C);
 init_per_testcase(_Name, C) ->
     init_per_testcase(C).
 
@@ -1693,6 +1701,65 @@ two_failing_routes_w_three_attempt_limits(Revision) ->
         }},
         mk_provider_w_term(?trm(999), <<"Not-Brominal #999">>, ?prv(999), <<"Duck Blocker #999">>, ProviderProto, #{
             <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_999">>
+        }),
+        mk_provider_w_term(?trm(998), <<"Not-Brominal #998">>, ?prv(998), <<"Duck Blocker #998">>, ProviderProto, #{
+            <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+            <<"override">> => <<"duckblocker_998">>
+        }),
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(2),
+            <<"2 routes with failing providers">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(999)),
+                ?candidate({constant, true}, ?trm(998))
+            ]}
+        )
+    ]).
+
+two_failing_routes_w_three_attempt_limits_new_behaviour(Revision) ->
+    Brovider =
+        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID4,
+                            upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
+                            domain_revision = Revision
+                        }
+                    ]}
+            }
+        },
+    ProviderProto = #domain_Provider{
+        name = <<"Provider Proto">>,
+        proxy = #domain_Proxy{
+            ref = ?prx(1),
+            additional = #{}
+        },
+        description = <<"No rubber ducks for you!">>,
+        abs_account = AbsAccount,
+        accounts = Accounts,
+        terms = Terms1,
+        cascade_behaviour = #domain_CascadeBehaviour{
+            mapped_errors = #domain_CascadeOnMappedErrors{
+                error_signatures = ordsets:from_list([<<"preauthorization_failed">>])
+            }
+        }
+    },
+    lists:flatten([
+        set_merchant_terms_attempt_limit(?trms(1), 3, Revision),
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = Brovider#domain_Provider{
+                terms = Terms1
+            }
+        }},
+        mk_provider_w_term(?trm(999), <<"Not-Brominal #999">>, ?prv(999), <<"Duck Blocker #999">>, ProviderProto, #{
+            <<"always_fail">> => <<"notpreauthorization_failed:card_blocked">>,
             <<"override">> => <<"duckblocker_999">>
         }),
         mk_provider_w_term(?trm(998), <<"Not-Brominal #998">>, ?prv(998), <<"Duck Blocker #998">>, ProviderProto, #{
@@ -6079,6 +6146,34 @@ payment_big_cascade_success(C) ->
     ),
     %% At the end of this scenario limit must be accounted only once.
     hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
+
+-spec payment_cascade_fail_provider_error(config()) -> test_return().
+payment_cascade_fail_provider_error(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {_Route1, _CashFlow1, _TrxID1, Failure1} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    %% And again
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure1}))) =
+        next_change(InvoiceID, Client),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
+
+-spec payment_cascade_fail_ui(config()) -> test_return().
+payment_cascade_fail_ui(_C) ->
+    %%    TODO teach hg_dummy_provider how to fail after receiving user_interaction
+    ok.
 
 -spec payment_cascade_fail_wo_route_candidates(config()) -> test_return().
 payment_cascade_fail_wo_route_candidates(C) ->

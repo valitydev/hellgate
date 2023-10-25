@@ -55,12 +55,14 @@
 -export([proxy_state/1]).
 -export([timings/1]).
 -export([repair_scenario/1]).
+-export([user_interaction/1]).
 
 %% API
 
 -export([set_repair_scenario/2]).
 -export([set_payment_info/2]).
 -export([set_trx_info/2]).
+-export([collect_user_interactions/1]).
 
 -export([create/0]).
 -export([deduce_activity/1]).
@@ -154,7 +156,22 @@ timings(T) ->
 repair_scenario(T) ->
     maps:get(repair_scenario, T, undefined).
 
+-spec user_interaction(t()) -> hg_maybe:maybe(interaction()).
+user_interaction(T) ->
+    maps:get(interaction, T, undefined).
+
 %% API
+
+-spec collect_user_interactions([t()]) -> [interaction()].
+collect_user_interactions(Ts) ->
+    genlib_list:compact(
+        lists:map(
+            fun(T) ->
+                user_interaction(T)
+            end,
+            Ts
+        )
+    ).
 
 -spec set_repair_scenario(repair_scenario(), t()) -> t().
 set_repair_scenario(Scenario, Session) ->
