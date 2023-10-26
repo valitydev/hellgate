@@ -329,7 +329,7 @@ handle_proxy_callback_result(
 apply_result(Result = {Events, _Action}, T) ->
     {Result, update_state_with(Events, T)}.
 
-handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, _Session) ->
+handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, Session) ->
     Events0 = [?session_finished(?session_succeeded())],
     Events1 =
         case Success of
@@ -338,7 +338,15 @@ handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, A
             #proxy_provider_Success{token = Token} ->
                 [?rec_token_acquired(Token) | Events0]
         end,
-    {Events1, Action};
+    Events2 =
+        case Success of
+            #proxy_provider_Success{changed_cost = undefined} ->
+                Events1;
+            #proxy_provider_Success{changed_cost = NewCost} ->
+                OldCost = get_cost_from(payment_info(Session)),
+                [?cash_changed(convert_to_domain_cash(OldCost), convert_to_domain_cash(NewCost)) | Events1]
+        end,
+    {Events2, Action};
 handle_proxy_intent(#proxy_provider_FinishIntent{status = {failure, Failure}}, Action, _Session) ->
     Events = [?session_finished(?session_failed({failure, Failure}))],
     {Events, Action};
@@ -450,3 +458,14 @@ accrue_timing(Name, Event, #{timestamp := Timestamp}, Session) ->
 mark_timing_event(Event, #{timestamp := Timestamp}, Session) ->
     Timings = get_session_timings(Session),
     set_session_timings(hg_timings:mark(Event, Timestamp, Timings), Session).
+
+convert_to_domain_cash(#proxy_provider_Cash{
+    amount = Amount,
+    currency = #domain_Currency{symbolic_code = Currency}
+}) ->
+    #domain_Cash{
+        amount = Amount,
+        currency = #domain_CurrencyRef{symbolic_code = Currency}
+    }.
+
+get_cost_from(#proxy_provider_PaymentInfo{payment = #proxy_provider_InvoicePayment{cost = Cost}}) -> Cost.
