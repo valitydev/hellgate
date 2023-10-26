@@ -16,7 +16,10 @@
         dmt_client,
         party_client,
         binbase_proto,
-        bender_client
+        bender_client,
+        opentelemetry_api,
+        opentelemetry_exporter,
+        opentelemetry
     ]},
     {env, []},
     {maintainers, []},
