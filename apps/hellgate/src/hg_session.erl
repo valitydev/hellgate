@@ -374,6 +374,8 @@ wrap_events(SessionEvents, Session) ->
 -spec wrap_event(target(), event()) -> wrapped_event().
 wrap_event(_Target, Event = ?rec_token_acquired(_Token)) ->
     Event;
+wrap_event(_Target, Event = ?cash_changed(_OldCost, _NewCost)) ->
+    Event;
 wrap_event(Target, SessionEvent) ->
     ?session_ev(Target, SessionEvent).
 
@@ -416,9 +418,11 @@ apply_event(?interaction_changed(UserInteraction, Status), Session, _Context) ->
             {UserInteraction, Session1} = maps:take(interaction, Session),
             Session1
     end;
-%% Ignore ?rec_token_acquired event cause it's easiest way to handle this
+%% Ignore ?rec_token_acquired and ?cash_changed events cause it's easiest way to handle this
 %% TODO maybe add this token to session state and remove it from payment state?
 apply_event(?rec_token_acquired(_Token), Session, _Context) ->
+    Session;
+apply_event(?cash_changed(_OldCost, _NewCost), Session, _Context) ->
     Session.
 
 create_session(#{target := Target, route := Route, invoice_id := InvoiceID, payment_id := PaymentID}) ->
