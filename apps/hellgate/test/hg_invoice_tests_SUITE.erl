@@ -68,6 +68,7 @@
 -export([payment_risk_score_check_timeout/1]).
 -export([invalid_payment_adjustment/1]).
 -export([payment_adjustment_success/1]).
+-export([payment_adjustment_w_amount_success/1]).
 -export([payment_adjustment_refunded_success/1]).
 -export([payment_adjustment_chargeback_success/1]).
 -export([payment_adjustment_captured_partial/1]).
@@ -324,6 +325,7 @@ groups() ->
         {adjustments, [], [
             invalid_payment_adjustment,
             payment_adjustment_success,
+            payment_adjustment_w_amount_success,
             payment_adjustment_refunded_success,
             payment_adjustment_chargeback_success,
             payment_adjustment_captured_partial,
@@ -641,6 +643,7 @@ end_per_group(_Group, _C) ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(Name, C) when
     Name == payment_adjustment_success;
+    Name == payment_adjustment_w_amount_success;
     Name == payment_adjustment_refunded_success;
     Name == payment_adjustment_chargeback_success;
     Name == payment_adjustment_captured_partial;
@@ -725,7 +728,15 @@ init_per_testcase(C) ->
     Client = hg_client_invoicing:start_link(ApiClient),
     ClientTpl = hg_client_invoice_templating:start_link(ApiClient),
     ok = hg_context:save(hg_context:create()),
-    [{client, Client}, {client_tpl, ClientTpl} | C].
+    [{client, Client}, {client_tpl, ClientTpl} | trace_testcase(C)].
+
+trace_testcase(C) ->
+    {Suite, Name} = proplists:get_value(current, ct:get_status()),
+    SpanName = iolist_to_binary([atom_to_binary(Suite), ":", atom_to_binary(Name), "/1"]),
+    SpanCtx = otel_tracer:start_span(opentelemetry:get_application_tracer(?MODULE), SpanName, #{kind => internal}),
+    %% NOTE This also puts otel context to process dictionary
+    _ = otel_tracer:set_current_span(SpanCtx),
+    [{span_ctx, SpanCtx} | C].
 
 -spec end_per_testcase(test_case_name(), config()) -> _.
 end_per_testcase(repair_fail_routing_succeeded, C) ->
@@ -735,6 +746,7 @@ end_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
     meck:unload(hg_cashflow_utils),
     end_per_testcase(default, C);
 end_per_testcase(_Name, C) ->
+    ok = maybe_end_trace(C),
     ok = hg_context:cleanup(),
     _ =
         case cfg(original_domain_revision, C) of
@@ -743,6 +755,15 @@ end_per_testcase(_Name, C) ->
             undefined ->
                 ok
         end.
+
+maybe_end_trace(C) ->
+    case lists:keyfind(span_ctx, 1, C) of
+        {span_ctx, SpanCtx} ->
+            otel_span:end_span(SpanCtx),
+            ok;
+        _ ->
+            ok
+    end.
 
 -spec invoice_creation_idempotency(config()) -> _ | no_return().
 invoice_creation_idempotency(C) ->
@@ -2464,6 +2485,61 @@ payment_adjustment_success(C) ->
 
     %% make an adjustment
     Params = make_adjustment_params(Reason = <<"imdrunk">>),
+    ?adjustment(AdjustmentID, ?adjustment_pending()) =
+        Adjustment =
+        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
+    Adjustment =
+        #domain_InvoicePaymentAdjustment{id = AdjustmentID, reason = Reason} =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
+    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+    ] = next_changes(InvoiceID, 2, Client),
+    %% verify that cash deposited correctly everywhere
+    #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
+    0 = MrcDiff = maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1),
+    -500 = PrvDiff = maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1),
+    SysDiff = MrcDiff - PrvDiff - 20,
+    SysDiff = maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1).
+
+-spec payment_adjustment_w_amount_success(config()) -> test_return().
+payment_adjustment_w_amount_success(C) ->
+    %% old cf :
+    %% merch - 4500   -> syst
+    %% prov  - 100000 -> merch
+    %% syst  - 2100   -> prov
+    %%
+    %% new cf :
+    %% merch - 4500   -> syst
+    %% prov  - 100000 -> merch
+    %% syst  - 1600   -> prov
+    %% syst  - 20     -> ext
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
+    %% start a healthy man's payment
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
+    %% update terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
+
+    %% make an adjustment
+    Params = make_adjustment_params(Reason = <<"imdrunk">>, undefined, 99900),
     ?adjustment(AdjustmentID, ?adjustment_pending()) =
         Adjustment =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
@@ -6477,14 +6553,15 @@ make_adjustment_params() ->
     make_adjustment_params(<<>>).
 
 make_adjustment_params(Reason) ->
-    make_adjustment_params(Reason, undefined).
+    make_adjustment_params(Reason, undefined, undefined).
 
-make_adjustment_params(Reason, Revision) ->
+make_adjustment_params(Reason, Revision, Amount) ->
     #payproc_InvoicePaymentAdjustmentParams{
         reason = Reason,
         scenario =
             {cash_flow, #domain_InvoicePaymentAdjustmentCashFlow{
-                domain_revision = Revision
+                domain_revision = Revision,
+                new_amount = Amount
             }}
     }.
 

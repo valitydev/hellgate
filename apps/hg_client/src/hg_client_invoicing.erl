@@ -116,11 +116,11 @@ stop(Client) ->
 
 -spec create(invoice_params(), pid()) -> invoice_state() | woody_error:business_error().
 create(InvoiceParams, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'Create', [InvoiceParams]})).
+    map_result_error(gen_server:call(Client, {call, 'Create', [InvoiceParams], otel_ctx:get_current()})).
 
 -spec create_with_tpl(invoice_params_tpl(), pid()) -> invoice_state() | woody_error:business_error().
 create_with_tpl(Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'CreateWithTemplate', [Params]})).
+    map_result_error(gen_server:call(Client, {call, 'CreateWithTemplate', [Params], otel_ctx:get_current()})).
 
 -spec get(invoice_id(), pid()) -> invoice_state() | woody_error:business_error().
 get(InvoiceID, Client) ->
@@ -128,44 +128,56 @@ get(InvoiceID, Client) ->
 
 -spec get(invoice_id(), pid(), event_range()) -> invoice_state() | woody_error:business_error().
 get(InvoiceID, Client, EventRange) ->
-    map_result_error(gen_server:call(Client, {call, 'Get', [InvoiceID, EventRange]})).
+    map_result_error(gen_server:call(Client, {call, 'Get', [InvoiceID, EventRange], otel_ctx:get_current()})).
 
 -spec fulfill(invoice_id(), binary(), pid()) -> ok | woody_error:business_error().
 fulfill(InvoiceID, Reason, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'Fulfill', [InvoiceID, Reason]})).
+    map_result_error(gen_server:call(Client, {call, 'Fulfill', [InvoiceID, Reason], otel_ctx:get_current()})).
 
 -spec rescind(invoice_id(), binary(), pid()) -> ok | woody_error:business_error().
 rescind(InvoiceID, Reason, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'Rescind', [InvoiceID, Reason]})).
+    map_result_error(gen_server:call(Client, {call, 'Rescind', [InvoiceID, Reason], otel_ctx:get_current()})).
 
 -spec repair(invoice_id(), [tuple()], tuple() | undefined, tuple() | undefined, pid()) ->
     ok | woody_error:business_error().
 repair(InvoiceID, Changes, Action, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'Repair', [InvoiceID, Changes, Action, Params]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'Repair', [InvoiceID, Changes, Action, Params], otel_ctx:get_current()})
+    ).
 
 -spec repair_scenario(invoice_id(), hg_invoice_repair:scenario(), pid()) -> ok | woody_error:business_error().
 repair_scenario(InvoiceID, Scenario, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'RepairWithScenario', [InvoiceID, Scenario]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'RepairWithScenario', [InvoiceID, Scenario], otel_ctx:get_current()})
+    ).
 
 -spec get_limit_values(invoice_id(), payment_id(), pid()) -> route_limit_context() | woody_error:business_error().
 get_limit_values(InvoiceID, PaymentID, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'GetPaymentRoutesLimitValues', [InvoiceID, PaymentID]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'GetPaymentRoutesLimitValues', [InvoiceID, PaymentID], otel_ctx:get_current()})
+    ).
 
 -spec start_payment(invoice_id(), payment_params(), pid()) -> payment_st() | woody_error:business_error().
 start_payment(InvoiceID, PaymentParams, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'StartPayment', [InvoiceID, PaymentParams]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'StartPayment', [InvoiceID, PaymentParams], otel_ctx:get_current()})
+    ).
 
 -spec register_payment(invoice_id(), register_payment_params(), pid()) -> payment() | woody_error:business_error().
 register_payment(InvoiceID, RegisterPaymentParams, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'RegisterPayment', [InvoiceID, RegisterPaymentParams]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'RegisterPayment', [InvoiceID, RegisterPaymentParams], otel_ctx:get_current()})
+    ).
 
 -spec get_payment(invoice_id(), payment_id(), pid()) -> payment_st() | woody_error:business_error().
 get_payment(InvoiceID, PaymentID, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'GetPayment', [InvoiceID, PaymentID]})).
+    map_result_error(gen_server:call(Client, {call, 'GetPayment', [InvoiceID, PaymentID], otel_ctx:get_current()})).
 
 -spec cancel_payment(invoice_id(), payment_id(), binary(), pid()) -> ok | woody_error:business_error().
 cancel_payment(InvoiceID, PaymentID, Reason, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'CancelPayment', [InvoiceID, PaymentID, Reason]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'CancelPayment', [InvoiceID, PaymentID, Reason], otel_ctx:get_current()})
+    ).
 
 -spec capture_payment(invoice_id(), payment_id(), binary(), pid()) -> ok | woody_error:business_error().
 capture_payment(InvoiceID, PaymentID, Reason, Client) ->
@@ -194,68 +206,99 @@ capture_payment(InvoiceID, PaymentID, Reason, Cash, Cart, Allocation, Client) ->
                 cart = Cart,
                 allocation = Allocation
             }
-        ]
+        ],
+        otel_ctx:get_current()
     },
     map_result_error(gen_server:call(Client, Call)).
 
 -spec create_chargeback(invoice_id(), payment_id(), chargeback_params(), pid()) ->
     chargeback() | woody_error:business_error().
 create_chargeback(InvoiceID, PaymentID, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'CreateChargeback', [InvoiceID, PaymentID, Params]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'CreateChargeback', [InvoiceID, PaymentID, Params], otel_ctx:get_current()})
+    ).
 
 -spec cancel_chargeback(invoice_id(), payment_id(), chargeback_id(), chargeback_cancel_params(), pid()) ->
     chargeback() | woody_error:business_error().
 cancel_chargeback(InvoiceID, PaymentID, ChargebackID, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'CancelChargeback', [InvoiceID, PaymentID, ChargebackID, Params]})).
+    map_result_error(
+        gen_server:call(
+            Client, {call, 'CancelChargeback', [InvoiceID, PaymentID, ChargebackID, Params], otel_ctx:get_current()}
+        )
+    ).
 
 -spec reject_chargeback(invoice_id(), payment_id(), chargeback_id(), chargeback_reject_params(), pid()) ->
     chargeback() | woody_error:business_error().
 reject_chargeback(InvoiceID, PaymentID, ChargebackID, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'RejectChargeback', [InvoiceID, PaymentID, ChargebackID, Params]})).
+    map_result_error(
+        gen_server:call(
+            Client, {call, 'RejectChargeback', [InvoiceID, PaymentID, ChargebackID, Params], otel_ctx:get_current()}
+        )
+    ).
 
 -spec accept_chargeback(invoice_id(), payment_id(), chargeback_id(), chargeback_accept_params(), pid()) ->
     chargeback() | woody_error:business_error().
 accept_chargeback(InvoiceID, PaymentID, ChargebackID, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'AcceptChargeback', [InvoiceID, PaymentID, ChargebackID, Params]})).
+    map_result_error(
+        gen_server:call(
+            Client, {call, 'AcceptChargeback', [InvoiceID, PaymentID, ChargebackID, Params], otel_ctx:get_current()}
+        )
+    ).
 
 -spec reopen_chargeback(invoice_id(), payment_id(), chargeback_id(), chargeback_reopen_params(), pid()) ->
     chargeback() | woody_error:business_error().
 reopen_chargeback(InvoiceID, PaymentID, ChargebackID, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'ReopenChargeback', [InvoiceID, PaymentID, ChargebackID, Params]})).
+    map_result_error(
+        gen_server:call(
+            Client, {call, 'ReopenChargeback', [InvoiceID, PaymentID, ChargebackID, Params], otel_ctx:get_current()}
+        )
+    ).
 
 -spec get_payment_chargeback(invoice_id(), payment_id(), chargeback_id(), pid()) ->
     refund() | woody_error:business_error().
 get_payment_chargeback(InvoiceID, PaymentID, ChargebackID, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'GetPaymentChargeback', [InvoiceID, PaymentID, ChargebackID]})).
+    map_result_error(
+        gen_server:call(
+            Client, {call, 'GetPaymentChargeback', [InvoiceID, PaymentID, ChargebackID], otel_ctx:get_current()}
+        )
+    ).
 
 -spec refund_payment(invoice_id(), payment_id(), refund_params(), pid()) -> refund() | woody_error:business_error().
 refund_payment(InvoiceID, PaymentID, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'RefundPayment', [InvoiceID, PaymentID, Params]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'RefundPayment', [InvoiceID, PaymentID, Params], otel_ctx:get_current()})
+    ).
 
 -spec refund_payment_manual(invoice_id(), payment_id(), refund_params(), pid()) ->
     refund() | woody_error:business_error().
 refund_payment_manual(InvoiceID, PaymentID, Params, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'CreateManualRefund', [InvoiceID, PaymentID, Params]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'CreateManualRefund', [InvoiceID, PaymentID, Params], otel_ctx:get_current()})
+    ).
 
 -spec get_payment_refund(invoice_id(), payment_id(), refund_id(), pid()) -> refund() | woody_error:business_error().
 get_payment_refund(InvoiceID, PaymentID, RefundID, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'GetPaymentRefund', [InvoiceID, PaymentID, RefundID]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'GetPaymentRefund', [InvoiceID, PaymentID, RefundID], otel_ctx:get_current()})
+    ).
 
 -spec create_payment_adjustment(invoice_id(), payment_id(), payment_adjustment_params(), pid()) ->
     payment_adjustment() | woody_error:business_error().
 create_payment_adjustment(InvoiceID, PaymentID, ID, Client) ->
     Args = [InvoiceID, PaymentID, ID],
-    map_result_error(gen_server:call(Client, {call, 'CreatePaymentAdjustment', Args})).
+    map_result_error(gen_server:call(Client, {call, 'CreatePaymentAdjustment', Args, otel_ctx:get_current()})).
 
 -spec get_payment_adjustment(invoice_id(), payment_id(), payment_adjustment_id(), pid()) ->
     payment_adjustment() | woody_error:business_error().
 get_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     Args = [InvoiceID, PaymentID, Params],
-    map_result_error(gen_server:call(Client, {call, 'GetPaymentAdjustment', Args})).
+    map_result_error(gen_server:call(Client, {call, 'GetPaymentAdjustment', Args, otel_ctx:get_current()})).
 
 -spec compute_terms(invoice_id(), party_revision_param(), pid()) -> term_set().
 compute_terms(InvoiceID, PartyRevision, Client) ->
-    map_result_error(gen_server:call(Client, {call, 'ComputeTerms', [InvoiceID, PartyRevision]})).
+    map_result_error(
+        gen_server:call(Client, {call, 'ComputeTerms', [InvoiceID, PartyRevision], otel_ctx:get_current()})
+    ).
 
 -define(DEFAULT_NEXT_EVENT_TIMEOUT, 5000).
 
@@ -267,7 +310,7 @@ pull_event(InvoiceID, Client) ->
 -spec pull_event(invoice_id(), timeout(), pid()) ->
     tuple() | timeout | woody_error:business_error().
 pull_event(InvoiceID, Timeout, Client) ->
-    gen_server:call(Client, {pull_event, InvoiceID, Timeout}, infinity).
+    gen_server:call(Client, {pull_event, InvoiceID, Timeout, otel_ctx:get_current()}, infinity).
 
 -spec pull_change(invoice_id(), fun((_Elem) -> boolean() | {'true', _Value}), timeout(), pid()) ->
     tuple() | timeout | woody_error:business_error().
@@ -278,7 +321,7 @@ pull_change(InvoiceID, FilterMapFun, PullTimeout, Client) ->
 pull_change_(InvoiceID, FilterMapFun, Deadline, Client) ->
     case erlang:monotonic_time(millisecond) of
         Time when Time < Deadline ->
-            case gen_server:call(Client, {pull_change, InvoiceID, Deadline - Time}, infinity) of
+            case gen_server:call(Client, {pull_change, InvoiceID, Deadline - Time, otel_ctx:get_current()}, infinity) of
                 {ok, Change} ->
                     case FilterMapFun(Change) of
                         true ->
@@ -321,13 +364,16 @@ init(ApiClient) ->
     {ok, #state{pollers = #{}, client = ApiClient}}.
 
 -spec handle_call(term(), callref(), state()) -> {reply, term(), state()} | {noreply, state()}.
-handle_call({call, Function, Args}, _From, St = #state{client = Client}) ->
+handle_call({call, Function, Args, OtelCtx}, _From, St = #state{client = Client}) ->
+    _ = otel_ctx:attach(OtelCtx),
     {Result, ClientNext} = hg_client_api:call(invoicing, Function, Args, Client),
     {reply, Result, St#state{client = ClientNext}};
-handle_call({pull_event, InvoiceID, Timeout}, _From, St) ->
+handle_call({pull_event, InvoiceID, Timeout, OtelCtx}, _From, St) ->
+    _ = otel_ctx:attach(OtelCtx),
     {Result, StNext} = handle_pull_event(InvoiceID, Timeout, St),
     {reply, Result, StNext};
-handle_call({pull_change, InvoiceID, Timeout}, _From, St) ->
+handle_call({pull_change, InvoiceID, Timeout, OtelCtx}, _From, St) ->
+    _ = otel_ctx:attach(OtelCtx),
     {Result, StNext} = handle_pull_change(InvoiceID, Timeout, St),
     {reply, Result, StNext};
 handle_call(Call, _From, State) ->
