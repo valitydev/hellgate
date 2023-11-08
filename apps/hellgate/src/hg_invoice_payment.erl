@@ -1497,10 +1497,13 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
     OldCashFlow = get_final_cashflow(St),
     VS = collect_validation_varset(St, Opts),
     Allocation = get_allocation(St),
+    {Payment1, PreludeEvents} = maybe_inject_new_cost_amount(
+        Payment, Params#payproc_InvoicePaymentAdjustmentParams.scenario
+    ),
     Context = #{
         provision_terms => get_provider_terminal_terms(Route, VS, NewRevision),
         route => Route,
-        payment => Payment,
+        payment => Payment1,
         timestamp => Timestamp,
         varset => VS,
         revision => NewRevision,
@@ -1519,8 +1522,22 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
+        PreludeEvents,
         St
     ).
+
+maybe_inject_new_cost_amount(
+    Payment,
+    {'cash_flow', #domain_InvoicePaymentAdjustmentCashFlow{new_amount = NewAmount}}
+) when NewAmount =/= undefined ->
+    OldCost = get_payment_cost(Payment),
+    NewCost = OldCost#domain_Cash{amount = NewAmount},
+    Payment1 = Payment#domain_InvoicePayment{cost = NewCost},
+    %% TODO When cash change event is implemented
+    %%{Payment1, [?cash_changed(OldCost, NewCost)]};
+    {Payment1, []};
+maybe_inject_new_cost_amount(Payment, _AdjustmentScenario) ->
+    {Payment, []}.
 
 -spec create_status_adjustment(
     hg_datetime:timestamp(),
@@ -1555,6 +1572,7 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
+        [],
         St
     ).
 
@@ -1667,6 +1685,7 @@ calculate_cashflow(PaymentInstitution, Context = #{route := Route, revision := R
     OldCashFlow :: final_cash_flow(),
     NewCashFlow :: final_cash_flow(),
     State :: adjustment_state(),
+    PreludeEvents :: events(),
     St :: st()
 ) -> {adjustment(), result()}.
 construct_adjustment(
@@ -1677,6 +1696,7 @@ construct_adjustment(
     OldCashFlow,
     NewCashFlow,
     State,
+    PreludeEvents,
     St
 ) ->
     ID = construct_adjustment_id(St),
@@ -1691,8 +1711,8 @@ construct_adjustment(
         new_cash_flow = NewCashFlow,
         state = State
     },
-    Event = ?adjustment_ev(ID, ?adjustment_created(Adjustment)),
-    {Adjustment, {[Event], hg_machine_action:instant()}}.
+    Events = PreludeEvents ++ [?adjustment_ev(ID, ?adjustment_created(Adjustment))],
+    {Adjustment, {Events, hg_machine_action:instant()}}.
 
 construct_adjustment_id(#st{adjustments = As}) ->
     erlang:integer_to_binary(length(As) + 1).

@@ -2509,18 +2509,33 @@ payment_adjustment_success(C) ->
 
 -spec payment_adjustment_w_amount_success(config()) -> test_return().
 payment_adjustment_w_amount_success(C) ->
-    %% old cf :
-    %% merch - 4500   -> syst
-    %% prov  - 100000 -> merch
-    %% syst  - 2100   -> prov
+    %% NOTE See share definitions macro
+    %% Old cashflow, `?share(21, 1000, operation_amount))` :
+    %%     TO | merch  | syst  | prov    | ext
+    %% FROM---|--------|-------|---------|-----
+    %% merch  |      0 |  4500 | -100000 |  0
+    %% syst   |  -4500 |     0 |    2100 |  0
+    %% prov   | 100000 | -2100 |       0 |  0
+    %% ext    |      0 |     0 |       0 |  0
     %%
-    %% new cf :
-    %% merch - 4500   -> syst
-    %% prov  - 100000 -> merch
-    %% syst  - 1600   -> prov
-    %% syst  - 20     -> ext
+    %% DIFF---|  95500 |  2400 |  -97900 |  0
+    %%
+    %% New (adjusted) cashflow, `?share(16, 1000, operation_amount))` :
+    %%     TO | merch  | syst  | prov    | ext
+    %% FROM---|--------|-------|---------|-----
+    %% merch  |      0 |  9000 | -200000 |  0
+    %% syst   |  -9000 |     0 |    3200 | 20
+    %% prov   | 200000 | -3200 |       0 |  0
+    %% ext    |      0 |   -20 |       0 |  0
+    %%
+    %% DIFF---| 191000 |  5780 | -196800 | 20
+
     Client = cfg(client, C),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
+
+    OriginalAmount = 100000,
+    NewAmount = 200000,
+
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), OriginalAmount, C),
     %% start a healthy man's payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
@@ -2535,11 +2550,12 @@ payment_adjustment_w_amount_success(C) ->
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
+
     %% update terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
 
     %% make an adjustment
-    Params = make_adjustment_params(Reason = <<"imdrunk">>, undefined, 99900),
+    Params = make_adjustment_params(Reason = <<"imdrunk">>, undefined, NewAmount),
     ?adjustment(AdjustmentID, ?adjustment_pending()) =
         Adjustment =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
@@ -2557,10 +2573,10 @@ payment_adjustment_w_amount_success(C) ->
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
-    0 = MrcDiff = maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1),
-    -500 = PrvDiff = maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1),
-    SysDiff = MrcDiff - PrvDiff - 20,
-    SysDiff = maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1).
+    %% NOTE See cashflow table
+    191000 - 95500 = maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1),
+    -196800 - (-97900) = maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1),
+    5780 - 2400 = maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1).
 
 -spec payment_adjustment_refunded_success(config()) -> test_return().
 payment_adjustment_refunded_success(C) ->
