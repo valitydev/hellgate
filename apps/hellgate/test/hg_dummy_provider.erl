@@ -343,10 +343,6 @@ process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
 process_payment(?processed(), <<"sleeping">>, PaymentInfo, CtxOpts, _) ->
     TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
     case get_payment_info_scenario(PaymentInfo) of
-        change_cash_increase ->
-            finish(success(PaymentInfo, get_payment_increased_cost(PaymentInfo)), mk_trx(TrxID, PaymentInfo));
-        change_cash_decrease ->
-            finish(success(PaymentInfo, get_payment_decreased_cost(PaymentInfo)), mk_trx(TrxID, PaymentInfo));
         unexpected_failure ->
             error(unexpected_failure);
         {temporary_unavailability, Scenario} ->
@@ -379,6 +375,10 @@ process_payment(
 ) when Capture =/= undefined ->
     TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
     case get_payment_info_scenario(PaymentInfo) of
+        change_cash_increase ->
+            finish(success(PaymentInfo, get_payment_increased_cost(PaymentInfo)), mk_trx(TrxID, PaymentInfo));
+        change_cash_decrease ->
+            finish(success(PaymentInfo, get_payment_decreased_cost(PaymentInfo)), mk_trx(TrxID, PaymentInfo));
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, TrxID);
         _ ->

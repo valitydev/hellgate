@@ -2186,18 +2186,19 @@ finish_session_processing(Activity, {Events0, Action}, Session, St0) ->
             NewAction = hg_machine_action:set_timeout(0, Action),
             InvoiceID = get_invoice_id(get_invoice(get_opts(St0))),
             St1 = collapse_changes(Events1, St0, #{invoice_id => InvoiceID}),
-            _ = case St1 of
-                #st{new_cash_was = true} ->
-                    %% Revert with St0 cause default rollback takes into account new cash
-                    %% We need to rollback only current route.
-                    %% Previously used routes are supposed to have their limits already rolled back.
-                    Route = get_route(St0),
-                    Routes = [Route],
-                    _ = rollback_payment_limits(Routes, get_iter(St0), St0),
-                    _ = rollback_payment_cashflow(St0);
-                _ ->
-                    ok
-            end,
+            _ =
+                case St1 of
+                    #st{new_cash_was = true} ->
+                        %% Revert with St0 cause default rollback takes into account new cash
+                        %% We need to rollback only current route.
+                        %% Previously used routes are supposed to have their limits already rolled back.
+                        Route = get_route(St0),
+                        Routes = [Route],
+                        _ = rollback_payment_limits(Routes, get_iter(St0), St0),
+                        _ = rollback_payment_cashflow(St0);
+                    _ ->
+                        ok
+                end,
             {next, {Events1, NewAction}};
         {finished, ?session_failed(Failure)} ->
             process_failure(Activity, Events1, Action, Failure, St0);
@@ -2235,9 +2236,8 @@ finalize_payment(Action, St) ->
 process_result(Action, St) ->
     process_result(get_activity(St), Action, St).
 
-process_result({payment, Activity}, Action, St0 = #st{new_cash = Cost}) when
-    Cost =/= undefined andalso
-        (Activity =:= processing_accounter orelse Activity =:= finalizing_accounter)
+process_result({payment, finalizing_accounter}, Action, St0 = #st{new_cash = Cost}) when
+    Cost =/= undefined
 ->
     %% Rebuild cashflow for new cost
     Payment0 = get_payment(St0),
@@ -2270,7 +2270,7 @@ process_result({payment, Activity}, Action, St0 = #st{new_cash = Cost}) when
         construct_payment_plan_id(St2),
         get_cashflow_plan(St2)
     ),
-    {done, {[?cash_flow_changed(FinalCashflow)], hg_machine_action:set_timeout(0, Action)}};
+    {next, {[?cash_flow_changed(FinalCashflow)], hg_machine_action:set_timeout(0, Action)}};
 process_result({payment, processing_accounter}, Action, St) ->
     Target = get_target(St),
     NewAction = get_action(Target, Action, St),
@@ -2643,11 +2643,13 @@ do_try_with_ids([ID | OtherIDs], Func) when is_function(Func, 1) ->
             do_try_with_ids(OtherIDs, Func)
     end.
 
-get_cashflow_plan(St = #st{
-    partial_cash_flow = PartialCashFlow,
-    new_cash_was = true,
-    new_cash_flow = NewCashFlow
-}) when PartialCashFlow =/= undefined ->
+get_cashflow_plan(
+    St = #st{
+        partial_cash_flow = PartialCashFlow,
+        new_cash_was = true,
+        new_cash_flow = NewCashFlow
+    }
+) when PartialCashFlow =/= undefined ->
     [
         {1, get_cashflow(St)},
         {2, hg_cashflow:revert(get_cashflow(St))},
@@ -2957,8 +2959,7 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
          || S <- [
                 cash_flow_building,
                 processing_capture,
-                processing_session,
-                finalizing_session
+                finalizing_accounter
             ]
         ],
         Change,
@@ -2969,9 +2970,7 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
         final_cash_flow = CashFlow
     },
     case Activity of
-        {payment, processing_session} ->
-            St#st{new_cash = undefined, new_cash_flow = CashFlow};
-        {payment, finalizing_session} ->
+        {payment, finalizing_accounter} ->
             St#st{new_cash = undefined, new_cash_flow = CashFlow};
         {payment, cash_flow_building} ->
             St#st{

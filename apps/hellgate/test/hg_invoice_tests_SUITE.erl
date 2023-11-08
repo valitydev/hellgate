@@ -2200,11 +2200,17 @@ payment_success_with_increased_cost(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_increase, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = execute_cash_changed_payment(InvoiceID, PaymentParams, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
-        [?payment_state(?payment_w_status(PaymentID, ?captured()))]
-    ) = hg_client_invoicing:get(InvoiceID, Client).
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = 42000 * 2, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ).
 
 -spec payment_success_with_decreased_cost(config()) -> test_return().
 payment_success_with_decreased_cost(C) ->
@@ -2212,11 +2218,33 @@ payment_success_with_decreased_cost(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_decrease, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = execute_cash_changed_payment(InvoiceID, PaymentParams, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
-        [?payment_state(?payment_w_status(PaymentID, ?captured()))]
-    ) = hg_client_invoicing:get(InvoiceID, Client).
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = 42000 div 2, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ).
+
+execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
+    PaymentID = hg_invoice_helper:process_payment(InvoiceID, PaymentParams, Client),
+    Cost = hg_invoice_helper:get_payment_cost(InvoiceID, PaymentID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
+    ] = next_changes(InvoiceID, 2, Client),
+    [
+        ?payment_ev(PaymentID, ?cash_changed(_, _)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, _, _), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?captured(Reason, Cost, _, _))),
+        ?invoice_status_changed(?invoice_paid())
+    ] = next_changes(InvoiceID, 5, Client),
+    PaymentID.
 
 -spec payment_fail_after_silent_callback(config()) -> _ | no_return().
 payment_fail_after_silent_callback(C) ->
