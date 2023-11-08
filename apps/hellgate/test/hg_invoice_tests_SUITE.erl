@@ -2573,10 +2573,17 @@ payment_adjustment_w_amount_success(C) ->
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
+
     %% NOTE See cashflow table
-    191000 - 95500 = maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1),
-    -196800 - (-97900) = maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1),
-    5780 - 2400 = maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1).
+    {OpDiffMrc, OpDiffSys, OpDiffPrv} = compute_operation_amount_diffs(
+        OriginalAmount, ?merchant_to_system_share_1, ?system_to_provider_share_initial, ?share(0, 100, operation_amount)
+    ),
+    {NewOpDiffMrc, NewOpDiffSys, NewOpDiffPrv} = compute_operation_amount_diffs(
+        NewAmount, ?merchant_to_system_share_1, ?system_to_provider_share_actual, ?system_to_external_fixed
+    ),
+    ?assertEqual(NewOpDiffMrc - OpDiffMrc, maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1)),
+    ?assertEqual(NewOpDiffPrv - OpDiffPrv, maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)),
+    ?assertEqual(NewOpDiffSys - OpDiffSys, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
 
 -spec payment_adjustment_refunded_success(config()) -> test_return().
 payment_adjustment_refunded_success(C) ->
@@ -2986,6 +2993,17 @@ update_payment_terms_cashflow(ProviderRef, CashFlow) ->
         }}
     ),
     ok.
+
+compute_operation_amount_share(Amount, Share) ->
+    Context = #{operation_amount => ?cash(Amount, <<"RUB">>)},
+    #domain_Cash{amount = ResultAmount} = hg_cashflow:compute_volume(Share, Context),
+    ResultAmount.
+
+compute_operation_amount_diffs(Amount, MrcSysShare, SysPrvShare, SysExtShare) ->
+    MrcSys = compute_operation_amount_share(Amount, MrcSysShare),
+    SysExt = compute_operation_amount_share(Amount, SysExtShare),
+    SysPrv = compute_operation_amount_share(Amount, SysPrvShare),
+    {Amount - MrcSys, MrcSys - SysPrv - SysExt, SysPrv - Amount}.
 
 construct_ta_context(Party, Shop, Route) ->
     hg_invoice_helper:construct_ta_context(Party, Shop, Route).
