@@ -763,7 +763,7 @@ end_per_testcase(_Name, C) ->
 maybe_end_trace(C) ->
     case lists:keyfind(span_ctx, 1, C) of
         {span_ctx, SpanCtx} ->
-            otel_span:end_span(SpanCtx),
+            _ = otel_span:end_span(SpanCtx),
             ok;
         _ ->
             ok
