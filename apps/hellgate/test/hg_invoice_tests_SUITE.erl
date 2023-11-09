@@ -2551,6 +2551,9 @@ payment_adjustment_w_amount_success(C) ->
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
 
+    ?payment_state(#domain_InvoicePayment{cost = OriginalCost}) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?assertEqual(?cash(OriginalAmount, <<"RUB">>), OriginalCost),
+
     %% update terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
 
@@ -2575,15 +2578,19 @@ payment_adjustment_w_amount_success(C) ->
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
 
     %% NOTE See cashflow table
+    ZeroShare = ?share(0, 100, operation_amount),
     {OpDiffMrc, OpDiffSys, OpDiffPrv} = compute_operation_amount_diffs(
-        OriginalAmount, ?merchant_to_system_share_1, ?system_to_provider_share_initial, ?share(0, 100, operation_amount)
+        OriginalAmount, ?merchant_to_system_share_1, ?system_to_provider_share_initial, ZeroShare
     ),
     {NewOpDiffMrc, NewOpDiffSys, NewOpDiffPrv} = compute_operation_amount_diffs(
         NewAmount, ?merchant_to_system_share_1, ?system_to_provider_share_actual, ?system_to_external_fixed
     ),
     ?assertEqual(NewOpDiffMrc - OpDiffMrc, maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1)),
     ?assertEqual(NewOpDiffPrv - OpDiffPrv, maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)),
-    ?assertEqual(NewOpDiffSys - OpDiffSys, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
+    ?assertEqual(NewOpDiffSys - OpDiffSys, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)),
+
+    ?payment_state(#domain_InvoicePayment{cost = NewCost}) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?assertEqual(?cash(NewAmount, <<"RUB">>), NewCost).
 
 -spec payment_adjustment_refunded_success(config()) -> test_return().
 payment_adjustment_refunded_success(C) ->
