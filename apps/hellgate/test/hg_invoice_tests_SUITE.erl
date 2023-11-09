@@ -2607,7 +2607,8 @@ payment_adjustment_w_amount_success(C) ->
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
 
-    ?payment_state(#domain_InvoicePayment{cost = OriginalCost}) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?payment_state(#domain_InvoicePayment{cost = OriginalCost}) =
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
     ?assertEqual(?cash(OriginalAmount, <<"RUB">>), OriginalCost),
 
     %% update terminal cashflow
@@ -2624,9 +2625,10 @@ payment_adjustment_w_amount_success(C) ->
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))) =
         next_change(InvoiceID, Client),
     [
+        ?payment_ev(PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))),
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
-    ] = next_changes(InvoiceID, 2, Client),
+    ] = next_changes(InvoiceID, 3, Client),
     %% verify that cash deposited correctly everywhere
     #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
@@ -2645,7 +2647,8 @@ payment_adjustment_w_amount_success(C) ->
     ?assertEqual(NewOpDiffPrv - OpDiffPrv, maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)),
     ?assertEqual(NewOpDiffSys - OpDiffSys, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)),
 
-    ?payment_state(#domain_InvoicePayment{cost = NewCost}) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?payment_state(#domain_InvoicePayment{cost = OriginalCost, changed_cost = NewCost}) =
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
     ?assertEqual(?cash(NewAmount, <<"RUB">>), NewCost).
 
 -spec payment_adjustment_refunded_success(config()) -> test_return().
