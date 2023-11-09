@@ -8,6 +8,7 @@
 -export([sub/2]).
 
 -type cash() :: dmsl_domain_thrift:'Cash'().
+-export_type([cash/0]).
 
 %% Simple arithmetics
 

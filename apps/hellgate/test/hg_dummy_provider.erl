@@ -76,6 +76,10 @@
     {success, #proxy_provider_Success{token = Token}}
 ).
 
+-define(success(Token, ChangedCash),
+    {success, #proxy_provider_Success{token = Token, changed_cost = ChangedCash}}
+).
+
 -define(recurrent_token_finish(Token),
     {finish, #proxy_provider_RecurrentTokenFinishIntent{
         status = {success, #proxy_provider_RecurrentTokenSuccess{token = Token}}
@@ -277,6 +281,12 @@ process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
             Tag = generate_tag(<<"payment">>),
             Uri = get_callback_url(),
             result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
+        change_cash_increase ->
+            %% simple workflow without 3DS
+            result(?sleep(0), <<"sleeping">>);
+        change_cash_decrease ->
+            %% simple workflow without 3DS
+            result(?sleep(0), <<"sleeping">>);
         no_preauth ->
             %% simple workflow without 3DS
             result(?sleep(0), <<"sleeping">>);
@@ -365,6 +375,10 @@ process_payment(
 ) when Capture =/= undefined ->
     TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
     case get_payment_info_scenario(PaymentInfo) of
+        change_cash_increase ->
+            finish(success(PaymentInfo, get_payment_increased_cost(PaymentInfo)), mk_trx(TrxID, PaymentInfo));
+        change_cash_decrease ->
+            finish(success(PaymentInfo, get_payment_decreased_cost(PaymentInfo)), mk_trx(TrxID, PaymentInfo));
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, TrxID);
         _ ->
@@ -554,6 +568,9 @@ respond(Response, CallbackResult) ->
     }.
 
 success(PaymentInfo) ->
+    success(PaymentInfo, undefined).
+
+success(PaymentInfo, ChangedCash) ->
     #proxy_provider_PaymentInfo{payment = #proxy_provider_InvoicePayment{make_recurrent = MakeRecurrent}} = PaymentInfo,
     Token =
         case MakeRecurrent of
@@ -562,7 +579,7 @@ success(PaymentInfo) ->
             Other when Other =:= false orelse Other =:= undefined ->
                 undefined
         end,
-    ?success(Token).
+    ?success(Token, ChangedCash).
 
 failure(Code) when is_atom(Code) ->
     failure(Code, unknown).
@@ -593,6 +610,19 @@ get_mobile_commerce(#proxy_provider_PaymentInfo{payment = Payment}) ->
 get_invoice_id(#proxy_provider_PaymentInfo{invoice = Invoice}) ->
     Invoice#proxy_provider_Invoice.id.
 
+get_payment_cost(
+    #proxy_provider_PaymentInfo{payment = #proxy_provider_InvoicePayment{cost = Cost}}
+) ->
+    Cost.
+
+get_payment_increased_cost(PaymentInfo) ->
+    Cost = #proxy_provider_Cash{amount = Amount} = get_payment_cost(PaymentInfo),
+    Cost#proxy_provider_Cash{amount = Amount * 2}.
+
+get_payment_decreased_cost(PaymentInfo) ->
+    Cost = #proxy_provider_Cash{amount = Amount} = get_payment_cost(PaymentInfo),
+    Cost#proxy_provider_Cash{amount = Amount div 2}.
+
 get_payment_info_scenario(
     #proxy_provider_PaymentInfo{payment = #proxy_provider_InvoicePayment{payment_resource = Resource}}
 ) ->
@@ -608,6 +638,10 @@ get_recurrent_paytool_scenario(#proxy_provider_RecurrentPaymentTool{payment_reso
     PaymentTool = get_payment_tool(PaymentResource),
     get_payment_tool_scenario(PaymentTool).
 
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"change_cash_increase">>}}) ->
+    change_cash_increase;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"change_cash_decrease">>}}) ->
+    change_cash_decrease;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"no_preauth">>}}) ->
     no_preauth;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"no_preauth_timeout">>}}) ->
@@ -671,6 +705,8 @@ get_payment_tool_scenario(
     | {mobile_commerce, failure}
     | {mobile_commerce, success}
     | preauth_3ds_offsite
+    | change_cash_increase
+    | change_cash_decrease
     | forbidden
     | unexpected_failure
     | unexpected_failure_no_trx
@@ -691,6 +727,8 @@ make_payment_tool(Code, PSys) when
         Code =:= no_preauth_timeout_failure orelse
         Code =:= no_preauth_suspend_default orelse
         Code =:= preauth_3ds_offsite orelse
+        Code =:= change_cash_increase orelse
+        Code =:= change_cash_decrease orelse
         Code =:= forbidden orelse
         Code =:= unexpected_failure orelse
         Code =:= unexpected_failure_when_suspended orelse

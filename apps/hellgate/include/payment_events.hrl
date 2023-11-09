@@ -58,6 +58,10 @@
     {invoice_payment_rec_token_acquired, #payproc_InvoicePaymentRecTokenAcquired{token = Token}}
 ).
 
+-define(cash_changed(OldCash, NewCash),
+    {invoice_payment_cash_changed, #payproc_InvoicePaymentCashChanged{old_cash = OldCash, new_cash = NewCash}}
+).
+
 -define(payment_capture_started(Data),
     {invoice_payment_capture_started, #payproc_InvoicePaymentCaptureStarted{
         data = Data
