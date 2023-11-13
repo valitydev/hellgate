@@ -5802,8 +5802,7 @@ init_route_cascading_group(C1) ->
         }
         | C1
     ],
-    _ = override_domain_fixture(fun cascade_fixture/2, C2),
-    C2.
+    override_domain_fixture(fun cascade_fixture/2, C2).
 
 init_per_cascade_case(payment_cascade_success, C) ->
     ShopID = cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_ID}, C),
