@@ -270,8 +270,8 @@ get_route(#st{routes = [Route | _AttemptedRoutes]}) ->
     Route.
 
 -spec get_iter(st()) -> pos_integer().
-get_iter(#st{routes = AttemptedRoutes, new_cash_was = true}) ->
-    length(AttemptedRoutes) * 100;
+get_iter(#st{routes = AttemptedRoutes, new_cash_provided = true}) ->
+    length(AttemptedRoutes) * 1000;
 get_iter(#st{routes = AttemptedRoutes}) ->
     length(AttemptedRoutes).
 
@@ -2188,7 +2188,7 @@ finish_session_processing(Activity, {Events0, Action}, Session, St0) ->
             St1 = collapse_changes(Events1, St0, #{invoice_id => InvoiceID}),
             _ =
                 case St1 of
-                    #st{new_cash_was = true} ->
+                    #st{new_cash_provided = true} ->
                         %% Revert with St0 cause default rollback takes into account new cash
                         %% We need to rollback only current route.
                         %% Previously used routes are supposed to have their limits already rolled back.
@@ -2236,7 +2236,7 @@ finalize_payment(Action, St) ->
 process_result(Action, St) ->
     process_result(get_activity(St), Action, St).
 
-process_result({payment, finalizing_accounter}, Action, St0 = #st{new_cash = Cost}) when
+process_result({payment, processing_accounter}, Action, St0 = #st{new_cash = Cost}) when
     Cost =/= undefined
 ->
     %% Rebuild cashflow for new cost
@@ -2646,7 +2646,7 @@ do_try_with_ids([ID | OtherIDs], Func) when is_function(Func, 1) ->
 get_cashflow_plan(
     St = #st{
         partial_cash_flow = PartialCashFlow,
-        new_cash_was = true,
+        new_cash_provided = true,
         new_cash_flow = NewCashFlow
     }
 ) when PartialCashFlow =/= undefined ->
@@ -2657,7 +2657,7 @@ get_cashflow_plan(
         {4, hg_cashflow:revert(PartialCashFlow)},
         {5, NewCashFlow}
     ];
-get_cashflow_plan(St = #st{new_cash_was = true, new_cash_flow = NewCashFlow}) ->
+get_cashflow_plan(St = #st{new_cash_provided = true, new_cash_flow = NewCashFlow}) ->
     [
         {1, get_cashflow(St)},
         {2, hg_cashflow:revert(get_cashflow(St))},
@@ -2959,7 +2959,7 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
          || S <- [
                 cash_flow_building,
                 processing_capture,
-                finalizing_accounter
+                processing_accounter
             ]
         ],
         Change,
@@ -2970,7 +2970,7 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
         final_cash_flow = CashFlow
     },
     case Activity of
-        {payment, finalizing_accounter} ->
+        {payment, processing_accounter} ->
             St#st{new_cash = undefined, new_cash_flow = CashFlow};
         {payment, cash_flow_building} ->
             St#st{
@@ -2989,10 +2989,10 @@ merge_change(Change = ?rec_token_acquired(Token), #st{} = St, Opts) ->
     _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
     St#st{recurrent_token = Token};
 merge_change(Change = ?cash_changed(_OldCash, NewCash), #st{} = St, Opts) ->
-    _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
+    _ = validate_transition([{payment, processing_session}], Change, St, Opts),
     Payment0 = get_payment(St),
     Payment1 = Payment0#domain_InvoicePayment{changed_cost = NewCash},
-    St#st{new_cash = NewCash, new_cash_was = true, payment = Payment1};
+    St#st{new_cash = NewCash, new_cash_provided = true, payment = Payment1};
 merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
     _ = validate_transition(
         [{payment, cash_flow_building}, {payment, processing_session}],

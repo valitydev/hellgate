@@ -2235,15 +2235,15 @@ execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
     Cost = hg_invoice_helper:get_payment_cost(InvoiceID, PaymentID, Client),
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
-        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
-    ] = next_changes(InvoiceID, 2, Client),
-    [
         ?payment_ev(PaymentID, ?cash_changed(_, _)),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started())),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
+    [
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, _, _), ?session_finished(?session_succeeded()))),
-        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?captured(Reason, Cost, _, _))),
         ?invoice_status_changed(?invoice_paid())
-    ] = next_changes(InvoiceID, 5, Client),
+    ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
 
 -spec payment_fail_after_silent_callback(config()) -> _ | no_return().
