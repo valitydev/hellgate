@@ -997,13 +997,13 @@ capture(St, Reason, Cost, Cart, AllocationPrototype, Opts) ->
     VS = collect_validation_varset(St, Opts),
     MerchantTerms = get_merchant_payments_terms(Opts, Revision, Timestamp, VS),
     CaptureCost = genlib:define(Cost, get_payment_cost(Payment)),
-    #domain_Invoice{allocation = Allocation} = get_invoice(Opts),
-    Allocation = genlib:define(maybe_allocation(AllocationPrototype, CaptureCost, MerchantTerms, Opts), Allocation),
+    #domain_Invoice{allocation = Allocation0} = get_invoice(Opts),
+    Allocation1 = genlib:define(maybe_allocation(AllocationPrototype, CaptureCost, MerchantTerms, Opts), Allocation0),
     case check_equal_capture_cost_amount(Cost, Payment) of
         true ->
-            total_capture(St, Reason, Cart, Allocation);
+            total_capture(St, Reason, Cart, Allocation1);
         false ->
-            partial_capture(St, Reason, Cost, Cart, Opts, MerchantTerms, Timestamp, Allocation)
+            partial_capture(St, Reason, Cost, Cart, Opts, MerchantTerms, Timestamp, Allocation1)
     end.
 
 maybe_allocation(undefined, _Cost, _MerchantTerms, _Opts) ->
