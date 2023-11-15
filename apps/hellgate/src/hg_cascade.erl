@@ -41,7 +41,7 @@ handle_trigger_check(negative_trigger) ->
     false.
 
 is_user_interaction_triggered(undefined, _, _) ->
-    not_trigger;
+    not_triggered;
 is_user_interaction_triggered(
     #domain_CascadeWhenNoUI{}, Route, Sessions
 ) ->
