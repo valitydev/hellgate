@@ -9,7 +9,7 @@
     candidate_routes :: undefined | [hg_routing:payment_route()],
     interim_payment_status :: undefined | hg_invoice_payment:payment_status(),
     new_cash :: undefined | hg_cash:cash(),
-    new_cash_was :: undefined | boolean(),
+    new_cash_provided :: undefined | boolean(),
     new_cash_flow :: undefined | hg_cashflow:final_cash_flow(),
     cash_flow :: undefined | hg_cashflow:final_cash_flow(),
     partial_cash_flow :: undefined | hg_cashflow:final_cash_flow(),
