@@ -2188,7 +2188,7 @@ finish_session_processing(Activity, {Events0, Action}, Session, St0) ->
             St1 = collapse_changes(Events1, St0, #{invoice_id => InvoiceID}),
             _ =
                 case St1 of
-                    #st{new_cash_provided = true} ->
+                    #st{new_cash_provided = true, activity = {payment, processing_accounter}} ->
                         %% Revert with St0 cause default rollback takes into account new cash
                         %% We need to rollback only current route.
                         %% Previously used routes are supposed to have their limits already rolled back.
