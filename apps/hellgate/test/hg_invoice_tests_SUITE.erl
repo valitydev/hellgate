@@ -701,14 +701,14 @@ init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
         check_limits,
         fun override_check_limits/4
     ),
-    init_per_testcase(Name, C);
+    init_per_testcase_(Name, C);
 init_per_testcase(Name = repair_fail_cash_flow_building_succeeded, C) ->
     meck:expect(
         hg_cashflow_utils,
         collect_cashflow,
         fun override_collect_cashflow/1
     ),
-    init_per_testcase(Name, C);
+    init_per_testcase_(Name, C);
 init_per_testcase(Name = payment_cascade_fail_provider_error, C) ->
     override_domain_fixture(fun two_failing_routes_w_three_attempt_limits_new_behaviour/1, Name, C);
 init_per_testcase(Name = payment_cascade_fail_ui, C) ->
