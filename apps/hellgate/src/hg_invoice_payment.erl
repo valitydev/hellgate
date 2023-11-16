@@ -1500,10 +1500,13 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
     OldCashFlow = get_final_cashflow(St),
     VS = collect_validation_varset(St, Opts),
     Allocation = get_allocation(St),
+    {Payment1, AdditionalEvents} = maybe_inject_new_cost_amount(
+        Payment, Params#payproc_InvoicePaymentAdjustmentParams.scenario
+    ),
     Context = #{
         provision_terms => get_provider_terminal_terms(Route, VS, NewRevision),
         route => Route,
-        payment => Payment,
+        payment => Payment1,
         timestamp => Timestamp,
         varset => VS,
         revision => NewRevision,
@@ -1522,8 +1525,20 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
+        AdditionalEvents,
         St
     ).
+
+maybe_inject_new_cost_amount(
+    Payment,
+    {'cash_flow', #domain_InvoicePaymentAdjustmentCashFlow{new_amount = NewAmount}}
+) when NewAmount =/= undefined ->
+    OldCost = get_payment_cost(Payment),
+    NewCost = OldCost#domain_Cash{amount = NewAmount},
+    Payment1 = Payment#domain_InvoicePayment{cost = NewCost},
+    {Payment1, [?cash_changed(OldCost, NewCost)]};
+maybe_inject_new_cost_amount(Payment, _AdjustmentScenario) ->
+    {Payment, []}.
 
 -spec create_status_adjustment(
     hg_datetime:timestamp(),
@@ -1558,6 +1573,7 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
+        [],
         St
     ).
 
@@ -1670,6 +1686,7 @@ calculate_cashflow(PaymentInstitution, Context = #{route := Route, revision := R
     OldCashFlow :: final_cash_flow(),
     NewCashFlow :: final_cash_flow(),
     State :: adjustment_state(),
+    AdditionalEvents :: events(),
     St :: st()
 ) -> {adjustment(), result()}.
 construct_adjustment(
@@ -1680,6 +1697,7 @@ construct_adjustment(
     OldCashFlow,
     NewCashFlow,
     State,
+    AdditionalEvents,
     St
 ) ->
     ID = construct_adjustment_id(St),
@@ -1694,8 +1712,8 @@ construct_adjustment(
         new_cash_flow = NewCashFlow,
         state = State
     },
-    Event = ?adjustment_ev(ID, ?adjustment_created(Adjustment)),
-    {Adjustment, {[Event], hg_machine_action:instant()}}.
+    Events = [?adjustment_ev(ID, ?adjustment_created(Adjustment)) | AdditionalEvents],
+    {Adjustment, {Events, hg_machine_action:instant()}}.
 
 construct_adjustment_id(#st{adjustments = As}) ->
     erlang:integer_to_binary(length(As) + 1).
@@ -2989,7 +3007,12 @@ merge_change(Change = ?rec_token_acquired(Token), #st{} = St, Opts) ->
     _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
     St#st{recurrent_token = Token};
 merge_change(Change = ?cash_changed(_OldCash, NewCash), #st{} = St, Opts) ->
-    _ = validate_transition([{payment, processing_session}], Change, St, Opts),
+    _ = validate_transition(
+        [{adjustment_new, latest_adjustment_id(St)}, {payment, processing_session}],
+        Change,
+        St,
+        Opts
+    ),
     Payment0 = get_payment(St),
     Payment1 = Payment0#domain_InvoicePayment{changed_cost = NewCash},
     St#st{new_cash = NewCash, new_cash_provided = true, payment = Payment1};
@@ -3232,6 +3255,12 @@ merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity},
         _ ->
             St2
     end.
+
+latest_adjustment_id(#st{adjustments = []}) ->
+    undefined;
+latest_adjustment_id(#st{adjustments = Adjustments}) ->
+    Adjustment = lists:last(Adjustments),
+    Adjustment#domain_InvoicePaymentAdjustment.id.
 
 get_routing_attempt_limit(
     St = #st{
