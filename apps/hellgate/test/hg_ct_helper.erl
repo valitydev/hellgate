@@ -315,11 +315,11 @@ start_apps(Apps) ->
         Apps
     ).
 
--type config() :: [{atom(), term()}].
+-type config() :: [{term(), term()}].
 -type test_case_name() :: atom().
 -type group_name() :: atom().
 
--spec cfg(atom(), config()) -> term().
+-spec cfg(term(), config()) -> term().
 cfg(Key, Config) ->
     case lists:keyfind(Key, 1, Config) of
         {Key, V} -> V;
