@@ -42,6 +42,7 @@
     make_wallet_payment_params/1,
     execute_payment/3,
     process_payment/3,
+    get_payment_cost/3,
     make_cash/1,
     make_cash/2,
     make_customer_w_rec_tool/4
@@ -293,6 +294,7 @@ await_payment_capture(InvoiceID, PaymentID, Reason, TrxID, Client) ->
             next_change(InvoiceID, Client)),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
+-spec get_payment_cost(_, _, _) -> _.
 get_payment_cost(InvoiceID, PaymentID, Client) ->
     #payproc_InvoicePayment{
         payment = #domain_InvoicePayment{cost = Cost}

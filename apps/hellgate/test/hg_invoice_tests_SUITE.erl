@@ -59,6 +59,8 @@
 -export([payments_w_bank_card_issuer_conditions/1]).
 -export([payments_w_bank_conditions/1]).
 -export([payment_success_on_second_try/1]).
+-export([payment_success_with_increased_cost/1]).
+-export([payment_success_with_decreased_cost/1]).
 -export([payment_fail_after_silent_callback/1]).
 -export([invoice_success_on_third_payment/1]).
 -export([party_revision_check/1]).
@@ -68,6 +70,7 @@
 -export([payment_risk_score_check_timeout/1]).
 -export([invalid_payment_adjustment/1]).
 -export([payment_adjustment_success/1]).
+-export([payment_adjustment_w_amount_success/1]).
 -export([payment_adjustment_refunded_success/1]).
 -export([payment_adjustment_chargeback_success/1]).
 -export([payment_adjustment_captured_partial/1]).
@@ -310,6 +313,8 @@ groups() ->
             payment_w_another_party_customer,
             payment_w_deleted_customer,
             payment_success_on_second_try,
+            payment_success_with_increased_cost,
+            payment_success_with_decreased_cost,
             payment_fail_after_silent_callback,
             payment_temporary_unavailability_retry_success,
             payment_temporary_unavailability_too_many_retries,
@@ -325,6 +330,7 @@ groups() ->
         {adjustments, [], [
             invalid_payment_adjustment,
             payment_adjustment_success,
+            payment_adjustment_w_amount_success,
             payment_adjustment_refunded_success,
             payment_adjustment_chargeback_success,
             payment_adjustment_captured_partial,
@@ -642,6 +648,7 @@ end_per_group(_Group, _C) ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(Name, C) when
     Name == payment_adjustment_success;
+    Name == payment_adjustment_w_amount_success;
     Name == payment_adjustment_refunded_success;
     Name == payment_adjustment_chargeback_success;
     Name == payment_adjustment_captured_partial;
@@ -652,43 +659,43 @@ init_per_testcase(Name, C) when
     Revision = hg_domain:head(),
     Fixture = get_payment_adjustment_fixture(Revision),
     _ = hg_domain:upsert(Fixture),
-    [{original_domain_revision, Revision} | init_per_testcase(C)];
-init_per_testcase(rounding_cashflow_volume, C) ->
-    override_domain_fixture(fun get_cashflow_rounding_fixture/2, C);
-init_per_testcase(payments_w_bank_card_issuer_conditions, C) ->
-    override_domain_fixture(fun payments_w_bank_card_issuer_conditions_fixture/2, C);
-init_per_testcase(payments_w_bank_conditions, C) ->
-    override_domain_fixture(fun payments_w_bank_conditions_fixture/2, C);
-init_per_testcase(payment_w_misconfigured_routing_failed, C) ->
-    override_domain_fixture(fun payment_w_misconfigured_routing_failed_fixture/2, C);
-init_per_testcase(ineligible_payment_partial_refund, C) ->
-    override_domain_fixture(fun(_, _) -> construct_term_set_for_refund_eligibility_time(1) end, C);
-init_per_testcase(invalid_permit_partial_capture_in_service, C) ->
-    override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/2, C);
-init_per_testcase(invalid_permit_partial_capture_in_provider, C) ->
-    override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/2, C);
-init_per_testcase(limit_hold_currency_error, C) ->
-    override_domain_fixture(fun patch_limit_config_w_invalid_currency/2, C);
-init_per_testcase(limit_hold_operation_not_supported, C) ->
-    override_domain_fixture(fun patch_limit_config_for_withdrawal/2, C);
-init_per_testcase(limit_hold_payment_tool_not_supported, C) ->
-    override_domain_fixture(fun patch_with_unsupported_payment_tool/2, C);
-init_per_testcase(limit_hold_two_routes_failure, C) ->
-    override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/2, C);
-init_per_testcase(repair_fail_routing_succeeded, C) ->
+    [{original_domain_revision, Revision} | init_per_testcase_(Name, C)];
+init_per_testcase(Name = rounding_cashflow_volume, C) ->
+    override_domain_fixture(fun get_cashflow_rounding_fixture/2, Name, C);
+init_per_testcase(Name = payments_w_bank_card_issuer_conditions, C) ->
+    override_domain_fixture(fun payments_w_bank_card_issuer_conditions_fixture/2, Name, C);
+init_per_testcase(Name = payments_w_bank_conditions, C) ->
+    override_domain_fixture(fun payments_w_bank_conditions_fixture/2, Name, C);
+init_per_testcase(Name = payment_w_misconfigured_routing_failed, C) ->
+    override_domain_fixture(fun payment_w_misconfigured_routing_failed_fixture/2, Name, C);
+init_per_testcase(Name = ineligible_payment_partial_refund, C) ->
+    override_domain_fixture(fun(_, _) -> construct_term_set_for_refund_eligibility_time(1) end, Name, C);
+init_per_testcase(Name = invalid_permit_partial_capture_in_service, C) ->
+    override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/2, Name, C);
+init_per_testcase(Name = invalid_permit_partial_capture_in_provider, C) ->
+    override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/2, Name, C);
+init_per_testcase(Name = limit_hold_currency_error, C) ->
+    override_domain_fixture(fun patch_limit_config_w_invalid_currency/2, Name, C);
+init_per_testcase(Name = limit_hold_operation_not_supported, C) ->
+    override_domain_fixture(fun patch_limit_config_for_withdrawal/2, Name, C);
+init_per_testcase(Name = limit_hold_payment_tool_not_supported, C) ->
+    override_domain_fixture(fun patch_with_unsupported_payment_tool/2, Name, C);
+init_per_testcase(Name = limit_hold_two_routes_failure, C) ->
+    override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/2, Name, C);
+init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
     meck:expect(
         hg_limiter,
         check_limits,
         fun override_check_limits/4
     ),
-    init_per_testcase(C);
-init_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
+    init_per_testcase_(Name, C);
+init_per_testcase(Name = repair_fail_cash_flow_building_succeeded, C) ->
     meck:expect(
         hg_cashflow_utils,
         collect_cashflow,
         fun override_collect_cashflow/1
     ),
-    init_per_testcase(C);
+    init_per_testcase_(Name, C);
 init_per_testcase(Name, C) ->
     GroupProps = cfg(tc_group_properties, C),
     C1 =
@@ -698,7 +705,7 @@ init_per_testcase(Name, C) ->
             _ ->
                 C
         end,
-    init_per_testcase(C1).
+    init_per_testcase_(Name, C1).
 
 override_check_limits(_, _, _, _) -> throw(unknown).
 -dialyzer({nowarn_function, override_check_limits/4}).
@@ -709,14 +716,24 @@ override_collect_cashflow(_) -> throw(unknown).
 override_domain_fixture(Fixture, C) ->
     Revision = hg_domain:head(),
     _ = hg_domain:upsert(Fixture(Revision, C)),
-    [{original_domain_revision, Revision} | init_per_testcase(C)].
+    [{original_domain_revision, Revision} | C].
 
-init_per_testcase(C) ->
+override_domain_fixture(Fixture, Name, C) ->
+    init_per_testcase_(Name, override_domain_fixture(Fixture, C)).
+
+init_per_testcase_(Name, C) ->
     ApiClient = hg_ct_helper:create_client(cfg(root_url, C)),
     Client = hg_client_invoicing:start_link(ApiClient),
     ClientTpl = hg_client_invoice_templating:start_link(ApiClient),
     ok = hg_context:save(hg_context:create()),
-    [{client, Client}, {client_tpl, ClientTpl} | C].
+    [{client, Client}, {client_tpl, ClientTpl} | trace_testcase(Name, C)].
+
+trace_testcase(Name, C) ->
+    SpanName = iolist_to_binary([atom_to_binary(?MODULE), ":", atom_to_binary(Name), "/1"]),
+    SpanCtx = otel_tracer:start_span(opentelemetry:get_application_tracer(?MODULE), SpanName, #{kind => internal}),
+    %% NOTE This also puts otel context to process dictionary
+    _ = otel_tracer:set_current_span(SpanCtx),
+    [{span_ctx, SpanCtx} | C].
 
 -spec end_per_testcase(test_case_name(), config()) -> _.
 end_per_testcase(repair_fail_routing_succeeded, C) ->
@@ -726,6 +743,7 @@ end_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
     meck:unload(hg_cashflow_utils),
     end_per_testcase(default, C);
 end_per_testcase(_Name, C) ->
+    ok = maybe_end_trace(C),
     ok = hg_context:cleanup(),
     _ =
         case cfg(original_domain_revision, C) of
@@ -734,6 +752,15 @@ end_per_testcase(_Name, C) ->
             undefined ->
                 ok
         end.
+
+maybe_end_trace(C) ->
+    case lists:keyfind(span_ctx, 1, C) of
+        {span_ctx, SpanCtx} ->
+            _ = otel_span:end_span(SpanCtx),
+            ok;
+        _ ->
+            ok
+    end.
 
 -spec invoice_creation_idempotency(config()) -> _ | no_return().
 invoice_creation_idempotency(C) ->
@@ -1864,6 +1891,55 @@ payment_success_on_second_try(C) ->
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
+-spec payment_success_with_increased_cost(config()) -> test_return().
+payment_success_with_increased_cost(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_increase, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentID = execute_cash_changed_payment(InvoiceID, PaymentParams, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = 42000 * 2, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ).
+
+-spec payment_success_with_decreased_cost(config()) -> test_return().
+payment_success_with_decreased_cost(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_decrease, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentID = execute_cash_changed_payment(InvoiceID, PaymentParams, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = 42000 div 2, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ).
+
+execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
+    PaymentID = hg_invoice_helper:start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = hg_invoice_helper:await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
+        ?payment_ev(PaymentID, ?cash_changed(_, _)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 5, Client),
+    PaymentID = hg_invoice_helper:await_payment_capture(InvoiceID, PaymentID, Client),
+    PaymentID.
+
 -spec payment_fail_after_silent_callback(config()) -> _ | no_return().
 payment_fail_after_silent_callback(C) ->
     Client = cfg(client, C),
@@ -2159,6 +2235,94 @@ payment_adjustment_success(C) ->
     -500 = PrvDiff = maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1),
     SysDiff = MrcDiff - PrvDiff - 20,
     SysDiff = maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1).
+
+-spec payment_adjustment_w_amount_success(config()) -> test_return().
+payment_adjustment_w_amount_success(C) ->
+    %% NOTE See share definitions macro
+    %% Old cashflow, `?share(21, 1000, operation_amount))` :
+    %%     TO | merch  | syst  | prov    | ext
+    %% FROM---|--------|-------|---------|-----
+    %% merch  |      0 |  4500 | -100000 |  0
+    %% syst   |  -4500 |     0 |    2100 |  0
+    %% prov   | 100000 | -2100 |       0 |  0
+    %% ext    |      0 |     0 |       0 |  0
+    %%
+    %% DIFF---|  95500 |  2400 |  -97900 |  0
+    %%
+    %% New (adjusted) cashflow, `?share(16, 1000, operation_amount))` :
+    %%     TO | merch  | syst  | prov    | ext
+    %% FROM---|--------|-------|---------|-----
+    %% merch  |      0 |  9000 | -200000 |  0
+    %% syst   |  -9000 |     0 |    3200 | 20
+    %% prov   | 200000 | -3200 |       0 |  0
+    %% ext    |      0 |   -20 |       0 |  0
+    %%
+    %% DIFF---| 191000 |  5780 | -196800 | 20
+
+    Client = cfg(client, C),
+
+    OriginalAmount = 100000,
+    NewAmount = 200000,
+
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), OriginalAmount, C),
+    %% start a healthy man's payment
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
+
+    ?payment_state(#domain_InvoicePayment{cost = OriginalCost}) =
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?assertEqual(?cash(OriginalAmount, <<"RUB">>), OriginalCost),
+
+    %% update terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
+
+    %% make an adjustment
+    Params = make_adjustment_params(Reason = <<"imdrunk">>, undefined, NewAmount),
+    ?adjustment(AdjustmentID, ?adjustment_pending()) =
+        Adjustment =
+        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
+    Adjustment =
+        #domain_InvoicePaymentAdjustment{id = AdjustmentID, reason = Reason} =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
+    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+    ] = next_changes(InvoiceID, 3, Client),
+    %% verify that cash deposited correctly everywhere
+    #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
+
+    %% NOTE See cashflow table
+    ZeroShare = ?share(0, 100, operation_amount),
+    {OpDiffMrc, OpDiffSys, OpDiffPrv} = compute_operation_amount_diffs(
+        OriginalAmount, ?merchant_to_system_share_1, ?system_to_provider_share_initial, ZeroShare
+    ),
+    {NewOpDiffMrc, NewOpDiffSys, NewOpDiffPrv} = compute_operation_amount_diffs(
+        NewAmount, ?merchant_to_system_share_1, ?system_to_provider_share_actual, ?system_to_external_fixed
+    ),
+    ?assertEqual(NewOpDiffMrc - OpDiffMrc, maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1)),
+    ?assertEqual(NewOpDiffPrv - OpDiffPrv, maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)),
+    ?assertEqual(NewOpDiffSys - OpDiffSys, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)),
+
+    ?payment_state(#domain_InvoicePayment{cost = OriginalCost, changed_cost = NewCost}) =
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?assertEqual(?cash(NewAmount, <<"RUB">>), NewCost).
 
 -spec payment_adjustment_refunded_success(config()) -> test_return().
 payment_adjustment_refunded_success(C) ->
@@ -2568,6 +2732,17 @@ update_payment_terms_cashflow(ProviderRef, CashFlow) ->
         }}
     ),
     ok.
+
+compute_operation_amount_share(Amount, Share) ->
+    Context = #{operation_amount => ?cash(Amount, <<"RUB">>)},
+    #domain_Cash{amount = ResultAmount} = hg_cashflow:compute_volume(Share, Context),
+    ResultAmount.
+
+compute_operation_amount_diffs(Amount, MrcSysShare, SysPrvShare, SysExtShare) ->
+    MrcSys = compute_operation_amount_share(Amount, MrcSysShare),
+    SysExt = compute_operation_amount_share(Amount, SysExtShare),
+    SysPrv = compute_operation_amount_share(Amount, SysPrvShare),
+    {Amount - MrcSys, MrcSys - SysPrv - SysExt, SysPrv - Amount}.
 
 construct_ta_context(Party, Shop, Route) ->
     hg_invoice_helper:construct_ta_context(Party, Shop, Route).
@@ -5734,7 +5909,7 @@ cascade_fixture(Revision, C) ->
 init_route_cascading_group(C1) ->
     PartyID = cfg(party_id, C1),
     PartyClient = cfg(party_client, C1),
-    _ = override_domain_fixture(fun cascade_fixture_pre_shop_create/2, C1),
+    _ = override_domain_fixture(fun cascade_fixture_pre_shop_create/2, undefined, C1),
     C2 = [
         {
             {shop_id, ?PAYMENT_CASCADE_SUCCESS_ID},
@@ -5802,7 +5977,7 @@ init_route_cascading_group(C1) ->
         }
         | C1
     ],
-    override_domain_fixture(fun cascade_fixture/2, C2).
+    override_domain_fixture(fun cascade_fixture/2, undefined, C2).
 
 init_per_cascade_case(payment_cascade_success, C) ->
     ShopID = cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_ID}, C),
@@ -6997,14 +7172,15 @@ make_adjustment_params() ->
     make_adjustment_params(<<>>).
 
 make_adjustment_params(Reason) ->
-    make_adjustment_params(Reason, undefined).
+    make_adjustment_params(Reason, undefined, undefined).
 
-make_adjustment_params(Reason, Revision) ->
+make_adjustment_params(Reason, Revision, Amount) ->
     #payproc_InvoicePaymentAdjustmentParams{
         reason = Reason,
         scenario =
             {cash_flow, #domain_InvoicePaymentAdjustmentCashFlow{
-                domain_revision = Revision
+                domain_revision = Revision,
+                new_amount = Amount
             }}
     }.
 

@@ -329,7 +329,7 @@ handle_proxy_callback_result(
 apply_result(Result = {Events, _Action}, T) ->
     {Result, update_state_with(Events, T)}.
 
-handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, _Session) ->
+handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, Session) ->
     Events0 = [?session_finished(?session_succeeded())],
     Events1 =
         case Success of
@@ -338,7 +338,15 @@ handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, A
             #proxy_provider_Success{token = Token} ->
                 [?rec_token_acquired(Token) | Events0]
         end,
-    {Events1, Action};
+    Events2 =
+        case Success of
+            #proxy_provider_Success{changed_cost = undefined} ->
+                Events1;
+            #proxy_provider_Success{changed_cost = NewCost} ->
+                OldCost = get_cost_from(payment_info(Session)),
+                [?cash_changed(convert_to_domain_cash(OldCost), convert_to_domain_cash(NewCost)) | Events1]
+        end,
+    {Events2, Action};
 handle_proxy_intent(#proxy_provider_FinishIntent{status = {failure, Failure}}, Action, _Session) ->
     Events = [?session_finished(?session_failed({failure, Failure}))],
     {Events, Action};
@@ -365,6 +373,8 @@ wrap_events(SessionEvents, Session) ->
 
 -spec wrap_event(target(), event()) -> wrapped_event().
 wrap_event(_Target, Event = ?rec_token_acquired(_Token)) ->
+    Event;
+wrap_event(_Target, Event = ?cash_changed(_OldCost, _NewCost)) ->
     Event;
 wrap_event(Target, SessionEvent) ->
     ?session_ev(Target, SessionEvent).
@@ -408,9 +418,11 @@ apply_event(?interaction_changed(UserInteraction, Status), Session, _Context) ->
             {UserInteraction, Session1} = maps:take(interaction, Session),
             Session1
     end;
-%% Ignore ?rec_token_acquired event cause it's easiest way to handle this
+%% Ignore ?rec_token_acquired and ?cash_changed events cause it's easiest way to handle this
 %% TODO maybe add this token to session state and remove it from payment state?
 apply_event(?rec_token_acquired(_Token), Session, _Context) ->
+    Session;
+apply_event(?cash_changed(_OldCost, _NewCost), Session, _Context) ->
     Session.
 
 create_session(#{target := Target, route := Route, invoice_id := InvoiceID, payment_id := PaymentID}) ->
@@ -450,3 +462,14 @@ accrue_timing(Name, Event, #{timestamp := Timestamp}, Session) ->
 mark_timing_event(Event, #{timestamp := Timestamp}, Session) ->
     Timings = get_session_timings(Session),
     set_session_timings(hg_timings:mark(Event, Timestamp, Timings), Session).
+
+convert_to_domain_cash(#proxy_provider_Cash{
+    amount = Amount,
+    currency = #domain_Currency{symbolic_code = Currency}
+}) ->
+    #domain_Cash{
+        amount = Amount,
+        currency = #domain_CurrencyRef{symbolic_code = Currency}
+    }.
+
+get_cost_from(#proxy_provider_PaymentInfo{payment = #proxy_provider_InvoicePayment{cost = Cost}}) -> Cost.

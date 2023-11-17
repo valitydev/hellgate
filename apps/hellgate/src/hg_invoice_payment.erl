@@ -270,6 +270,8 @@ get_route(#st{routes = [Route | _AttemptedRoutes]}) ->
     Route.
 
 -spec get_iter(st()) -> pos_integer().
+get_iter(#st{routes = AttemptedRoutes, new_cash_provided = true}) ->
+    length(AttemptedRoutes) * 1000;
 get_iter(#st{routes = AttemptedRoutes}) ->
     length(AttemptedRoutes).
 
@@ -937,24 +939,25 @@ collect_validation_varset(Party, Shop, Payment, VS) ->
 %%
 
 -spec construct_payment_plan_id(st()) -> payment_plan_id().
-construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}) ->
-    construct_payment_plan_id(get_invoice(Opts), Payment, Routes, normal).
+construct_payment_plan_id(St = #st{opts = Opts, payment = Payment}) ->
+    Iter = get_iter(St),
+    construct_payment_plan_id(get_invoice(Opts), Payment, Iter, normal).
 
 -spec construct_payment_plan_id(st(), legacy | normal) -> payment_plan_id().
-construct_payment_plan_id(#st{opts = Opts, payment = Payment, routes = Routes}, Mode) ->
-    construct_payment_plan_id(get_invoice(Opts), Payment, Routes, Mode).
+construct_payment_plan_id(St = #st{opts = Opts, payment = Payment}, Mode) ->
+    Iter = get_iter(St),
+    construct_payment_plan_id(get_invoice(Opts), Payment, Iter, Mode).
 
-construct_payment_plan_id(Invoice, Payment, _Routes, legacy) ->
+construct_payment_plan_id(Invoice, Payment, _Iter, legacy) ->
     hg_utils:construct_complex_id([
         get_invoice_id(Invoice),
         get_payment_id(Payment)
     ]);
-construct_payment_plan_id(Invoice, Payment, Routes, _Mode) ->
-    AttemptNum = length(Routes),
+construct_payment_plan_id(Invoice, Payment, Iter, _Mode) ->
     hg_utils:construct_complex_id([
         get_invoice_id(Invoice),
         get_payment_id(Payment),
-        integer_to_binary(AttemptNum)
+        integer_to_binary(Iter)
     ]).
 
 get_selector_value(Name, Selector) ->
@@ -1497,10 +1500,13 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
     OldCashFlow = get_final_cashflow(St),
     VS = collect_validation_varset(St, Opts),
     Allocation = get_allocation(St),
+    {Payment1, AdditionalEvents} = maybe_inject_new_cost_amount(
+        Payment, Params#payproc_InvoicePaymentAdjustmentParams.scenario
+    ),
     Context = #{
         provision_terms => get_provider_terminal_terms(Route, VS, NewRevision),
         route => Route,
-        payment => Payment,
+        payment => Payment1,
         timestamp => Timestamp,
         varset => VS,
         revision => NewRevision,
@@ -1519,8 +1525,20 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
+        AdditionalEvents,
         St
     ).
+
+maybe_inject_new_cost_amount(
+    Payment,
+    {'cash_flow', #domain_InvoicePaymentAdjustmentCashFlow{new_amount = NewAmount}}
+) when NewAmount =/= undefined ->
+    OldCost = get_payment_cost(Payment),
+    NewCost = OldCost#domain_Cash{amount = NewAmount},
+    Payment1 = Payment#domain_InvoicePayment{cost = NewCost},
+    {Payment1, [?cash_changed(OldCost, NewCost)]};
+maybe_inject_new_cost_amount(Payment, _AdjustmentScenario) ->
+    {Payment, []}.
 
 -spec create_status_adjustment(
     hg_datetime:timestamp(),
@@ -1555,6 +1573,7 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
+        [],
         St
     ).
 
@@ -1667,6 +1686,7 @@ calculate_cashflow(PaymentInstitution, Context = #{route := Route, revision := R
     OldCashFlow :: final_cash_flow(),
     NewCashFlow :: final_cash_flow(),
     State :: adjustment_state(),
+    AdditionalEvents :: events(),
     St :: st()
 ) -> {adjustment(), result()}.
 construct_adjustment(
@@ -1677,6 +1697,7 @@ construct_adjustment(
     OldCashFlow,
     NewCashFlow,
     State,
+    AdditionalEvents,
     St
 ) ->
     ID = construct_adjustment_id(St),
@@ -1691,8 +1712,8 @@ construct_adjustment(
         new_cash_flow = NewCashFlow,
         state = State
     },
-    Event = ?adjustment_ev(ID, ?adjustment_created(Adjustment)),
-    {Adjustment, {[Event], hg_machine_action:instant()}}.
+    Events = [?adjustment_ev(ID, ?adjustment_created(Adjustment)) | AdditionalEvents],
+    {Adjustment, {Events, hg_machine_action:instant()}}.
 
 construct_adjustment_id(#st{adjustments = As}) ->
     erlang:integer_to_binary(length(As) + 1).
@@ -2174,16 +2195,31 @@ process_session(Session0, St = #st{repair_scenario = Scenario}) ->
     finish_session_processing(get_activity(St), Result, Session3, St).
 
 -spec finish_session_processing(activity(), result(), hg_session:t(), st()) -> machine_result().
-finish_session_processing(Activity, {Events0, Action}, Session, St) ->
+finish_session_processing(Activity, {Events0, Action}, Session, St0) ->
     Events1 = hg_session:wrap_events(Events0, Session),
     case {hg_session:status(Session), hg_session:result(Session)} of
         {finished, ?session_succeeded()} ->
             TargetType = get_target_type(hg_session:target(Session)),
-            _ = maybe_notify_fault_detector(Activity, TargetType, finish, St),
+            _ = maybe_notify_fault_detector(Activity, TargetType, finish, St0),
             NewAction = hg_machine_action:set_timeout(0, Action),
+            InvoiceID = get_invoice_id(get_invoice(get_opts(St0))),
+            St1 = collapse_changes(Events1, St0, #{invoice_id => InvoiceID}),
+            _ =
+                case St1 of
+                    #st{new_cash_provided = true, activity = {payment, processing_accounter}} ->
+                        %% Revert with St0 cause default rollback takes into account new cash
+                        %% We need to rollback only current route.
+                        %% Previously used routes are supposed to have their limits already rolled back.
+                        Route = get_route(St0),
+                        Routes = [Route],
+                        _ = rollback_payment_limits(Routes, get_iter(St0), St0),
+                        _ = rollback_payment_cashflow(St0);
+                    _ ->
+                        ok
+                end,
             {next, {Events1, NewAction}};
         {finished, ?session_failed(Failure)} ->
-            process_failure(Activity, Events1, Action, Failure, St);
+            process_failure(Activity, Events1, Action, Failure, St0);
         _ ->
             {next, {Events1, Action}}
     end.
@@ -2218,6 +2254,41 @@ finalize_payment(Action, St) ->
 process_result(Action, St) ->
     process_result(get_activity(St), Action, St).
 
+process_result({payment, processing_accounter}, Action, St0 = #st{new_cash = Cost}) when
+    Cost =/= undefined
+->
+    %% Rebuild cashflow for new cost
+    Payment0 = get_payment(St0),
+    Payment1 = Payment0#domain_InvoicePayment{cost = Cost},
+    St1 = St0#st{payment = Payment1},
+    Opts = get_opts(St1),
+    Revision = get_payment_revision(St1),
+    Timestamp = get_payment_created_at(Payment0),
+    VS = collect_validation_varset(St1, Opts),
+    MerchantTerms = get_merchant_payments_terms(Opts, Revision, Timestamp, VS),
+    Route = get_route(St1),
+    ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
+    Context = #{
+        provision_terms => ProviderTerms,
+        merchant_terms => MerchantTerms,
+        route => Route,
+        payment => Payment1,
+        timestamp => Timestamp,
+        varset => VS,
+        revision => Revision
+    },
+    FinalCashflow = calculate_cashflow(Context, Opts),
+    %% Hold limits (only for chosen route) for new cashflow
+    {_PaymentInstitution, RouteVS, _Revision} = route_args(St1),
+    Routes = [hg_routing:from_payment_route(Route)],
+    _ = hold_limit_routes(Routes, RouteVS, get_iter(St1), St1),
+    %% Hold cashflow
+    St2 = St1#st{new_cash_flow = FinalCashflow},
+    _Clock = hg_accounting:plan(
+        construct_payment_plan_id(St2),
+        get_cashflow_plan(St2)
+    ),
+    {next, {[?cash_flow_changed(FinalCashflow)], hg_machine_action:set_timeout(0, Action)}};
 process_result({payment, processing_accounter}, Action, St) ->
     Target = get_target(St),
     NewAction = get_action(Target, Action, St),
@@ -2590,6 +2661,26 @@ do_try_with_ids([ID | OtherIDs], Func) when is_function(Func, 1) ->
             do_try_with_ids(OtherIDs, Func)
     end.
 
+get_cashflow_plan(
+    St = #st{
+        partial_cash_flow = PartialCashFlow,
+        new_cash_provided = true,
+        new_cash_flow = NewCashFlow
+    }
+) when PartialCashFlow =/= undefined ->
+    [
+        {1, get_cashflow(St)},
+        {2, hg_cashflow:revert(get_cashflow(St))},
+        {3, PartialCashFlow},
+        {4, hg_cashflow:revert(PartialCashFlow)},
+        {5, NewCashFlow}
+    ];
+get_cashflow_plan(St = #st{new_cash_provided = true, new_cash_flow = NewCashFlow}) ->
+    [
+        {1, get_cashflow(St)},
+        {2, hg_cashflow:revert(get_cashflow(St))},
+        {3, NewCashFlow}
+    ];
 get_cashflow_plan(St = #st{partial_cash_flow = PartialCashFlow}) when PartialCashFlow =/= undefined ->
     [
         {1, get_cashflow(St)},
@@ -2885,7 +2976,8 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
             {payment, S}
          || S <- [
                 cash_flow_building,
-                processing_capture
+                processing_capture,
+                processing_accounter
             ]
         ],
         Change,
@@ -2896,6 +2988,8 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
         final_cash_flow = CashFlow
     },
     case Activity of
+        {payment, processing_accounter} ->
+            St#st{new_cash = undefined, new_cash_flow = CashFlow};
         {payment, cash_flow_building} ->
             St#st{
                 cash_flow = CashFlow,
@@ -2912,6 +3006,16 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
 merge_change(Change = ?rec_token_acquired(Token), #st{} = St, Opts) ->
     _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
     St#st{recurrent_token = Token};
+merge_change(Change = ?cash_changed(_OldCash, NewCash), #st{} = St, Opts) ->
+    _ = validate_transition(
+        [{adjustment_new, latest_adjustment_id(St)}, {payment, processing_session}],
+        Change,
+        St,
+        Opts
+    ),
+    Payment0 = get_payment(St),
+    Payment1 = Payment0#domain_InvoicePayment{changed_cost = NewCash},
+    St#st{new_cash = NewCash, new_cash_provided = true, payment = Payment1};
 merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
     _ = validate_transition(
         [{payment, cash_flow_building}, {payment, processing_session}],
@@ -3151,6 +3255,12 @@ merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity},
         _ ->
             St2
     end.
+
+latest_adjustment_id(#st{adjustments = []}) ->
+    undefined;
+latest_adjustment_id(#st{adjustments = Adjustments}) ->
+    Adjustment = lists:last(Adjustments),
+    Adjustment#domain_InvoicePaymentAdjustment.id.
 
 get_routing_attempt_limit(
     St = #st{
