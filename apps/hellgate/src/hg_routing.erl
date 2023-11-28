@@ -119,6 +119,7 @@
 -export_type([payment_route/0]).
 -export_type([rejected_route/0]).
 -export_type([route_predestination/0]).
+-export_type([route_choice_context/0]).
 
 %% Route accessors
 
