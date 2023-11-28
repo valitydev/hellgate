@@ -783,12 +783,12 @@ gather_routes(PaymentInstitution, VS, Revision, St) ->
     of
         {ok, {Routes, RejectedRoutes}} ->
             lists:foldr(
-                fun(R, C) -> hg_fkn_routing:reject(rejected_route_found, R, C) end,
-                hg_fkn_routing:new(Routes),
+                fun(R, C) -> hg_routing:reject(rejected_route_found, R, C) end,
+                hg_routing:new_ctx(Routes),
                 RejectedRoutes
             );
         {error, {misconfiguration, _Reason} = Error} ->
-            hg_fkn_routing:set_error(Error, hg_fkn_routing:new())
+            hg_routing:set_error(Error, hg_routing:new_ctx())
     end.
 
 -spec check_risk_score(risk_score()) -> ok | {error, risk_score_is_too_high}.
@@ -2026,10 +2026,10 @@ process_routing(Action, St) ->
     case build_routing_context(PaymentInstitution, VS, Revision, St) of
         Ctx0 = #{error := Error} when Error =/= undefined ->
             ok = log_misconfigurations(Error),
-            ok = log_rejected_routes(no_route_found, hg_fkn_routing:all_rejected_routes(Ctx0), VS),
+            ok = log_rejected_routes(no_route_found, hg_routing:all_rejected_routes(Ctx0), VS),
             handle_choose_route_error(Error, [], St, Action);
         Ctx0 ->
-            Ctx1 = hg_fkn_routing:pipeline_guarded(
+            Ctx1 = hg_routing:pipeline_guarded(
                 Ctx0,
                 [
                     fun(Ctx) ->
@@ -2104,7 +2104,7 @@ build_routing_context(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
         {ok, PaymentRoute} ->
-            hg_fkn_routing:new([hg_routing:from_payment_route(PaymentRoute)]);
+            hg_routing:new_ctx([hg_routing:from_payment_route(PaymentRoute)]);
         undefined ->
             gather_routes(PaymentInstitution, VS, Revision, St)
     end.
@@ -2112,7 +2112,7 @@ build_routing_context(PaymentInstitution, VS, Revision, St) ->
 filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
     lists:foldr(
         fun(R, C) ->
-            hg_fkn_routing:reject_route(already_attmpted, already_attempted, hg_routing:from_payment_route(R), C)
+            hg_routing:reject_route(already_attmpted, already_attempted, hg_routing:from_payment_route(R), C)
         end,
         Ctx,
         AttemptedRoutes
@@ -2124,7 +2124,7 @@ filter_by_critical_score(Ctx, _Revision, _St) ->
 
 choose_route(Ctx = #{candidates := Routes}) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(Routes),
-    hg_fkn_routing:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
+    hg_routing:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
 
 handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
     do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
@@ -2571,7 +2571,7 @@ filter_routes_with_limit_hold(Ctx = #{candidates := Routes}, VS, Iter, St) ->
     {_Routes, RejectedRoutes} = hold_limit_routes(Routes, VS, Iter, St),
     lists:foldr(
         fun(R, C) ->
-            hg_fkn_routing:reject(limit_hold_reject, R, C)
+            hg_routing:reject(limit_hold_reject, R, C)
         end,
         Ctx,
         RejectedRoutes
@@ -2581,7 +2581,7 @@ filter_routes_by_limit_overflow(Ctx = #{candidates := Routes}, VS, St) ->
     {_Routes, RejectedRoutes} = get_limit_overflow_routes(Routes, VS, St),
     lists:foldr(
         fun(R, C) ->
-            hg_fkn_routing:reject(limit_overflow_reject, R, C)
+            hg_routing:reject(limit_overflow_reject, R, C)
         end,
         Ctx,
         RejectedRoutes
@@ -3911,7 +3911,7 @@ filter_attempted_routes_test_() ->
         ?_assertMatch(
             #{candidates := []},
             filter_attempted_routes(
-                hg_fkn_routing:new(),
+                hg_routing:new_ctx(),
                 #st{
                     activity = idle,
                     routes = [
@@ -3924,16 +3924,16 @@ filter_attempted_routes_test_() ->
             )
         ),
         ?_assertMatch(
-            #{candidates := []}, filter_attempted_routes(hg_fkn_routing:new(), #st{activity = idle, routes = []})
+            #{candidates := []}, filter_attempted_routes(hg_routing:new_ctx(), #st{activity = idle, routes = []})
         ),
         ?_assertMatch(
             #{candidates := [R1, R2, R3]},
-            filter_attempted_routes(hg_fkn_routing:new([R1, R2, R3]), #st{activity = idle, routes = []})
+            filter_attempted_routes(hg_routing:new_ctx([R1, R2, R3]), #st{activity = idle, routes = []})
         ),
         ?_assertMatch(
             #{candidates := [R1, R2]},
             filter_attempted_routes(
-                hg_fkn_routing:new([R1, R2, R3]),
+                hg_routing:new_ctx([R1, R2, R3]),
                 #st{
                     activity = idle,
                     routes = [
@@ -3948,7 +3948,7 @@ filter_attempted_routes_test_() ->
         ?_assertMatch(
             #{candidates := []},
             filter_attempted_routes(
-                hg_fkn_routing:new([R1, R2, R3]),
+                hg_routing:new_ctx([R1, R2, R3]),
                 #st{
                     activity = idle,
                     routes = [
