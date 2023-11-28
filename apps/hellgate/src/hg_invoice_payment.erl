@@ -2023,69 +2023,64 @@ process_routing(Action, St) ->
     %% предыдущего шага. То есть тот идёт на вход текущему.
 
     {PaymentInstitution, VS, Revision} = route_args(St),
-    case build_routing_context(PaymentInstitution, VS, Revision, St) of
+    case
+        hg_routing:process(hg_routing:new_ctx(), fun(_Ctx) ->
+            build_routing_context(PaymentInstitution, VS, Revision, St)
+        end)
+    of
         Ctx0 = #{error := Error} when Error =/= undefined ->
             ok = log_misconfigurations(Error),
             ok = log_rejected_routes(no_route_found, hg_routing:all_rejected_routes(Ctx0), VS),
             handle_choose_route_error(Error, [], St, Action);
         Ctx0 ->
-            Ctx1 = hg_routing:pipeline_guarded(
-                Ctx0,
-                [
-                    fun(Ctx) ->
-                        filter_attempted_routes(Ctx, St)
-                    end,
-                    fun(Ctx) ->
-                        %% Since this is routing step then current attempt is not yet accounted for in `St`.
-                        Iter = get_iter(St) + 1,
-                        filter_routes_with_limit_hold(Ctx, VS, Iter, St)
-                    end,
-                    fun(Ctx) ->
-                        filter_routes_by_limit_overflow(Ctx, VS, St)
-                    end,
-                    fun(Ctx) ->
-                        filter_by_critical_score(Ctx, Revision, St)
-                    end,
-                    fun(Ctx) ->
-                        choose_route(Ctx)
-                    end
-                ]
-            ),
+            Ctx1 = run_routing_decision_pipeline(Ctx0, Revision, VS, St),
             _ = [
                 log_rejected_routes(Group, RejectedRoutes, VS)
              || {Group, RejectedRoutes} <- maps:to_list(maps:get(rejections, Ctx0))
             ],
-            Events =
-                case Ctx1 of
-                    #{error := Error} when Error =/= undefined ->
-                        Failure = genlib:define(
-                            St#st.failure,
-                            construct_routing_failure(forbidden, genlib:format(Error))
-                        ),
-                        [Route | _] =
-                            OriginalCandidates =
-                            [hg_routing:to_payment_route(R) || R <- maps:get(candidates, Ctx0)],
-                        %% For protocol compatability we set choosen route in
-                        %% route_changed event. It doesn't influence cash_flow
-                        %% building because this step will be skipped. And all
-                        %% limit's 'hold' operations will be rolled back.
-                        %% For same purpose in cascade routing we use route from
-                        %% unfiltered list of originally resolved candidates.
-                        [
-                            ?route_changed(Route, ordsets:from_list(OriginalCandidates)),
-                            ?payment_rollback_started(Failure)
-                        ];
-                    #{choosen_route := ChoosenRoute, candidates := CandidateRoutes} ->
-                        ok = log_route_choice_meta(Ctx1, Revision),
-                        [
-                            ?route_changed(
-                                hg_routing:to_payment_route(ChoosenRoute),
-                                ordsets:from_list([hg_routing:to_payment_route(R) || R <- CandidateRoutes])
-                            )
-                        ]
-                end,
+            Events = produce_routing_events(Ctx1, Ctx0, Revision, St),
             {next, {Events, hg_machine_action:set_timeout(0, Action)}}
     end.
+
+run_routing_decision_pipeline(Ctx0, Revision, VS, St) ->
+    hg_routing:pipeline(
+        Ctx0,
+        [
+            fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
+            %% Since this is routing step then current attempt is not yet
+            %% accounted for in `St`.
+            fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St) end,
+            fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, St) end,
+            fun(Ctx) -> filter_by_critical_provider_status(Ctx, Revision, St) end,
+            fun choose_route/1
+        ]
+    ).
+
+produce_routing_events(#{error := Error}, PrevCtx, _Revision, St) when Error =/= undefined ->
+    Failure = genlib:define(
+        St#st.failure,
+        construct_routing_failure(forbidden, genlib:format(Error))
+    ),
+    [Route | _] =
+        OriginalCandidates =
+        [hg_routing:to_payment_route(R) || R <- hg_routing:candidates(PrevCtx)],
+    %% For protocol compatability we set choosen route in route_changed event.
+    %% It doesn't influence cash_flow building because this step will be
+    %% skipped. And all limit's 'hold' operations will be rolled back.
+    %% For same purpose in cascade routing we use route from unfiltered list of
+    %% originally resolved candidates.
+    [
+        ?route_changed(Route, ordsets:from_list(OriginalCandidates)),
+        ?payment_rollback_started(Failure)
+    ];
+produce_routing_events(Ctx, _PrevCtx, Revision, _St) ->
+    ok = log_route_choice_meta(Ctx, Revision),
+    [
+        ?route_changed(
+            hg_routing:to_payment_route(maps:get(choosen_route, Ctx)),
+            ordsets:from_list([hg_routing:to_payment_route(R) || R <- hg_routing:candidates(Ctx)])
+        )
+    ].
 
 route_args(St) ->
     Opts = get_opts(St),
@@ -2118,12 +2113,23 @@ filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
         AttemptedRoutes
     ).
 
-filter_by_critical_score(Ctx, _Revision, _St) ->
-    %% TODO Not implemented yet
-    Ctx.
+filter_by_critical_provider_status(Ctx, _Revision, _St) ->
+    lists:foldr(
+        fun
+            ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
+                hg_routing:reject_route(unavailability, AvailabilityStatus, R, C);
+            ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
+                hg_routing:reject_route(conversion_lacking, ConversionStatus, R, C);
+            ({_R, _ProviderStatus}, C) ->
+                C
+        end,
+        Ctx,
+        %% TODO Dont gather fail rates twice; may be persist them in context
+        hg_routing:gather_fail_rates(hg_routing:candidates(Ctx))
+    ).
 
-choose_route(Ctx = #{candidates := Routes}) ->
-    {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(Routes),
+choose_route(Ctx) ->
+    {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(hg_routing:candidates(Ctx)),
     hg_routing:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
 
 handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
@@ -2567,8 +2573,8 @@ get_provider_terms(St, Revision) ->
     VS1 = collect_validation_varset(get_party(Opts), get_shop(Opts), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
-filter_routes_with_limit_hold(Ctx = #{candidates := Routes}, VS, Iter, St) ->
-    {_Routes, RejectedRoutes} = hold_limit_routes(Routes, VS, Iter, St),
+filter_routes_with_limit_hold(Ctx, VS, Iter, St) ->
+    {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing:candidates(Ctx), VS, Iter, St),
     lists:foldr(
         fun(R, C) ->
             hg_routing:reject(limit_hold_reject, R, C)
@@ -2577,8 +2583,8 @@ filter_routes_with_limit_hold(Ctx = #{candidates := Routes}, VS, Iter, St) ->
         RejectedRoutes
     ).
 
-filter_routes_by_limit_overflow(Ctx = #{candidates := Routes}, VS, St) ->
-    {_Routes, RejectedRoutes} = get_limit_overflow_routes(Routes, VS, St),
+filter_routes_by_limit_overflow(Ctx, VS, St) ->
+    {_Routes, RejectedRoutes} = get_limit_overflow_routes(hg_routing:candidates(Ctx), VS, St),
     lists:foldr(
         fun(R, C) ->
             hg_routing:reject(limit_overflow_reject, R, C)
@@ -3462,7 +3468,7 @@ get_limit_values(St) ->
             Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
-        maps:get(candidates, Ctx)
+        hg_routing:candidates(Ctx)
     ).
 
 -spec get_limit_values(st(), opts()) -> route_limit_context().

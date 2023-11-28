@@ -8,6 +8,7 @@
 
 -export([gather_routes/5]).
 -export([choose_route/1]).
+-export([gather_fail_rates/1]).
 -export([get_payment_terms/3]).
 
 -export([get_logger_metadata/2]).
@@ -33,8 +34,9 @@
 -export([reject/3]).
 -export([reject_route/4]).
 -export([all_rejected_routes/1]).
--export([process_guarded/2]).
--export([pipeline_guarded/2]).
+-export([candidates/1]).
+-export([process/2]).
+-export([pipeline/2]).
 
 %%
 
@@ -180,28 +182,35 @@ reject(GroupReason, RejectedRoute, Ctx = #{rejections := Rejections, candidates 
 reject_route(GroupReason, Reason, Route, Ctx) ->
     reject(GroupReason, to_rejected_route(Route, Reason), Ctx).
 
--spec process_guarded(T, fun((T) -> T)) -> T when T :: ctx().
-process_guarded(Ctx0, Fun) ->
+-spec process(T, fun((T) -> T)) -> T when T :: ctx().
+process(Ctx0, Fun) ->
     case Ctx0 of
         #{error := undefined} ->
-            case Fun(Ctx0) of
-                NoRouteCtx = #{candidates := []} ->
-                    NoRouteCtx#{error := {rejected_routes, all_rejected_routes(NoRouteCtx)}};
-                Ctx1 ->
-                    Ctx1
-            end;
+            process_(Ctx0, Fun);
         ErroneousCtx ->
             ErroneousCtx
     end.
 
--spec pipeline_guarded(T, [fun((T) -> T)]) -> T when T :: ctx().
-pipeline_guarded(Ctx, Funs) ->
-    lists:foldl(fun(F, C) -> process_guarded(C, F) end, Ctx, Funs).
+process_(Ctx0, Fun) ->
+    case Fun(Ctx0) of
+        NoRouteCtx = #{candidates := [], error := undefined} ->
+            NoRouteCtx#{error := {rejected_routes, all_rejected_routes(NoRouteCtx)}};
+        Ctx1 ->
+            Ctx1
+    end.
+
+-spec pipeline(T, [fun((T) -> T)]) -> T when T :: ctx().
+pipeline(Ctx, Funs) ->
+    lists:foldl(fun(F, C) -> process(C, F) end, Ctx, Funs).
 
 -spec all_rejected_routes(ctx()) -> [rejected_route()].
 all_rejected_routes(#{rejections := Rejections}) ->
     {_, RejectedRoutes} = lists:unzip(maps:to_list(Rejections)),
     lists:flatten(RejectedRoutes).
+
+-spec candidates(ctx()) -> [route()].
+candidates(#{candidates := Candidates}) ->
+    Candidates.
 
 %% Route accessors
 
