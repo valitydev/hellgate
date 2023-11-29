@@ -965,11 +965,13 @@ routes_equal_(A, A) when A =/= undefined ->
 routes_equal_(_A, _B) ->
     false.
 
-route_ref({Prv, Trm}) ->
-    {Prv, Trm};
 route_ref(#route{provider_ref = Prv, terminal_ref = Trm}) ->
     {Prv, Trm};
 route_ref(#domain_PaymentRoute{provider = Prv, terminal = Trm}) ->
+    {Prv, Trm};
+route_ref({Prv, Trm}) ->
+    {Prv, Trm};
+route_ref({Prv, Trm, _RejectionReason}) ->
     {Prv, Trm};
 route_ref(_) ->
     undefined.
