@@ -1983,45 +1983,6 @@ process_risk_score(Action, St) ->
 
 -spec process_routing(action(), st()) -> machine_result().
 process_routing(Action, St) ->
-    %% NOTE
-    %% Пайплайн выбора роута должен следовать следующему алгоритму:
-    %% 1. Согласно варсету и платежной системе получаем из условий набор
-    %%    сконфигурированных маршрутов для рассмотрения.
-    %%    Среди этих маршрутов есть некоторые которые сразу отвергнуты по тем
-    %%    или иным причинам.
-    %%    Во время или после заврешения пайплайна это следует залогировать.
-    %%    Во время выборки правил маршрутов из условий могут выскакивать
-    %%    исключения, например мисконфигурации, или ошибки которые должны
-    %%    интерпретироваться как финальные и приводящие к фейлу платежа.
-    %%    Дальнейшие шаги уже не могут сразу приводить к фейлу, так как требуют
-    %%    отката побочных эффектов в стороннем сервисе.
-    %% 3. Далее если успешно получены изначальные кандидаты не отвергнутые
-    %%    условиями, мы пытаемся ходировать суммы по настроенным лимитам по
-    %%    текущим маршрутам-кандидиатам.
-    %%    По некоторым кандидатам могут быть ошибки холдирования, такие
-    %%    маршруты мы исключам из текущих доступных к рассмотрению далее.
-    %% 4. После с оставшимися маршрутами осуществяем проверку по критерию не
-    %%    переполненности лимитов. "Переполненные" исключаем из текущего списка
-    %%    маршрутов.
-    %% 5. Для п.3-4 пустой список маршрутов для дальнейшего рассмотрения
-    %%    означает остановку пайплайна с необходимостью осуществления попыток
-    %%    роллбека.
-    %%    Причем исключенные маршруты должны быть залогированы так или иначе.
-    %% 6. Если после фильтра по лимитам остаётся хотя бы один маршрут, то
-    %%    начинается "скоринг" маршрутов в соответствии со статистикой
-    %%    провайдеров за этими маршрутами.
-    %% 7. К размеченному списку кандидатов применяется фильтр по критическим
-    %%    очкам конверсии и доступности. Эти исключенные маршруты так же должны
-    %%    быть залогированы для аудита, а в случае полного опустошения списка
-    %%    маршрутов приводить к остановке пайплайна с последствия как в п.5.
-    %% 8. Из оставшихся кандидатов выбирается наиболее подходящий и из этой
-    %%    информации формируется событие смены/выбора маршрута.
-    %% Следует обрать внимание на то, что с начала работы лимитов необходимо
-    %% сообщать в событии не пустой список кандидатов перед событием роллбека.
-    %% А так как если на текущем шаге он оказывается пустым, то для соблюдения
-    %% контракта необходимо пробрасывать список маршрутов-кандидатов с
-    %% предыдущего шага. То есть тот идёт на вход текущему.
-
     {PaymentInstitution, VS, Revision} = route_args(St),
     case
         hg_routing:process(hg_routing:new_ctx(), fun(_Ctx) ->
@@ -2033,16 +1994,16 @@ process_routing(Action, St) ->
             ok = log_rejected_routes(no_route_found, hg_routing:all_rejected_routes(Ctx0), VS),
             handle_choose_route_error(Error, [], St, Action);
         Ctx0 ->
-            Ctx1 = run_routing_decision_pipeline(Ctx0, Revision, VS, St),
+            Ctx1 = run_routing_decision_pipeline(Ctx0, VS, St),
             _ = [
                 log_rejected_routes(Group, RejectedRoutes, VS)
-             || {Group, RejectedRoutes} <- maps:to_list(maps:get(rejections, Ctx0))
+             || {Group, RejectedRoutes} <- hg_routing:rejections(Ctx0)
             ],
-            Events = produce_routing_events(Ctx1, Ctx0, Revision, St),
+            Events = produce_routing_events(Ctx1, Revision, St),
             {next, {Events, hg_machine_action:set_timeout(0, Action)}}
     end.
 
-run_routing_decision_pipeline(Ctx0, Revision, VS, St) ->
+run_routing_decision_pipeline(Ctx0, VS, St) ->
     hg_routing:pipeline(
         Ctx0,
         [
@@ -2051,36 +2012,27 @@ run_routing_decision_pipeline(Ctx0, Revision, VS, St) ->
             %% accounted for in `St`.
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, St) end,
-            fun(Ctx) -> filter_by_critical_provider_status(Ctx, Revision, St) end,
-            fun choose_route/1
+            fun hg_routing:filter_by_critical_provider_status/1,
+            fun hg_routing:choose_route_ctx/1
         ]
     ).
 
-produce_routing_events(#{error := Error}, PrevCtx, _Revision, St) when Error =/= undefined ->
-    Failure = genlib:define(
-        St#st.failure,
-        construct_routing_failure(forbidden, genlib:format(Error))
-    ),
-    [Route | _] =
-        OriginalCandidates =
-        [hg_routing:to_payment_route(R) || R <- hg_routing:candidates(PrevCtx)],
+produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= undefined ->
+    Failure = genlib:define(St#st.failure, construct_routing_failure(forbidden, genlib:format(Error))),
+    InitialCandidates = [hg_routing:to_payment_route(R) || R <- hg_routing:initial_candidates(Ctx)],
+    Route = hd(InitialCandidates),
+    Candidates = ordsets:from_list(InitialCandidates),
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be
     %% skipped. And all limit's 'hold' operations will be rolled back.
     %% For same purpose in cascade routing we use route from unfiltered list of
     %% originally resolved candidates.
-    [
-        ?route_changed(Route, ordsets:from_list(OriginalCandidates)),
-        ?payment_rollback_started(Failure)
-    ];
-produce_routing_events(Ctx, _PrevCtx, Revision, _St) ->
+    [?route_changed(Route, Candidates), ?payment_rollback_started(Failure)];
+produce_routing_events(Ctx, Revision, _St) ->
     ok = log_route_choice_meta(Ctx, Revision),
-    [
-        ?route_changed(
-            hg_routing:to_payment_route(maps:get(choosen_route, Ctx)),
-            ordsets:from_list([hg_routing:to_payment_route(R) || R <- hg_routing:candidates(Ctx)])
-        )
-    ].
+    Route = hg_routing:to_payment_route(maps:get(choosen_route, Ctx)),
+    Candidates = ordsets:from_list([hg_routing:to_payment_route(R) || R <- hg_routing:candidates(Ctx)]),
+    [?route_changed(Route, Candidates)].
 
 route_args(St) ->
     Opts = get_opts(St),
@@ -2112,25 +2064,6 @@ filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
         Ctx,
         AttemptedRoutes
     ).
-
-filter_by_critical_provider_status(Ctx, _Revision, _St) ->
-    lists:foldr(
-        fun
-            ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
-                hg_routing:reject_route(unavailability, AvailabilityStatus, R, C);
-            ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
-                hg_routing:reject_route(conversion_lacking, ConversionStatus, R, C);
-            ({_R, _ProviderStatus}, C) ->
-                C
-        end,
-        Ctx,
-        %% TODO Dont gather fail rates twice; may be persist them in context
-        hg_routing:gather_fail_rates(hg_routing:candidates(Ctx))
-    ).
-
-choose_route(Ctx) ->
-    {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(hg_routing:candidates(Ctx)),
-    hg_routing:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
 
 handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
     do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);

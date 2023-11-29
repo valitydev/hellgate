@@ -8,6 +8,7 @@
 
 -export([gather_routes/5]).
 -export([choose_route/1]).
+-export([choose_rated_route/1]).
 -export([gather_fail_rates/1]).
 -export([get_payment_terms/3]).
 
@@ -29,14 +30,23 @@
 
 -export([new_ctx/0]).
 -export([new_ctx/1]).
+-export([with_fail_rates/2]).
+-export([fail_rates/1]).
 -export([set_choosen/3]).
 -export([set_error/2]).
 -export([reject/3]).
 -export([reject_route/4]).
 -export([all_rejected_routes/1]).
+-export([rejections/1]).
 -export([candidates/1]).
+-export([initial_candidates/1]).
 -export([process/2]).
 -export([pipeline/2]).
+
+%%
+
+-export([filter_by_critical_provider_status/1]).
+-export([choose_route_ctx/1]).
 
 %%
 
@@ -142,7 +152,8 @@
     rejections := #{atom() => [rejected_route()]},
     error := Reason :: term() | undefined,
     choosen_route := route() | undefined,
-    choice_meta := route_choice_context() | undefined
+    choice_meta := route_choice_context() | undefined,
+    fail_rates => [fail_rated_route()]
 }.
 
 %%
@@ -162,6 +173,14 @@ new_ctx(Candidates) ->
         choice_meta => undefined
     }.
 
+-spec with_fail_rates([fail_rated_route()], ctx()) -> ctx().
+with_fail_rates(FailRates, Ctx) ->
+    maps:put(fail_rates, FailRates, Ctx).
+
+-spec fail_rates(ctx()) -> [fail_rated_route()] | undefined.
+fail_rates(Ctx) ->
+    maps:get(fail_rates, Ctx, undefined).
+
 -spec set_choosen(route(), route_choice_context(), ctx()) -> ctx().
 set_choosen(Route, ChoiceMeta, Ctx) ->
     Ctx#{choosen_route => Route, choice_meta => ChoiceMeta}.
@@ -175,7 +194,7 @@ reject(GroupReason, RejectedRoute, Ctx = #{rejections := Rejections, candidates 
     RejectedList = maps:get(GroupReason, Rejections, []) ++ [RejectedRoute],
     Ctx#{
         rejections => Rejections#{GroupReason => RejectedList},
-        candidates => exclude_rejected(RejectedRoute, Candidates)
+        candidates => exclude_route(RejectedRoute, Candidates)
     }.
 
 -spec reject_route(atom(), term(), route(), ctx()) -> ctx().
@@ -211,6 +230,57 @@ all_rejected_routes(#{rejections := Rejections}) ->
 -spec candidates(ctx()) -> [route()].
 candidates(#{candidates := Candidates}) ->
     Candidates.
+
+-spec initial_candidates(ctx()) -> [route()].
+initial_candidates(#{initial_candidates := InitialCandidates}) ->
+    InitialCandidates.
+
+-spec rejections(ctx()) -> [{atom(), [rejected_route()]}].
+rejections(#{rejections := Rejections}) ->
+    maps:to_list(Rejections).
+
+%%
+
+-spec filter_by_critical_provider_status(T) -> T when T :: ctx().
+filter_by_critical_provider_status(Ctx) ->
+    RoutesFailRates = gather_fail_rates(candidates(Ctx)),
+    lists:foldr(
+        fun
+            ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
+                reject_route(unavailability, AvailabilityStatus, R, C);
+            ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
+                reject_route(conversion_lacking, ConversionStatus, R, C);
+            ({_R, _ProviderStatus}, C) ->
+                C
+        end,
+        with_fail_rates(RoutesFailRates, Ctx),
+        RoutesFailRates
+    ).
+
+-spec choose_route_ctx(T) -> T when T :: ctx().
+choose_route_ctx(Ctx) ->
+    Candidates = candidates(Ctx),
+    {ChoosenRoute, ChoiceContext} =
+        case fail_rates(Ctx) of
+            undefined ->
+                choose_route(Candidates);
+            FailRates ->
+                RatedCandidates = filter_rated_routes_with_candidates(FailRates, Candidates),
+                choose_rated_route(RatedCandidates)
+        end,
+    set_choosen(ChoosenRoute, ChoiceContext, Ctx).
+
+filter_rated_routes_with_candidates(FailRates, Candidates) ->
+    lists:foldr(
+        fun({R, _PS} = FR, Res) ->
+            case lists:any(fun(CR) -> routes_equal(CR, R) end, Candidates) of
+                true -> [FR | Res];
+                _Else -> Res
+            end
+        end,
+        [],
+        FailRates
+    ).
 
 %% Route accessors
 
@@ -635,7 +705,6 @@ get_provider_status(Route, FDStats) ->
     AvailabilityStatus = get_provider_availability_status(FdOverrides, AvailabilityServiceID, FDStats),
     ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
     {AvailabilityStatus, ConversionStatus}.
-
 get_provider_availability_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {alive, 0.0};
@@ -876,18 +945,34 @@ getv(Name, VS, Default) ->
 
 %%
 
-exclude_rejected({PRef, TRef, _}, Routes) ->
-    do_exclude(PRef, TRef, Routes).
-
-do_exclude(PRef, TRef, Routes) ->
+exclude_route(Route, Routes) ->
     lists:foldr(
-        fun
-            ({route, Prv, Trm, _, _, _, _}, RR) when Prv =:= PRef andalso Trm =:= TRef -> RR;
-            (R, RR) -> [R | RR]
+        fun(R, RR) ->
+            case routes_equal(Route, R) of
+                true -> RR;
+                _else -> [R | RR]
+            end
         end,
         [],
         Routes
     ).
+
+routes_equal(A, B) ->
+    routes_equal_(route_ref(A), route_ref(B)).
+
+routes_equal_(A, A) when A =/= undefined ->
+    true;
+routes_equal_(_A, _B) ->
+    false.
+
+route_ref({Prv, Trm}) ->
+    {Prv, Trm};
+route_ref(#route{provider_ref = Prv, terminal_ref = Trm}) ->
+    {Prv, Trm};
+route_ref(#domain_PaymentRoute{provider = Prv, terminal = Trm}) ->
+    {Prv, Trm};
+route_ref(_) ->
+    undefined.
 
 %%
 
