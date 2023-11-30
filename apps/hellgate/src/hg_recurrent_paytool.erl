@@ -51,7 +51,7 @@
 -type rec_payment_tool_change() :: dmsl_payproc_thrift:'RecurrentPaymentToolChange'().
 -type rec_payment_tool_params() :: dmsl_payproc_thrift:'RecurrentPaymentToolParams'().
 
--type route() :: hg_routing:payment_route().
+-type route() :: hg_route:payment_route().
 -type risk_score() :: hg_inspector:risk_score().
 -type shop() :: dmsl_domain_thrift:'Shop'().
 -type party() :: dmsl_domain_thrift:'Party'().
@@ -251,7 +251,7 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
             client_ip => get_client_info_ip(Params#payproc_RecurrentPaymentToolParams.payment_resource)
         }),
         {ChosenRoute, ChoiceContext} = hg_routing:choose_route(NonFailRatedRoutes),
-        ChosenPaymentRoute = hg_routing:to_payment_route(ChosenRoute),
+        ChosenPaymentRoute = hg_route:to_payment_route(ChosenRoute),
         LoggerMetadata = hg_routing:get_logger_metadata(ChoiceContext, Revision),
         _ = logger:log(info, "Routing decision made", #{routing => LoggerMetadata}),
         RecPaymentTool2 = set_minimal_payment_cost(RecPaymentTool, ChosenPaymentRoute, VS, Revision),

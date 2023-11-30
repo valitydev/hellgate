@@ -518,7 +518,7 @@ gather_route_success(_C) ->
         Revision,
         Ctx
     ),
-    ?assertMatch(?trm(1), hg_routing:terminal_ref(Route)),
+    ?assertMatch(?trm(1), hg_route:terminal_ref(Route)),
     ?assertMatch(
         [
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
@@ -659,13 +659,13 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
         client_ip => undefined
     },
     {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
-    ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
+    ?assert_set_equal(ProviderRefs, lists:map(fun hg_route:provider_ref/1, Routes)).
 
 -spec choice_context_formats_ok(config()) -> test_return().
 choice_context_formats_ok(_C) ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Route1 = hg_route:new(?prv(1), ?trm(1)),
+    Route2 = hg_route:new(?prv(2), ?trm(2)),
+    Route3 = hg_route:new(?prv(3), ?trm(3)),
     Routes = [Route1, Route2, Route3],
 
     Revision = ?routing_with_fail_rate_domain_revision,
@@ -734,7 +734,7 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
             ok;
         Terminal ->
             [Route] = Routes,
-            ?assertMatch(Terminal, hg_routing:terminal_ref(Route))
+            ?assertMatch(Terminal, hg_route:terminal_ref(Route))
     end,
     ?assertMatch(ExpectedRejectedRoutes, RejectedRoutes).
 
@@ -742,8 +742,8 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
 
 -spec terminal_priority_for_shop(config()) -> test_return().
 terminal_priority_for_shop(C) ->
-    Route1 = hg_routing:new(?prv(11), ?trm(11), 0, 10),
-    Route2 = hg_routing:new(?prv(12), ?trm(12), 0, 10),
+    Route1 = hg_route:new(?prv(11), ?trm(11), 0, 10),
+    Route2 = hg_route:new(?prv(12), ?trm(12), 0, 10),
     ?assertMatch({Route1, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_1, C)),
     ?assertMatch({Route2, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C)).
 
@@ -797,9 +797,9 @@ gather_pinned_route(_C) ->
     },
     ?assert_set_equal(
         [
-            hg_routing:new(?prv(1), ?trm(1), 0, 0, Ctx),
-            hg_routing:new(?prv(2), ?trm(2), 0, 0, Pin),
-            hg_routing:new(?prv(3), ?trm(3), 0, 0, Pin)
+            hg_route:new(?prv(1), ?trm(1), 0, 0, Ctx),
+            hg_route:new(?prv(2), ?trm(2), 0, 0, Pin),
+            hg_route:new(?prv(3), ?trm(3), 0, 0, Pin)
         ],
         Routes
     ).
@@ -823,9 +823,9 @@ choose_pinned_route(_C) ->
         currency => Currency,
         payment_tool => PaymentTool
     },
-    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin1),
-    Route2 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin2),
-    Route3 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin3),
+    Route1 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin1),
+    Route2 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin2),
+    Route3 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin3),
     Routes = [
         Route1,
         Route2,
@@ -837,9 +837,9 @@ choose_pinned_route(_C) ->
 -spec choose_route_w_override(config()) -> test_return().
 choose_route_w_override(_C) ->
     %% without overrides
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Route1 = hg_route:new(?prv(1), ?trm(1)),
+    Route2 = hg_route:new(?prv(2), ?trm(2)),
+    Route3 = hg_route:new(?prv(3), ?trm(3)),
     Routes = [Route1, Route2, Route3],
     {
         Route2,
@@ -850,7 +850,7 @@ choose_route_w_override(_C) ->
     } = hg_routing:choose_route(Routes),
 
     %% with overrides
-    Route3WithOV = hg_routing:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
+    Route3WithOV = hg_route:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
     RoutesWithOV = [Route1, Route2, Route3WithOV],
     {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
 
