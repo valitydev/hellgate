@@ -16,6 +16,7 @@
 %% Tests
 
 -export([revert_ok_test/1]).
+-export([negative_revert_ok_test/1]).
 -export([multiple_reverts_ok_test/1]).
 -export([multiple_parallel_reverts_ok_test/1]).
 -export([idempotency_test/1]).
@@ -50,6 +51,7 @@ groups() ->
     [
         {default, [parallel], [
             revert_ok_test,
+            negative_revert_ok_test,
             multiple_reverts_ok_test,
             multiple_parallel_reverts_ok_test,
             idempotency_test,
@@ -119,6 +121,34 @@ revert_ok_test(C) ->
     ?assertEqual(undefined, ff_deposit_revert:reason(Revert)),
     ?assertEqual(undefined, ff_deposit_revert:external_id(Revert)),
     ?assertEqual({5000, <<"RUB">>}, ff_deposit_revert:body(Revert)),
+    ?assertEqual(SourceID, ff_deposit_revert:source_id(Revert)),
+    ?assertEqual(WalletID, ff_deposit_revert:wallet_id(Revert)),
+    DomainRevision = ff_domain_config:head(),
+    ?assertEqual(DomainRevision, ff_deposit_revert:domain_revision(Revert)),
+    {ok, PartyRevision} = ff_party:get_revision(PartyID),
+    ?assertEqual(PartyRevision, ff_deposit_revert:party_revision(Revert)).
+
+-spec negative_revert_ok_test(config()) -> test_return().
+negative_revert_ok_test(C) ->
+    #{
+        party_id := PartyID,
+        wallet_id := WalletID,
+        source_id := SourceID
+    } = prepare_standard_environment({10000, <<"RUB">>}, C),
+    DepositID1 = process_deposit(#{
+        source_id => SourceID,
+        wallet_id => WalletID,
+        body => {-5000, <<"RUB">>}
+    }),
+    RevertID = process_revert(DepositID1, #{
+        body => {-5000, <<"RUB">>}
+    }),
+    ?assertEqual(?FINAL_BALANCE(10000, <<"RUB">>), get_wallet_balance(WalletID)),
+    ?assertEqual(?FINAL_BALANCE(-10000, <<"RUB">>), get_source_balance(SourceID)),
+    Revert = get_revert(RevertID, DepositID1),
+    ?assertEqual(undefined, ff_deposit_revert:reason(Revert)),
+    ?assertEqual(undefined, ff_deposit_revert:external_id(Revert)),
+    ?assertEqual({-5000, <<"RUB">>}, ff_deposit_revert:negative_body(Revert)),
     ?assertEqual(SourceID, ff_deposit_revert:source_id(Revert)),
     ?assertEqual(WalletID, ff_deposit_revert:wallet_id(Revert)),
     DomainRevision = ff_domain_config:head(),

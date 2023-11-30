@@ -13,6 +13,7 @@
     version := ?ACTUAL_FORMAT_VERSION,
     id := id(),
     body := body(),
+    is_negative := is_negative(),
     wallet_id := wallet_id(),
     source_id := source_id(),
     status := status(),
@@ -102,6 +103,8 @@
 -export([wallet_id/1]).
 -export([source_id/1]).
 -export([body/1]).
+-export([negative_body/1]).
+-export([is_negative/1]).
 -export([status/1]).
 -export([reason/1]).
 -export([external_id/1]).
@@ -135,6 +138,7 @@
 -type source_id() :: ff_source:id().
 -type p_transfer() :: ff_postings_transfer:transfer().
 -type body() :: ff_accounting:body().
+-type is_negative() :: boolean().
 -type action() :: machinery:action() | undefined.
 -type process_result() :: {action(), [event()]}.
 -type legacy_event() :: any().
@@ -190,6 +194,18 @@ source_id(#{source_id := V}) ->
 -spec body(revert()) -> body().
 body(#{body := V}) ->
     V.
+
+-spec negative_body(revert()) -> body().
+negative_body(#{body := {Amount, Currency}, is_negative := true}) ->
+    {-1 * Amount, Currency};
+negative_body(T) ->
+    body(T).
+
+-spec is_negative(revert()) -> is_negative().
+is_negative(#{is_negative := V}) ->
+    V;
+is_negative(_T) ->
+    false.
 
 -spec status(revert()) -> status().
 status(#{status := V}) ->
@@ -311,7 +327,7 @@ apply_event(Ev, T0) ->
 
 -spec apply_event_(event(), revert() | undefined) -> revert().
 apply_event_({created, T}, undefined) ->
-    T;
+    apply_negative_body(T);
 apply_event_({status_changed, S}, T) ->
     T#{status => S};
 apply_event_({limit_check, Details}, T) ->
@@ -320,6 +336,11 @@ apply_event_({p_transfer, Ev}, T) ->
     T#{p_transfer => ff_postings_transfer:apply_event(Ev, p_transfer(T))};
 apply_event_({adjustment, _Ev} = Event, T) ->
     apply_adjustment_event(Event, T).
+
+apply_negative_body(T = #{body := {Amount, Currency}}) when Amount < 0 ->
+    T#{body => {-1 * Amount, Currency}, is_negative => true};
+apply_negative_body(T) ->
+    T.
 
 -spec maybe_migrate(event() | legacy_event()) -> event().
 % Actual events
@@ -397,7 +418,7 @@ do_process_transfer(adjustment, Revert) ->
 
 -spec create_p_transfer(revert()) -> process_result().
 create_p_transfer(Revert) ->
-    FinalCashFlow = make_final_cash_flow(wallet_id(Revert), source_id(Revert), body(Revert)),
+    FinalCashFlow = make_final_cash_flow(Revert),
     PTransferID = construct_p_transfer_id(id(Revert)),
     {ok, PostingsTransferEvents} = ff_postings_transfer:create(PTransferID, FinalCashFlow),
     {continue, [{p_transfer, Ev} || Ev <- PostingsTransferEvents]}.
@@ -447,8 +468,11 @@ process_transfer_fail(limit_check, Revert) ->
     Failure = build_failure(limit_check, Revert),
     {undefined, [{status_changed, {failed, Failure}}]}.
 
--spec make_final_cash_flow(wallet_id(), source_id(), body()) -> final_cash_flow().
-make_final_cash_flow(WalletID, SourceID, Body) ->
+-spec make_final_cash_flow(revert()) -> final_cash_flow().
+make_final_cash_flow(Revert) ->
+    WalletID = wallet_id(Revert),
+    SourceID = source_id(Revert),
+    Body = body(Revert),
     {ok, WalletMachine} = ff_wallet_machine:get(WalletID),
     WalletAccount = ff_wallet:account(ff_wallet_machine:wallet(WalletMachine)),
     {ok, SourceMachine} = ff_source_machine:get(SourceID),
@@ -457,10 +481,19 @@ make_final_cash_flow(WalletID, SourceID, Body) ->
     Constants = #{
         operation_amount => Body
     },
-    Accounts = #{
-        {wallet, sender_source} => SourceAccount,
-        {wallet, receiver_settlement} => WalletAccount
-    },
+    Accounts =
+        case is_negative(Revert) of
+            true ->
+                #{
+                    {wallet, sender_source} => WalletAccount,
+                    {wallet, receiver_settlement} => SourceAccount
+                };
+            false ->
+                #{
+                    {wallet, sender_source} => SourceAccount,
+                    {wallet, receiver_settlement} => WalletAccount
+                }
+        end,
     CashFlowPlan = #{
         postings => [
             #{
@@ -608,7 +641,7 @@ make_change_status_params(succeeded, {failed, _} = NewStatus, Revert) ->
     };
 make_change_status_params({failed, _}, succeeded = NewStatus, Revert) ->
     CurrentCashFlow = effective_final_cash_flow(Revert),
-    NewCashFlow = make_final_cash_flow(wallet_id(Revert), source_id(Revert), body(Revert)),
+    NewCashFlow = make_final_cash_flow(Revert),
     #{
         new_status => #{
             new_status => NewStatus

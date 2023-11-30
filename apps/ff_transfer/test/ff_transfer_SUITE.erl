@@ -259,7 +259,7 @@ deposit_via_admin_amount_fails(C) ->
                 source = SrcID,
                 destination = WalID,
                 body = #'fistful_base_Cash'{
-                    amount = -1,
+                    amount = 0,
                     currency = #'fistful_base_CurrencyRef'{symbolic_code = <<"RUB">>}
                 }
             }

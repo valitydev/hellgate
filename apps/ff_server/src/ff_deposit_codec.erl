@@ -18,7 +18,7 @@ marshal_deposit_state(DepositState, Context) ->
     Adjustments = ff_deposit:adjustments(DepositState),
     #deposit_DepositState{
         id = marshal(id, ff_deposit:id(DepositState)),
-        body = marshal(cash, ff_deposit:body(DepositState)),
+        body = marshal(cash, ff_deposit:negative_body(DepositState)),
         status = maybe_marshal(status, ff_deposit:status(DepositState)),
         wallet_id = marshal(id, ff_deposit:wallet_id(DepositState)),
         source_id = marshal(id, ff_deposit:source_id(DepositState)),

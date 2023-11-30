@@ -19,6 +19,7 @@
 
 -export([limit_check_fail_test/1]).
 -export([create_bad_amount_test/1]).
+-export([create_negative_amount_test/1]).
 -export([create_currency_validation_error_test/1]).
 -export([create_source_notfound_test/1]).
 -export([create_wallet_notfound_test/1]).
@@ -45,6 +46,7 @@ groups() ->
         {default, [parallel], [
             limit_check_fail_test,
             create_bad_amount_test,
+            create_negative_amount_test,
             create_currency_validation_error_test,
             create_source_notfound_test,
             create_wallet_notfound_test,
@@ -135,6 +137,35 @@ create_bad_amount_test(C) ->
     },
     Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     ?assertMatch({error, {bad_deposit_amount, {0, <<"RUB">>}}}, Result).
+
+-spec create_negative_amount_test(config()) -> test_return().
+create_negative_amount_test(C) ->
+    #{
+        wallet_id := WalletID,
+        source_id := SourceID
+    } = prepare_standard_environment(<<"RUB">>, C),
+    DepositID0 = generate_id(),
+    DepositCash0 = {100, <<"RUB">>},
+    DepositParams0 = #{
+        id => DepositID0,
+        body => DepositCash0,
+        source_id => SourceID,
+        wallet_id => WalletID,
+        external_id => generate_id()
+    },
+    ok = ff_deposit_machine:create(DepositParams0, ff_entity_context:new()),
+    succeeded = await_final_deposit_status(DepositID0),
+    ok = await_wallet_balance(DepositCash0, WalletID),
+    DepositID1 = generate_id(),
+    DepositCash1 = {-100, <<"RUB">>},
+    DepositParams1 = DepositParams0#{
+        id => DepositID1,
+        body => DepositCash1,
+        external_id => generate_id()
+    },
+    ok = ff_deposit_machine:create(DepositParams1, ff_entity_context:new()),
+    succeeded = await_final_deposit_status(DepositID1),
+    ok = await_wallet_balance({0, <<"RUB">>}, WalletID).
 
 -spec create_currency_validation_error_test(config()) -> test_return().
 create_currency_validation_error_test(C) ->

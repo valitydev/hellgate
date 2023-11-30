@@ -390,7 +390,7 @@ validate_withdrawal_creation(Terms, {_, CurrencyID} = Cash, Method) ->
 -spec validate_deposit_creation(terms(), cash()) -> Result when
     Result :: {ok, valid} | {error, Error},
     Error :: validate_deposit_creation_error().
-validate_deposit_creation(_Terms, {Amount, _Currency} = Cash) when Amount < 1 ->
+validate_deposit_creation(_Terms, {Amount, _Currency} = Cash) when Amount == 0 ->
     {error, {bad_deposit_amount, Cash}};
 validate_deposit_creation(Terms, {_Amount, CurrencyID} = _Cash) ->
     do(fun() ->

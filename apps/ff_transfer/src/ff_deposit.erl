@@ -12,6 +12,7 @@
     id := id(),
     transfer_type := deposit,
     body := body(),
+    is_negative := is_negative(),
     params := transfer_params(),
     party_revision => party_revision(),
     domain_revision => domain_revision(),
@@ -148,6 +149,8 @@
 -export([source_id/1]).
 -export([id/1]).
 -export([body/1]).
+-export([negative_body/1]).
+-export([is_negative/1]).
 -export([status/1]).
 -export([external_id/1]).
 -export([party_revision/1]).
@@ -192,6 +195,7 @@
 -type revert() :: ff_deposit_revert:revert().
 -type revert_id() :: ff_deposit_revert:id().
 -type body() :: ff_accounting:body().
+-type is_negative() :: boolean().
 -type cash() :: ff_cash:cash().
 -type cash_range() :: ff_range:range(cash()).
 -type action() :: machinery:action() | undefined.
@@ -249,6 +253,18 @@ source_id(T) ->
 -spec body(deposit_state()) -> body().
 body(#{body := V}) ->
     V.
+
+-spec negative_body(deposit_state()) -> body().
+negative_body(#{body := {Amount, Currency}, is_negative := true}) ->
+    {-1 * Amount, Currency};
+negative_body(T) ->
+    body(T).
+
+-spec is_negative(deposit_state()) -> is_negative().
+is_negative(#{is_negative := V}) ->
+    V;
+is_negative(_T) ->
+    false.
 
 -spec status(deposit_state()) -> status() | undefined.
 status(Deposit) ->
@@ -424,7 +440,7 @@ apply_event(Ev, T0) ->
 
 -spec apply_event_(event(), deposit_state() | undefined) -> deposit_state().
 apply_event_({created, T}, undefined) ->
-    T;
+    apply_negative_body(T);
 apply_event_({status_changed, S}, T) ->
     maps:put(status, S, T);
 apply_event_({limit_check, Details}, T) ->
@@ -435,6 +451,11 @@ apply_event_({revert, _Ev} = Event, T) ->
     apply_revert_event(Event, T);
 apply_event_({adjustment, _Ev} = Event, T) ->
     apply_adjustment_event(Event, T).
+
+apply_negative_body(T = #{body := {Amount, Currency}}) when Amount < 0 ->
+    T#{body => {-1 * Amount, Currency}, is_negative => true};
+apply_negative_body(T) ->
+    T.
 
 %% Internals
 
@@ -537,7 +558,7 @@ do_process_transfer(stop, _Deposit) ->
 
 -spec create_p_transfer(deposit_state()) -> process_result().
 create_p_transfer(Deposit) ->
-    FinalCashFlow = make_final_cash_flow(wallet_id(Deposit), source_id(Deposit), body(Deposit)),
+    FinalCashFlow = make_final_cash_flow(Deposit),
     PTransferID = construct_p_transfer_id(id(Deposit)),
     {ok, PostingsTransferEvents} = ff_postings_transfer:create(PTransferID, FinalCashFlow),
     {continue, [{p_transfer, Ev} || Ev <- PostingsTransferEvents]}.
@@ -585,8 +606,11 @@ process_transfer_fail(limit_check, Deposit) ->
     Failure = build_failure(limit_check, Deposit),
     {undefined, [{status_changed, {failed, Failure}}]}.
 
--spec make_final_cash_flow(wallet_id(), source_id(), body()) -> final_cash_flow().
-make_final_cash_flow(WalletID, SourceID, Body) ->
+-spec make_final_cash_flow(deposit_state()) -> final_cash_flow().
+make_final_cash_flow(Deposit) ->
+    WalletID = wallet_id(Deposit),
+    SourceID = source_id(Deposit),
+    Body = body(Deposit),
     {ok, WalletMachine} = ff_wallet_machine:get(WalletID),
     WalletAccount = ff_wallet:account(ff_wallet_machine:wallet(WalletMachine)),
     {ok, SourceMachine} = ff_source_machine:get(SourceID),
@@ -595,10 +619,19 @@ make_final_cash_flow(WalletID, SourceID, Body) ->
     Constants = #{
         operation_amount => Body
     },
-    Accounts = #{
-        {wallet, sender_source} => SourceAccount,
-        {wallet, receiver_settlement} => WalletAccount
-    },
+    Accounts =
+        case is_negative(Deposit) of
+            true ->
+                #{
+                    {wallet, sender_source} => WalletAccount,
+                    {wallet, receiver_settlement} => SourceAccount
+                };
+            false ->
+                #{
+                    {wallet, sender_source} => SourceAccount,
+                    {wallet, receiver_settlement} => WalletAccount
+                }
+        end,
     CashFlowPlan = #{
         postings => [
             #{
@@ -777,7 +810,7 @@ validate_revert_start(Params, Deposit) ->
 validate_revert_body(Params, Deposit) ->
     do(fun() ->
         valid = unwrap(validate_revert_currency(Params, Deposit)),
-        valid = unwrap(validate_revert_amount(Params)),
+        valid = unwrap(validate_revert_amount(Params, Deposit)),
         valid = unwrap(validate_unreverted_amount(Params, Deposit))
     end).
 
@@ -820,13 +853,15 @@ validate_unreverted_amount(Params, Deposit) ->
             {error, {insufficient_deposit_amount, {RevertBody, Unreverted}}}
     end.
 
--spec validate_revert_amount(revert_params()) ->
+-spec validate_revert_amount(revert_params(), deposit_state()) ->
     {ok, valid}
     | {error, {invalid_revert_amount, Revert :: body()}}.
-validate_revert_amount(Params) ->
+validate_revert_amount(Params, Desposit) ->
     #{body := {RevertAmount, _Currency} = RevertBody} = Params,
-    case RevertAmount of
-        Good when Good > 0 ->
+    case {RevertAmount, is_negative(Desposit)} of
+        {Good, false} when Good > 0 ->
+            {ok, valid};
+        {Good, true} when Good < 0 ->
             {ok, valid};
         _Other ->
             {error, {invalid_revert_amount, RevertBody}}
@@ -976,7 +1011,7 @@ make_change_status_params(succeeded, {failed, _} = NewStatus, Deposit) ->
     };
 make_change_status_params({failed, _}, succeeded = NewStatus, Deposit) ->
     CurrentCashFlow = effective_final_cash_flow(Deposit),
-    NewCashFlow = make_final_cash_flow(wallet_id(Deposit), source_id(Deposit), body(Deposit)),
+    NewCashFlow = make_final_cash_flow(Deposit),
     #{
         new_status => #{
             new_status => NewStatus
