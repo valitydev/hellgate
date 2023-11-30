@@ -19,7 +19,7 @@
 %%
 
 -export([filter_by_critical_provider_status/1]).
--export([choose_route_ctx/1]).
+-export([choose_route_with_ctx/1]).
 
 %%
 
@@ -113,8 +113,8 @@ filter_by_critical_provider_status(Ctx) ->
         RoutesFailRates
     ).
 
--spec choose_route_ctx(T) -> T when T :: hg_routing_ctx:t().
-choose_route_ctx(Ctx) ->
+-spec choose_route_with_ctx(T) -> T when T :: hg_routing_ctx:t().
+choose_route_with_ctx(Ctx) ->
     Candidates = hg_routing_ctx:candidates(Ctx),
     {ChoosenRoute, ChoiceContext} =
         case hg_routing_ctx:fail_rates(Ctx) of

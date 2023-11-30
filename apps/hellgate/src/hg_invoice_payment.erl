@@ -1995,11 +1995,14 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, St) end,
             fun hg_routing:filter_by_critical_provider_status/1,
-            fun hg_routing:choose_route_ctx/1
+            fun hg_routing:choose_route_with_ctx/1
         ]
     ).
 
 produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= undefined ->
+    %% TODO Pass failure subcode from error. Say, if last candidates were
+    %% rejected because of provider gone critical, then use subcode to highlight
+    %% the offender. Like 'provider_dead' or 'conversion_lacking'.
     Failure = genlib:define(St#st.failure, construct_routing_failure(forbidden, genlib:format(Error))),
     InitialCandidates = [hg_route:to_payment_route(R) || R <- hg_routing_ctx:initial_candidates(Ctx)],
     Route = hd(InitialCandidates),

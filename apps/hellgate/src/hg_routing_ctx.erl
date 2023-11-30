@@ -120,3 +120,82 @@ exclude_route(Route, Routes) ->
         [],
         Routes
     ).
+
+%%
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+
+-define(prv(ID), #domain_ProviderRef{id = ID}).
+-define(trm(ID), #domain_TerminalRef{id = ID}).
+
+-spec test() -> _.
+
+-spec route_exclusion_test_() -> [_].
+route_exclusion_test_() ->
+    RouteA = hg_route:new(?prv(1), ?trm(1)),
+    RouteB = hg_route:new(?prv(1), ?trm(2)),
+    RouteC = hg_route:new(?prv(2), ?trm(1)),
+    [
+        ?_assertEqual([], exclude_route(RouteA, [])),
+        ?_assertEqual([RouteA, RouteB], exclude_route(RouteC, [RouteA, RouteB])),
+        ?_assertEqual([RouteA, RouteB], exclude_route(RouteC, [RouteA, RouteB, RouteC])),
+        ?_assertEqual([RouteA, RouteC], exclude_route(RouteB, [RouteA, RouteB, RouteC]))
+    ].
+
+-spec pipeline_test_() -> [_].
+pipeline_test_() ->
+    RouteA = hg_route:new(?prv(1), ?trm(1)),
+    RouteB = hg_route:new(?prv(1), ?trm(2)),
+    RouteC = hg_route:new(?prv(2), ?trm(1)),
+    RejectedRouteA = hg_route:to_rejected_route(RouteA, {?MODULE, <<"whatever">>}),
+    [
+        ?_assertMatch(
+            #{
+                initial_candidates := [RouteA],
+                candidates := [],
+                error := {rejected_routes, [RejectedRouteA]},
+                choosen_route := undefined
+            },
+            pipeline(new([RouteA]), [fun do_reject_route_a/1])
+        ),
+        ?_assertMatch(
+            #{
+                initial_candidates := [RouteA, RouteB, RouteC],
+                candidates := [RouteA, RouteB, RouteC],
+                error := undefined,
+                choosen_route := undefined
+            },
+            pipeline(new([RouteA, RouteB, RouteC]), [])
+        ),
+        ?_assertMatch(
+            #{
+                initial_candidates := [RouteA, RouteB, RouteC],
+                candidates := [RouteB, RouteC],
+                error := undefined,
+                choosen_route := undefined
+            },
+            pipeline(new([RouteA, RouteB, RouteC]), [fun do_reject_route_a/1])
+        ),
+        ?_assertMatch(
+            #{
+                initial_candidates := [RouteA, RouteB, RouteC],
+                candidates := [RouteB, RouteC],
+                error := undefined,
+                choosen_route := RouteB
+            },
+            pipeline(new([RouteA, RouteB, RouteC]), [fun do_reject_route_a/1, fun do_choose_route_b/1])
+        )
+    ].
+
+do_reject_route_a(Ctx) ->
+    RouteA = hg_route:new(?prv(1), ?trm(1)),
+    reject(test, hg_route:to_rejected_route(RouteA, {?MODULE, <<"whatever">>}), Ctx).
+
+do_choose_route_b(Ctx) ->
+    RouteB = hg_route:new(?prv(1), ?trm(2)),
+    set_choosen(RouteB, #{}, Ctx).
+
+-endif.
