@@ -7,7 +7,6 @@
 -export([set_error/2]).
 -export([error/1]).
 -export([reject/3]).
--export([reject_route/4]).
 -export([rejected_routes/1]).
 -export([rejections/1]).
 -export([candidates/1]).
@@ -68,10 +67,6 @@ reject(GroupReason, RejectedRoute, Ctx = #{rejections := Rejections, candidates 
         rejections => Rejections#{GroupReason => RejectedList},
         candidates => exclude_route(RejectedRoute, Candidates)
     }.
-
--spec reject_route(atom(), term(), hg_route:t(), t()) -> t().
-reject_route(GroupReason, Reason, Route, Ctx) ->
-    reject(GroupReason, hg_route:to_rejected_route(Route, Reason), Ctx).
 
 -spec process(T, fun((T) -> T)) -> T when T :: t().
 process(Ctx0, Fun) ->

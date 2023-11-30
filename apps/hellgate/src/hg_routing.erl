@@ -101,9 +101,11 @@ filter_by_critical_provider_status(Ctx) ->
     lists:foldr(
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
-                hg_routing_ctx:reject_route(unavailability, AvailabilityStatus, R, C);
+                R1 = hg_route:to_rejected_route(R, {'ProviderDead', AvailabilityStatus}),
+                hg_routing_ctx:reject(unavailability, R1, C);
             ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
-                hg_routing_ctx:reject_route(conversion_lacking, ConversionStatus, R, C);
+                R1 = hg_route:to_rejected_route(R, {'ConversionLacking', ConversionStatus}),
+                hg_routing_ctx:reject(conversion_lacking, R1, C);
             ({_R, _ProviderStatus}, C) ->
                 C
         end,
@@ -254,8 +256,7 @@ filter_routes({Routes, Rejected}, Prohibitions) ->
                 error ->
                     {[Route | AccIn], RejectedIn};
                 {ok, Description} ->
-                    PRef = hg_route:provider_ref(Route),
-                    RejectedOut = [{PRef, TRef, {'RoutingRule', Description}} | RejectedIn],
+                    RejectedOut = [hg_route:to_rejected_route(Route, {'RoutingRule', Description}) | RejectedIn],
                     {AccIn, RejectedOut}
             end
         end,

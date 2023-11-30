@@ -2041,7 +2041,9 @@ build_routing_context(PaymentInstitution, VS, Revision, St) ->
 filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
     lists:foldr(
         fun(R, C) ->
-            hg_routing_ctx:reject_route(already_attmpted, already_attempted, hg_route:from_payment_route(R), C)
+            R1 = hg_route:from_payment_route(R),
+            R2 = hg_route:to_rejected_route(R1, {'AlreadyAttempted', undefined}),
+            hg_routing_ctx:reject(already_attempted, R2, C)
         end,
         Ctx,
         AttemptedRoutes
@@ -2490,20 +2492,15 @@ get_provider_terms(St, Revision) ->
 
 filter_routes_with_limit_hold(Ctx, VS, Iter, St) ->
     {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx), VS, Iter, St),
-    lists:foldr(
-        fun(R, C) ->
-            hg_routing_ctx:reject(limit_hold_reject, R, C)
-        end,
-        Ctx,
-        RejectedRoutes
-    ).
+    reject_routes(limit_hold_reject, RejectedRoutes, Ctx).
 
 filter_routes_by_limit_overflow(Ctx, VS, St) ->
     {_Routes, RejectedRoutes} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx), VS, St),
+    reject_routes(limit_overflow_reject, RejectedRoutes, Ctx).
+
+reject_routes(GroupReason, RejectedRoutes, Ctx) ->
     lists:foldr(
-        fun(R, C) ->
-            hg_routing_ctx:reject(limit_overflow_reject, R, C)
-        end,
+        fun(R, C) -> hg_routing_ctx:reject(GroupReason, R, C) end,
         Ctx,
         RejectedRoutes
     ).
@@ -2560,8 +2557,8 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
     {lists:reverse(Routes1), Rejected}.
 
 do_reject_route(LimiterError, Route, TurnoverLimits, {LimitHeldRoutes, RejectedRoutes}) ->
-    Reason = {'LimitHoldError', [T#domain_TurnoverLimit.id || T <- TurnoverLimits], LimiterError},
-    RejectedRoute = hg_route:to_rejected_route(Route, Reason),
+    LimitsIDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
+    RejectedRoute = hg_route:to_rejected_route(Route, {'LimitHoldError', LimitsIDs, LimiterError}),
     {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}.
 
 rollback_payment_limits(Routes, Iter, St) ->

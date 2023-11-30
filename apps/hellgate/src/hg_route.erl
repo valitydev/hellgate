@@ -33,7 +33,8 @@
 
 -type t() :: #route{}.
 -type payment_route() :: dmsl_domain_thrift:'PaymentRoute'().
--type rejected_route() :: {provider_ref(), terminal_ref(), Reason :: term()}.
+-type route_rejection_reason() :: {atom(), _DescOrAttrs} | {atom(), _DescOrAttrs1, _DescOrAttrs2}.
+-type rejected_route() :: {provider_ref(), terminal_ref(), route_rejection_reason()}.
 -type provider_ref() :: dmsl_domain_thrift:'ProviderRef'().
 -type terminal_ref() :: dmsl_domain_thrift:'TerminalRef'().
 -type fd_overrides() :: dmsl_domain_thrift:'RouteFaultDetectorOverrides'().
@@ -134,7 +135,7 @@ from_payment_route(Route) ->
 to_payment_route(#route{} = Route) ->
     ?route(provider_ref(Route), terminal_ref(Route)).
 
--spec to_rejected_route(t(), term()) -> rejected_route().
+-spec to_rejected_route(t(), route_rejection_reason()) -> rejected_route().
 to_rejected_route(Route, Reason) ->
     {provider_ref(Route), terminal_ref(Route), Reason}.
 
@@ -180,7 +181,7 @@ route_pairs({Prv1, Trm1}, {Prv2, Trm2}) ->
     Fs = [
         fun(X) -> X end,
         fun to_payment_route/1,
-        fun(X) -> to_rejected_route(X, <<"whatever reason">>) end,
+        fun(X) -> to_rejected_route(X, {test, <<"whatever">>}) end,
         fun(X) -> {provider_ref(X), terminal_ref(X)} end
     ],
     A = new(Prv1, Trm1),
