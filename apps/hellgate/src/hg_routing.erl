@@ -163,7 +163,7 @@ gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules =
         lists:foldr(
             fun(R, C) -> hg_routing_ctx:reject(rejected_route_found, R, C) end,
             hg_routing_ctx:new(Accepted),
-            RejectedRoutes
+            lists:reverse(RejectedRoutes)
         )
     catch
         throw:{misconfiguration, _Reason} = Error ->
