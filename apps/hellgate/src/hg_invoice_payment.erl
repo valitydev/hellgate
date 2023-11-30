@@ -767,18 +767,12 @@ gather_routes(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     PaymentTool = get_payer_payment_tool(Payer),
     ClientIP = get_payer_client_ip(Payer),
-    hg_routing:gather_routes(
-        Predestination,
-        PaymentInstitution,
-        VS,
-        Revision,
-        #{
-            currency => Currency,
-            payment_tool => PaymentTool,
-            party_id => PartyID,
-            client_ip => ClientIP
-        }
-    ).
+    hg_routing:gather_routes(Predestination, PaymentInstitution, VS, Revision, #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => PartyID,
+        client_ip => ClientIP
+    }).
 
 -spec check_risk_score(risk_score()) -> ok | {error, risk_score_is_too_high}.
 check_risk_score(fatal) ->
@@ -1973,23 +1967,22 @@ process_risk_score(Action, St) ->
 -spec process_routing(action(), st()) -> machine_result().
 process_routing(Action, St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
-    case
-        hg_routing_ctx:process(hg_routing_ctx:new([]), fun(_Ctx) ->
-            build_routing_context(PaymentInstitution, VS, Revision, St)
-        end)
-    of
-        Ctx0 = #{error := Error} when Error =/= undefined ->
-            ok = log_misconfigurations(Error),
-            ok = log_rejected_routes(no_route_found, hg_routing_ctx:rejected_routes(Ctx0), VS),
-            handle_choose_route_error(Error, [], St, Action);
-        Ctx0 ->
+    Ctx0 = hg_routing_ctx:with_guard(build_routing_context(PaymentInstitution, VS, Revision, St)),
+    %% NOTE We need to handle routing errors differently if route not found
+    %% before the pipeline.
+    case hg_routing_ctx:error(Ctx0) of
+        undefined ->
             Ctx1 = run_routing_decision_pipeline(Ctx0, VS, St),
             _ = [
                 log_rejected_routes(Group, RejectedRoutes, VS)
              || {Group, RejectedRoutes} <- hg_routing_ctx:rejections(Ctx0)
             ],
             Events = produce_routing_events(Ctx1, Revision, St),
-            {next, {Events, hg_machine_action:set_timeout(0, Action)}}
+            {next, {Events, hg_machine_action:set_timeout(0, Action)}};
+        Error ->
+            ok = log_misconfigurations(Error),
+            ok = log_rejected_routes(no_route_found, hg_routing_ctx:rejected_routes(Ctx0), VS),
+            handle_choose_route_error(Error, [], St, Action)
     end.
 
 run_routing_decision_pipeline(Ctx0, VS, St) ->

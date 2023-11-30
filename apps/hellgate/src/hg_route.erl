@@ -155,3 +155,36 @@ route_ref({Prv, Trm, _RejectionReason}) ->
     {Prv, Trm};
 route_ref(_) ->
     undefined.
+
+%%
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+-define(prv(ID), #domain_ProviderRef{id = ID}).
+-define(trm(ID), #domain_TerminalRef{id = ID}).
+
+-spec test() -> _.
+
+-spec routes_equality_test_() -> [_].
+routes_equality_test_() ->
+    lists:flatten([
+        [?_assert(equal(A, B)) || {A, B} <- route_pairs({?prv(1), ?trm(1)}, {?prv(1), ?trm(1)})],
+        [?_assertNot(equal(A, B)) || {A, B} <- route_pairs({?prv(1), ?trm(1)}, {?prv(1), ?trm(2)})],
+        [?_assertNot(equal(A, B)) || {A, B} <- route_pairs({?prv(1), ?trm(1)}, {?prv(2), ?trm(1)})],
+        [?_assertNot(equal(A, B)) || {A, B} <- route_pairs({?prv(1), ?trm(1)}, {?prv(2), ?trm(2)})]
+    ]).
+
+route_pairs({Prv1, Trm1}, {Prv2, Trm2}) ->
+    Fs = [
+        fun(X) -> X end,
+        fun to_payment_route/1,
+        fun(X) -> to_rejected_route(X, <<"whatever reason">>) end,
+        fun(X) -> {provider_ref(X), terminal_ref(X)} end
+    ],
+    A = new(Prv1, Trm1),
+    B = new(Prv2, Trm2),
+    lists:flatten([[{F1(A), F2(B)} || F1 <- Fs] || F2 <- Fs]).
+
+-endif.

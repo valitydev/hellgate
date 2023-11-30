@@ -7,9 +7,10 @@
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 
 -export([gather_routes/5]).
+-export([rate_routes/1]).
 -export([choose_route/1]).
 -export([choose_rated_route/1]).
--export([gather_fail_rates/1]).
+
 -export([get_payment_terms/3]).
 
 -export([get_logger_metadata/2]).
@@ -96,7 +97,7 @@
 
 -spec filter_by_critical_provider_status(T) -> T when T :: hg_routing_ctx:t().
 filter_by_critical_provider_status(Ctx) ->
-    RoutesFailRates = gather_fail_rates(hg_routing_ctx:candidates(Ctx)),
+    RoutesFailRates = rate_routes(hg_routing_ctx:candidates(Ctx)),
     lists:foldr(
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
@@ -273,13 +274,13 @@ compute_rule_set(RuleSetRef, VS, Revision) ->
     ),
     RuleSet.
 
--spec gather_fail_rates([hg_route:t()]) -> [fail_rated_route()].
-gather_fail_rates(Routes) ->
+-spec rate_routes([hg_route:t()]) -> [fail_rated_route()].
+rate_routes(Routes) ->
     score_routes_with_fault_detector(Routes).
 
 -spec choose_route([hg_route:t()]) -> {hg_route:t(), route_choice_context()}.
 choose_route(Routes) ->
-    FailRatedRoutes = gather_fail_rates(Routes),
+    FailRatedRoutes = rate_routes(Routes),
     choose_rated_route(FailRatedRoutes).
 
 -spec choose_rated_route([fail_rated_route()]) -> {hg_route:t(), route_choice_context()}.

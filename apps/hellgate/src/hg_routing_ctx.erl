@@ -13,6 +13,7 @@
 -export([candidates/1]).
 -export([initial_candidates/1]).
 -export([process/2]).
+-export([with_guard/1]).
 -export([pipeline/2]).
 
 -type t() :: #{
@@ -76,13 +77,14 @@ reject_route(GroupReason, Reason, Route, Ctx) ->
 process(Ctx0, Fun) ->
     case Ctx0 of
         #{error := undefined} ->
-            process_(Ctx0, Fun);
+            with_guard(Fun(Ctx0));
         ErroneousCtx ->
             ErroneousCtx
     end.
 
-process_(Ctx0, Fun) ->
-    case Fun(Ctx0) of
+-spec with_guard(t()) -> t().
+with_guard(Ctx0) ->
+    case Ctx0 of
         NoRouteCtx = #{candidates := [], error := undefined} ->
             NoRouteCtx#{error := {rejected_routes, rejected_routes(NoRouteCtx)}};
         Ctx1 ->
