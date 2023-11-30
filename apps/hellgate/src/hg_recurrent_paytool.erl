@@ -274,20 +274,13 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
 
 gather_routes(PaymentInstitution, VS, Revision, Ctx) ->
     Predestination = recurrent_paytool,
-    case
-        hg_routing:gather_routes(
-            Predestination,
-            PaymentInstitution,
-            VS,
-            Revision,
-            Ctx
-        )
-    of
-        {ok, {[], RejectedRoutes}} ->
-            throw({no_route_found, {unknown, RejectedRoutes}});
-        {ok, {Routes, _RejectContext}} ->
+    RoutingCtx = hg_routing:gather_routes(Predestination, PaymentInstitution, VS, Revision, Ctx),
+    case {hg_routing_ctx:candidates(RoutingCtx), hg_routing_ctx:error(RoutingCtx)} of
+        {[], undefined} ->
+            throw({no_route_found, {unknown, hg_routing_ctx:rejected_routes(RoutingCtx)}});
+        {Routes, undefined} ->
             Routes;
-        {error, {misconfiguration, _Reason}} ->
+        {_Routes, {misconfiguration, _Reason}} ->
             throw({no_route_found, misconfiguration})
     end.
 

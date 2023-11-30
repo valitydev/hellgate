@@ -13,25 +13,7 @@
 -export([get_payment_terms/3]).
 
 -export([get_logger_metadata/2]).
-
 -export([prepare_log_message/1]).
-
-%%
-
--export([new_ctx/0]).
--export([new_ctx/1]).
--export([with_fail_rates/2]).
--export([fail_rates/1]).
--export([set_choosen/3]).
--export([set_error/2]).
--export([reject/3]).
--export([reject_route/4]).
--export([all_rejected_routes/1]).
--export([rejections/1]).
--export([candidates/1]).
--export([initial_candidates/1]).
--export([process/2]).
--export([pipeline/2]).
 
 %%
 
@@ -107,132 +89,39 @@
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
 
 -export_type([route_predestination/0]).
-
-%% Routing context
-
--type ctx() :: #{
-    initial_candidates := [hg_route:t()],
-    candidates := [hg_route:t()],
-    rejections := #{atom() => [hg_route:rejected_route()]},
-    error := Reason :: term() | undefined,
-    choosen_route := hg_route:t() | undefined,
-    choice_meta := route_choice_context() | undefined,
-    fail_rates => [fail_rated_route()]
-}.
+-export_type([route_choice_context/0]).
+-export_type([fail_rated_route/0]).
 
 %%
 
--spec new_ctx() -> ctx().
-new_ctx() ->
-    new_ctx([]).
-
--spec new_ctx([hg_route:t()]) -> ctx().
-new_ctx(Candidates) ->
-    #{
-        initial_candidates => Candidates,
-        candidates => Candidates,
-        rejections => #{},
-        error => undefined,
-        choosen_route => undefined,
-        choice_meta => undefined
-    }.
-
--spec with_fail_rates([fail_rated_route()], ctx()) -> ctx().
-with_fail_rates(FailRates, Ctx) ->
-    maps:put(fail_rates, FailRates, Ctx).
-
--spec fail_rates(ctx()) -> [fail_rated_route()] | undefined.
-fail_rates(Ctx) ->
-    maps:get(fail_rates, Ctx, undefined).
-
--spec set_choosen(hg_route:t(), route_choice_context(), ctx()) -> ctx().
-set_choosen(Route, ChoiceMeta, Ctx) ->
-    Ctx#{choosen_route => Route, choice_meta => ChoiceMeta}.
-
--spec set_error(term(), ctx()) -> ctx().
-set_error(ErrorReason, Ctx) ->
-    Ctx#{error => ErrorReason}.
-
--spec reject(atom(), hg_route:rejected_route(), ctx()) -> ctx().
-reject(GroupReason, RejectedRoute, Ctx = #{rejections := Rejections, candidates := Candidates}) ->
-    RejectedList = maps:get(GroupReason, Rejections, []) ++ [RejectedRoute],
-    Ctx#{
-        rejections => Rejections#{GroupReason => RejectedList},
-        candidates => exclude_route(RejectedRoute, Candidates)
-    }.
-
--spec reject_route(atom(), term(), hg_route:t(), ctx()) -> ctx().
-reject_route(GroupReason, Reason, Route, Ctx) ->
-    reject(GroupReason, hg_route:to_rejected_route(Route, Reason), Ctx).
-
--spec process(T, fun((T) -> T)) -> T when T :: ctx().
-process(Ctx0, Fun) ->
-    case Ctx0 of
-        #{error := undefined} ->
-            process_(Ctx0, Fun);
-        ErroneousCtx ->
-            ErroneousCtx
-    end.
-
-process_(Ctx0, Fun) ->
-    case Fun(Ctx0) of
-        NoRouteCtx = #{candidates := [], error := undefined} ->
-            NoRouteCtx#{error := {rejected_routes, all_rejected_routes(NoRouteCtx)}};
-        Ctx1 ->
-            Ctx1
-    end.
-
--spec pipeline(T, [fun((T) -> T)]) -> T when T :: ctx().
-pipeline(Ctx, Funs) ->
-    lists:foldl(fun(F, C) -> process(C, F) end, Ctx, Funs).
-
--spec all_rejected_routes(ctx()) -> [hg_route:rejected_route()].
-all_rejected_routes(#{rejections := Rejections}) ->
-    {_, RejectedRoutes} = lists:unzip(maps:to_list(Rejections)),
-    lists:flatten(RejectedRoutes).
-
--spec candidates(ctx()) -> [hg_route:t()].
-candidates(#{candidates := Candidates}) ->
-    Candidates.
-
--spec initial_candidates(ctx()) -> [hg_route:t()].
-initial_candidates(#{initial_candidates := InitialCandidates}) ->
-    InitialCandidates.
-
--spec rejections(ctx()) -> [{atom(), [hg_route:rejected_route()]}].
-rejections(#{rejections := Rejections}) ->
-    maps:to_list(Rejections).
-
-%%
-
--spec filter_by_critical_provider_status(T) -> T when T :: ctx().
+-spec filter_by_critical_provider_status(T) -> T when T :: hg_routing_ctx:t().
 filter_by_critical_provider_status(Ctx) ->
-    RoutesFailRates = gather_fail_rates(candidates(Ctx)),
+    RoutesFailRates = gather_fail_rates(hg_routing_ctx:candidates(Ctx)),
     lists:foldr(
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
-                reject_route(unavailability, AvailabilityStatus, R, C);
+                hg_routing_ctx:reject_route(unavailability, AvailabilityStatus, R, C);
             ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
-                reject_route(conversion_lacking, ConversionStatus, R, C);
+                hg_routing_ctx:reject_route(conversion_lacking, ConversionStatus, R, C);
             ({_R, _ProviderStatus}, C) ->
                 C
         end,
-        with_fail_rates(RoutesFailRates, Ctx),
+        hg_routing_ctx:with_fail_rates(RoutesFailRates, Ctx),
         RoutesFailRates
     ).
 
--spec choose_route_ctx(T) -> T when T :: ctx().
+-spec choose_route_ctx(T) -> T when T :: hg_routing_ctx:t().
 choose_route_ctx(Ctx) ->
-    Candidates = candidates(Ctx),
+    Candidates = hg_routing_ctx:candidates(Ctx),
     {ChoosenRoute, ChoiceContext} =
-        case fail_rates(Ctx) of
+        case hg_routing_ctx:fail_rates(Ctx) of
             undefined ->
                 choose_route(Candidates);
             FailRates ->
                 RatedCandidates = filter_rated_routes_with_candidates(FailRates, Candidates),
                 choose_rated_route(RatedCandidates)
         end,
-    set_choosen(ChoosenRoute, ChoiceContext, Ctx).
+    hg_routing_ctx:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
 
 filter_rated_routes_with_candidates(FailRates, Candidates) ->
     lists:foldr(
@@ -256,17 +145,10 @@ prepare_log_message({misconfiguration, {routing_candidate, Candidate}}) ->
 
 %%
 
--spec gather_routes(
-    route_predestination(),
-    payment_institution(),
-    varset(),
-    revision(),
-    gather_route_context()
-) ->
-    {ok, {[hg_route:t()], [hg_route:rejected_route()]}}
-    | {error, misconfiguration_error()}.
+-spec gather_routes(route_predestination(), payment_institution(), varset(), revision(), gather_route_context()) ->
+    hg_routing_ctx:t().
 gather_routes(_, #domain_PaymentInstitution{payment_routing_rules = undefined}, _, _, _) ->
-    {ok, {[], []}};
+    hg_routing_ctx:new([]);
 gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, VS, Revision, Ctx) ->
     #domain_RoutingRules{
         policies = Policies,
@@ -278,10 +160,14 @@ gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules =
             collect_routes(Predestination, Candidates, VS, Revision, Ctx),
             get_table_prohibitions(Prohibitions, VS, Revision)
         ),
-        {ok, {Accepted, RejectedRoutes}}
+        lists:foldr(
+            fun(R, C) -> hg_routing_ctx:reject(rejected_route_found, R, C) end,
+            hg_routing_ctx:new(Accepted),
+            RejectedRoutes
+        )
     catch
         throw:{misconfiguration, _Reason} = Error ->
-            {error, Error}
+            hg_routing_ctx:set_error(Error, hg_routing_ctx:new([]))
     end.
 
 get_table_prohibitions(Prohibitions, VS, Revision) ->
@@ -786,7 +672,7 @@ acceptable_allow(_ParentName, _Type, {constant, true}) ->
 acceptable_allow(ParentName, Type, {constant, false}) ->
     throw(?rejected({ParentName, Type}));
 acceptable_allow(_ParentName, Type, Ambiguous) ->
-    error({misconfiguration, {'Could not reduce predicate to a value', {Type, Ambiguous}}}).
+    erlang:error({misconfiguration, {'Could not reduce predicate to a value', {Type, Ambiguous}}}).
 
 %%
 
@@ -827,7 +713,7 @@ get_selector_value(Name, Selector) ->
         {value, V} ->
             V;
         Ambiguous ->
-            error({misconfiguration, {'Could not reduce selector to a value', {Name, Ambiguous}}})
+            erlang:error({misconfiguration, {'Could not reduce selector to a value', {Name, Ambiguous}}})
     end.
 
 getv(Name, VS) ->
@@ -835,20 +721,6 @@ getv(Name, VS) ->
 
 getv(Name, VS, Default) ->
     maps:get(Name, VS, Default).
-
-%%
-
-exclude_route(Route, Routes) ->
-    lists:foldr(
-        fun(R, RR) ->
-            case hg_route:equal(Route, R) of
-                true -> RR;
-                _else -> [R | RR]
-            end
-        end,
-        [],
-        Routes
-    ).
 
 %%
 

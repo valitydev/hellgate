@@ -456,7 +456,9 @@ no_route_found_for_payment(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {[], RejectedRoutes1}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx0),
+    {ok, {[], RejectedRoutes1}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx0)
+    ),
 
     ?assert_set_equal(
         [
@@ -477,7 +479,9 @@ no_route_found_for_payment(_C) ->
     Ctx1 = Ctx0#{
         currency => Currency1
     },
-    {ok, {[], RejectedRoutes2}} = hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision, Ctx1),
+    {ok, {[], RejectedRoutes2}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision, Ctx1)
+    ),
     ?assert_set_equal(
         [
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', currency}},
@@ -511,12 +515,8 @@ gather_route_success(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {[Route], RejectedRoutes}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision,
-        Ctx
+    {ok, {[Route], RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
     ),
     ?assertMatch(?trm(1), hg_route:terminal_ref(Route)),
     ?assertMatch(
@@ -558,7 +558,9 @@ rejected_by_table_prohibitions(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {[], RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    {ok, {[], RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
     ?assert_set_equal(
         [
             {?prv(3), ?trm(3), {'RoutingRule', undefined}},
@@ -600,7 +602,7 @@ empty_candidate_ok(_C) ->
     },
     ?assertMatch(
         {ok, {[], []}},
-        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+        unwrap_routing_context(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
     ).
 
 -spec ruleset_misconfig(config()) -> test_return().
@@ -620,14 +622,8 @@ ruleset_misconfig(_C) ->
         client_ip => undefined
     },
     ?assertMatch(
-        {error, {misconfiguration, {routing_decisions, {delegates, []}}}},
-        hg_routing:gather_routes(
-            payment,
-            PaymentInstitution,
-            VS,
-            Revision,
-            Ctx
-        )
+        {misconfiguration, {routing_decisions, {delegates, []}}},
+        hg_routing_ctx:error(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
     ).
 
 -spec routes_selected_for_low_risk_score(config()) -> test_return().
@@ -658,7 +654,9 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    {ok, {Routes, _}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
     ?assert_set_equal(ProviderRefs, lists:map(fun hg_route:provider_ref/1, Routes)).
 
 -spec choice_context_formats_ok(config()) -> test_return().
@@ -722,12 +720,8 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, RejectedRoutes}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision,
-        Ctx
+    {ok, {Routes, RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
     ),
     case ExpectedRouteTerminal of
         undefined ->
@@ -767,7 +761,9 @@ terminal_priority_for_shop(ShopID, _C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
     hg_routing:choose_route(Routes).
 
 -spec gather_pinned_route(config()) -> test_return().
@@ -790,7 +786,9 @@ gather_pinned_route(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
     Pin = #{
         currency => Currency,
         payment_tool => PaymentTool
@@ -928,3 +926,6 @@ maybe_set_risk_coverage(false, _) ->
     undefined;
 maybe_set_risk_coverage(true, V) ->
     {value, V}.
+
+unwrap_routing_context(RoutingCtx) ->
+    {ok, {hg_routing_ctx:candidates(RoutingCtx), hg_routing_ctx:rejected_routes(RoutingCtx)}}.
