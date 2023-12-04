@@ -164,7 +164,7 @@ gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules =
             get_table_prohibitions(Prohibitions, VS, Revision)
         ),
         lists:foldr(
-            fun(R, C) -> hg_routing_ctx:reject(rejected_route_found, R, C) end,
+            fun(R, C) -> hg_routing_ctx:reject(prohibitions, R, C) end,
             hg_routing_ctx:new(Accepted),
             lists:reverse(RejectedRoutes)
         )

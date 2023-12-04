@@ -1193,25 +1193,51 @@ payment_limit_overflow(C) ->
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
-        fun({no_route_found, {forbidden, _}}) -> ok end
+        fun(
+            {no_route_found,
+                {forbidden,
+                    {{unknown_error, <<"rejected_routes">>}, {{unknown_error, <<"limit_overflow_reject">>}, _}}}}
+        ) ->
+            ok
+        end
     ).
 
 -spec limit_hold_currency_error(config()) -> test_return().
 limit_hold_currency_error(C) ->
-    payment_route_not_found(C).
+    Failure = payment_route_not_found(C),
+    ?assertRouteNotFound(
+        Failure,
+        {forbidden, {{unknown_error, <<"rejected_routes">>}, {{unknown_error, <<"limit_hold_reject">>}, _}}},
+        <<"[{">>
+    ).
 
 -spec limit_hold_operation_not_supported(config()) -> test_return().
 limit_hold_operation_not_supported(C) ->
-    payment_route_not_found(C).
+    Failure = payment_route_not_found(C),
+    ?assertRouteNotFound(
+        Failure,
+        {forbidden, {{unknown_error, <<"rejected_routes">>}, {{unknown_error, <<"limit_hold_reject">>}, _}}},
+        <<"[{">>
+    ).
 
 -spec limit_hold_payment_tool_not_supported(config()) -> test_return().
 limit_hold_payment_tool_not_supported(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
-    payment_route_not_found(PaymentTool, Session, C).
+    Failure = payment_route_not_found(PaymentTool, Session, C),
+    ?assertRouteNotFound(
+        Failure,
+        {forbidden, {{unknown_error, <<"rejected_routes">>}, {{unknown_error, <<"limit_hold_reject">>}, _}}},
+        <<"[{">>
+    ).
 
 -spec limit_hold_two_routes_failure(config()) -> test_return().
 limit_hold_two_routes_failure(C) ->
-    payment_route_not_found(C).
+    Failure = payment_route_not_found(C),
+    ?assertRouteNotFound(
+        Failure,
+        {forbidden, {{unknown_error, <<"rejected_routes">>}, {{unknown_error, <<"limit_overflow_reject">>}, _}}},
+        <<"[{">>
+    ).
 
 payment_route_not_found(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
@@ -1235,7 +1261,8 @@ payment_route_not_found(PaymentTool, Session, C) ->
     _ = start_payment_ev(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
         next_change(InvoiceID, Client),
-    ?assertRouteNotFound(Failure, _, <<"{rejected_routes,[{">>).
+    %% NOTE Failure reason is expected to contain non-empty list of rejected routes
+    Failure.
 
 -spec switch_provider_after_limit_overflow(config()) -> test_return().
 switch_provider_after_limit_overflow(C) ->
@@ -1435,7 +1462,8 @@ payment_w_misconfigured_routing_failed(C) ->
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client),
-    ?assertRouteNotFound(Failure, {unknown, _}, <<"{misconfiguration,{">>).
+    Reason = genlib:format({routing_decisions, {delegates, []}}),
+    ?assertRouteNotFound(Failure, {unknown, {{unknown_error, <<"misconfiguration">>}, _}}, Reason).
 
 payment_w_misconfigured_routing_failed_fixture(_Revision, _C) ->
     [

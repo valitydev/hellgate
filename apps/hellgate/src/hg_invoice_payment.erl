@@ -832,7 +832,7 @@ log_rejected_routes(limit_overflow_reject, RejectedRoutes, _Varset) ->
         logger:get_process_metadata()
     ),
     ok;
-log_rejected_routes(rejected_route_found, RejectedRoutes, Varset) ->
+log_rejected_routes(prohibitions, RejectedRoutes, Varset) ->
     _ = logger:log(
         info,
         "Rejected routes found for varset: ~p",
@@ -2003,7 +2003,7 @@ produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= un
     %% TODO Pass failure subcode from error. Say, if last candidates were
     %% rejected because of provider gone critical, then use subcode to highlight
     %% the offender. Like 'provider_dead' or 'conversion_lacking'.
-    Failure = genlib:define(St#st.failure, construct_routing_failure(forbidden, genlib:format(Error))),
+    Failure = genlib:define(St#st.failure, construct_routing_failure(Error)),
     InitialCandidates = [hg_route:to_payment_route(R) || R <- hg_routing_ctx:initial_candidates(Ctx)],
     Route = hd(InitialCandidates),
     Candidates = ordsets:from_list(InitialCandidates),
@@ -2052,24 +2052,33 @@ filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
         AttemptedRoutes
     ).
 
-handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
-    do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
-handle_choose_route_error({misconfiguration, _Details} = Reason, Events, St, Action) ->
-    do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
-handle_choose_route_error(Reason, Events, St, Action) when is_atom(Reason) ->
-    do_handle_routing_error(Reason, undefined, Events, St, Action).
-
-do_handle_routing_error(SubCode, Reason, Events, St, Action) ->
-    Failure = construct_routing_failure(SubCode, Reason),
+handle_choose_route_error(Error, Events, St, Action) ->
+    Failure = construct_routing_failure(Error),
     process_failure(get_activity(St), Events, Action, Failure, St).
 
-construct_routing_failure(SubCode, Reason) ->
-    {failure,
-        payproc_errors:construct(
-            'PaymentFailure',
-            {no_route_found, {SubCode, #payproc_error_GeneralFailure{}}},
-            Reason
-        )}.
+%% NOTE See damsel payproc errors (proto/payment_processing_errors.thrift) for no route found
+construct_routing_failure({Code = prohibitions, {RejectionGroup, RejectedRoutes}}) ->
+    construct_routing_failure(
+        [
+            forbidden,
+            {unknown_error, atom_to_binary(Code)},
+            {unknown_error, atom_to_binary(RejectionGroup)}
+        ],
+        genlib:format(RejectedRoutes)
+    );
+construct_routing_failure({misconfiguration = Code, Details}) ->
+    construct_routing_failure([unknown, {unknown_error, atom_to_binary(Code)}], genlib:format(Details));
+construct_routing_failure(Code = risk_score_is_too_high) ->
+    construct_routing_failure([Code], undefined);
+construct_routing_failure(Error) when is_atom(Error) ->
+    construct_routing_failure([{unknown_error, Error}], undefined).
+
+construct_routing_failure(Codes, Reason) ->
+    {failure, payproc_errors:construct('PaymentFailure', mk_static_error([no_route_found | Codes]), Reason)}.
+
+mk_static_error([_ | _] = Codes) -> mk_static_error_(#payproc_error_GeneralFailure{}, lists:reverse(Codes)).
+mk_static_error_(T, []) -> T;
+mk_static_error_(Sub, [Code | Codes]) -> mk_static_error_({Code, Sub}, Codes).
 
 -spec process_cash_flow_building(action(), st()) -> machine_result().
 process_cash_flow_building(Action, St) ->

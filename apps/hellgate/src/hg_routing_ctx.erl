@@ -15,11 +15,15 @@
 -export([with_guard/1]).
 -export([pipeline/2]).
 
+-type rejection_group() :: atom().
+-type error() :: {atom(), _Description}.
+
 -type t() :: #{
     initial_candidates := [hg_route:t()],
     candidates := [hg_route:t()],
-    rejections := #{atom() => [hg_route:rejected_route()]},
-    error := Reason :: term() | undefined,
+    rejections := #{rejection_group() => [hg_route:rejected_route()]},
+    latest_rejection := rejection_group() | undefined,
+    error := error() | undefined,
     choosen_route := hg_route:t() | undefined,
     choice_meta := hg_routing:route_choice_context() | undefined,
     fail_rates => [hg_routing:fail_rated_route()]
@@ -35,6 +39,7 @@ new(Candidates) ->
         initial_candidates => Candidates,
         candidates => Candidates,
         rejections => #{},
+        latest_rejection => undefined,
         error => undefined,
         choosen_route => undefined,
         choice_meta => undefined
@@ -64,8 +69,9 @@ error(#{error := Error}) ->
 reject(GroupReason, RejectedRoute, Ctx = #{rejections := Rejections, candidates := Candidates}) ->
     RejectedList = maps:get(GroupReason, Rejections, []) ++ [RejectedRoute],
     Ctx#{
-        rejections => Rejections#{GroupReason => RejectedList},
-        candidates => exclude_route(RejectedRoute, Candidates)
+        rejections := Rejections#{GroupReason => RejectedList},
+        candidates := exclude_route(RejectedRoute, Candidates),
+        latest_rejection := GroupReason
     }.
 
 -spec process(T, fun((T) -> T)) -> T when T :: t().
@@ -81,7 +87,7 @@ process(Ctx0, Fun) ->
 with_guard(Ctx0) ->
     case Ctx0 of
         NoRouteCtx = #{candidates := [], error := undefined} ->
-            NoRouteCtx#{error := {rejected_routes, rejected_routes(NoRouteCtx)}};
+            NoRouteCtx#{error := {rejected_routes, latest_rejected_routes(NoRouteCtx)}};
         Ctx1 ->
             Ctx1
     end.
@@ -109,12 +115,15 @@ rejections(#{rejections := Rejections}) ->
 
 %%
 
+latest_rejected_routes(#{latest_rejection := ReasonGroup, rejections := Rejections}) ->
+    {ReasonGroup, maps:get(ReasonGroup, Rejections, [])}.
+
 exclude_route(Route, Routes) ->
     lists:foldr(
         fun(R, RR) ->
             case hg_route:equal(Route, R) of
                 true -> RR;
-                _else -> [R | RR]
+                _Else -> [R | RR]
             end
         end,
         [],
@@ -156,7 +165,7 @@ pipeline_test_() ->
             #{
                 initial_candidates := [RouteA],
                 candidates := [],
-                error := {rejected_routes, [RejectedRouteA]},
+                error := {rejected_routes, {test, [RejectedRouteA]}},
                 choosen_route := undefined
             },
             pipeline(new([RouteA]), [fun do_reject_route_a/1])
