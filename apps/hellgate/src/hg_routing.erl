@@ -102,7 +102,7 @@ filter_by_critical_provider_status(Ctx) ->
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
                 R1 = hg_route:to_rejected_route(R, {'ProviderDead', AvailabilityStatus}),
-                hg_routing_ctx:reject(provider_availability, R1, C);
+                hg_routing_ctx:reject(adapter_availability, R1, C);
             ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
                 R1 = hg_route:to_rejected_route(R, {'ConversionLacking', ConversionStatus}),
                 hg_routing_ctx:reject(provider_conversion, R1, C);
@@ -483,13 +483,13 @@ get_provider_status(Route, FDStats) ->
     FdOverrides = hg_route:fd_overrides(Route),
     AvailabilityServiceID = build_fd_availability_service_id(ProviderRef),
     ConversionServiceID = build_fd_conversion_service_id(ProviderRef),
-    AvailabilityStatus = get_provider_availability_status(FdOverrides, AvailabilityServiceID, FDStats),
+    AvailabilityStatus = get_adapter_availability_status(FdOverrides, AvailabilityServiceID, FDStats),
     ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
     {AvailabilityStatus, ConversionStatus}.
-get_provider_availability_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
+get_adapter_availability_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {alive, 0.0};
-get_provider_availability_status(_, FDID, Stats) ->
+get_adapter_availability_status(_, FDID, Stats) ->
     AvailabilityConfig = maps:get(availability, genlib_app:env(hellgate, fault_detector, #{}), #{}),
     CriticalFailRate = maps:get(critical_fail_rate, AvailabilityConfig, 0.7),
     case lists:keysearch(FDID, #fault_detector_ServiceStatistics.service_id, Stats) of

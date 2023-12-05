@@ -2063,7 +2063,7 @@ construct_routing_failure({rejected_routes, {forbidden, RejectedRoutes}}) ->
 construct_routing_failure({rejected_routes, {SubCode, RejectedRoutes}}) when
     SubCode =:= limit_hold orelse
         SubCode =:= limit_overflow orelse
-        SubCode =:= provider_availability orelse
+        SubCode =:= adapter_availability orelse
         SubCode =:= provider_conversion
 ->
     construct_routing_failure([rejected, SubCode], genlib:format(RejectedRoutes));

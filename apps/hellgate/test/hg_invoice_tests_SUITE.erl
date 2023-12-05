@@ -1798,7 +1798,7 @@ route_not_found_provider_unavailable(C) ->
         mk_fd_stat(?prv(1), {0.5, 0.9}),
         fun() ->
             {_InvoiceID, _PaymentID, Failure} = failed_payment_wo_cascade(C),
-            ?assertRouteNotFound(Failure, {rejected, {provider_availability, _}}, <<"[{">>)
+            ?assertRouteNotFound(Failure, {rejected, {adapter_availability, _}}, <<"[{">>)
         end
     ).
 
