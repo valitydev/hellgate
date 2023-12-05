@@ -102,10 +102,10 @@ filter_by_critical_provider_status(Ctx) ->
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
                 R1 = hg_route:to_rejected_route(R, {'ProviderDead', AvailabilityStatus}),
-                hg_routing_ctx:reject(unavailability, R1, C);
+                hg_routing_ctx:reject(provider_availability, R1, C);
             ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
                 R1 = hg_route:to_rejected_route(R, {'ConversionLacking', ConversionStatus}),
-                hg_routing_ctx:reject(conversion_lacking, R1, C);
+                hg_routing_ctx:reject(provider_conversion, R1, C);
             ({_R, _ProviderStatus}, C) ->
                 C
         end,
@@ -164,7 +164,7 @@ gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules =
             get_table_prohibitions(Prohibitions, VS, Revision)
         ),
         lists:foldr(
-            fun(R, C) -> hg_routing_ctx:reject(prohibitions, R, C) end,
+            fun(R, C) -> hg_routing_ctx:reject(forbidden, R, C) end,
             hg_routing_ctx:new(Accepted),
             lists:reverse(RejectedRoutes)
         )

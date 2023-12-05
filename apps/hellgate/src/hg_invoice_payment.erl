@@ -802,7 +802,7 @@ log_misconfigurations(_Error) ->
 
 log_rejected_routes(_, [], _Varset) ->
     ok;
-log_rejected_routes(no_route_found, RejectedRoutes, Varset) ->
+log_rejected_routes(all, RejectedRoutes, Varset) ->
     _ = logger:log(
         warning,
         "No route found for varset: ~p",
@@ -816,7 +816,7 @@ log_rejected_routes(no_route_found, RejectedRoutes, Varset) ->
         logger:get_process_metadata()
     ),
     ok;
-log_rejected_routes(limit_hold_reject, RejectedRoutes, _Varset) ->
+log_rejected_routes(limit_hold, RejectedRoutes, _Varset) ->
     _ = logger:log(
         warning,
         "Limiter hold error caused route candidates to be rejected: ~p",
@@ -824,7 +824,7 @@ log_rejected_routes(limit_hold_reject, RejectedRoutes, _Varset) ->
         logger:get_process_metadata()
     ),
     ok;
-log_rejected_routes(limit_overflow_reject, RejectedRoutes, _Varset) ->
+log_rejected_routes(limit_overflow, RejectedRoutes, _Varset) ->
     _ = logger:log(
         info,
         "Limit overflow caused route candidates to be rejected: ~p",
@@ -832,7 +832,7 @@ log_rejected_routes(limit_overflow_reject, RejectedRoutes, _Varset) ->
         logger:get_process_metadata()
     ),
     ok;
-log_rejected_routes(prohibitions, RejectedRoutes, Varset) ->
+log_rejected_routes(forbidden, RejectedRoutes, Varset) ->
     _ = logger:log(
         info,
         "Rejected routes found for varset: ~p",
@@ -1981,7 +1981,7 @@ process_routing(Action, St) ->
             {next, {Events, hg_machine_action:set_timeout(0, Action)}};
         Error ->
             ok = log_misconfigurations(Error),
-            ok = log_rejected_routes(no_route_found, hg_routing_ctx:rejected_routes(Ctx0), VS),
+            ok = log_rejected_routes(all, hg_routing_ctx:rejected_routes(Ctx0), VS),
             handle_choose_route_error(Error, [], St, Action)
     end.
 
@@ -2057,15 +2057,16 @@ handle_choose_route_error(Error, Events, St, Action) ->
     process_failure(get_activity(St), Events, Action, Failure, St).
 
 %% NOTE See damsel payproc errors (proto/payment_processing_errors.thrift) for no route found
-construct_routing_failure({Code = prohibitions, {RejectionGroup, RejectedRoutes}}) ->
-    construct_routing_failure(
-        [
-            forbidden,
-            {unknown_error, atom_to_binary(Code)},
-            {unknown_error, atom_to_binary(RejectionGroup)}
-        ],
-        genlib:format(RejectedRoutes)
-    );
+
+construct_routing_failure({rejected_routes, {forbidden, RejectedRoutes}}) ->
+    construct_routing_failure([forbidden], genlib:format(RejectedRoutes));
+construct_routing_failure({rejected_routes, {SubCode, RejectedRoutes}}) when
+    SubCode =:= limit_hold orelse
+        SubCode =:= limit_overflow orelse
+        SubCode =:= provider_availability orelse
+        SubCode =:= provider_conversion
+->
+    construct_routing_failure([rejected, SubCode], genlib:format(RejectedRoutes));
 construct_routing_failure({misconfiguration = Code, Details}) ->
     construct_routing_failure([unknown, {unknown_error, atom_to_binary(Code)}], genlib:format(Details));
 construct_routing_failure(Code = risk_score_is_too_high) ->
@@ -2504,11 +2505,11 @@ get_provider_terms(St, Revision) ->
 
 filter_routes_with_limit_hold(Ctx, VS, Iter, St) ->
     {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx), VS, Iter, St),
-    reject_routes(limit_hold_reject, RejectedRoutes, Ctx).
+    reject_routes(limit_hold, RejectedRoutes, Ctx).
 
 filter_routes_by_limit_overflow(Ctx, VS, St) ->
     {_Routes, RejectedRoutes} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx), VS, St),
-    reject_routes(limit_overflow_reject, RejectedRoutes, Ctx).
+    reject_routes(limit_overflow, RejectedRoutes, Ctx).
 
 reject_routes(GroupReason, RejectedRoutes, Ctx) ->
     lists:foldr(
