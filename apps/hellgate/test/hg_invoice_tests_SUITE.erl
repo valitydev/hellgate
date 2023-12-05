@@ -1207,18 +1207,18 @@ payment_limit_overflow(C) ->
 -spec limit_hold_currency_error(config()) -> test_return().
 limit_hold_currency_error(C) ->
     Failure = payment_route_not_found(C),
-    ?assertRouteNotFound(Failure, {rejected, {limit_hold, _}}, <<"[{">>).
+    ?assertRouteNotFound(Failure, {rejected, {limit_misconfiguration, _}}, <<"[{">>).
 
 -spec limit_hold_operation_not_supported(config()) -> test_return().
 limit_hold_operation_not_supported(C) ->
     Failure = payment_route_not_found(C),
-    ?assertRouteNotFound(Failure, {rejected, {limit_hold, _}}, <<"[{">>).
+    ?assertRouteNotFound(Failure, {rejected, {limit_misconfiguration, _}}, <<"[{">>).
 
 -spec limit_hold_payment_tool_not_supported(config()) -> test_return().
 limit_hold_payment_tool_not_supported(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
     Failure = payment_route_not_found(PaymentTool, Session, C),
-    ?assertRouteNotFound(Failure, {rejected, {limit_hold, _}}, <<"[{">>).
+    ?assertRouteNotFound(Failure, {rejected, {limit_misconfiguration, _}}, <<"[{">>).
 
 -spec limit_hold_two_routes_failure(config()) -> test_return().
 limit_hold_two_routes_failure(C) ->
@@ -1798,7 +1798,7 @@ route_not_found_provider_unavailable(C) ->
         mk_fd_stat(?prv(1), {0.5, 0.9}),
         fun() ->
             {_InvoiceID, _PaymentID, Failure} = failed_payment_wo_cascade(C),
-            ?assertRouteNotFound(Failure, {rejected, {adapter_availability, _}}, <<"[{">>)
+            ?assertRouteNotFound(Failure, {rejected, {adapter_unavailable, _}}, <<"[{">>)
         end
     ).
 
@@ -1808,7 +1808,7 @@ route_not_found_provider_lacking_conversion(C) ->
         mk_fd_stat(?prv(1), {0.9, 0.5}),
         fun() ->
             {_InvoiceID, _PaymentID, Failure} = failed_payment_wo_cascade(C),
-            ?assertRouteNotFound(Failure, {rejected, {provider_conversion, _}}, <<"[{">>)
+            ?assertRouteNotFound(Failure, {rejected, {provider_conversion_is_too_low, _}}, <<"[{">>)
         end
     ).
 

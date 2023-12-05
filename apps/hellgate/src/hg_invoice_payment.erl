@@ -235,6 +235,8 @@
 
 %%
 
+-define(LOG_MD(Level, Format, Args), logger:log(Level, Format, Args, logger:get_process_metadata())).
+
 -spec get_party_revision(st()) -> {hg_party:party_revision(), hg_datetime:timestamp()}.
 get_party_revision(#st{activity = {payment, _}} = St) ->
     #domain_InvoicePayment{party_revision = Revision, created_at = Timestamp} = get_payment(St),
@@ -794,59 +796,29 @@ log_route_choice_meta(#{choice_meta := ChoiceMeta}, Revision) ->
     Metadata = hg_routing:get_logger_metadata(ChoiceMeta, Revision),
     logger:log(info, "Routing decision made", #{routing => Metadata}).
 
-log_misconfigurations({misconfiguration, _} = Error) ->
+maybe_log_misconfigurations({misconfiguration, _} = Error) ->
     {Format, Details} = hg_routing:prepare_log_message(Error),
-    logger:warning(Format, Details);
-log_misconfigurations(_Error) ->
+    ?LOG_MD(warning, Format, Details);
+maybe_log_misconfigurations(_Error) ->
     ok.
 
 log_rejected_routes(_, [], _Varset) ->
     ok;
-log_rejected_routes(all, RejectedRoutes, Varset) ->
-    _ = logger:log(
-        warning,
-        "No route found for varset: ~p",
-        [Varset],
-        logger:get_process_metadata()
-    ),
-    _ = logger:log(
-        warning,
-        "No route found, rejected routes: ~p",
-        [RejectedRoutes],
-        logger:get_process_metadata()
-    ),
-    ok;
-log_rejected_routes(limit_hold, RejectedRoutes, _Varset) ->
-    _ = logger:log(
-        warning,
-        "Limiter hold error caused route candidates to be rejected: ~p",
-        [RejectedRoutes],
-        logger:get_process_metadata()
-    ),
-    ok;
-log_rejected_routes(limit_overflow, RejectedRoutes, _Varset) ->
-    _ = logger:log(
-        info,
-        "Limit overflow caused route candidates to be rejected: ~p",
-        [RejectedRoutes],
-        logger:get_process_metadata()
-    ),
-    ok;
-log_rejected_routes(forbidden, RejectedRoutes, Varset) ->
-    _ = logger:log(
-        info,
-        "Rejected routes found for varset: ~p",
-        [Varset],
-        logger:get_process_metadata()
-    ),
-    _ = logger:log(
-        info,
-        "Rejected routes found, rejected routes: ~p",
-        [RejectedRoutes],
-        logger:get_process_metadata()
-    ),
-    ok;
-log_rejected_routes(_, _RejectedRoutes, _Varset) ->
+log_rejected_routes(all, Routes, VS) ->
+    ?LOG_MD(warning, "No route found for varset: ~p", [VS]),
+    ?LOG_MD(warning, "No route found, rejected routes: ~p", [Routes]);
+log_rejected_routes(limit_misconfiguration, Routes, _VS) ->
+    ?LOG_MD(warning, "Limiter hold error caused route candidates to be rejected: ~p", [Routes]);
+log_rejected_routes(limit_overflow, Routes, _VS) ->
+    ?LOG_MD(info, "Limit overflow caused route candidates to be rejected: ~p", [Routes]);
+log_rejected_routes(adapter_unavailable, Routes, _VS) ->
+    ?LOG_MD(info, "Adapter unavailability caused route candidates to be rejected: ~p", [Routes]);
+log_rejected_routes(provider_conversion_is_too_low, Routes, _VS) ->
+    ?LOG_MD(info, "Lacking conversion of provider caused route candidates to be rejected: ~p", [Routes]);
+log_rejected_routes(forbidden, Routes, VS) ->
+    ?LOG_MD(info, "Rejected routes found for varset: ~p", [VS]),
+    ?LOG_MD(info, "Rejected routes found, rejected routes: ~p", [Routes]);
+log_rejected_routes(_, _Routes, _VS) ->
     ok.
 
 validate_refund_time(RefundCreatedAt, PaymentCreatedAt, TimeSpanSelector) ->
@@ -1980,7 +1952,7 @@ process_routing(Action, St) ->
             Events = produce_routing_events(Ctx1, Revision, St),
             {next, {Events, hg_machine_action:set_timeout(0, Action)}};
         Error ->
-            ok = log_misconfigurations(Error),
+            ok = maybe_log_misconfigurations(Error),
             ok = log_rejected_routes(all, hg_routing_ctx:rejected_routes(Ctx0), VS),
             handle_choose_route_error(Error, [], St, Action)
     end.
@@ -2061,10 +2033,10 @@ handle_choose_route_error(Error, Events, St, Action) ->
 construct_routing_failure({rejected_routes, {forbidden, RejectedRoutes}}) ->
     construct_routing_failure([forbidden], genlib:format(RejectedRoutes));
 construct_routing_failure({rejected_routes, {SubCode, RejectedRoutes}}) when
-    SubCode =:= limit_hold orelse
+    SubCode =:= limit_misconfiguration orelse
         SubCode =:= limit_overflow orelse
-        SubCode =:= adapter_availability orelse
-        SubCode =:= provider_conversion
+        SubCode =:= adapter_unavailable orelse
+        SubCode =:= provider_conversion_is_too_low
 ->
     construct_routing_failure([rejected, SubCode], genlib:format(RejectedRoutes));
 construct_routing_failure({misconfiguration = Code, Details}) ->
@@ -2505,7 +2477,7 @@ get_provider_terms(St, Revision) ->
 
 filter_routes_with_limit_hold(Ctx, VS, Iter, St) ->
     {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx), VS, Iter, St),
-    reject_routes(limit_hold, RejectedRoutes, Ctx).
+    reject_routes(limit_misconfiguration, RejectedRoutes, Ctx).
 
 filter_routes_by_limit_overflow(Ctx, VS, St) ->
     {_Routes, RejectedRoutes} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx), VS, St),
@@ -3301,12 +3273,9 @@ log_cascade_attempt_context(
     #domain_PaymentsServiceTerms{attempt_limit = AttemptLimit},
     #st{routes = AttemptedRoutes}
 ) ->
-    _ = logger:log(
-        info,
-        "Cascade context: merchant payment terms' attempt limit '~p', attempted routes: ~p",
-        [AttemptLimit, AttemptedRoutes],
-        logger:get_process_metadata()
-    ).
+    ?LOG_MD(info, "Cascade context: merchant payment terms' attempt limit '~p', attempted routes: ~p", [
+        AttemptLimit, AttemptedRoutes
+    ]).
 
 get_routing_attempt_limit_value(undefined) ->
     1;
