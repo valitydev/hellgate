@@ -11,6 +11,7 @@
 -export([rejections/1]).
 -export([candidates/1]).
 -export([initial_candidates/1]).
+-export([choosen_route/1]).
 -export([process/2]).
 -export([with_guard/1]).
 -export([pipeline/2]).
@@ -108,6 +109,10 @@ candidates(#{candidates := Candidates}) ->
 -spec initial_candidates(t()) -> [hg_route:t()].
 initial_candidates(#{initial_candidates := InitialCandidates}) ->
     InitialCandidates.
+
+-spec choosen_route(t()) -> hg_route:t() | undefined.
+choosen_route(#{choosen_route := ChoosenRoute}) ->
+    ChoosenRoute.
 
 -spec rejections(t()) -> [{atom(), [hg_route:rejected_route()]}].
 rejections(#{rejections := Rejections}) ->

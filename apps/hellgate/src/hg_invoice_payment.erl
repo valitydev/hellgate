@@ -1987,7 +1987,7 @@ produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= un
     [?route_changed(Route, Candidates), ?payment_rollback_started(Failure)];
 produce_routing_events(Ctx, Revision, _St) ->
     ok = log_route_choice_meta(Ctx, Revision),
-    Route = hg_route:to_payment_route(maps:get(choosen_route, Ctx)),
+    Route = hg_route:to_payment_route(hg_routing_ctx:choosen_route(Ctx)),
     Candidates = ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing_ctx:candidates(Ctx)]),
     [?route_changed(Route, Candidates)].
 
