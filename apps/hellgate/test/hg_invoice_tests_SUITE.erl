@@ -8,6 +8,7 @@
 -include("hg_ct_invoice.hrl").
 -include_lib("damsel/include/dmsl_repair_thrift.hrl").
 -include_lib("hellgate/include/allocation.hrl").
+-include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 
 -include_lib("stdlib/include/assert.hrl").
 
@@ -200,6 +201,10 @@
 -export([payment_cascade_fail_provider_error/1]).
 -export([payment_cascade_fail_ui/1]).
 
+-export([route_not_found_provider_unavailable/1]).
+-export([payment_success_ruleset_provider_available/1]).
+-export([route_not_found_provider_lacking_conversion/1]).
+
 %%
 
 -behaviour(supervisor).
@@ -324,7 +329,11 @@ groups() ->
             payment_capture_retries_exceeded,
             payment_partial_capture_success,
             payment_error_in_cancel_session_does_not_cause_payment_failure,
-            payment_error_in_capture_session_does_not_cause_payment_failure
+            payment_error_in_capture_session_does_not_cause_payment_failure,
+
+            payment_success_ruleset_provider_available,
+            route_not_found_provider_unavailable,
+            route_not_found_provider_lacking_conversion
         ]},
 
         {adjustments, [], [
@@ -525,6 +534,7 @@ init_per_suite(C) ->
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     ok = start_kv_store(SupPid),
+    _ = mock_fault_detector(SupPid),
     NewC = [
         {party_id, PartyID},
         {party_client, PartyClient},
@@ -1190,28 +1200,30 @@ payment_limit_overflow(C) ->
 
     Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
     ok = hg_limiter_helper:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
-    ok = payproc_errors:match(
-        'PaymentFailure',
-        Failure,
-        fun({no_route_found, {forbidden, _}}) -> ok end
-    ).
+    ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, {rejected, {limit_overflow, _}}}) ->
+        ok
+    end).
 
 -spec limit_hold_currency_error(config()) -> test_return().
 limit_hold_currency_error(C) ->
-    payment_route_not_found(C).
+    Failure = payment_route_not_found(C),
+    ?assertRouteNotFound(Failure, {rejected, {limit_misconfiguration, _}}, <<"[{">>).
 
 -spec limit_hold_operation_not_supported(config()) -> test_return().
 limit_hold_operation_not_supported(C) ->
-    payment_route_not_found(C).
+    Failure = payment_route_not_found(C),
+    ?assertRouteNotFound(Failure, {rejected, {limit_misconfiguration, _}}, <<"[{">>).
 
 -spec limit_hold_payment_tool_not_supported(config()) -> test_return().
 limit_hold_payment_tool_not_supported(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
-    payment_route_not_found(PaymentTool, Session, C).
+    Failure = payment_route_not_found(PaymentTool, Session, C),
+    ?assertRouteNotFound(Failure, {rejected, {limit_misconfiguration, _}}, <<"[{">>).
 
 -spec limit_hold_two_routes_failure(config()) -> test_return().
 limit_hold_two_routes_failure(C) ->
-    payment_route_not_found(C).
+    Failure = payment_route_not_found(C),
+    ?assertRouteNotFound(Failure, {rejected, {limit_overflow, _}}, <<"[{">>).
 
 payment_route_not_found(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
@@ -1235,7 +1247,8 @@ payment_route_not_found(PaymentTool, Session, C) ->
     _ = start_payment_ev(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
         next_change(InvoiceID, Client),
-    ?assertRouteNotFound(Failure, _, <<"{rejected_routes,[{">>).
+    %% NOTE Failure reason is expected to contain non-empty list of rejected routes
+    Failure.
 
 -spec switch_provider_after_limit_overflow(config()) -> test_return().
 switch_provider_after_limit_overflow(C) ->
@@ -1306,11 +1319,9 @@ refund_limit_success(C) ->
     ?payment(PaymentID) = Payment,
 
     Failure = create_payment_limit_overflow(PartyID, ShopID, 50000, Client, PmtSys),
-    ok = payproc_errors:match(
-        'PaymentFailure',
-        Failure,
-        fun({no_route_found, {forbidden, _}}) -> ok end
-    ),
+    ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, {rejected, {limit_overflow, _}}}) ->
+        ok
+    end),
     % create a refund finally
     RefundParams = make_refund_params(),
     RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
@@ -1435,7 +1446,8 @@ payment_w_misconfigured_routing_failed(C) ->
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client),
-    ?assertRouteNotFound(Failure, {unknown, _}, <<"{misconfiguration,{">>).
+    Reason = genlib:format({routing_decisions, {delegates, []}}),
+    ?assertRouteNotFound(Failure, {unknown, {{unknown_error, <<"misconfiguration">>}, _}}, Reason).
 
 payment_w_misconfigured_routing_failed_fixture(_Revision, _C) ->
     [
@@ -1756,6 +1768,69 @@ repair_failed_cancel(InvoiceID, PaymentID, Reason, Client) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?cancelled_with_reason(Reason)))
     ] = next_changes(InvoiceID, 2, Client),
     PaymentID.
+
+-spec payment_success_ruleset_provider_available(config()) -> test_return().
+payment_success_ruleset_provider_available(C) ->
+    with_fault_detector(
+        mk_fd_stat(?prv(1), {0.5, 0.5}),
+        fun() ->
+            PartyID = cfg(party_id_big_merch, C),
+            RootUrl = cfg(root_url, C),
+            PartyClient = cfg(party_client, C),
+            Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+            InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+            InvoiceID = create_invoice(InvoiceParams, Client),
+            ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+            PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+            PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+            ?invoice_state(
+                ?invoice_w_status(?invoice_paid()),
+                [?payment_state(Payment)]
+            ) = hg_client_invoicing:get(InvoiceID, Client),
+            ?payment_w_status(PaymentID, ?captured()) = Payment
+        end
+    ).
+
+-spec route_not_found_provider_unavailable(config()) -> test_return().
+route_not_found_provider_unavailable(C) ->
+    with_fault_detector(
+        mk_fd_stat(?prv(1), {0.5, 0.9}),
+        fun() ->
+            {_InvoiceID, _PaymentID, Failure} = failed_payment_wo_cascade(C),
+            ?assertRouteNotFound(Failure, {rejected, {adapter_unavailable, _}}, <<"[{">>)
+        end
+    ).
+
+-spec route_not_found_provider_lacking_conversion(config()) -> test_return().
+route_not_found_provider_lacking_conversion(C) ->
+    with_fault_detector(
+        mk_fd_stat(?prv(1), {0.9, 0.5}),
+        fun() ->
+            {_InvoiceID, _PaymentID, Failure} = failed_payment_wo_cascade(C),
+            ?assertRouteNotFound(Failure, {rejected, {provider_conversion_is_too_low, _}}, <<"[{">>)
+        end
+    ).
+
+failed_payment_wo_cascade(C) ->
+    PartyID = cfg(party_id_big_merch, C),
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) =
+        hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    _ = start_payment_ev(InvoiceID, Client),
+
+    ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
+        next_change(InvoiceID, Client),
+    {InvoiceID, PaymentID, Failure}.
 
 -spec payment_w_terminal_w_payment_service_success(config()) -> _ | no_return().
 payment_w_terminal_w_payment_service_success(C) ->
@@ -9870,3 +9945,44 @@ construct_term_set_for_partial_capture_provider_permit(Revision, _C) ->
 set_processing_deadline(Timeout, PaymentParams) ->
     Deadline = woody_deadline:to_binary(woody_deadline:from_timeout(Timeout)),
     PaymentParams#payproc_InvoicePaymentParams{processing_deadline = Deadline}.
+
+mk_fd_stat(?prv(ID), {ConversionFailureRate, AvailabilityFailureRate}) ->
+    [
+        mk_fd_stat(<<"provider_conversion">>, ?prv(ID), ConversionFailureRate),
+        mk_fd_stat(<<"adapter_availability">>, ?prv(ID), AvailabilityFailureRate)
+    ].
+
+mk_fd_stat(Type, ?prv(ID), FailureRate) ->
+    #fault_detector_ServiceStatistics{
+        service_id = <<"hellgate_service.", Type/binary, ".", (integer_to_binary(ID))/binary>>,
+        %% NOTE Testsuite config's critical failure threshold is .7
+        failure_rate = FailureRate,
+        %% Those are bullshit values, because we don't actually care for raw numbers
+        operations_count = 10,
+        error_operations_count = 9,
+        overtime_operations_count = 0,
+        success_operations_count = 1
+    }.
+
+with_fault_detector(Statistics, Fun) ->
+    FDConfig = genlib_app:env(hellgate, fault_detector),
+    _ = application:set_env(hellgate, fault_detector, FDConfig#{enabled => true}),
+    _ = hg_kv_store:put(fd_statistics, Statistics),
+    Result = Fun(),
+    application:set_env(hellgate, fault_detector, FDConfig#{enabled => false}),
+    Result.
+
+mock_fault_detector(SupPid) ->
+    hg_mock_helper:mock_services(
+        [
+            {fault_detector, fun
+                ('InitService', _) ->
+                    {ok, {}};
+                ('RegisterOperation', _) ->
+                    {ok, {}};
+                ('GetStatistics', _) ->
+                    {ok, hg_kv_store:get(fd_statistics)}
+            end}
+        ],
+        SupPid
+    ).
