@@ -203,7 +203,7 @@
 
 -export([route_not_found_provider_unavailable/1]).
 -export([payment_success_ruleset_provider_available/1]).
--export([route_not_found_provider_lacking_conversion/1]).
+-export([route_found_provider_lacking_conversion/1]).
 
 %%
 
@@ -333,7 +333,7 @@ groups() ->
 
             payment_success_ruleset_provider_available,
             route_not_found_provider_unavailable,
-            route_not_found_provider_lacking_conversion
+            route_found_provider_lacking_conversion
         ]},
 
         {adjustments, [], [
@@ -1802,13 +1802,27 @@ route_not_found_provider_unavailable(C) ->
         end
     ).
 
--spec route_not_found_provider_lacking_conversion(config()) -> test_return().
-route_not_found_provider_lacking_conversion(C) ->
+-spec route_found_provider_lacking_conversion(config()) -> test_return().
+route_found_provider_lacking_conversion(C) ->
     with_fault_detector(
         mk_fd_stat(?prv(1), {0.9, 0.5}),
         fun() ->
-            {_InvoiceID, _PaymentID, Failure} = failed_payment_wo_cascade(C),
-            ?assertRouteNotFound(Failure, {rejected, {provider_conversion_is_too_low, _}}, <<"[{">>)
+            PartyID = cfg(party_id_big_merch, C),
+            RootUrl = cfg(root_url, C),
+            PartyClient = cfg(party_client, C),
+            Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+            InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+
+            InvoiceID = create_invoice(InvoiceParams, Client),
+            ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+            PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+            PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+            ?invoice_state(?invoice_w_status(?invoice_paid()), [?payment_state(Payment)]) =
+                hg_client_invoicing:get(InvoiceID, Client),
+
+            ?payment_w_status(PaymentID, ?captured()) = Payment
         end
     ).
 
