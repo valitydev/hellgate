@@ -114,16 +114,5 @@ stop(_State) ->
 %%
 
 setup_metrics() ->
-    %% Since we actually require prometheus registry to setup those metrics we
-    %% must ensure it is loaded. That dirty shit happens because we can't add
-    %% `prometheus` and `prometheus_cowboy` explicitly as dependency both in
-    %% `rebar3.config` and `apps/hellgate/src/hellgate.app.src`. There are
-    %% issues with linter's plugin producing dependency confict for prometheus
-    %% libs. See `rebar3.config` production profile comment for details.
-    case code:ensure_loaded(prometheus_registry) of
-        {module, _} ->
-            ok = woody_ranch_metrics_collector:setup(),
-            ok = woody_hackney_pool_metrics_collector:setup();
-        _ ->
-            ok
-    end.
+    ok = woody_ranch_metrics_collector:setup(),
+    ok = woody_hackney_pool_metrics_collector:setup().
