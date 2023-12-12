@@ -103,9 +103,6 @@ filter_by_critical_provider_status(Ctx) ->
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
                 R1 = hg_route:to_rejected_route(R, {'ProviderDead', AvailabilityStatus}),
                 hg_routing_ctx:reject(adapter_unavailable, R1, C);
-            ({R, {_AvailabitlyStatus, ConversionStatus = {lacking, _}}}, C) ->
-                R1 = hg_route:to_rejected_route(R, {'ConversionLacking', ConversionStatus}),
-                hg_routing_ctx:reject(provider_conversion_is_too_low, R1, C);
             ({_R, _ProviderStatus}, C) ->
                 C
         end,
