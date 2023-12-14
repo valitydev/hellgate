@@ -114,5 +114,5 @@ stop(_State) ->
 %%
 
 setup_metrics() ->
-    ok = woody_ranch_metrics_collector:setup(),
-    ok = woody_hackney_pool_metrics_collector:setup().
+    ok = woody_ranch_prometheus_collector:setup(),
+    ok = woody_hackney_prometheus_collector:setup().
