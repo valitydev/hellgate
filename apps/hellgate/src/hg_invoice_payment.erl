@@ -802,7 +802,7 @@ maybe_log_misconfigurations({misconfiguration, _} = Error) ->
 maybe_log_misconfigurations(_Error) ->
     ok.
 
-log_rejected_routes(_, [], _Varset) ->
+log_rejected_routes(_, [], _VS) ->
     ok;
 log_rejected_routes(all, Routes, VS) ->
     ?LOG_MD(warning, "No route found for varset: ~p", [VS]),
@@ -1947,7 +1947,7 @@ process_routing(Action, St) ->
             Ctx1 = run_routing_decision_pipeline(Ctx0, VS, St),
             _ = [
                 log_rejected_routes(Group, RejectedRoutes, VS)
-             || {Group, RejectedRoutes} <- hg_routing_ctx:rejections(Ctx0)
+             || {Group, RejectedRoutes} <- hg_routing_ctx:rejections(Ctx1)
             ],
             Events = produce_routing_events(Ctx1, Revision, St),
             {next, {Events, hg_machine_action:set_timeout(0, Action)}};
