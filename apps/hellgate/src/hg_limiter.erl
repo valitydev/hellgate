@@ -86,7 +86,7 @@ check_limits_([T | TurnoverLimits], Context, Acc) ->
         true ->
             check_limits_(TurnoverLimits, Context, [Limit | Acc]);
         false ->
-            logger:info("Limit with id ~p overflowed, amount ~p upper boundary ~p", [
+            logger:notice("Limit with id ~p overflowed, amount ~p upper boundary ~p", [
                 LimitID,
                 LimiterAmount,
                 UpperBoundary

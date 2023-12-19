@@ -686,8 +686,8 @@ validate_recurrent_terms(RecurrentTerms, PaymentTool) ->
     _ =
         case hg_payment_tool:has_any_payment_method(PaymentTool, PMs) of
             false ->
-                logger:info("PaymentTool: ~p", [PaymentTool]),
-                logger:info("RecurrentPaymentMethods: ~p", [PMs]),
+                logger:notice("PaymentTool: ~p", [PaymentTool]),
+                logger:notice("RecurrentPaymentMethods: ~p", [PMs]),
                 throw_invalid_request(<<"Invalid payment method">>);
             true ->
                 ok
@@ -794,7 +794,7 @@ log_route_choice_meta(#{choice_meta := undefined}, _Revision) ->
     ok;
 log_route_choice_meta(#{choice_meta := ChoiceMeta}, Revision) ->
     Metadata = hg_routing:get_logger_metadata(ChoiceMeta, Revision),
-    logger:log(info, "Routing decision made", #{routing => Metadata}).
+    logger:log(notice, "Routing decision made", #{routing => Metadata}).
 
 maybe_log_misconfigurations({misconfiguration, _} = Error) ->
     {Format, Details} = hg_routing:prepare_log_message(Error),
@@ -810,14 +810,14 @@ log_rejected_routes(all, Routes, VS) ->
 log_rejected_routes(limit_misconfiguration, Routes, _VS) ->
     ?LOG_MD(warning, "Limiter hold error caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(limit_overflow, Routes, _VS) ->
-    ?LOG_MD(info, "Limit overflow caused route candidates to be rejected: ~p", [Routes]);
+    ?LOG_MD(notice, "Limit overflow caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(adapter_unavailable, Routes, _VS) ->
-    ?LOG_MD(info, "Adapter unavailability caused route candidates to be rejected: ~p", [Routes]);
+    ?LOG_MD(notice, "Adapter unavailability caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(provider_conversion_is_too_low, Routes, _VS) ->
-    ?LOG_MD(info, "Lacking conversion of provider caused route candidates to be rejected: ~p", [Routes]);
+    ?LOG_MD(notice, "Lacking conversion of provider caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(forbidden, Routes, VS) ->
-    ?LOG_MD(info, "Rejected routes found for varset: ~p", [VS]),
-    ?LOG_MD(info, "Rejected routes found, rejected routes: ~p", [Routes]);
+    ?LOG_MD(notice, "Rejected routes found for varset: ~p", [VS]),
+    ?LOG_MD(notice, "Rejected routes found, rejected routes: ~p", [Routes]);
 log_rejected_routes(_, _Routes, _VS) ->
     ok.
 
@@ -1932,7 +1932,7 @@ process_risk_score(Action, St) ->
         ok ->
             {next, {Events, hg_machine_action:set_timeout(0, Action)}};
         {error, risk_score_is_too_high = Reason} ->
-            logger:info("No route found, reason = ~p, varset: ~p", [Reason, VS1]),
+            logger:notice("No route found, reason = ~p, varset: ~p", [Reason, VS1]),
             handle_choose_route_error(Reason, Events, St, Action)
     end.
 
@@ -2030,8 +2030,6 @@ handle_choose_route_error(Error, Events, St, Action) ->
 
 %% NOTE See damsel payproc errors (proto/payment_processing_errors.thrift) for no route found
 
-construct_routing_failure({rejected_routes, {forbidden, RejectedRoutes}}) ->
-    construct_routing_failure([forbidden], genlib:format(RejectedRoutes));
 construct_routing_failure({rejected_routes, {SubCode, RejectedRoutes}}) when
     SubCode =:= limit_misconfiguration orelse
         SubCode =:= limit_overflow orelse
@@ -2039,6 +2037,8 @@ construct_routing_failure({rejected_routes, {SubCode, RejectedRoutes}}) when
         SubCode =:= provider_conversion_is_too_low
 ->
     construct_routing_failure([rejected, SubCode], genlib:format(RejectedRoutes));
+construct_routing_failure({rejected_routes, {_SubCode, RejectedRoutes}}) ->
+    construct_routing_failure([forbidden], genlib:format(RejectedRoutes));
 construct_routing_failure({misconfiguration = Code, Details}) ->
     construct_routing_failure([unknown, {unknown_error, atom_to_binary(Code)}], genlib:format(Details));
 construct_routing_failure(Code = risk_score_is_too_high) ->
@@ -2336,7 +2336,7 @@ process_failure({payment, Step} = Activity, Events, Action, Failure, St, _Refund
     Target = get_target(St),
     case check_retry_possibility(Target, Failure, St) of
         {retry, Timeout} ->
-            _ = logger:info("Retry session after transient failure, wait ~p", [Timeout]),
+            _ = logger:notice("Retry session after transient failure, wait ~p", [Timeout]),
             {SessionEvents, SessionAction} = retry_session(Action, Target, Timeout),
             {next, {Events ++ SessionEvents, SessionAction}};
         fatal ->
@@ -3273,7 +3273,7 @@ log_cascade_attempt_context(
     #domain_PaymentsServiceTerms{attempt_limit = AttemptLimit},
     #st{routes = AttemptedRoutes}
 ) ->
-    ?LOG_MD(info, "Cascade context: merchant payment terms' attempt limit '~p', attempted routes: ~p", [
+    ?LOG_MD(notice, "Cascade context: merchant payment terms' attempt limit '~p', attempted routes: ~p", [
         AttemptLimit, AttemptedRoutes
     ]).
 

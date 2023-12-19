@@ -313,7 +313,7 @@ finish_session_processing({Events0, Action}, Session, Refund) ->
         {finished, ?session_failed(Failure)} ->
             case check_retry_possibility(Failure, Refund) of
                 {retry, Timeout} ->
-                    _ = logger:info("Retry session after transient failure, wait ~p", [Timeout]),
+                    _ = logger:notice("Retry session after transient failure, wait ~p", [Timeout]),
                     {SessionEvents, SessionAction} = retry_session(Action, Timeout),
                     {next, {Events1 ++ SessionEvents, SessionAction}};
                 fatal ->

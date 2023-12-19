@@ -483,6 +483,7 @@ get_provider_status(Route, FDStats) ->
     AvailabilityStatus = get_adapter_availability_status(FdOverrides, AvailabilityServiceID, FDStats),
     ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
     {AvailabilityStatus, ConversionStatus}.
+
 get_adapter_availability_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {alive, 0.0};

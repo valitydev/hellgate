@@ -21,6 +21,8 @@
         payproc_errors,
         erl_health,
         limiter_proto,
+        prometheus,
+        prometheus_cowboy,
         opentelemetry_api,
         opentelemetry_exporter,
         opentelemetry
