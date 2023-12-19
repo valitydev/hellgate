@@ -87,7 +87,7 @@
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2},
  {<<"scoper">>,
   {git,"https://github.com/valitydev/scoper.git",
-       {ref,"41a14a558667316998af9f49149ee087ffa8bef2"}},
+       {ref,"55a2a32ee25e22fa35f583a18eaf38b2b743429b"}},
   0},
  {<<"snowflake">>,
   {git,"https://github.com/valitydev/snowflake.git",
@@ -104,7 +104,7 @@
  {<<"unicode_util_compat">>,{pkg,<<"unicode_util_compat">>,<<"0.7.0">>},2},
  {<<"woody">>,
   {git,"https://github.com/valitydev/woody_erlang.git",
-       {ref,"6fbdd3fdb995866170eb5d05ddafc429dcfc9b3b"}},
+       {ref,"2cbe19998c073c545bf0f6b4b5211639c40b9925"}},
   0}]}.
 [
 {pkg_hash,[

@@ -253,7 +253,7 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
         {ChosenRoute, ChoiceContext} = hg_routing:choose_route(NonFailRatedRoutes),
         ChosenPaymentRoute = hg_route:to_payment_route(ChosenRoute),
         LoggerMetadata = hg_routing:get_logger_metadata(ChoiceContext, Revision),
-        _ = logger:log(info, "Routing decision made", #{routing => LoggerMetadata}),
+        _ = logger:log(notice, "Routing decision made", #{routing => LoggerMetadata}),
         RecPaymentTool2 = set_minimal_payment_cost(RecPaymentTool, ChosenPaymentRoute, VS, Revision),
         {ok, {Changes, Action}} = start_session(),
         StartChanges = [
@@ -376,7 +376,7 @@ validate_risk_score(RiskScore) when RiskScore == low; RiskScore == high ->
     RiskScore.
 
 handle_route_error(risk_score_is_too_high = Reason, RecPaymentTool) ->
-    _ = logger:log(info, "No route found, reason = ~p", [Reason], logger:get_process_metadata()),
+    _ = logger:log(notice, "No route found, reason = ~p", [Reason], logger:get_process_metadata()),
     {misconfiguration, {'No route found for a recurrent payment tool', RecPaymentTool}}.
 handle_route_error({no_route_found, {Reason, RejectedRoutes}}, RecPaymentTool, Varset) ->
     LogFun = fun(Msg, Param) ->
