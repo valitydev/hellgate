@@ -30,13 +30,22 @@
 ).
 
 -define(route_changed(Route),
-    {invoice_payment_route_changed, #payproc_InvoicePaymentRouteChanged{route = Route}}
+    ?route_changed(Route, undefined)
 ).
 
 -define(route_changed(Route, Candidates),
     {invoice_payment_route_changed, #payproc_InvoicePaymentRouteChanged{
         route = Route,
         candidates = Candidates
+    }}
+).
+
+-define(route_changed(Route, Candidates, Scores, Limits),
+    {invoice_payment_route_changed, #payproc_InvoicePaymentRouteChanged{
+        route = Route,
+        candidates = Candidates,
+        scores = Scores,
+        limits = Limits
     }}
 ).
 

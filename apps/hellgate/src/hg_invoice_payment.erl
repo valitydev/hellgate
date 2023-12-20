@@ -2025,26 +2025,41 @@ filter_out_attempted_routes(Routes, #st{routes = AttemptedRoutes}) ->
         Routes
     ).
 
-handle_gathered_route_result({ok, RoutesNoOverflow}, _Routes, CandidateRoutes, Revision, _St) ->
+handle_gathered_route_result({ok, RoutesNoOverflow, RoutesLimits}, _Routes, CandidateRoutes, Revision, _St) ->
     {ChoosenRoute, ChoiceContext} = hg_routing:choose_route(RoutesNoOverflow),
     _ = log_route_choice_meta(ChoiceContext, Revision),
-    [?route_changed(hg_routing:to_payment_route(ChoosenRoute), ordsets:from_list(CandidateRoutes))];
-handle_gathered_route_result({error, _Reason}, Routes, CandidateRoutes, _Revision, #st{failure = Failure}) when
+    [
+        ?route_changed(
+            hg_routing:to_payment_route(ChoosenRoute),
+            ordsets:from_list(CandidateRoutes),
+            Scores,
+            RoutesLimits
+        )
+    ];
+handle_gathered_route_result(
+    {error, {not_found, _RejectedRoutes, RoutesLimits}},
+    Routes,
+    CandidateRoutes,
+    _Revision,
+    #st{failure = Failure}
+) when
     Failure =/= undefined
 ->
     %% Pass original failure if it is set
-    handle_gathered_route_result_(Routes, CandidateRoutes, Failure);
-handle_gathered_route_result({error, {not_found, RejectedRoutes}}, Routes, CandidateRoutes, _Revision, _St) ->
+    handle_gathered_route_result_(Routes, CandidateRoutes, RoutesLimits, Failure);
+handle_gathered_route_result(
+    {error, {not_found, RejectedRoutes, RoutesLimits}}, Routes, CandidateRoutes, _Revision, _St
+) ->
     Failure = construct_routing_failure(forbidden, genlib:format({rejected_routes, RejectedRoutes})),
-    handle_gathered_route_result_(Routes, CandidateRoutes, Failure).
+    handle_gathered_route_result_(Routes, CandidateRoutes, RoutesLimits, Failure).
 
-handle_gathered_route_result_(Routes, CandidateRoutes, Failure) ->
+handle_gathered_route_result_(Routes, CandidateRoutes, Limits, Failure) ->
     [Route | _] = Routes,
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be skipped. And all limit's 'hold' operations
     %% will be rolled back.
     %% For same purpose in cascade routing we use route form unfiltered list of originally resolved candidates.
-    [?route_changed(Route, ordsets:from_list(CandidateRoutes)), ?payment_rollback_started(Failure)].
+    [?route_changed(Route, ordsets:from_list(CandidateRoutes), Scores, Limits), ?payment_rollback_started(Failure)].
 
 handle_choose_route_error({rejected_routes, _RejectedRoutes} = Reason, Events, St, Action) ->
     do_handle_routing_error(unknown, genlib:format(Reason), Events, St, Action);
@@ -2490,10 +2505,10 @@ get_provider_terms(St, Revision) ->
 filter_limit_overflow_routes(Routes, VS, Iter, St) ->
     {UsableRoutes, HoldRejectedRoutes} = hold_limit_routes(Routes, VS, Iter, St),
     case get_limit_overflow_routes(UsableRoutes, VS, St) of
-        {[], RejectedRoutesOut} ->
-            {error, {not_found, RejectedRoutesOut ++ HoldRejectedRoutes}};
-        {RoutesNoOverflow, _} ->
-            {ok, RoutesNoOverflow}
+        {[], RejectedRoutesOut, RoutesLimits} ->
+            {error, {not_found, RejectedRoutesOut ++ HoldRejectedRoutes, RoutesLimits}};
+        {RoutesNoOverflow, _, RoutesLimits} ->
+            {ok, RoutesNoOverflow, RoutesLimits}
     end.
 
 get_limit_overflow_routes(Routes, VS, St) ->
@@ -2501,21 +2516,21 @@ get_limit_overflow_routes(Routes, VS, St) ->
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
-    {_Routes, RejectedRoutes} =
+    {_Routes, RejectedRoutes, _RoutesLimits} =
         Result = lists:foldl(
-            fun(Route, {RoutesNoOverflowIn, RejectedIn}) ->
+            fun(Route, {RoutesNoOverflowIn, RejectedIn, LimitsIn}) ->
                 PaymentRoute = hg_routing:to_payment_route(Route),
                 ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
                 TurnoverLimits = get_turnover_limits(ProviderTerms),
                 case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
-                    {ok, _} ->
-                        {[Route | RoutesNoOverflowIn], RejectedIn};
-                    {error, {limit_overflow, IDs}} ->
+                    {ok, Limits} ->
+                        {[Route | RoutesNoOverflowIn], RejectedIn, LimitsIn#{PaymentRoute => Limits}};
+                    {error, {limit_overflow, IDs, Limits}} ->
                         RejectedRoute = hg_routing:to_rejected_route(Route, {'LimitOverflow', IDs}),
-                        {RoutesNoOverflowIn, [RejectedRoute | RejectedIn]}
+                        {RoutesNoOverflowIn, [RejectedRoute | RejectedIn], LimitsIn#{PaymentRoute => Limits}}
                 end
             end,
-            {[], []},
+            {[], [], #{}},
             Routes
         ),
     erlang:length(RejectedRoutes) > 0 andalso

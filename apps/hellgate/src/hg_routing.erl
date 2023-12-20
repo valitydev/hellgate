@@ -82,7 +82,7 @@
 -type route_choice_context() :: #{
     chosen_route => route(),
     preferable_route => route(),
-    % Contains one of the field names defined in #route_scores{}
+    % Contains one of the field names defined in #domain_PaymentRouteScores{}
     reject_reason => atom()
 }.
 
@@ -102,17 +102,7 @@
 -type revision() :: hg_domain:revision().
 -type fd_overrides() :: dmsl_domain_thrift:'RouteFaultDetectorOverrides'().
 
--record(route_scores, {
-    availability_condition :: condition_score(),
-    conversion_condition :: condition_score(),
-    priority_rating :: terminal_priority_rating(),
-    pin :: integer(),
-    random_condition :: integer(),
-    availability :: float(),
-    conversion :: float()
-}).
-
--type route_scores() :: #route_scores{}.
+-type route_scores() :: #domain_PaymentRouteScores{}.
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
 
 -export_type([route/0]).
@@ -348,7 +338,7 @@ choose_rated_route(FailRatedRoutes) ->
     {ChosenScoredRoute, IdealRoute} = find_best_routes(ScoredRoutes),
     RouteChoiceContext = get_route_choice_context(ChosenScoredRoute, IdealRoute),
     {_, Route} = ChosenScoredRoute,
-    {Route, RouteChoiceContext}.
+    {Route, RouteChoiceContext, ScoredRoutes}.
 
 -spec find_best_routes([scored_route()]) -> {Chosen :: scored_route(), Ideal :: scored_route()}.
 find_best_routes([Route]) ->
@@ -377,7 +367,7 @@ select_better_route_ideal(Left, Right) ->
 
 set_ideal_score({RouteScores, PT}) ->
     {
-        RouteScores#route_scores{
+        RouteScores#domain_PaymentRouteScores{
             availability_condition = 1,
             availability = 1.0,
             conversion_condition = 1,
@@ -427,11 +417,11 @@ format_logger_metadata(Meta, Route, Revision) when
 map_route_switch_reason(SameScores, SameScores) ->
     unknown;
 map_route_switch_reason(RealScores, IdealScores) when
-    is_record(RealScores, route_scores); is_record(IdealScores, route_scores)
+    is_record(RealScores, 'domain_PaymentRouteScores'); is_record(IdealScores, 'domain_PaymentRouteScores')
 ->
     Zipped = lists:zip(tuple_to_list(RealScores), tuple_to_list(IdealScores)),
     DifferenceIdx = find_idx_of_difference(Zipped),
-    lists:nth(DifferenceIdx, record_info(fields, route_scores)).
+    lists:nth(DifferenceIdx, record_info(fields, 'domain_PaymentRouteScores')).
 
 find_idx_of_difference(ZippedList) ->
     find_idx_of_difference(ZippedList, 0).
@@ -510,11 +500,11 @@ score_route({Route, ProviderStatus}) ->
     {AvailabilityStatus, ConversionStatus} = ProviderStatus,
     {AvailabilityCondition, Availability} = get_availability_score(AvailabilityStatus),
     {ConversionCondition, Conversion} = get_conversion_score(ConversionStatus),
-    #route_scores{
+    #domain_PaymentRouteScores{
         availability_condition = AvailabilityCondition,
         conversion_condition = ConversionCondition,
-        priority_rating = PriorityRate,
-        pin = PinHash,
+        terminal_priority_rating = PriorityRate,
+        route_pin = PinHash,
         random_condition = RandomCondition,
         availability = Availability,
         conversion = Conversion
@@ -797,25 +787,25 @@ getv(Name, VS, Default) ->
 -spec record_comparsion_test() -> _.
 record_comparsion_test() ->
     Bigger = {
-        #route_scores{
+        #domain_PaymentRouteScores{
             availability_condition = 1,
             availability = 0.5,
             conversion_condition = 1,
             conversion = 0.5,
-            priority_rating = 1,
-            pin = 0,
+            terminal_priority_rating = 1,
+            route_pin = 0,
             random_condition = 1
         },
         {42, 42}
     },
     Smaller = {
-        #route_scores{
+        #domain_PaymentRouteScores{
             availability_condition = 0,
             availability = 0.1,
             conversion_condition = 1,
             conversion = 0.5,
-            priority_rating = 1,
-            pin = 0,
+            terminal_priority_rating = 1,
+            route_pin = 0,
             random_condition = 1
         },
         {99, 99}
