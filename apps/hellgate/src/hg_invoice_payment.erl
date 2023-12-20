@@ -2478,8 +2478,8 @@ get_provider_terms(St, Revision) ->
 
 filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
     {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx0), VS, Iter, St),
-    Ctx1 = hg_routing_ctx:stash_current_candidates(Ctx0),
-    reject_routes(limit_misconfiguration, RejectedRoutes, Ctx1).
+    Ctx1 = reject_routes(limit_misconfiguration, RejectedRoutes, Ctx0),
+    hg_routing_ctx:stash_current_candidates(Ctx1).
 
 filter_routes_by_limit_overflow(Ctx, VS, St) ->
     {_Routes, RejectedRoutes} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx), VS, St),
