@@ -1454,7 +1454,7 @@ create_adjustment(Timestamp, Params, St, Opts) ->
 create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
     Payment = get_payment(St),
     Route = get_route(St),
-    _ = assert_payment_status([captured, refunded, charged_back], Payment),
+    _ = assert_payment_status([captured, refunded, charged_back, failed], Payment),
     NewRevision = maybe_get_domain_revision(DomainRevision),
     PartyRevision = get_opts_party_revision(Opts),
     OldCashFlow = get_final_cashflow(St),
