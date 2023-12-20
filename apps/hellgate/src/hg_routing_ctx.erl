@@ -11,6 +11,8 @@
 -export([rejections/1]).
 -export([candidates/1]).
 -export([initial_candidates/1]).
+-export([stash_current_candidates/1]).
+-export([considered_candidates/1]).
 -export([choosen_route/1]).
 -export([process/2]).
 -export([with_guard/1]).
@@ -27,6 +29,7 @@
     error := error() | undefined,
     choosen_route := hg_route:t() | undefined,
     choice_meta := hg_routing:route_choice_context() | undefined,
+    stashed_candidates => [hg_route:t()],
     fail_rates => [hg_routing:fail_rated_route()]
 }.
 
@@ -102,13 +105,31 @@ rejected_routes(#{rejections := Rejections}) ->
     {_, RejectedRoutes} = lists:unzip(maps:to_list(Rejections)),
     lists:flatten(RejectedRoutes).
 
+%% @doc List of currently considering candidates.
+%%      Route will be choosen among these.
 -spec candidates(t()) -> [hg_route:t()].
 candidates(#{candidates := Candidates}) ->
     Candidates.
 
+%% @doc Lists candidates provided at very start of routing context formation.
 -spec initial_candidates(t()) -> [hg_route:t()].
 initial_candidates(#{initial_candidates := InitialCandidates}) ->
     InitialCandidates.
+
+%% @doc Lists candidates (same as 'candidates/1') with only difference that list
+%%      includes previously considered candidates that were stashed to be
+%%      accounted for later.
+%%
+%%      For __example__, it may consist of routes that were successfully staged
+%%      by limits accountant and thus stashed to be optionally rolled back
+%%      later.
+-spec considered_candidates(t()) -> [hg_route:t()].
+considered_candidates(Ctx) ->
+    maps:get(stashed_candidates, Ctx, candidates(Ctx)).
+
+-spec stash_current_candidates(t()) -> t().
+stash_current_candidates(Ctx) ->
+    Ctx#{stashed_candidates => candidates(Ctx)}.
 
 -spec choosen_route(t()) -> hg_route:t() | undefined.
 choosen_route(#{choosen_route := ChoosenRoute}) ->

@@ -928,4 +928,4 @@ maybe_set_risk_coverage(true, V) ->
     {value, V}.
 
 unwrap_routing_context(RoutingCtx) ->
-    {ok, {hg_routing_ctx:candidates(RoutingCtx), hg_routing_ctx:rejected_routes(RoutingCtx)}}.
+    {ok, {hg_routing_ctx:considered_candidates(RoutingCtx), hg_routing_ctx:rejected_routes(RoutingCtx)}}.

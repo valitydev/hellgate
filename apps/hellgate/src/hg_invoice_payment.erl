@@ -1988,7 +1988,8 @@ produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= un
 produce_routing_events(Ctx, Revision, _St) ->
     ok = log_route_choice_meta(Ctx, Revision),
     Route = hg_route:to_payment_route(hg_routing_ctx:choosen_route(Ctx)),
-    Candidates = ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing_ctx:candidates(Ctx)]),
+    Candidates =
+        ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing_ctx:considered_candidates(Ctx)]),
     [?route_changed(Route, Candidates)].
 
 route_args(St) ->
@@ -2475,9 +2476,10 @@ get_provider_terms(St, Revision) ->
     VS1 = collect_validation_varset(get_party(Opts), get_shop(Opts), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
-filter_routes_with_limit_hold(Ctx, VS, Iter, St) ->
-    {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx), VS, Iter, St),
-    reject_routes(limit_misconfiguration, RejectedRoutes, Ctx).
+filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
+    {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx0), VS, Iter, St),
+    Ctx1 = reject_routes(limit_misconfiguration, RejectedRoutes, Ctx0),
+    hg_routing_ctx:stash_current_candidates(Ctx1).
 
 filter_routes_by_limit_overflow(Ctx, VS, St) ->
     {_Routes, RejectedRoutes} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx), VS, St),
@@ -3362,7 +3364,7 @@ get_limit_values(St) ->
             Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
-        hg_routing_ctx:candidates(Ctx)
+        hg_routing_ctx:considered_candidates(Ctx)
     ).
 
 -spec get_limit_values(st(), opts()) -> route_limit_context().
