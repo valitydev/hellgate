@@ -42,20 +42,16 @@ handle_trigger_check(negative_trigger) ->
 
 is_user_interaction_triggered(undefined, _, _) ->
     not_triggered;
-is_user_interaction_triggered(
-    #domain_CascadeWhenNoUI{}, Route, Sessions
-) ->
+is_user_interaction_triggered(#domain_CascadeWhenNoUI{}, Route, Sessions) ->
     is_user_interaction_triggered_(Route, Sessions).
 
 is_user_interaction_triggered_(Route, Sessions) ->
     lists:foldl(
-        fun(Session, Status) ->
-            case Session of
-                #{route := Route, interaction := Interaction} when Interaction =/= undefined ->
-                    negative_trigger;
-                _ ->
-                    Status
-            end
+        fun
+            (#{route := SessionRoute, ui_occurred := true}, _Status) when SessionRoute =:= Route ->
+                negative_trigger;
+            (_Session, Status) ->
+                Status
         end,
         triggered,
         Sessions
