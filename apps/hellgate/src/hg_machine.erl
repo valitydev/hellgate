@@ -346,7 +346,7 @@ dispatch_repair(Ns, Payload, Machine) ->
         marshal_repair_result(ok, Result, Machine)
     catch
         throw:{exception, Reason} = Error ->
-            logger:info("Process repair failed, ~p", [Reason]),
+            logger:notice("Process repair failed, ~p", [Reason]),
             woody_error:raise(business, marshal_repair_failed(Error))
     end.
 

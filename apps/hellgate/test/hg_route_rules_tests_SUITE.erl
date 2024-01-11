@@ -456,7 +456,9 @@ no_route_found_for_payment(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {[], RejectedRoutes1}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx0),
+    {ok, {[], RejectedRoutes1}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx0)
+    ),
 
     ?assert_set_equal(
         [
@@ -477,7 +479,9 @@ no_route_found_for_payment(_C) ->
     Ctx1 = Ctx0#{
         currency => Currency1
     },
-    {ok, {[], RejectedRoutes2}} = hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision, Ctx1),
+    {ok, {[], RejectedRoutes2}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS1, Revision, Ctx1)
+    ),
     ?assert_set_equal(
         [
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', currency}},
@@ -511,14 +515,10 @@ gather_route_success(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {[Route], RejectedRoutes}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision,
-        Ctx
+    {ok, {[Route], RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
     ),
-    ?assertMatch(?trm(1), hg_routing:terminal_ref(Route)),
+    ?assertMatch(?trm(1), hg_route:terminal_ref(Route)),
     ?assertMatch(
         [
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
@@ -558,7 +558,9 @@ rejected_by_table_prohibitions(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {[], RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    {ok, {[], RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
     ?assert_set_equal(
         [
             {?prv(3), ?trm(3), {'RoutingRule', undefined}},
@@ -600,7 +602,7 @@ empty_candidate_ok(_C) ->
     },
     ?assertMatch(
         {ok, {[], []}},
-        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+        unwrap_routing_context(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
     ).
 
 -spec ruleset_misconfig(config()) -> test_return().
@@ -620,14 +622,8 @@ ruleset_misconfig(_C) ->
         client_ip => undefined
     },
     ?assertMatch(
-        {error, {misconfiguration, {routing_decisions, {delegates, []}}}},
-        hg_routing:gather_routes(
-            payment,
-            PaymentInstitution,
-            VS,
-            Revision,
-            Ctx
-        )
+        {misconfiguration, {routing_decisions, {delegates, []}}},
+        hg_routing_ctx:error(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
     ).
 
 -spec routes_selected_for_low_risk_score(config()) -> test_return().
@@ -658,14 +654,16 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, _}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
-    ?assert_set_equal(ProviderRefs, lists:map(fun hg_routing:provider_ref/1, Routes)).
+    {ok, {Routes, _}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
+    ?assert_set_equal(ProviderRefs, lists:map(fun hg_route:provider_ref/1, Routes)).
 
 -spec choice_context_formats_ok(config()) -> test_return().
 choice_context_formats_ok(_C) ->
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Route1 = hg_route:new(?prv(1), ?trm(1)),
+    Route2 = hg_route:new(?prv(2), ?trm(2)),
+    Route3 = hg_route:new(?prv(3), ?trm(3)),
     Routes = [Route1, Route2, Route3],
 
     Revision = ?routing_with_fail_rate_domain_revision,
@@ -722,19 +720,15 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, RejectedRoutes}} = hg_routing:gather_routes(
-        payment,
-        PaymentInstitution,
-        VS,
-        Revision,
-        Ctx
+    {ok, {Routes, RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
     ),
     case ExpectedRouteTerminal of
         undefined ->
             ok;
         Terminal ->
             [Route] = Routes,
-            ?assertMatch(Terminal, hg_routing:terminal_ref(Route))
+            ?assertMatch(Terminal, hg_route:terminal_ref(Route))
     end,
     ?assertMatch(ExpectedRejectedRoutes, RejectedRoutes).
 
@@ -742,8 +736,8 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
 
 -spec terminal_priority_for_shop(config()) -> test_return().
 terminal_priority_for_shop(C) ->
-    Route1 = hg_routing:new(?prv(11), ?trm(11), 0, 10),
-    Route2 = hg_routing:new(?prv(12), ?trm(12), 0, 10),
+    Route1 = hg_route:new(?prv(11), ?trm(11), 0, 10),
+    Route2 = hg_route:new(?prv(12), ?trm(12), 0, 10),
     ?assertMatch({Route1, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_1, C)),
     ?assertMatch({Route2, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C)).
 
@@ -767,7 +761,9 @@ terminal_priority_for_shop(ShopID, _C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
     hg_routing:choose_route(Routes).
 
 -spec gather_pinned_route(config()) -> test_return().
@@ -790,16 +786,18 @@ gather_pinned_route(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {Routes, _RejectedRoutes}} = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
     Pin = #{
         currency => Currency,
         payment_tool => PaymentTool
     },
     ?assert_set_equal(
         [
-            hg_routing:new(?prv(1), ?trm(1), 0, 0, Ctx),
-            hg_routing:new(?prv(2), ?trm(2), 0, 0, Pin),
-            hg_routing:new(?prv(3), ?trm(3), 0, 0, Pin)
+            hg_route:new(?prv(1), ?trm(1), 0, 0, Ctx),
+            hg_route:new(?prv(2), ?trm(2), 0, 0, Pin),
+            hg_route:new(?prv(3), ?trm(3), 0, 0, Pin)
         ],
         Routes
     ).
@@ -823,9 +821,9 @@ choose_pinned_route(_C) ->
         currency => Currency,
         payment_tool => PaymentTool
     },
-    Route1 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin1),
-    Route2 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin2),
-    Route3 = hg_routing:new(?prv(1), ?trm(1), 0, 0, Pin3),
+    Route1 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin1),
+    Route2 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin2),
+    Route3 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin3),
     Routes = [
         Route1,
         Route2,
@@ -837,9 +835,9 @@ choose_pinned_route(_C) ->
 -spec choose_route_w_override(config()) -> test_return().
 choose_route_w_override(_C) ->
     %% without overrides
-    Route1 = hg_routing:new(?prv(1), ?trm(1)),
-    Route2 = hg_routing:new(?prv(2), ?trm(2)),
-    Route3 = hg_routing:new(?prv(3), ?trm(3)),
+    Route1 = hg_route:new(?prv(1), ?trm(1)),
+    Route2 = hg_route:new(?prv(2), ?trm(2)),
+    Route3 = hg_route:new(?prv(3), ?trm(3)),
     Routes = [Route1, Route2, Route3],
     {
         Route2,
@@ -850,7 +848,7 @@ choose_route_w_override(_C) ->
     } = hg_routing:choose_route(Routes),
 
     %% with overrides
-    Route3WithOV = hg_routing:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
+    Route3WithOV = hg_route:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
     RoutesWithOV = [Route1, Route2, Route3WithOV],
     {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
 
@@ -928,3 +926,6 @@ maybe_set_risk_coverage(false, _) ->
     undefined;
 maybe_set_risk_coverage(true, V) ->
     {value, V}.
+
+unwrap_routing_context(RoutingCtx) ->
+    {ok, {hg_routing_ctx:considered_candidates(RoutingCtx), hg_routing_ctx:rejected_routes(RoutingCtx)}}.

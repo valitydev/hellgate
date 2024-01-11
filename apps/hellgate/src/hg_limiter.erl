@@ -11,7 +11,7 @@
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
--type route() :: hg_routing:payment_route().
+-type route() :: hg_route:payment_route().
 -type refund() :: hg_invoice_payment:domain_refund().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type handling_flag() :: ignore_business_error.
@@ -88,7 +88,7 @@ check_limits_([TurnoverLimitValue | TLVs], Context) ->
         true ->
             check_limits_(TLVs, Context);
         false ->
-            logger:info("Limit with id ~p overflowed, amount ~p upper boundary ~p", [
+            logger:notice("Limit with id ~p overflowed, amount ~p upper boundary ~p", [
                 LimitID,
                 LimiterAmount,
                 UpperBoundary

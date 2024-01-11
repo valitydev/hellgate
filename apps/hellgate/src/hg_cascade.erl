@@ -12,7 +12,7 @@
 -spec is_triggered(
     cascade_behaviour() | undefined,
     operation_failure(),
-    hg_routing:payment_route(),
+    hg_route:payment_route(),
     [hg_session:t()]
 ) ->
     boolean().

@@ -29,7 +29,7 @@
 
 -type shop_id() :: dmsl_domain_thrift:'ShopID'().
 -type party_id() :: dmsl_domain_thrift:'PartyID'().
--type route() :: hg_routing:payment_route().
+-type route() :: hg_route:payment_route().
 
 %%
 

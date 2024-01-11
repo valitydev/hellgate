@@ -51,7 +51,7 @@
 -type rec_payment_tool_change() :: dmsl_payproc_thrift:'RecurrentPaymentToolChange'().
 -type rec_payment_tool_params() :: dmsl_payproc_thrift:'RecurrentPaymentToolParams'().
 
--type route() :: hg_routing:payment_route().
+-type route() :: hg_route:payment_route().
 -type risk_score() :: hg_inspector:risk_score().
 -type shop() :: dmsl_domain_thrift:'Shop'().
 -type party() :: dmsl_domain_thrift:'Party'().
@@ -251,9 +251,9 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
             client_ip => get_client_info_ip(Params#payproc_RecurrentPaymentToolParams.payment_resource)
         }),
         {ChosenRoute, ChoiceContext} = hg_routing:choose_route(NonFailRatedRoutes),
-        ChosenPaymentRoute = hg_routing:to_payment_route(ChosenRoute),
+        ChosenPaymentRoute = hg_route:to_payment_route(ChosenRoute),
         LoggerMetadata = hg_routing:get_logger_metadata(ChoiceContext, Revision),
-        _ = logger:log(info, "Routing decision made", #{routing => LoggerMetadata}),
+        _ = logger:log(notice, "Routing decision made", #{routing => LoggerMetadata}),
         RecPaymentTool2 = set_minimal_payment_cost(RecPaymentTool, ChosenPaymentRoute, VS, Revision),
         {ok, {Changes, Action}} = start_session(),
         StartChanges = [
@@ -274,20 +274,13 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
 
 gather_routes(PaymentInstitution, VS, Revision, Ctx) ->
     Predestination = recurrent_paytool,
-    case
-        hg_routing:gather_routes(
-            Predestination,
-            PaymentInstitution,
-            VS,
-            Revision,
-            Ctx
-        )
-    of
-        {ok, {[], RejectedRoutes}} ->
-            throw({no_route_found, {unknown, RejectedRoutes}});
-        {ok, {Routes, _RejectContext}} ->
+    RoutingCtx = hg_routing:gather_routes(Predestination, PaymentInstitution, VS, Revision, Ctx),
+    case {hg_routing_ctx:considered_candidates(RoutingCtx), hg_routing_ctx:error(RoutingCtx)} of
+        {[], undefined} ->
+            throw({no_route_found, {unknown, hg_routing_ctx:rejected_routes(RoutingCtx)}});
+        {Routes, undefined} ->
             Routes;
-        {error, {misconfiguration, _Reason}} ->
+        {_Routes, {misconfiguration, _Reason}} ->
             throw({no_route_found, misconfiguration})
     end.
 
@@ -383,7 +376,7 @@ validate_risk_score(RiskScore) when RiskScore == low; RiskScore == high ->
     RiskScore.
 
 handle_route_error(risk_score_is_too_high = Reason, RecPaymentTool) ->
-    _ = logger:log(info, "No route found, reason = ~p", [Reason], logger:get_process_metadata()),
+    _ = logger:log(notice, "No route found, reason = ~p", [Reason], logger:get_process_metadata()),
     {misconfiguration, {'No route found for a recurrent payment tool', RecPaymentTool}}.
 handle_route_error({no_route_found, {Reason, RejectedRoutes}}, RecPaymentTool, Varset) ->
     LogFun = fun(Msg, Param) ->

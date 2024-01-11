@@ -20,7 +20,7 @@
 %%
 
 -type trx_info() :: hg_invoice_payment:trx_info().
--type route() :: hg_routing:payment_route().
+-type route() :: hg_route:payment_route().
 
 -type change() :: dmsl_payproc_thrift:'SessionChangePayload'().
 -type proxy_state() :: dmsl_base_thrift:'Opaque'().
