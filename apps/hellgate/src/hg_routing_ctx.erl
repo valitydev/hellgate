@@ -17,9 +17,15 @@
 -export([process/2]).
 -export([with_guard/1]).
 -export([pipeline/2]).
+-export([route_limits/1]).
+-export([stash_route_limits/2]).
+-export([route_scores/1]).
+-export([stash_route_scores/2]).
 
 -type rejection_group() :: atom().
 -type error() :: {atom(), _Description}.
+-type route_limits() :: hg_routing:limits().
+-type route_scores() :: hg_routing:scores().
 
 -type t() :: #{
     initial_candidates := [hg_route:t()],
@@ -30,7 +36,9 @@
     choosen_route := hg_route:t() | undefined,
     choice_meta := hg_routing:route_choice_context() | undefined,
     stashed_candidates => [hg_route:t()],
-    fail_rates => [hg_routing:fail_rated_route()]
+    fail_rates => [hg_routing:fail_rated_route()],
+    route_limits => route_limits(),
+    route_scores => route_scores()
 }.
 
 -export_type([t/0]).
@@ -138,6 +146,24 @@ choosen_route(#{choosen_route := ChoosenRoute}) ->
 -spec rejections(t()) -> [{atom(), [hg_route:rejected_route()]}].
 rejections(#{rejections := Rejections}) ->
     maps:to_list(Rejections).
+
+%%
+
+-spec route_limits(t()) -> route_limits() | undefined.
+route_limits(Ctx) ->
+    maps:get(route_limits, Ctx, undefined).
+
+-spec stash_route_limits(route_limits(), t()) -> t().
+stash_route_limits(RouteLimits, Ctx) ->
+    Ctx#{route_limits => RouteLimits}.
+
+-spec route_scores(t()) -> route_scores() | undefined.
+route_scores(Ctx) ->
+    maps:get(route_scores, Ctx, undefined).
+
+-spec stash_route_scores(route_scores(), t()) -> t().
+stash_route_scores(RouteScores, Ctx) ->
+    Ctx#{route_scores => RouteScores}.
 
 %%
 

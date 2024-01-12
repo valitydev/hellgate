@@ -77,17 +77,24 @@
 -type revision() :: hg_domain:revision().
 
 -type route_scores() :: #domain_PaymentRouteScores{}.
+-type limits() :: #{hg_route:payment_route() => [hg_limiter:turnover_limit_value()]}.
+-type scores() :: #{hg_route:payment_route() => hg_routing:route_scores()}.
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
 
 -export_type([route_predestination/0]).
 -export_type([route_choice_context/0]).
 -export_type([fail_rated_route/0]).
+-export_type([route_scores/0]).
+-export_type([limits/0]).
+-export_type([scores/0]).
 
 %%
 
 -spec filter_by_critical_provider_status(T) -> T when T :: hg_routing_ctx:t().
-filter_by_critical_provider_status(Ctx) ->
-    RoutesFailRates = rate_routes(hg_routing_ctx:candidates(Ctx)),
+filter_by_critical_provider_status(Ctx0) ->
+    RoutesFailRates = rate_routes(hg_routing_ctx:candidates(Ctx0)),
+    RouteScores = score_routes_map(RoutesFailRates),
+    Ctx1 = hg_routing_ctx:stash_route_scores(RouteScores, Ctx0),
     lists:foldr(
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
@@ -96,7 +103,7 @@ filter_by_critical_provider_status(Ctx) ->
             ({_R, _ProviderStatus}, C) ->
                 C
         end,
-        hg_routing_ctx:with_fail_rates(RoutesFailRates, Ctx),
+        hg_routing_ctx:with_fail_rates(RoutesFailRates, Ctx1),
         RoutesFailRates
     ).
 
@@ -427,6 +434,16 @@ calc_random_condition(StartFrom, Random, [FailRatedRoute | Rest], Routes) ->
             NewRoute = hg_route:set_weight(0, Route),
             calc_random_condition(StartFrom + Weight, Random, Rest, [{NewRoute, Status} | Routes])
     end.
+
+-spec score_routes([fail_rated_route()]) -> #{hg_route:payment_route() => route_scores()}.
+score_routes_map(Routes) ->
+    lists:foldl(
+        fun({Route, _} = FailRatedRoute, Acc) ->
+            Acc#{hg_route:to_payment_route(Route) => score_route(FailRatedRoute)}
+        end,
+        #{},
+        Routes
+    ).
 
 -spec score_routes([fail_rated_route()]) -> [scored_route()].
 score_routes(Routes) ->

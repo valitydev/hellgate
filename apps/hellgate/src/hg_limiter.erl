@@ -19,6 +19,8 @@
 
 -type change_queue() :: [hg_limiter_client:limit_change()].
 
+-export_type([turnover_limit_value/0]).
+
 -export([get_turnover_limits/1]).
 -export([check_limits/4]).
 -export([hold_payment_limits/5]).
@@ -64,9 +66,9 @@ get_limit_values(TurnoverLimits, Invoice, Payment, Route) ->
     | {error, {limit_overflow, [binary()], [turnover_limit_value()]}}.
 check_limits(TurnoverLimits, Invoice, Payment, Route) ->
     Context = gen_limit_context(Invoice, Payment, Route),
-    Limits = gather_limits(TurnoverLimits, Context, []),
+    {ok, Limits} = gather_limits(TurnoverLimits, Context, []),
     try
-        ok = check_limits_(TurnoverLimits, Context),
+        ok = check_limits_(Limits, Context),
         {ok, Limits}
     catch
         throw:limit_overflow ->
