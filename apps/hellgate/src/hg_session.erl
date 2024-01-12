@@ -17,6 +17,7 @@
     result => session_result(),
     proxy_state => proxy_state(),
     interaction => interaction(),
+    ui_occurred => boolean(),
     timings => timings(),
     repair_scenario => repair_scenario()
 }.
@@ -413,7 +414,7 @@ apply_event(?proxy_st_changed(ProxyState), Session, _Context) ->
 apply_event(?interaction_changed(UserInteraction, Status), Session, _Context) ->
     case genlib:define(Status, ?interaction_requested) of
         ?interaction_requested ->
-            Session#{interaction => UserInteraction};
+            Session#{interaction => UserInteraction, ui_occurred => true};
         ?interaction_completed ->
             {UserInteraction, Session1} = maps:take(interaction, Session),
             Session1
