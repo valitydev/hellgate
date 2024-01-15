@@ -102,6 +102,8 @@
 -export([construct_payment_plan_id/1]).
 -export([construct_payment_plan_id/2]).
 
+-export([get_payer_payment_tool/1]).
+
 %%
 
 -export_type([payment_id/0]).
@@ -2880,6 +2882,7 @@ get_payment_tool(#domain_InvoicePayment{payer = Payer}) ->
 get_payment_created_at(#domain_InvoicePayment{created_at = CreatedAt}) ->
     CreatedAt.
 
+-spec get_payer_payment_tool(payer()) -> payment_tool().
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
     get_resource_payment_tool(PaymentResource);
 get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
