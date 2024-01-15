@@ -137,6 +137,8 @@ accounted_candidates(Ctx) ->
     maps:get(stashed_candidates, Ctx, initial_candidates(Ctx)).
 
 -spec stash_current_candidates(t()) -> t().
+stash_current_candidates(Ctx = #{candidates := []}) ->
+    Ctx;
 stash_current_candidates(Ctx) ->
     Ctx#{stashed_candidates => candidates(Ctx)}.
 
