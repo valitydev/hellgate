@@ -2204,7 +2204,7 @@ finish_session_processing(Activity, {Events0, Action}, Session, St0) ->
                         %% Previously used routes are supposed to have their limits already rolled back.
                         Route = get_route(St0),
                         Routes = [Route],
-                        _ = rollback_payment_limits(Routes, get_iter(St0), St0),
+                        _ = rollback_payment_limits(Routes, get_iter(St0), St0, []),
                         _ = rollback_payment_cashflow(St0);
                     _ ->
                         ok
@@ -2288,7 +2288,7 @@ process_result({payment, processing_accounter}, Action, St) ->
 process_result({payment, routing_failure}, Action, St = #st{failure = Failure}) ->
     NewAction = hg_machine_action:set_timeout(0, Action),
     Routes = get_candidate_routes(St),
-    _ = rollback_payment_limits(Routes, get_iter(St), St, [ignore_business_error]),
+    _ = rollback_payment_limits(Routes, get_iter(St), St, [ignore_business_error, ignore_not_found]),
     {done, {[?payment_status_changed(?failed(Failure))], NewAction}};
 process_result({payment, processing_failure}, Action, St = #st{failure = Failure}) ->
     NewAction = hg_machine_action:set_timeout(0, Action),
@@ -2296,7 +2296,7 @@ process_result({payment, processing_failure}, Action, St = #st{failure = Failure
     %% Previously used routes are supposed to have their limits already rolled back.
     Route = get_route(St),
     Routes = [Route],
-    _ = rollback_payment_limits(Routes, get_iter(St), St),
+    _ = rollback_payment_limits(Routes, get_iter(St), St, []),
     _ = rollback_payment_cashflow(St),
     Revision = get_payment_revision(St),
     Behaviour = get_route_cascade_behaviour(Route, Revision),
@@ -2313,7 +2313,7 @@ process_result({payment, finalizing_accounter}, Action, St) ->
                 commit_payment_cashflow(St);
             ?cancelled() ->
                 Route = get_route(St),
-                _ = rollback_payment_limits([Route], get_iter(St), St),
+                _ = rollback_payment_limits([Route], get_iter(St), St, []),
                 rollback_payment_cashflow(St)
         end,
     check_recurrent_token(St),
@@ -2551,9 +2551,6 @@ do_reject_route(LimiterError, Route, TurnoverLimits, {LimitHeldRoutes, RejectedR
     RejectedRoute = hg_route:to_rejected_route(Route, {'LimitHoldError', LimitsIDs, LimiterError}),
     {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}.
 
-rollback_payment_limits(Routes, Iter, St) ->
-    rollback_payment_limits(Routes, Iter, St, []).
-
 rollback_payment_limits(Routes, Iter, St, Flags) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
@@ -2600,7 +2597,7 @@ rollback_unused_payment_limits(St) ->
     Route = get_route(St),
     Routes = get_candidate_routes(St),
     UnUsedRoutes = Routes -- [Route],
-    rollback_payment_limits(UnUsedRoutes, get_iter(St), St, [ignore_business_error]).
+    rollback_payment_limits(UnUsedRoutes, get_iter(St), St, [ignore_business_error, ignore_not_found]).
 
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
