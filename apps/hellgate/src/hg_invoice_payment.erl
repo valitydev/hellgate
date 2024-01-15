@@ -1976,9 +1976,12 @@ produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= un
     %% rejected because of provider gone critical, then use subcode to highlight
     %% the offender. Like 'provider_dead' or 'conversion_lacking'.
     Failure = genlib:define(St#st.failure, construct_routing_failure(Error)),
-    InitialCandidates = [hg_route:to_payment_route(R) || R <- hg_routing_ctx:initial_candidates(Ctx)],
-    Route = hd(InitialCandidates),
-    Candidates = ordsets:from_list(InitialCandidates),
+    %% NOTE Not all initial candidates have their according limits held. And so
+    %% we must account only for those that can be rolled back.
+    RollbackableCandidates = hg_routing_ctx:accounted_candidates(Ctx),
+    Route = hg_route:to_payment_route(hd(RollbackableCandidates)),
+    Candidates =
+        ordsets:from_list([hg_route:to_payment_route(R) || R <- RollbackableCandidates]),
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be
     %% skipped. And all limit's 'hold' operations will be rolled back.

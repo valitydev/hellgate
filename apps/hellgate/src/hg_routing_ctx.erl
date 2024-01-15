@@ -13,6 +13,7 @@
 -export([initial_candidates/1]).
 -export([stash_current_candidates/1]).
 -export([considered_candidates/1]).
+-export([accounted_candidates/1]).
 -export([choosen_route/1]).
 -export([process/2]).
 -export([with_guard/1]).
@@ -126,6 +127,14 @@ initial_candidates(#{initial_candidates := InitialCandidates}) ->
 -spec considered_candidates(t()) -> [hg_route:t()].
 considered_candidates(Ctx) ->
     maps:get(stashed_candidates, Ctx, candidates(Ctx)).
+
+%% @doc Same as 'considered_candidates/1' except for it fallbacks to initial
+%%      candidates if no were stashed.
+%%
+%%      Its use-case is simillar to 'considered_candidates/1' as well.
+-spec accounted_candidates(t()) -> [hg_route:t()].
+accounted_candidates(Ctx) ->
+    maps:get(stashed_candidates, Ctx, initial_candidates(Ctx)).
 
 -spec stash_current_candidates(t()) -> t().
 stash_current_candidates(Ctx) ->
