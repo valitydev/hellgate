@@ -263,24 +263,16 @@ token_respond(Response, CallbackResult) ->
 %
 % Payments
 %
-process_payment(
-    ?processed(),
-    undefined,
-    PaymentInfo,
-    #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode} = CtxOpts,
-    _
-) ->
-    _ = maybe_sleep(CtxOpts),
-    Reason = <<"sub failure by ", ProviderCode/binary>>,
-    Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
-    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
-    result(?finish({failure, Failure}), <<"state: ", Reason/binary>>, mk_trx(TrxID, PaymentInfo));
 process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
             Uri = get_callback_url(),
-            result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>);
+            SuspendWithUI = result(?suspend(Tag, Timeout, ?redirect(Uri, #{<<"tag">> => Tag})), <<"suspended">>),
+            case CtxOpts of
+                #{<<"allow_ui">> := _} -> SuspendWithUI;
+                _ -> maybe_fail(PaymentInfo, CtxOpts, SuspendWithUI)
+            end;
         change_cash_increase ->
             %% simple workflow without 3DS
             result(?sleep(0), <<"sleeping">>);
@@ -289,7 +281,7 @@ process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
             result(?sleep(0), <<"sleeping">>);
         no_preauth ->
             %% simple workflow without 3DS
-            result(?sleep(0), <<"sleeping">>);
+            maybe_fail(PaymentInfo, CtxOpts, result(?sleep(0), <<"sleeping">>));
         empty_cvv ->
             %% simple workflow without 3DS
             result(?sleep(0), <<"sleeping">>);
@@ -352,7 +344,7 @@ process_payment(?processed(), <<"sleeping">>, PaymentInfo, CtxOpts, _) ->
         {temporary_unavailability, Scenario} ->
             process_failure_scenario(PaymentInfo, Scenario, TrxID);
         _ ->
-            finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo))
+            maybe_fail(PaymentInfo, CtxOpts, finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo)))
     end;
 process_payment(?processed(), <<"sleeping_with_user_interaction">>, PaymentInfo, CtxOpts, _) ->
     Key = {get_invoice_id(PaymentInfo), get_payment_id(PaymentInfo)},
@@ -545,6 +537,15 @@ result(Intent, NextState, Trx) ->
         next_state = NextState,
         trx = Trx
     }.
+
+maybe_fail(PaymentInfo, #{<<"always_fail">> := FailureCode, <<"override">> := ProviderCode} = CtxOpts, _OrElse) ->
+    _ = maybe_sleep(CtxOpts),
+    Reason = <<"sub failure by ", ProviderCode/binary>>,
+    Failure = payproc_errors:from_notation(FailureCode, <<"sub failure by ", ProviderCode/binary>>),
+    TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
+    result(?finish({failure, Failure}), <<"state: ", Reason/binary>>, mk_trx(TrxID, PaymentInfo));
+maybe_fail(_PaymentInfo, _CtxOpts, OrElse) ->
+    OrElse.
 
 -spec mk_trx(binary()) -> dmsl_domain_thrift:'TransactionInfo'().
 mk_trx(TrxID) ->

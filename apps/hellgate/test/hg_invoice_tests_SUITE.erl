@@ -195,6 +195,7 @@
 -export([payment_cascade_fail_wo_route_candidates/1]).
 -export([payment_cascade_success_w_refund/1]).
 -export([payment_big_cascade_success/1]).
+-export([payment_cascade_limit_overflow/1]).
 -export([payment_cascade_fail_wo_available_attempt_limit/1]).
 -export([payment_cascade_failures/1]).
 -export([payment_cascade_deadline_failures/1]).
@@ -482,11 +483,12 @@ groups() ->
             payment_cascade_fail_wo_route_candidates,
             payment_cascade_success_w_refund,
             payment_big_cascade_success,
+            payment_cascade_limit_overflow,
             payment_cascade_fail_wo_available_attempt_limit,
             payment_cascade_failures,
             payment_cascade_deadline_failures,
-            payment_cascade_fail_provider_error
-            %%            payment_cascade_fail_ui
+            payment_cascade_fail_provider_error,
+            payment_cascade_fail_ui
         ]}
     ].
 
@@ -5931,9 +5933,12 @@ consistent_account_balances(C) ->
 -define(PAYMENT_CASCADE_DEADLINE_FAILURES_ID, 700).
 -define(PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID, 800).
 -define(PAYMENT_CASCADE_FAIL_UI_ID, 900).
+-define(PAYMENT_CASCADE_LIMIT_OVERFLOW_ID, 1000).
 
 cascade_fixture_pre_shop_create(Revision, C) ->
     payment_big_cascade_success_fixture_pre(Revision, C) ++
+        payment_cascade_limit_overflow_fixture_pre(Revision, C) ++
+        payment_cascade_fail_ui_fixture_pre(Revision, C) ++
         payment_cascade_fail_wo_route_candidates_fixture_pre(Revision, C) ++
         payment_cascade_fail_wo_available_attempt_limit_fixture_pre(Revision, C) ++
         payment_cascade_fail_provider_error_fixture_pre(Revision, C).
@@ -5944,7 +5949,7 @@ cascade_fixture(Revision, C) ->
     [
         hg_ct_fixture:construct_payment_routing_ruleset(
             ?ruleset(2),
-            <<"2 routes with failing providers">>,
+            <<"Multiple routes with failing providers">>,
             {delegates, [
                 ?delegate(
                     ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_ID}, C)}),
@@ -5980,14 +5985,21 @@ cascade_fixture(Revision, C) ->
                 ?delegate(
                     ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID}, C)}),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID))
+                ),
+                ?delegate(
+                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID}, C)}),
+                    ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID))
+                ),
+                ?delegate(
+                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAIL_UI_ID}, C)}),
+                    ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID))
                 )
-                %%                ?delegate(
-                %%                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAIL_UI_ID}, C)}),
-                %%                    ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)))
             ]}
         )
     ] ++
         payment_cascade_success_fixture(Revision, C) ++
+        payment_cascade_limit_overflow_fixture(Revision, C) ++
+        payment_cascade_fail_ui_fixture(Revision, C) ++
         payment_cascade_fail_wo_route_candidates_fixture(Revision, C) ++
         payment_cascade_success_w_refund_fixture(Revision, C) ++
         payment_big_cascade_success_fixture(Revision, C) ++
@@ -6062,8 +6074,26 @@ init_route_cascading_group(C1) ->
             )
         },
         {
+            {shop_id, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID},
+            hg_ct_helper:create_shop(
+                PartyID,
+                ?cat(1),
+                <<"RUB">>,
+                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
+                ?pinst(1),
+                PartyClient
+            )
+        },
+        {
             {shop_id, ?PAYMENT_CASCADE_FAIL_UI_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient)
+            hg_ct_helper:create_shop(
+                PartyID,
+                ?cat(1),
+                <<"RUB">>,
+                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
+                ?pinst(1),
+                PartyClient
+            )
         }
         | C1
     ],
@@ -6080,6 +6110,9 @@ init_per_cascade_case(payment_cascade_success_w_refund, C) ->
     [{shop_id, ShopID} | C];
 init_per_cascade_case(payment_big_cascade_success, C) ->
     ShopID = cfg({shop_id, ?PAYMENT_BIG_CASCADE_SUCCESS_ID}, C),
+    [{shop_id, ShopID} | C];
+init_per_cascade_case(payment_cascade_limit_overflow, C) ->
+    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID}, C),
     [{shop_id, ShopID} | C];
 init_per_cascade_case(payment_cascade_fail_wo_available_attempt_limit, C) ->
     ShopID = cfg({shop_id, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID}, C),
@@ -6456,6 +6489,140 @@ payment_big_cascade_success_fixture(Revision, _C) ->
         )
     ]).
 
+payment_cascade_limit_overflow_fixture_pre(Revision, _C) ->
+    lists:flatten([
+        hg_ct_fixture:construct_contract_template(
+            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
+            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID))
+        ),
+        new_merchant_terms_attempt_limit(
+            ?trms(1),
+            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
+            10,
+            Revision
+        )
+    ]).
+
+payment_cascade_limit_overflow_fixture(Revision, _C) ->
+    Brovider =
+        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    Terms1 =
+        Terms#domain_ProvisionTermSet{
+            payments = Terms#domain_ProvisionTermSet.payments#domain_PaymentsProvisionTerms{
+                turnover_limits =
+                    {value, [
+                        #domain_TurnoverLimit{
+                            id = ?LIMIT_ID4,
+                            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                            domain_revision = Revision
+                        }
+                    ]}
+            }
+        },
+    [
+        {provider, #domain_ProviderObject{
+            ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 1)),
+            data = Brovider#domain_Provider{terms = Terms1}
+        }},
+        {provider, #domain_ProviderObject{
+            ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 2)),
+            data = #domain_Provider{
+                name = <<"Duck Blocker">>,
+                description = <<"No rubber ducks for you!">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"always_fail">> => <<"authorization_failed:unknown">>,
+                        <<"override">> => <<"duckblocker">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                %% No limit boundaries configured
+                terms = Terms
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 1)),
+            data = #domain_Terminal{
+                name = <<"Brominal 1">>,
+                description = <<"Brominal 1">>,
+                provider_ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 1))
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 2)),
+            data = #domain_Terminal{
+                name = <<"Not-Brominal">>,
+                description = <<"Not-Brominal">>,
+                provider_ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 2))
+            }
+        }},
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
+            <<"Main with cascading">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 2))),
+                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 1)))
+            ]}
+        )
+    ].
+
+-spec payment_cascade_limit_overflow(config()) -> test_return().
+payment_cascade_limit_overflow(C) ->
+    Client = cfg(client, C),
+    Amount = 42000 + ?LIMIT_UPPER_BOUNDARY,
+    InvoiceParams = make_invoice_params(
+        cfg(party_id, C),
+        cfg(shop_id, C),
+        <<"rubberduck">>,
+        make_due_date(10),
+        make_cash(Amount)
+    ),
+    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    Context = #base_Content{
+        type = <<"application/x-erlang-binary">>,
+        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
+    },
+    PayerSessionInfo = #domain_PayerSessionInfo{
+        redirect_url = <<"https://redirectly.io/merchant">>
+    },
+    PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
+        payer_session_info = PayerSessionInfo,
+        context = Context
+    },
+    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+    {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
+    InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {Route1, _CashFlow1, _TrxID1, Failure1} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
+    %% And again but no route found
+    [
+        ?payment_ev(PaymentID, ?route_changed(Route2, Candidates2)),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure2})),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2})))
+    ] =
+        next_changes(InvoiceID, 3, Client),
+    ?assertNotEqual(Route1, Route2),
+    ?assertNot(lists:member(Route1, Candidates2)),
+    %% No route found and so we pass original failure from previous attempt
+    ok = payproc_errors:match('PaymentFailure', Failure2, fun({authorization_failed, {unknown, _}}) -> ok end),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(FinalPayment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, FinalPayment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client),
+    %% At the end of this scenario limit must not be changed.
+    hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount, FinalPayment, Invoice).
+
 -spec payment_big_cascade_success(config()) -> test_return().
 payment_big_cascade_success(C) ->
     Client = cfg(client, C),
@@ -6656,10 +6823,126 @@ payment_cascade_fail_provider_error(C) ->
     ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
 
+payment_cascade_fail_ui_fixture_pre(Revision, _C) ->
+    lists:flatten([
+        hg_ct_fixture:construct_contract_template(
+            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
+            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID))
+        ),
+        new_merchant_terms_attempt_limit(
+            ?trms(1),
+            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
+            10,
+            Revision
+        )
+    ]).
+
+payment_cascade_fail_ui_fixture(Revision, _C) ->
+    Brovider =
+        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    lists:flatten([
+        {provider, #domain_ProviderObject{
+            ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + 1)),
+            data = Brovider#domain_Provider{terms = Terms}
+        }},
+        {provider, #domain_ProviderObject{
+            ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + 2)),
+            data = #domain_Provider{
+                name = <<"Rubber GUI">>,
+                description = <<"( ͡° ͜ʖ ͡° )">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"allow_ui">> => <<"true">>,
+                        <<"always_fail">> => <<"preauthorization_failed:unknown">>,
+                        <<"override">> => <<"rubber_gui">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        {provider, #domain_ProviderObject{
+            ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + 3)),
+            data = #domain_Provider{
+                name = <<"Duck Blocker">>,
+                description = <<"No rubber ducks for you!">>,
+                proxy = #domain_Proxy{
+                    ref = ?prx(1),
+                    additional = #{
+                        <<"always_fail">> => <<"authorization_failed:unknown">>,
+                        <<"override">> => <<"duckblocker">>
+                    }
+                },
+                abs_account = AbsAccount,
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        [
+            {terminal, #domain_TerminalObject{
+                ref = ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + I)),
+                data = #domain_Terminal{
+                    name = <<"Brominal ", (integer_to_binary(I))/binary>>,
+                    description = <<"Brominal ", (integer_to_binary(I))/binary>>,
+                    provider_ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + I))
+                }
+            }}
+         || I <- lists:seq(1, 3)
+        ],
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
+            <<"1 fail, 2 with UI, 3 never reached">>,
+            {candidates, [
+                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + I)))
+             || I <- lists:reverse(lists:seq(1, 3))
+            ]}
+        )
+    ]).
+
 -spec payment_cascade_fail_ui(config()) -> test_return().
-payment_cascade_fail_ui(_C) ->
-    %%    TODO teach hg_dummy_provider how to fail after receiving user_interaction
-    ok.
+payment_cascade_fail_ui(C) ->
+    Client = cfg(client, C),
+    Amount = 42000,
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(preauth_3ds, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
+        next_change(InvoiceID, Client),
+    {_Route1, _CashFlow1, _TrxID1, Failure1} =
+        await_cascade_triggering(InvoiceID, PaymentID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
+    %% And again with UI
+    [
+        ?payment_ev(PaymentID, ?route_changed(_Route2)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow2))
+    ] = next_changes(InvoiceID, 2, Client),
+    UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
+    {URL, Form} = get_post_request(UserInteraction),
+    _ = assert_success_post_request({URL, Form}),
+    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_TrxID2)))),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure2})))
+        ),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure2}))
+    ] =
+        next_changes(InvoiceID, 3, Client),
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2}))) =
+        next_change(InvoiceID, Client),
+    ok = payproc_errors:match('PaymentFailure', Failure2, fun({preauthorization_failed, {unknown, _}}) -> ok end),
+    %% Assert payment status IS failed
+    ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
+        hg_client_invoicing:get(InvoiceID, Client),
+    ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
+    ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
 
 payment_cascade_fail_wo_route_candidates_fixture_pre(Revision, _C) ->
     lists:flatten([
