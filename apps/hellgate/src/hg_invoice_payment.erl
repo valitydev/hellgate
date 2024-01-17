@@ -2949,7 +2949,11 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
         risk_score = RiskScore,
         activity = {payment, routing}
     };
-merge_change(Change = ?route_changed(Route, Candidates, Scores, Limits), #st{routes = Routes} = St, Opts) ->
+merge_change(
+    Change = ?route_changed(Route, Candidates, Scores, Limits),
+    #st{routes = Routes, route_scores = RouteScores, route_limits = RouteLimits} = St,
+    Opts
+) ->
     _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
     St#st{
         %% On route change we expect cash flow from previous attempt to be rolled back.
@@ -2960,8 +2964,8 @@ merge_change(Change = ?route_changed(Route, Candidates, Scores, Limits), #st{rou
         routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building},
-        route_scores = Scores,
-        route_limits = Limits
+        route_scores = maps:merge(RouteScores, Scores),
+        route_limits = maps:merge(RouteLimits, Limits)
     };
 merge_change(Change = ?payment_capture_started(Data), #st{} = St, Opts) ->
     _ = validate_transition([{payment, S} || S <- [flow_waiting]], Change, St, Opts),

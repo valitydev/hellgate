@@ -11,12 +11,12 @@
 -type explanation() :: #payproc_InvoicePaymentExplanation{}.
 
 -type route() :: hg_route:payment_route().
--type scores() :: hg_routing:route_scores().
--type limits() :: [hg_limiter:turnover_limit_value()].
+-type scores() :: hg_routing:scores().
+-type limits() :: hg_routing:limits().
 -type route_with_context() :: #{
     route := route(),
-    scores := scores() | undefined,
-    limits := limits() | undefined
+    scores := hg_routing:route_scores() | undefined,
+    limits := [hg_limiter:turnover_limit_value()] | undefined
 }.
 
 -spec get_explanation(st()) -> explanation().
@@ -31,21 +31,31 @@ get_explanation(#st{
     case Routes of
         [] ->
             %% If there's no routes even tried, then no explanation can be provided
-            undefined;
-        [Route | _] ->
+            throw(#payproc_RouteNotChosen{});
+        [Route | AttemptedRoutes] ->
+            CandidateRoutesWithoutChosenRoute = exclude_chosen_route_from_candidates(CandidateRoutes, Route),
             ChosenRWC = make_route_with_context(Route, RouteScores, RouteLimits),
+            AttemptedExplanation = maybe_explain_attempted_routes(
+                AttemptedRoutes, RouteScores, RouteLimits
+            ),
             CandidatesExplanation = maybe_explain_candidate_routes(
-                CandidateRoutes, RouteScores, RouteLimits, ChosenRWC
+                CandidateRoutesWithoutChosenRoute, RouteScores, RouteLimits, ChosenRWC
             ),
 
             _Varset = gather_varset(Payment, Opts),
             #payproc_InvoicePaymentExplanation{
-                explained_routes = [
-                    route_explanation(chosen, ChosenRWC, ChosenRWC)
-                    | CandidatesExplanation
-                ]
+                explained_routes = lists:flatten([
+                    route_explanation(chosen, ChosenRWC, ChosenRWC),
+                    AttemptedExplanation,
+                    CandidatesExplanation
+                ])
             }
     end.
+
+exclude_chosen_route_from_candidates(CandidateRoutes, Route) when is_list(CandidateRoutes) ->
+    CandidateRoutes -- [Route];
+exclude_chosen_route_from_candidates(_UndefinedCandidates, _Route) ->
+    [].
 
 -spec make_route_with_context(route(), scores(), limits()) -> route_with_context().
 make_route_with_context(Route, RouteScores, RouteLimits) ->
@@ -54,6 +64,15 @@ make_route_with_context(Route, RouteScores, RouteLimits) ->
         scores => hg_maybe:apply(fun(A) -> maps:get(Route, A, undefined) end, RouteScores),
         limits => hg_maybe:apply(fun(A) -> maps:get(Route, A, undefined) end, RouteLimits)
     }.
+
+maybe_explain_attempted_routes([], _RouteScores, _RouteLimits) ->
+    [];
+maybe_explain_attempted_routes([AttemptedRoute | AttemptedRoutes], RouteScores, RouteLimits) ->
+    RouteWithContext = make_route_with_context(AttemptedRoute, RouteScores, RouteLimits),
+    [
+        route_explanation(attempted, RouteWithContext, RouteWithContext)
+        | maybe_explain_attempted_routes(AttemptedRoutes, RouteScores, RouteLimits)
+    ].
 
 maybe_explain_candidate_routes([], _RouteScores, _RouteLimits, _ChosenRWC) ->
     [];
@@ -64,29 +83,46 @@ maybe_explain_candidate_routes([CandidateRoute | CandidateRoutes], RouteScores, 
         | maybe_explain_candidate_routes(CandidateRoutes, RouteScores, RouteLimits, ChosenRWC)
     ].
 
-route_explanation(Type, RouteWithContext, ChosenRoute) ->
+route_explanation(chosen, RouteWithContext, _ChosenRoute) ->
     #{
         route := Route,
         scores := Scores,
         limits := Limits
     } = RouteWithContext,
-    IsChosen =
-        case Type of
-            chosen ->
-                true;
-            candidate ->
-                false
-        end,
     #payproc_InvoicePaymentRouteExplanation{
         route = Route,
-        is_chosen = IsChosen,
+        is_chosen = true,
         scores = Scores,
         limits = Limits,
-        rejection_description = candidate_rejection_explanation(Route, ChosenRoute)
+        rejection_description = <<"This route was chosen.">>
+    };
+route_explanation(attempted, RouteWithContext, _ChosenRoute) ->
+    #{
+        route := Route,
+        scores := Scores,
+        limits := Limits
+    } = RouteWithContext,
+    #payproc_InvoicePaymentRouteExplanation{
+        route = Route,
+        is_chosen = false,
+        scores = Scores,
+        limits = Limits,
+        rejection_description = <<"This route was attempted, but wasn't succesfull.">>
+    };
+route_explanation(candidate, RouteWithContext, ChosenRoute) ->
+    #{
+        route := Route,
+        scores := Scores,
+        limits := Limits
+    } = RouteWithContext,
+    #payproc_InvoicePaymentRouteExplanation{
+        route = Route,
+        is_chosen = false,
+        scores = Scores,
+        limits = Limits,
+        rejection_description = candidate_rejection_explanation(RouteWithContext, ChosenRoute)
     }.
 
-candidate_rejection_explanation(ChosenRoute, ChosenRoute) ->
-    <<"This route was chosen">>;
 candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
     #{scores := ChosenScores}

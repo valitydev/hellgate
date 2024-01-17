@@ -28,8 +28,8 @@
     failure :: undefined | hg_invoice_payment:failure(),
     timings :: undefined | hg_timings:t(),
     allocation :: undefined | hg_allocation:allocation(),
-    route_limits :: undefined | hg_routing:limits(),
-    route_scores :: undefined | hg_routing:scores()
+    route_limits = #{} :: hg_routing:limits(),
+    route_scores = #{} :: hg_routing:scores()
 }).
 
 -record(refund_st, {

@@ -46,8 +46,6 @@
 -type conversion_condition() :: normal | lacking.
 -type conversion_fail_rate() :: float().
 
--type condition_score() :: 0 | 1.
-
 -type route_groups_by_priority() :: #{{availability_condition(), terminal_priority_rating()} => [fail_rated_route()]}.
 
 -type fail_rated_route() :: {hg_route:t(), provider_status()}.
@@ -285,7 +283,7 @@ choose_rated_route(FailRatedRoutes) ->
     {ChosenScoredRoute, IdealRoute} = find_best_routes(ScoredRoutes),
     RouteChoiceContext = get_route_choice_context(ChosenScoredRoute, IdealRoute),
     {_, Route} = ChosenScoredRoute,
-    {Route, RouteChoiceContext, ScoredRoutes}.
+    {Route, RouteChoiceContext}.
 
 -spec find_best_routes([scored_route()]) -> {Chosen :: scored_route(), Ideal :: scored_route()}.
 find_best_routes([Route]) ->
@@ -435,7 +433,7 @@ calc_random_condition(StartFrom, Random, [FailRatedRoute | Rest], Routes) ->
             calc_random_condition(StartFrom + Weight, Random, Rest, [{NewRoute, Status} | Routes])
     end.
 
--spec score_routes([fail_rated_route()]) -> #{hg_route:payment_route() => route_scores()}.
+-spec score_routes_map([fail_rated_route()]) -> #{hg_route:payment_route() => route_scores()}.
 score_routes_map(Routes) ->
     lists:foldl(
         fun({Route, _} = FailRatedRoute, Acc) ->
