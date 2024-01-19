@@ -55,7 +55,8 @@
     external_id => binary(),
     currency_from := ff_currency:id(),
     currency_to := ff_currency:id(),
-    body := cash()
+    body := cash(),
+    resource => resource()
 }.
 
 -type quote() :: quote(quote_data()).

@@ -164,10 +164,12 @@ marshal(
     } = Params
 ) ->
     ExternalID = maps:get(external_id, Params, undefined),
+    Resource = maps:get(resource, Params, undefined),
     {ok, CurrencyFrom} = ff_currency:get(CurrencyIDFrom),
     {ok, CurrencyTo} = ff_currency:get(CurrencyIDTo),
     #wthd_provider_GetQuoteParams{
         idempotency_id = ExternalID,
+        destination = maybe_marshal(resource, Resource),
         currency_from = marshal(currency, CurrencyFrom),
         currency_to = marshal(currency, CurrencyTo),
         exchange_cash = marshal(body, Body)

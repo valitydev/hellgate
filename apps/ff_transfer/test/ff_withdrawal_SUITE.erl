@@ -38,8 +38,9 @@
 -export([create_wallet_notfound_test/1]).
 -export([create_ok_test/1]).
 -export([create_with_generic_ok_test/1]).
--export([quota_ok_test/1]).
--export([crypto_quota_ok_test/1]).
+-export([quote_ok_test/1]).
+-export([crypto_quote_ok_test/1]).
+-export([quote_with_destination_ok_test/1]).
 -export([preserve_revisions_test/1]).
 -export([use_quote_revisions_test/1]).
 -export([unknown_test/1]).
@@ -108,8 +109,9 @@ groups() ->
             create_wallet_notfound_test,
             create_ok_test,
             create_with_generic_ok_test,
-            quota_ok_test,
-            crypto_quota_ok_test,
+            quote_ok_test,
+            crypto_quote_ok_test,
+            quote_with_destination_ok_test,
             preserve_revisions_test,
             unknown_test,
             provider_callback_test,
@@ -527,8 +529,8 @@ create_with_generic_ok_test(C) ->
     ?assertEqual(Cash, ff_withdrawal:body(Withdrawal)),
     ?assertEqual(WithdrawalID, ff_withdrawal:external_id(Withdrawal)).
 
--spec quota_ok_test(config()) -> test_return().
-quota_ok_test(C) ->
+-spec quote_ok_test(config()) -> test_return().
+quote_ok_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
@@ -553,8 +555,8 @@ quota_ok_test(C) ->
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)).
 
--spec crypto_quota_ok_test(config()) -> test_return().
-crypto_quota_ok_test(C) ->
+-spec crypto_quote_ok_test(config()) -> test_return().
+crypto_quote_ok_test(C) ->
     Currency = <<"RUB">>,
     Cash = {100, Currency},
     Party = create_party(C),
@@ -570,6 +572,22 @@ crypto_quota_ok_test(C) ->
         destination_id => DestinationID
     },
     {ok, _Quote} = ff_withdrawal:get_quote(Params).
+
+-spec quote_with_destination_ok_test(config()) -> test_return().
+quote_with_destination_ok_test(C) ->
+    Cash = {100, <<"RUB">>},
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, C),
+    Params = #{
+        wallet_id => WalletID,
+        currency_from => <<"RUB">>,
+        currency_to => <<"USD">>,
+        body => Cash,
+        destination_id => DestinationID
+    },
+    {ok, #{quote_data := #{<<"destination">> := <<"bank_card">>}}} = ff_withdrawal:get_quote(Params).
 
 -spec preserve_revisions_test(config()) -> test_return().
 preserve_revisions_test(C) ->

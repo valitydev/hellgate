@@ -1231,12 +1231,15 @@ construct_payment_tool(
 get_quote(Params = #{destination_id := DestinationID, body := Body, wallet_id := WalletID}) ->
     do(fun() ->
         Destination = unwrap(destination, get_destination(DestinationID)),
-        Resource = unwrap(destination_resource, ff_resource:create_resource(ff_destination:resource(Destination))),
         Wallet = unwrap(wallet, get_wallet(WalletID)),
         Identity = get_wallet_identity(Wallet),
         PartyID = ff_identity:party(Identity),
         DomainRevision = ff_domain_config:head(),
         {ok, PartyRevision} = ff_party:get_revision(PartyID),
+        Resource = unwrap(
+            destination_resource,
+            create_resource(ff_destination:resource(Destination), undefined, Identity, DomainRevision)
+        ),
         VarsetParams = genlib_map:compact(#{
             body => Body,
             wallet_id => WalletID,
@@ -1254,7 +1257,6 @@ get_quote(Params = #{destination_id := DestinationID, body := Body, wallet_id :=
             domain_revision => DomainRevision,
             varset => PartyVarset
         }),
-
         valid = unwrap(validate_withdrawal_creation(Terms, Body, Wallet, Destination, Resource)),
         GetQuoteParams = #{
             base_params => Params,
@@ -1317,7 +1319,8 @@ get_quote_(Params) ->
             external_id => maps:get(external_id, Params, undefined),
             currency_from => CurrencyFrom,
             currency_to => CurrencyTo,
-            body => Body
+            body => Body,
+            resource => Resource
         },
         {ok, Quote} = ff_adapter_withdrawal:get_quote(Adapter, GetQuoteParams, AdapterOpts),
         genlib_map:compact(#{

@@ -108,6 +108,26 @@ get_quote(
     #{
         currency_from := CurrencyFrom,
         currency_to := CurrencyTo,
+        exchange_cash := #wthd_provider_Cash{amount = Amount, currency = Currency},
+        destination := {DestinationName, _}
+    },
+    _Options
+) ->
+    {ok, #{
+        cash_from => calc_cash(CurrencyFrom, Currency, Amount),
+        cash_to => calc_cash(CurrencyTo, Currency, Amount),
+        created_at => ff_time:to_rfc3339(ff_time:now()),
+        expires_on => ff_time:to_rfc3339(ff_time:now() + 15 * 3600 * 1000),
+        quote_data =>
+            {obj, #{
+                {str, <<"test">>} => {str, <<"test">>},
+                {str, <<"destination">>} => {str, erlang:atom_to_binary(DestinationName)}
+            }}
+    }};
+get_quote(
+    #{
+        currency_from := CurrencyFrom,
+        currency_to := CurrencyTo,
         exchange_cash := #wthd_provider_Cash{amount = Amount, currency = Currency}
     },
     _Options

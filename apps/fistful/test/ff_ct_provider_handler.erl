@@ -76,14 +76,16 @@ decode_quote_params(#wthd_provider_GetQuoteParams{
     idempotency_id = IdempotencyID,
     currency_from = CurrencyFrom,
     currency_to = CurrencyTo,
-    exchange_cash = Cash
+    exchange_cash = Cash,
+    destination = Destination
 }) ->
-    #{
+    genlib_map:compact(#{
         idempotency_id => IdempotencyID,
         currency_from => CurrencyFrom,
         currency_to => CurrencyTo,
-        exchange_cash => Cash
-    }.
+        exchange_cash => Cash,
+        destination => Destination
+    }).
 
 decode_options(Options) ->
     Options.
