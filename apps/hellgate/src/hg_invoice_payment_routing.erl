@@ -5,7 +5,7 @@
 -include("hg_invoice_payment.hrl").
 
 %% API
--export([get_explanation/1]).
+-export([get_explanation/2]).
 
 -type st() :: #st{}.
 -type explanation() :: dmsl_payproc_thrift:'InvoicePaymentExplanation'().
@@ -19,15 +19,14 @@
     limits := [hg_limiter:turnover_limit_value()] | undefined
 }.
 
--spec get_explanation(st()) -> explanation().
+-spec get_explanation(st(), hg_invoice_payment:opts()) -> explanation().
 get_explanation(#st{
     payment = Payment,
-    opts = Opts,
     routes = Routes,
     candidate_routes = CandidateRoutes,
     route_scores = RouteScores,
     route_limits = RouteLimits
-}) ->
+}, Opts) ->
     case Routes of
         [] ->
             %% If there's no routes even tried, then no explanation can be provided

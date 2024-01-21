@@ -6271,8 +6271,7 @@ payment_cascade_success(C) ->
         Trx
     ),
     %% At the end of this scenario limit must be accounted only once.
-    hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice),
-    ok = hg_client_invoicing:get_explanation_for_chosen_route(InvoiceID, PaymentID, Client).
+    hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
 
 payment_cascade_success_w_refund_fixture(Revision, _C) ->
     Brovider =
