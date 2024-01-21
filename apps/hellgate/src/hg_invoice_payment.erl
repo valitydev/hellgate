@@ -2964,8 +2964,8 @@ merge_change(
         routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building},
-        route_scores = hg_maybe:apply(fun (S) -> maps:merge(RouteScores, S) end, Scores, RouteScores),
-        route_limits = hg_maybe:apply(fun (L) -> maps:merge(RouteLimits, L) end, Limits, RouteLimits)
+        route_scores = hg_maybe:apply(fun(S) -> maps:merge(RouteScores, S) end, Scores, RouteScores),
+        route_limits = hg_maybe:apply(fun(L) -> maps:merge(RouteLimits, L) end, Limits, RouteLimits)
     };
 merge_change(Change = ?payment_capture_started(Data), #st{} = St, Opts) ->
     _ = validate_transition([{payment, S} || S <- [flow_waiting]], Change, St, Opts),

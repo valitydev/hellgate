@@ -20,13 +20,16 @@
 }.
 
 -spec get_explanation(st(), hg_invoice_payment:opts()) -> explanation().
-get_explanation(#st{
-    payment = Payment,
-    routes = Routes,
-    candidate_routes = CandidateRoutes,
-    route_scores = RouteScores,
-    route_limits = RouteLimits
-}, Opts) ->
+get_explanation(
+    #st{
+        payment = Payment,
+        routes = Routes,
+        candidate_routes = CandidateRoutes,
+        route_scores = RouteScores,
+        route_limits = RouteLimits
+    },
+    Opts
+) ->
     case Routes of
         [] ->
             %% If there's no routes even tried, then no explanation can be provided
