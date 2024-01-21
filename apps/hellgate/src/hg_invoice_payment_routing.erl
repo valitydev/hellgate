@@ -8,7 +8,7 @@
 -export([get_explanation/1]).
 
 -type st() :: #st{}.
--type explanation() :: #payproc_InvoicePaymentExplanation{}.
+-type explanation() :: dmsl_payproc_thrift:'InvoicePaymentExplanation'().
 
 -type route() :: hg_route:payment_route().
 -type scores() :: hg_routing:scores().
@@ -42,13 +42,14 @@ get_explanation(#st{
                 CandidateRoutesWithoutChosenRoute, RouteScores, RouteLimits, ChosenRWC
             ),
 
-            _Varset = gather_varset(Payment, Opts),
+            Varset = gather_varset(Payment, Opts),
             #payproc_InvoicePaymentExplanation{
                 explained_routes = lists:flatten([
                     route_explanation(chosen, ChosenRWC, ChosenRWC),
                     AttemptedExplanation,
                     CandidatesExplanation
-                ])
+                ]),
+                used_varset = Varset
             }
     end.
 
