@@ -14,7 +14,7 @@
 -type route() :: hg_route:payment_route().
 -type refund() :: hg_invoice_payment:domain_refund().
 -type cash() :: dmsl_domain_thrift:'Cash'().
--type handling_flag() :: ignore_business_error.
+-type handling_flag() :: ignore_business_error | ignore_not_found.
 -type turnover_limit_value() :: dmsl_payproc_thrift:'TurnoverLimitValue'().
 
 -type change_queue() :: [hg_limiter_client:limit_change()].
@@ -142,6 +142,14 @@ commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     ok = commit(LimitChanges, Clock, Context),
     ok = log_limit_changes(TurnoverLimits, Clock, Context).
 
+%% @doc This function supports flags that can change reaction behaviour to
+%%      limiter response:
+%%
+%%      - `ignore_business_error` -- prevents error raise upon misconfiguration
+%%      failures in limiter config
+%%
+%%      - `ignore_not_found` -- does not raise error if limiter won't be able to
+%%      find according posting plan in accountant service
 -spec rollback_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment(), [handling_flag()]) ->
     ok.
 rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, Flags) ->
@@ -180,16 +188,26 @@ process_changes(LimitChangesQueues, WithFun, Clock, Context, Flags) ->
         LimitChangesQueues
     ).
 
-process_changes_try_wrap([LimitChange], WithFun, Clock, Context, _Flags) ->
-    WithFun(LimitChange, Clock, Context);
+%% Very specific error to crutch around
+-define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
+
+process_changes_try_wrap([LimitChange], WithFun, Clock, Context, Flags) ->
+    IgnoreNotFound = lists:member(ignore_not_found, Flags),
+    #limiter_LimitChange{change_id = ChangeID} = LimitChange,
+    try
+        WithFun(LimitChange, Clock, Context)
+    catch
+        error:(?POSTING_PLAN_NOT_FOUND(ChangeID)) when IgnoreNotFound =:= true ->
+            %% See `limproto_limiter_thrift:'Clock'/0`
+            {latest, #limiter_LatestClock{}}
+    end;
 process_changes_try_wrap([LimitChange | OtherLimitChanges], WithFun, Clock, Context, Flags) ->
     IgnoreBusinessError = lists:member(ignore_business_error, Flags),
     #limiter_LimitChange{change_id = ChangeID} = LimitChange,
     try
         WithFun(LimitChange, Clock, Context)
     catch
-        %% Very specific error to crutch around
-        error:#base_InvalidRequest{errors = [<<"Posting plan not found: ", ChangeID/binary>>]} ->
+        error:(?POSTING_PLAN_NOT_FOUND(ChangeID)) ->
             process_changes_try_wrap(OtherLimitChanges, WithFun, Clock, Context, Flags);
         Class:Reason:Stacktrace ->
             handle_caught_exception(Class, Reason, Stacktrace, IgnoreBusinessError)
