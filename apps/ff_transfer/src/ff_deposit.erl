@@ -5,6 +5,7 @@
 -module(ff_deposit).
 
 -type id() :: binary().
+-type description() :: binary().
 
 -define(ACTUAL_FORMAT_VERSION, 3).
 
@@ -23,7 +24,8 @@
     external_id => id(),
     limit_checks => [limit_check_details()],
     reverts => reverts_index(),
-    adjustments => adjustments_index()
+    adjustments => adjustments_index(),
+    description => description()
 }.
 
 -opaque deposit() :: #{
@@ -36,7 +38,8 @@
     domain_revision => domain_revision(),
     created_at => ff_time:timestamp_ms(),
     metadata => metadata(),
-    external_id => id()
+    external_id => id(),
+    description => description()
 }.
 
 -type params() :: #{
@@ -44,7 +47,8 @@
     body := ff_accounting:body(),
     source_id := ff_source:id(),
     wallet_id := ff_wallet:id(),
-    external_id => external_id()
+    external_id => external_id(),
+    description => description()
 }.
 
 -type status() ::
@@ -157,6 +161,7 @@
 -export([domain_revision/1]).
 -export([created_at/1]).
 -export([metadata/1]).
+-export([description/1]).
 
 %% API
 -export([create/1]).
@@ -294,6 +299,10 @@ created_at(T) ->
 metadata(T) ->
     maps:get(metadata, T, undefined).
 
+-spec description(deposit_state()) -> description() | undefined.
+description(Deposit) ->
+    maps:get(description, Deposit, undefined).
+
 %% API
 
 -spec create(params()) ->
@@ -341,7 +350,8 @@ create(Params) ->
                     domain_revision => DomainRevision,
                     created_at => CreatedAt,
                     external_id => maps:get(external_id, Params, undefined),
-                    metadata => maps:get(metadata, Params, undefined)
+                    metadata => maps:get(metadata, Params, undefined),
+                    description => maps:get(description, Params, undefined)
                 })},
             {status_changed, pending}
         ]

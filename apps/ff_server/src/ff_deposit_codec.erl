@@ -30,7 +30,8 @@ marshal_deposit_state(DepositState, Context) ->
         reverts = [ff_deposit_revert_codec:marshal(revert_state, R) || R <- Reverts],
         adjustments = [ff_deposit_adjustment_codec:marshal(adjustment_state, A) || A <- Adjustments],
         context = marshal(ctx, Context),
-        metadata = marshal(ctx, ff_deposit:metadata(DepositState))
+        metadata = marshal(ctx, ff_deposit:metadata(DepositState)),
+        description = maybe_marshal(string, ff_deposit:description(DepositState))
     }.
 
 %% API
@@ -78,7 +79,8 @@ marshal(deposit, Deposit) ->
         domain_revision = maybe_marshal(domain_revision, ff_deposit:domain_revision(Deposit)),
         party_revision = maybe_marshal(party_revision, ff_deposit:party_revision(Deposit)),
         created_at = maybe_marshal(timestamp_ms, ff_deposit:created_at(Deposit)),
-        metadata = maybe_marshal(ctx, ff_deposit:metadata(Deposit))
+        metadata = maybe_marshal(ctx, ff_deposit:metadata(Deposit)),
+        description = maybe_marshal(string, ff_deposit:description(Deposit))
     };
 marshal(deposit_params, DepositParams) ->
     #deposit_DepositParams{
@@ -87,7 +89,8 @@ marshal(deposit_params, DepositParams) ->
         wallet_id = marshal(id, maps:get(wallet_id, DepositParams)),
         source_id = marshal(id, maps:get(source_id, DepositParams)),
         external_id = maybe_marshal(id, maps:get(external_id, DepositParams, undefined)),
-        metadata = maybe_marshal(ctx, maps:get(metadata, DepositParams, undefined))
+        metadata = maybe_marshal(ctx, maps:get(metadata, DepositParams, undefined)),
+        description = maybe_marshal(string, maps:get(description, DepositParams, undefined))
     };
 marshal(ctx, Ctx) ->
     maybe_marshal(context, Ctx);
@@ -144,7 +147,8 @@ unmarshal(deposit, Deposit) ->
         party_revision => maybe_unmarshal(party_revision, Deposit#deposit_Deposit.party_revision),
         domain_revision => maybe_unmarshal(domain_revision, Deposit#deposit_Deposit.domain_revision),
         created_at => maybe_unmarshal(timestamp_ms, Deposit#deposit_Deposit.created_at),
-        metadata => maybe_unmarshal(ctx, Deposit#deposit_Deposit.metadata)
+        metadata => maybe_unmarshal(ctx, Deposit#deposit_Deposit.metadata),
+        description => maybe_unmarshal(string, Deposit#deposit_Deposit.description)
     });
 unmarshal(deposit_params, DepositParams) ->
     genlib_map:compact(#{
@@ -153,7 +157,8 @@ unmarshal(deposit_params, DepositParams) ->
         wallet_id => unmarshal(id, DepositParams#deposit_DepositParams.wallet_id),
         source_id => unmarshal(id, DepositParams#deposit_DepositParams.source_id),
         metadata => maybe_unmarshal(ctx, DepositParams#deposit_DepositParams.metadata),
-        external_id => maybe_unmarshal(id, DepositParams#deposit_DepositParams.external_id)
+        external_id => maybe_unmarshal(id, DepositParams#deposit_DepositParams.external_id),
+        description => maybe_unmarshal(string, DepositParams#deposit_DepositParams.description)
     });
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);
@@ -201,6 +206,7 @@ deposit_symmetry_test() ->
 -spec deposit_params_symmetry_test() -> _.
 deposit_params_symmetry_test() ->
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
+    Description = <<"testDesc">>,
     Encoded = #deposit_DepositParams{
         body = #'fistful_base_Cash'{
             amount = 10101,
@@ -210,7 +216,8 @@ deposit_params_symmetry_test() ->
         wallet_id = genlib:unique(),
         external_id = undefined,
         id = genlib:unique(),
-        metadata = Metadata
+        metadata = Metadata,
+        description = Description
     },
     ?assertEqual(Encoded, marshal(deposit_params, unmarshal(deposit_params, Encoded))).
 
