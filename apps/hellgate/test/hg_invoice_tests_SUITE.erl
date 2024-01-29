@@ -6229,7 +6229,7 @@ payment_cascade_success(C) ->
         next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?risk_score_changed(_)) =
         next_change(InvoiceID, Client),
-    {_Route1, _CashFlow1, TrxID1, Failure1} =
+    {Route1, _CashFlow1, TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
     %% Assert payment status IS NOT failed
@@ -6275,7 +6275,16 @@ payment_cascade_success(C) ->
         ?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice
     ),
     #payproc_InvoicePaymentExplanation{
-        explained_routes = ok
+        explained_routes = [
+            #payproc_InvoicePaymentRouteExplanation{
+                route = Route2,
+                is_chosen = true
+            },
+            #payproc_InvoicePaymentRouteExplanation{
+                route = Route1,
+                is_chosen = false
+            }
+        ]
     } = hg_client_invoicing:explain_route(InvoiceID, PaymentID, Client).
 
 payment_cascade_success_w_refund_fixture(Revision, _C) ->

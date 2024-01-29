@@ -5,6 +5,7 @@
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
+-include_lib("hellgate/include/domain.hrl").
 
 -export([gather_routes/5]).
 -export([rate_routes/1]).
@@ -22,8 +23,6 @@
 -export([choose_route_with_ctx/1]).
 
 %%
-
--include("domain.hrl").
 
 -type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().

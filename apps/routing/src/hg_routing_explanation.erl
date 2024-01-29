@@ -2,7 +2,7 @@
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
--include("hg_invoice_payment.hrl").
+-include_lib("hellgate/include/hg_invoice_payment.hrl").
 
 %% API
 -export([get_explanation/2]).
