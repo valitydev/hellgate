@@ -32,6 +32,7 @@
 -export([gather_pinned_route/1]).
 -export([choose_pinned_route/1]).
 -export([choose_route_w_override/1]).
+-export([gather_route_fd_overrides/1]).
 
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
 -define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
@@ -74,7 +75,9 @@ groups() ->
 
             gather_pinned_route,
             choose_pinned_route,
-            choose_route_w_override
+            choose_route_w_override,
+
+            gather_route_fd_overrides
         ]}
     ].
 
@@ -86,6 +89,7 @@ init_per_suite(C) ->
         scoper,
         bender_client,
         dmt_client,
+        party_client,
         hg_proto,
         hellgate,
         {cowboy, CowboySpec}
@@ -852,6 +856,34 @@ choose_route_w_override(_C) ->
     RoutesWithOV = [Route1, Route2, Route3WithOV],
     {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
 
+-spec gather_route_fd_overrides(config()) -> test_return().
+gather_route_fd_overrides(_C) ->
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    VS = #{
+        category => ?cat(1),
+        currency => Currency,
+        cost => ?PROVIDER_MIN_ALLOWED,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        flow => instant,
+        risk_score => low
+    },
+    Revision = ?pinned_route_revision,
+    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        party_id => ?dummy_party_id,
+        client_ip => undefined
+    },
+
+    RoutingCtx = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
+    [R1, R2, R3] = hg_routing_ctx:candidates(RoutingCtx),
+    ?assertMatch(#domain_RouteFaultDetectorOverrides{enabled = undefined}, hg_route:fd_overrides(R1)),
+    ?assertMatch(#domain_RouteFaultDetectorOverrides{enabled = true}, hg_route:fd_overrides(R2)),
+    ?assertMatch(#domain_RouteFaultDetectorOverrides{enabled = false}, hg_route:fd_overrides(R3)).
+
 %%% Domain config fixtures
 
 routing_with_risk_score_fixture(Domain, AddRiskScore) ->
@@ -883,9 +915,18 @@ routing_with_risk_score_fixture(Domain, AddRiskScore) ->
 
 construct_domain_fixture() ->
     #{
-        {terminal, ?trm(1)} => {terminal, ?terminal_obj(?trm(1), ?prv(1))},
-        {terminal, ?trm(2)} => {terminal, ?terminal_obj(?trm(2), ?prv(2))},
-        {terminal, ?trm(3)} => {terminal, ?terminal_obj(?trm(3), ?prv(3))},
+        {provider, ?prv(1)} => {provider, ?provider_obj(?prv(1), #domain_ProvisionTermSet{}, undefined)},
+        {provider, ?prv(2)} => {provider, ?provider_obj(?prv(2), #domain_ProvisionTermSet{}, ?fd_overrides(undefined))},
+        {provider, ?prv(3)} => {provider, ?provider_obj(?prv(3), #domain_ProvisionTermSet{}, ?fd_overrides(true))},
+        {provider, ?prv(4)} => {provider, ?provider_obj(?prv(4), #domain_ProvisionTermSet{})},
+        {provider, ?prv(5)} => {provider, ?provider_obj(?prv(5), #domain_ProvisionTermSet{})},
+        {provider, ?prv(6)} => {provider, ?provider_obj(?prv(6), #domain_ProvisionTermSet{})},
+        {provider, ?prv(7)} => {provider, ?provider_obj(?prv(7), #domain_ProvisionTermSet{})},
+        {provider, ?prv(11)} => {provider, ?provider_obj(?prv(11), #domain_ProvisionTermSet{})},
+        {provider, ?prv(12)} => {provider, ?provider_obj(?prv(12), #domain_ProvisionTermSet{})},
+        {terminal, ?trm(1)} => {terminal, ?terminal_obj(?trm(1), ?prv(1), undefined)},
+        {terminal, ?trm(2)} => {terminal, ?terminal_obj(?trm(2), ?prv(2), ?fd_overrides(true))},
+        {terminal, ?trm(3)} => {terminal, ?terminal_obj(?trm(3), ?prv(3), ?fd_overrides(false))},
         {terminal, ?trm(4)} => {terminal, ?terminal_obj(?trm(4), ?prv(4))},
         {terminal, ?trm(5)} => {terminal, ?terminal_obj(?trm(5), ?prv(5))},
         {terminal, ?trm(6)} => {terminal, ?terminal_obj(?trm(6), ?prv(6))},

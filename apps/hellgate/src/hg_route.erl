@@ -79,8 +79,6 @@ new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
     new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{}).
 
 -spec new(provider_ref(), terminal_ref(), integer(), integer(), pin(), fd_overrides() | undefined) -> t().
-new(ProviderRef, TerminalRef, Weight, Priority, Pin, undefined) ->
-    new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{});
 new(ProviderRef, TerminalRef, Weight, Priority, Pin, FdOverrides) ->
     #route{
         provider_ref = ProviderRef,

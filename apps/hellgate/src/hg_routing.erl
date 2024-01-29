@@ -31,6 +31,8 @@
 
 -define(rejected(Reason), {rejected, Reason}).
 
+-define(fd_override(Enabled), #domain_RouteFaultDetectorOverrides{enabled = Enabled}).
+
 -type fd_service_stats() :: fd_proto_fault_detector_thrift:'ServiceStatistics'().
 
 -type terminal_priority_rating() :: integer().
@@ -210,13 +212,7 @@ collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
                 weight = Weight,
                 pin = Pin
             } = Candidate,
-            % Looks like overhead, we got Terminal only for provider_ref. Maybe
-            % we can remove provider_ref from hg_route:t().
-            % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
-            #domain_Terminal{
-                provider_ref = ProviderRef,
-                route_fd_overrides = FdOverrides
-            } = hg_domain:get(Revision, {terminal, TerminalRef}),
+            {ProviderRef, FdOverrides} = get_provider_fd_overrides(Revision, TerminalRef),
             GatheredPinInfo = gather_pin_info(Pin, Ctx),
             try
                 true = acceptable_terminal(Predestination, ProviderRef, TerminalRef, VS, Revision),
@@ -231,6 +227,32 @@ collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
         end,
         {[], []},
         Candidates
+    ).
+
+get_provider_fd_overrides(Revision, TerminalRef) ->
+    % Looks like overhead, we got Terminal only for provider_ref. Maybe
+    % we can remove provider_ref from hg_route:t().
+    % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
+    #domain_Terminal{provider_ref = ProviderRef, route_fd_overrides = TrmFdOverrides} =
+        hg_domain:get(Revision, {terminal, TerminalRef}),
+    #domain_Provider{route_fd_overrides = PrvFdOverrides} =
+        hg_domain:get(Revision, {provider, ProviderRef}),
+    %% TODO Consider moving this logic to party-management before (or after)
+    %%      internal route structure refactoring.
+    {ProviderRef, merge_fd_overrides([PrvFdOverrides, TrmFdOverrides])}.
+
+merge_fd_overrides(Overrides) ->
+    %% NOTE For now FD override options are not actually compiled but selected
+    %%      with last defined value in list
+    lists:foldl(
+        fun
+            (Next = ?fd_override(Enabled), _Curr) when Enabled =/= undefined ->
+                Next;
+            (_Next, Curr) ->
+                Curr
+        end,
+        ?fd_override(undefined),
+        Overrides
     ).
 
 gather_pin_info(undefined, _Ctx) ->
@@ -484,7 +506,7 @@ get_provider_status(Route, FDStats) ->
     ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
     {AvailabilityStatus, ConversionStatus}.
 
-get_adapter_availability_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
+get_adapter_availability_status(?fd_override(true), _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {alive, 0.0};
 get_adapter_availability_status(_, FDID, Stats) ->
@@ -499,7 +521,7 @@ get_adapter_availability_status(_, FDID, Stats) ->
             {alive, 0.0}
     end.
 
-get_provider_conversion_status(#domain_RouteFaultDetectorOverrides{enabled = true}, _FDID, _Stats) ->
+get_provider_conversion_status(?fd_override(true), _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {normal, 0.0};
 get_provider_conversion_status(_, FDID, Stats) ->
@@ -917,5 +939,22 @@ prefer_weight_over_conversion_test() ->
     ],
     FailRatedRoutes = lists:zip(Routes, ProviderStatuses),
     {Route2, _Meta} = choose_rated_route(FailRatedRoutes).
+
+-spec merge_fd_overrides_test_() -> _.
+merge_fd_overrides_test_() ->
+    [
+        ?_assertEqual(?fd_override(undefined), merge_fd_overrides([])),
+        ?_assertEqual(?fd_override(undefined), merge_fd_overrides([undefined])),
+        ?_assertEqual(?fd_override(undefined), merge_fd_overrides([undefined, ?fd_override(undefined)])),
+        ?_assertEqual(?fd_override(true), merge_fd_overrides([?fd_override(true)])),
+        ?_assertEqual(?fd_override(true), merge_fd_overrides([?fd_override(true), undefined])),
+        ?_assertEqual(
+            ?fd_override(true), merge_fd_overrides([undefined, ?fd_override(true), ?fd_override(undefined), undefined])
+        ),
+        ?_assertEqual(
+            ?fd_override(false),
+            merge_fd_overrides([?fd_override(undefined), ?fd_override(true), undefined, ?fd_override(false)])
+        )
+    ].
 
 -endif.
