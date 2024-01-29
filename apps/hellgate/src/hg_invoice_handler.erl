@@ -141,7 +141,7 @@ handle_function_('GetPaymentRoutesLimitValues', {InvoiceID, PaymentID}, _Opts) -
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
     hg_invoice_payment:get_limit_values(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St));
-handle_function_('GetExplanationForChosenRoute', {InvoiceID, PaymentID}, _Opts) ->
+handle_function_('ExplainRoute', {InvoiceID, PaymentID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
     hg_invoice_payment_routing:get_explanation(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)).

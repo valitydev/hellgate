@@ -42,7 +42,7 @@
 
 -export([compute_terms/3]).
 
--export([get_explanation_for_chosen_route/3]).
+-export([explain_route/3]).
 
 -export([pull_event/2]).
 -export([pull_event/3]).
@@ -304,11 +304,11 @@ compute_terms(InvoiceID, PartyRevision, Client) ->
         gen_server:call(Client, {call, 'ComputeTerms', [InvoiceID, PartyRevision], otel_ctx:get_current()})
     ).
 
--spec get_explanation_for_chosen_route(invoice_id(), payment_id(), pid()) ->
+-spec explain_route(invoice_id(), payment_id(), pid()) ->
     invoice_payment_explanation() | woody_error:business_error().
-get_explanation_for_chosen_route(InvoiceID, PaymentID, Client) ->
+explain_route(InvoiceID, PaymentID, Client) ->
     Args = [InvoiceID, PaymentID],
-    map_result_error(gen_server:call(Client, {call, 'GetExplanationForChosenRoute', Args, otel_ctx:get_current()})).
+    map_result_error(gen_server:call(Client, {call, 'ExplainRoute', Args, otel_ctx:get_current()})).
 
 -define(DEFAULT_NEXT_EVENT_TIMEOUT, 5000).
 
