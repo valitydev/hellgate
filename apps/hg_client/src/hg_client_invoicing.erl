@@ -42,6 +42,8 @@
 
 -export([compute_terms/3]).
 
+-export([explain_route/3]).
+
 -export([pull_event/2]).
 -export([pull_event/3]).
 -export([pull_change/4]).
@@ -85,6 +87,8 @@
 -type chargeback_accept_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackAcceptParams'().
 -type chargeback_reject_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackRejectParams'().
 -type chargeback_reopen_params() :: dmsl_payproc_thrift:'InvoicePaymentChargebackReopenParams'().
+
+-type invoice_payment_explanation() :: dmsl_payproc_thrift:'InvoicePaymentExplanation'().
 
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type cash() :: undefined | dmsl_domain_thrift:'Cash'().
@@ -299,6 +303,12 @@ compute_terms(InvoiceID, PartyRevision, Client) ->
     map_result_error(
         gen_server:call(Client, {call, 'ComputeTerms', [InvoiceID, PartyRevision], otel_ctx:get_current()})
     ).
+
+-spec explain_route(invoice_id(), payment_id(), pid()) ->
+    invoice_payment_explanation() | woody_error:business_error().
+explain_route(InvoiceID, PaymentID, Client) ->
+    Args = [InvoiceID, PaymentID],
+    map_result_error(gen_server:call(Client, {call, 'ExplainRoute', Args, otel_ctx:get_current()})).
 
 -define(DEFAULT_NEXT_EVENT_TIMEOUT, 5000).
 

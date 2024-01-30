@@ -19,6 +19,8 @@
 
 -type change_queue() :: [hg_limiter_client:limit_change()].
 
+-export_type([turnover_limit_value/0]).
+
 -export([get_turnover_limits/1]).
 -export([check_limits/4]).
 -export([hold_payment_limits/5]).
@@ -60,31 +62,33 @@ get_limit_values(TurnoverLimits, Invoice, Payment, Route) ->
     ).
 
 -spec check_limits([turnover_limit()], invoice(), payment(), route()) ->
-    {ok, [hg_limiter_client:limit()]}
-    | {error, {limit_overflow, [binary()]}}.
+    {ok, [turnover_limit_value()]}
+    | {error, {limit_overflow, [binary()], [turnover_limit_value()]}}.
 check_limits(TurnoverLimits, Invoice, Payment, Route) ->
     Context = gen_limit_context(Invoice, Payment, Route),
+    {ok, Limits} = gather_limits(TurnoverLimits, Context, []),
     try
-        check_limits_(TurnoverLimits, Context, [])
+        ok = check_limits_(Limits, Context),
+        {ok, Limits}
     catch
         throw:limit_overflow ->
             IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
-            {error, {limit_overflow, IDs}}
+            {error, {limit_overflow, IDs, Limits}}
     end.
 
-check_limits_([], _, Limits) ->
-    {ok, Limits};
-check_limits_([T | TurnoverLimits], Context, Acc) ->
-    #domain_TurnoverLimit{id = LimitID, domain_revision = Version} = T,
-    Clock = get_latest_clock(),
-    Limit = hg_limiter_client:get(LimitID, Version, Clock, Context),
-    #limiter_Limit{
-        amount = LimiterAmount
-    } = Limit,
-    UpperBoundary = T#domain_TurnoverLimit.upper_boundary,
+check_limits_([], _) ->
+    ok;
+check_limits_([TurnoverLimitValue | TLVs], Context) ->
+    #payproc_TurnoverLimitValue{
+        limit = #domain_TurnoverLimit{
+            id = LimitID,
+            upper_boundary = UpperBoundary
+        },
+        value = LimiterAmount
+    } = TurnoverLimitValue,
     case LimiterAmount =< UpperBoundary of
         true ->
-            check_limits_(TurnoverLimits, Context, [Limit | Acc]);
+            check_limits_(TLVs, Context);
         false ->
             logger:notice("Limit with id ~p overflowed, amount ~p upper boundary ~p", [
                 LimitID,
@@ -93,6 +97,15 @@ check_limits_([T | TurnoverLimits], Context, Acc) ->
             ]),
             throw(limit_overflow)
     end.
+
+gather_limits([], _Context, Acc) ->
+    {ok, Acc};
+gather_limits([T | TurnoverLimits], Context, Acc) ->
+    #domain_TurnoverLimit{id = LimitID, domain_revision = Version} = T,
+    Clock = get_latest_clock(),
+    #limiter_Limit{amount = Amount} = hg_limiter_client:get(LimitID, Version, Clock, Context),
+    TurnoverLimitValue = #payproc_TurnoverLimitValue{limit = T, value = Amount},
+    gather_limits(TurnoverLimits, Context, [TurnoverLimitValue | Acc]).
 
 -spec hold_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment()) -> ok.
 hold_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment) ->
