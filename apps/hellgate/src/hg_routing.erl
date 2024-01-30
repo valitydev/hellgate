@@ -31,7 +31,7 @@
 
 -define(rejected(Reason), {rejected, Reason}).
 
--define(fd_override(Enabled), #domain_RouteFaultDetectorOverrides{enabled = Enabled}).
+-define(fd_overrides(Enabled), #domain_RouteFaultDetectorOverrides{enabled = Enabled}).
 
 -type fd_service_stats() :: fd_proto_fault_detector_thrift:'ServiceStatistics'().
 
@@ -239,21 +239,16 @@ get_provider_fd_overrides(Revision, TerminalRef) ->
         hg_domain:get(Revision, {provider, ProviderRef}),
     %% TODO Consider moving this logic to party-management before (or after)
     %%      internal route structure refactoring.
-    {ProviderRef, merge_fd_overrides([PrvFdOverrides, TrmFdOverrides])}.
+    {ProviderRef, merge_fd_overrides(PrvFdOverrides, TrmFdOverrides)}.
 
-merge_fd_overrides(Overrides) ->
-    %% NOTE For now FD override options are not actually compiled but selected
-    %%      with last defined value in list
-    lists:foldl(
-        fun
-            (Next = ?fd_override(Enabled), _Curr) when Enabled =/= undefined ->
-                Next;
-            (_Next, Curr) ->
-                Curr
-        end,
-        ?fd_override(undefined),
-        Overrides
-    ).
+%% @doc For now FD override options are not actually compiled but selected with
+%%      last defined value in list
+merge_fd_overrides(_A, B = ?fd_overrides(Enabled)) when Enabled =/= undefined ->
+    B;
+merge_fd_overrides(A = ?fd_overrides(Enabled), _B) when Enabled =/= undefined ->
+    A;
+merge_fd_overrides(_A, _B) ->
+    ?fd_overrides(undefined).
 
 gather_pin_info(undefined, _Ctx) ->
     #{};
@@ -506,7 +501,7 @@ get_provider_status(Route, FDStats) ->
     ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
     {AvailabilityStatus, ConversionStatus}.
 
-get_adapter_availability_status(?fd_override(true), _FDID, _Stats) ->
+get_adapter_availability_status(?fd_overrides(true), _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {alive, 0.0};
 get_adapter_availability_status(_, FDID, Stats) ->
@@ -521,7 +516,7 @@ get_adapter_availability_status(_, FDID, Stats) ->
             {alive, 0.0}
     end.
 
-get_provider_conversion_status(?fd_override(true), _FDID, _Stats) ->
+get_provider_conversion_status(?fd_overrides(true), _FDID, _Stats) ->
     %% ignore fd statistic if set override
     {normal, 0.0};
 get_provider_conversion_status(_, FDID, Stats) ->
@@ -943,18 +938,10 @@ prefer_weight_over_conversion_test() ->
 -spec merge_fd_overrides_test_() -> _.
 merge_fd_overrides_test_() ->
     [
-        ?_assertEqual(?fd_override(undefined), merge_fd_overrides([])),
-        ?_assertEqual(?fd_override(undefined), merge_fd_overrides([undefined])),
-        ?_assertEqual(?fd_override(undefined), merge_fd_overrides([undefined, ?fd_override(undefined)])),
-        ?_assertEqual(?fd_override(true), merge_fd_overrides([?fd_override(true)])),
-        ?_assertEqual(?fd_override(true), merge_fd_overrides([?fd_override(true), undefined])),
-        ?_assertEqual(
-            ?fd_override(true), merge_fd_overrides([undefined, ?fd_override(true), ?fd_override(undefined), undefined])
-        ),
-        ?_assertEqual(
-            ?fd_override(false),
-            merge_fd_overrides([?fd_override(undefined), ?fd_override(true), undefined, ?fd_override(false)])
-        )
+        ?_assertEqual(?fd_overrides(undefined), merge_fd_overrides(undefined, ?fd_overrides(undefined))),
+        ?_assertEqual(?fd_overrides(true), merge_fd_overrides(?fd_overrides(true), undefined)),
+        ?_assertEqual(?fd_overrides(true), merge_fd_overrides(?fd_overrides(true), ?fd_overrides(undefined))),
+        ?_assertEqual(?fd_overrides(false), merge_fd_overrides(?fd_overrides(true), ?fd_overrides(false)))
     ].
 
 -endif.
