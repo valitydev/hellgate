@@ -241,8 +241,6 @@ get_provider_fd_overrides(Revision, TerminalRef) ->
     %%      internal route structure refactoring.
     {ProviderRef, merge_fd_overrides(PrvFdOverrides, TrmFdOverrides)}.
 
-%% @doc For now FD override options are not actually compiled but selected with
-%%      last defined value in list
 merge_fd_overrides(_A, B = ?fd_overrides(Enabled)) when Enabled =/= undefined ->
     B;
 merge_fd_overrides(A = ?fd_overrides(Enabled), _B) when Enabled =/= undefined ->
