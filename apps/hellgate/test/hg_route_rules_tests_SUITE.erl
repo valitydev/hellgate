@@ -32,7 +32,6 @@
 -export([gather_pinned_route/1]).
 -export([choose_pinned_route/1]).
 -export([choose_route_w_override/1]).
--export([gather_route_fd_overrides/1]).
 
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
 -define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
@@ -75,9 +74,7 @@ groups() ->
 
             gather_pinned_route,
             choose_pinned_route,
-            choose_route_w_override,
-
-            gather_route_fd_overrides
+            choose_route_w_override
         ]}
     ].
 
@@ -799,9 +796,9 @@ gather_pinned_route(_C) ->
     },
     ?assert_set_equal(
         [
-            hg_route:new(?prv(1), ?trm(1), 0, 0, Ctx),
-            hg_route:new(?prv(2), ?trm(2), 0, 0, Pin),
-            hg_route:new(?prv(3), ?trm(3), 0, 0, Pin)
+            hg_route:new(?prv(1), ?trm(1), 0, 0, Ctx, ?fd_overrides(undefined)),
+            hg_route:new(?prv(2), ?trm(2), 0, 0, Pin, ?fd_overrides(true)),
+            hg_route:new(?prv(3), ?trm(3), 0, 0, Pin, ?fd_overrides(false))
         ],
         Routes
     ).
@@ -855,34 +852,6 @@ choose_route_w_override(_C) ->
     Route3WithOV = hg_route:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
     RoutesWithOV = [Route1, Route2, Route3WithOV],
     {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
-
--spec gather_route_fd_overrides(config()) -> test_return().
-gather_route_fd_overrides(_C) ->
-    Currency = ?cur(<<"RUB">>),
-    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-    VS = #{
-        category => ?cat(1),
-        currency => Currency,
-        cost => ?PROVIDER_MIN_ALLOWED,
-        payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
-        flow => instant,
-        risk_score => low
-    },
-    Revision = ?pinned_route_revision,
-    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
-    Ctx = #{
-        currency => Currency,
-        payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
-        client_ip => undefined
-    },
-
-    RoutingCtx = hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx),
-    [R1, R2, R3] = hg_routing_ctx:candidates(RoutingCtx),
-    ?assertMatch(#domain_RouteFaultDetectorOverrides{enabled = undefined}, hg_route:fd_overrides(R1)),
-    ?assertMatch(#domain_RouteFaultDetectorOverrides{enabled = true}, hg_route:fd_overrides(R2)),
-    ?assertMatch(#domain_RouteFaultDetectorOverrides{enabled = false}, hg_route:fd_overrides(R3)).
 
 %%% Domain config fixtures
 
