@@ -1,5 +1,7 @@
 -module(hg_route).
 
+-include_lib("hellgate/include/domain.hrl").
+
 -export([new/2]).
 -export([new/4]).
 -export([new/5]).
@@ -19,8 +21,6 @@
 -export([to_rejected_route/2]).
 
 %%
-
--include("domain.hrl").
 
 -record(route, {
     provider_ref :: dmsl_domain_thrift:'ProviderRef'(),

@@ -102,6 +102,8 @@
 -export([construct_payment_plan_id/1]).
 -export([construct_payment_plan_id/2]).
 
+-export([get_payer_payment_tool/1]).
+
 %%
 
 -export_type([payment_id/0]).
@@ -1982,18 +1984,22 @@ produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= un
     Route = hg_route:to_payment_route(hd(RollbackableCandidates)),
     Candidates =
         ordsets:from_list([hg_route:to_payment_route(R) || R <- RollbackableCandidates]),
+    RouteScores = hg_routing_ctx:route_scores(Ctx),
+    RouteLimits = hg_routing_ctx:route_limits(Ctx),
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be
     %% skipped. And all limit's 'hold' operations will be rolled back.
     %% For same purpose in cascade routing we use route from unfiltered list of
     %% originally resolved candidates.
-    [?route_changed(Route, Candidates), ?payment_rollback_started(Failure)];
+    [?route_changed(Route, Candidates, RouteScores, RouteLimits), ?payment_rollback_started(Failure)];
 produce_routing_events(Ctx, Revision, _St) ->
     ok = log_route_choice_meta(Ctx, Revision),
     Route = hg_route:to_payment_route(hg_routing_ctx:choosen_route(Ctx)),
     Candidates =
         ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing_ctx:considered_candidates(Ctx)]),
-    [?route_changed(Route, Candidates)].
+    RouteScores = hg_routing_ctx:route_scores(Ctx),
+    RouteLimits = hg_routing_ctx:route_limits(Ctx),
+    [?route_changed(Route, Candidates, RouteScores, RouteLimits)].
 
 route_args(St) ->
     Opts = get_opts(St),
@@ -2484,9 +2490,10 @@ filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
     Ctx1 = reject_routes(limit_misconfiguration, RejectedRoutes, Ctx0),
     hg_routing_ctx:stash_current_candidates(Ctx1).
 
-filter_routes_by_limit_overflow(Ctx, VS, St) ->
-    {_Routes, RejectedRoutes} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx), VS, St),
-    reject_routes(limit_overflow, RejectedRoutes, Ctx).
+filter_routes_by_limit_overflow(Ctx0, VS, St) ->
+    {_Routes, RejectedRoutes, Limits} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx0), VS, St),
+    Ctx1 = hg_routing_ctx:stash_route_limits(Limits, Ctx0),
+    reject_routes(limit_overflow, RejectedRoutes, Ctx1).
 
 reject_routes(GroupReason, RejectedRoutes, Ctx) ->
     lists:foldr(
@@ -2501,19 +2508,19 @@ get_limit_overflow_routes(Routes, VS, St) ->
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
     lists:foldl(
-        fun(Route, {RoutesNoOverflowIn, RejectedIn}) ->
+        fun(Route, {RoutesNoOverflowIn, RejectedIn, LimitsIn}) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
             case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
-                {ok, _} ->
-                    {[Route | RoutesNoOverflowIn], RejectedIn};
-                {error, {limit_overflow, IDs}} ->
+                {ok, Limits} ->
+                    {[Route | RoutesNoOverflowIn], RejectedIn, LimitsIn#{PaymentRoute => Limits}};
+                {error, {limit_overflow, IDs, Limits}} ->
                     RejectedRoute = hg_route:to_rejected_route(Route, {'LimitOverflow', IDs}),
-                    {RoutesNoOverflowIn, [RejectedRoute | RejectedIn]}
+                    {RoutesNoOverflowIn, [RejectedRoute | RejectedIn], LimitsIn#{PaymentRoute => Limits}}
             end
         end,
-        {[], []},
+        {[], [], #{}},
         Routes
     ).
 
@@ -2875,6 +2882,7 @@ get_payment_tool(#domain_InvoicePayment{payer = Payer}) ->
 get_payment_created_at(#domain_InvoicePayment{created_at = CreatedAt}) ->
     CreatedAt.
 
+-spec get_payer_payment_tool(payer()) -> payment_tool().
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
     get_resource_payment_tool(PaymentResource);
 get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
@@ -2941,7 +2949,11 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
         risk_score = RiskScore,
         activity = {payment, routing}
     };
-merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = St, Opts) ->
+merge_change(
+    Change = ?route_changed(Route, Candidates, Scores, Limits),
+    #st{routes = Routes, route_scores = RouteScores, route_limits = RouteLimits} = St,
+    Opts
+) ->
     _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
     St#st{
         %% On route change we expect cash flow from previous attempt to be rolled back.
@@ -2951,7 +2963,9 @@ merge_change(Change = ?route_changed(Route, Candidates), #st{routes = Routes} = 
         trx = undefined,
         routes = [Route | Routes],
         candidate_routes = ordsets:to_list(Candidates),
-        activity = {payment, cash_flow_building}
+        activity = {payment, cash_flow_building},
+        route_scores = hg_maybe:apply(fun(S) -> maps:merge(RouteScores, S) end, Scores, RouteScores),
+        route_limits = hg_maybe:apply(fun(L) -> maps:merge(RouteLimits, L) end, Limits, RouteLimits)
     };
 merge_change(Change = ?payment_capture_started(Data), #st{} = St, Opts) ->
     _ = validate_transition([{payment, S} || S <- [flow_waiting]], Change, St, Opts),

@@ -140,7 +140,11 @@ handle_function_('RepairWithScenario', {InvoiceID, Scenario}, _Opts) ->
 handle_function_('GetPaymentRoutesLimitValues', {InvoiceID, PaymentID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
-    hg_invoice_payment:get_limit_values(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)).
+    hg_invoice_payment:get_limit_values(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St));
+handle_function_('ExplainRoute', {InvoiceID, PaymentID}, _Opts) ->
+    _ = set_invoicing_meta(InvoiceID, PaymentID),
+    St = get_state(InvoiceID),
+    hg_routing_explanation:get_explanation(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)).
 
 ensure_started(ID, TemplateID, PartyRevision, Params, Allocation) ->
     Invoice = hg_invoice:create(ID, TemplateID, PartyRevision, Params, Allocation),

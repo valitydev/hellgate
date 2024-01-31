@@ -5,6 +5,7 @@
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
+-include_lib("hellgate/include/domain.hrl").
 
 -export([gather_routes/5]).
 -export([rate_routes/1]).
@@ -22,8 +23,6 @@
 -export([choose_route_with_ctx/1]).
 
 %%
-
--include("domain.hrl").
 
 -type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
@@ -48,8 +47,6 @@
 -type conversion_condition() :: normal | lacking.
 -type conversion_fail_rate() :: float().
 
--type condition_score() :: 0 | 1.
-
 -type route_groups_by_priority() :: #{{availability_condition(), terminal_priority_rating()} => [fail_rated_route()]}.
 
 -type fail_rated_route() :: {hg_route:t(), provider_status()}.
@@ -59,7 +56,7 @@
 -type route_choice_context() :: #{
     chosen_route => hg_route:t(),
     preferable_route => hg_route:t(),
-    % Contains one of the field names defined in #route_scores{}
+    % Contains one of the field names defined in #domain_PaymentRouteScores{}
     reject_reason => atom()
 }.
 
@@ -78,28 +75,25 @@
 -type varset() :: hg_varset:varset().
 -type revision() :: hg_domain:revision().
 
--record(route_scores, {
-    availability_condition :: condition_score(),
-    conversion_condition :: condition_score(),
-    priority_rating :: terminal_priority_rating(),
-    pin :: integer(),
-    random_condition :: integer(),
-    availability :: float(),
-    conversion :: float()
-}).
-
--type route_scores() :: #route_scores{}.
+-type route_scores() :: #domain_PaymentRouteScores{}.
+-type limits() :: #{hg_route:payment_route() => [hg_limiter:turnover_limit_value()]}.
+-type scores() :: #{hg_route:payment_route() => hg_routing:route_scores()}.
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
 
 -export_type([route_predestination/0]).
 -export_type([route_choice_context/0]).
 -export_type([fail_rated_route/0]).
+-export_type([route_scores/0]).
+-export_type([limits/0]).
+-export_type([scores/0]).
 
 %%
 
 -spec filter_by_critical_provider_status(T) -> T when T :: hg_routing_ctx:t().
-filter_by_critical_provider_status(Ctx) ->
-    RoutesFailRates = rate_routes(hg_routing_ctx:candidates(Ctx)),
+filter_by_critical_provider_status(Ctx0) ->
+    RoutesFailRates = rate_routes(hg_routing_ctx:candidates(Ctx0)),
+    RouteScores = score_routes_map(RoutesFailRates),
+    Ctx1 = hg_routing_ctx:stash_route_scores(RouteScores, Ctx0),
     lists:foldr(
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
@@ -108,7 +102,7 @@ filter_by_critical_provider_status(Ctx) ->
             ({_R, _ProviderStatus}, C) ->
                 C
         end,
-        hg_routing_ctx:with_fail_rates(RoutesFailRates, Ctx),
+        hg_routing_ctx:with_fail_rates(RoutesFailRates, Ctx1),
         RoutesFailRates
     ).
 
@@ -332,7 +326,7 @@ select_better_route_ideal(Left, Right) ->
 
 set_ideal_score({RouteScores, PT}) ->
     {
-        RouteScores#route_scores{
+        RouteScores#domain_PaymentRouteScores{
             availability_condition = 1,
             availability = 1.0,
             conversion_condition = 1,
@@ -382,11 +376,11 @@ format_logger_metadata(Meta, Route, Revision) when
 map_route_switch_reason(SameScores, SameScores) ->
     unknown;
 map_route_switch_reason(RealScores, IdealScores) when
-    is_record(RealScores, route_scores); is_record(IdealScores, route_scores)
+    is_record(RealScores, 'domain_PaymentRouteScores'); is_record(IdealScores, 'domain_PaymentRouteScores')
 ->
     Zipped = lists:zip(tuple_to_list(RealScores), tuple_to_list(IdealScores)),
     DifferenceIdx = find_idx_of_difference(Zipped),
-    lists:nth(DifferenceIdx, record_info(fields, route_scores)).
+    lists:nth(DifferenceIdx, record_info(fields, 'domain_PaymentRouteScores')).
 
 find_idx_of_difference(ZippedList) ->
     find_idx_of_difference(ZippedList, 0).
@@ -453,6 +447,16 @@ calc_random_condition(StartFrom, Random, [FailRatedRoute | Rest], Routes) ->
             calc_random_condition(StartFrom + Weight, Random, Rest, [{NewRoute, Status} | Routes])
     end.
 
+-spec score_routes_map([fail_rated_route()]) -> #{hg_route:payment_route() => route_scores()}.
+score_routes_map(Routes) ->
+    lists:foldl(
+        fun({Route, _} = FailRatedRoute, Acc) ->
+            Acc#{hg_route:to_payment_route(Route) => score_route(FailRatedRoute)}
+        end,
+        #{},
+        Routes
+    ).
+
 -spec score_routes([fail_rated_route()]) -> [scored_route()].
 score_routes(Routes) ->
     [{score_route(FailRatedRoute), Route} || {Route, _} = FailRatedRoute <- Routes].
@@ -465,11 +469,11 @@ score_route({Route, ProviderStatus}) ->
     {AvailabilityStatus, ConversionStatus} = ProviderStatus,
     {AvailabilityCondition, Availability} = get_availability_score(AvailabilityStatus),
     {ConversionCondition, Conversion} = get_conversion_score(ConversionStatus),
-    #route_scores{
+    #domain_PaymentRouteScores{
         availability_condition = AvailabilityCondition,
         conversion_condition = ConversionCondition,
-        priority_rating = PriorityRate,
-        pin = PinHash,
+        terminal_priority_rating = PriorityRate,
+        route_pin = PinHash,
         random_condition = RandomCondition,
         availability = Availability,
         conversion = Conversion
@@ -752,25 +756,25 @@ getv(Name, VS, Default) ->
 -spec record_comparsion_test() -> _.
 record_comparsion_test() ->
     Bigger = {
-        #route_scores{
+        #domain_PaymentRouteScores{
             availability_condition = 1,
             availability = 0.5,
             conversion_condition = 1,
             conversion = 0.5,
-            priority_rating = 1,
-            pin = 0,
+            terminal_priority_rating = 1,
+            route_pin = 0,
             random_condition = 1
         },
         {42, 42}
     },
     Smaller = {
-        #route_scores{
+        #domain_PaymentRouteScores{
             availability_condition = 0,
             availability = 0.1,
             conversion_condition = 1,
             conversion = 0.5,
-            priority_rating = 1,
-            pin = 0,
+            terminal_priority_rating = 1,
+            route_pin = 0,
             random_condition = 1
         },
         {99, 99}
