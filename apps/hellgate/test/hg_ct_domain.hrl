@@ -43,6 +43,7 @@
     payment_token = ?token_srv(Prv),
     tokenization_method = Method
 }).
+-define(fd_overrides(Enabled), #domain_RouteFaultDetectorOverrides{enabled = Enabled}).
 
 -define(cashrng(Lower, Upper), #domain_CashRange{lower = Lower, upper = Upper}).
 
@@ -152,16 +153,28 @@
     ruleset = RuleSetRef
 }).
 
--define(terminal_obj(Ref, PRef), #domain_TerminalObject{
+-define(terminal_obj(Ref, PRef), ?terminal_obj(Ref, PRef, undefined)).
+
+-define(terminal_obj(Ref, PRef, FdOverrides), #domain_TerminalObject{
     ref = Ref,
     data = #domain_Terminal{
         name = <<"Payment Terminal">>,
         description = <<"Best terminal">>,
-        provider_ref = PRef
+        provider_ref = PRef,
+        route_fd_overrides = FdOverrides
     }
 }).
 
--define(provider(ProvisionTermSet), #domain_Provider{
+-define(provider_obj(Ref, ProvisionTermSet), ?provider_obj(Ref, ProvisionTermSet, undefined)).
+
+-define(provider_obj(Ref, ProvisionTermSet, FdOverrides), #domain_ProviderObject{
+    ref = Ref,
+    data = ?provider(ProvisionTermSet, FdOverrides)
+}).
+
+-define(provider(ProvisionTermSet), ?provider(ProvisionTermSet, undefined)).
+
+-define(provider(ProvisionTermSet, FdOverrides), #domain_Provider{
     name = <<"Biba">>,
     description = <<"Payment terminal provider">>,
     proxy = #domain_Proxy{
@@ -172,7 +185,8 @@
     },
     abs_account = <<"0987654321">>,
     accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
-    terms = ProvisionTermSet
+    terms = ProvisionTermSet,
+    route_fd_overrides = FdOverrides
 }).
 
 -define(payment_terms, #domain_PaymentsProvisionTerms{

@@ -86,6 +86,7 @@ init_per_suite(C) ->
         scoper,
         bender_client,
         dmt_client,
+        party_client,
         hg_proto,
         hellgate,
         {cowboy, CowboySpec}
@@ -795,9 +796,9 @@ gather_pinned_route(_C) ->
     },
     ?assert_set_equal(
         [
-            hg_route:new(?prv(1), ?trm(1), 0, 0, Ctx),
-            hg_route:new(?prv(2), ?trm(2), 0, 0, Pin),
-            hg_route:new(?prv(3), ?trm(3), 0, 0, Pin)
+            hg_route:new(?prv(1), ?trm(1), 0, 0, Ctx, ?fd_overrides(undefined)),
+            hg_route:new(?prv(2), ?trm(2), 0, 0, Pin, ?fd_overrides(true)),
+            hg_route:new(?prv(3), ?trm(3), 0, 0, Pin, ?fd_overrides(false))
         ],
         Routes
     ).
@@ -883,9 +884,18 @@ routing_with_risk_score_fixture(Domain, AddRiskScore) ->
 
 construct_domain_fixture() ->
     #{
-        {terminal, ?trm(1)} => {terminal, ?terminal_obj(?trm(1), ?prv(1))},
-        {terminal, ?trm(2)} => {terminal, ?terminal_obj(?trm(2), ?prv(2))},
-        {terminal, ?trm(3)} => {terminal, ?terminal_obj(?trm(3), ?prv(3))},
+        {provider, ?prv(1)} => {provider, ?provider_obj(?prv(1), #domain_ProvisionTermSet{}, undefined)},
+        {provider, ?prv(2)} => {provider, ?provider_obj(?prv(2), #domain_ProvisionTermSet{}, ?fd_overrides(undefined))},
+        {provider, ?prv(3)} => {provider, ?provider_obj(?prv(3), #domain_ProvisionTermSet{}, ?fd_overrides(true))},
+        {provider, ?prv(4)} => {provider, ?provider_obj(?prv(4), #domain_ProvisionTermSet{})},
+        {provider, ?prv(5)} => {provider, ?provider_obj(?prv(5), #domain_ProvisionTermSet{})},
+        {provider, ?prv(6)} => {provider, ?provider_obj(?prv(6), #domain_ProvisionTermSet{})},
+        {provider, ?prv(7)} => {provider, ?provider_obj(?prv(7), #domain_ProvisionTermSet{})},
+        {provider, ?prv(11)} => {provider, ?provider_obj(?prv(11), #domain_ProvisionTermSet{})},
+        {provider, ?prv(12)} => {provider, ?provider_obj(?prv(12), #domain_ProvisionTermSet{})},
+        {terminal, ?trm(1)} => {terminal, ?terminal_obj(?trm(1), ?prv(1), undefined)},
+        {terminal, ?trm(2)} => {terminal, ?terminal_obj(?trm(2), ?prv(2), ?fd_overrides(true))},
+        {terminal, ?trm(3)} => {terminal, ?terminal_obj(?trm(3), ?prv(3), ?fd_overrides(false))},
         {terminal, ?trm(4)} => {terminal, ?terminal_obj(?trm(4), ?prv(4))},
         {terminal, ?trm(5)} => {terminal, ?terminal_obj(?trm(5), ?prv(5))},
         {terminal, ?trm(6)} => {terminal, ?terminal_obj(?trm(6), ?prv(6))},
