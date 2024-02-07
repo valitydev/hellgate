@@ -127,10 +127,18 @@ route_explanation(candidate, RouteWithContext, ChosenRoute) ->
     }.
 
 candidate_rejection_explanation(
-    #{scores := RouteScores, limits := RouteLimits},
-    #{scores := ChosenScores}
-) when RouteScores =:= undefined; RouteLimits =:= undefined; ChosenScores =:= undefined ->
+    #{scores := undefined, limits := undefined},
+    _ChosenRoute
+) ->
     <<"Not enough information to make judgement. Payment was done before relevant changes were done.">>;
+candidate_rejection_explanation(
+    #{scores := undefined, limits := RouteLimits},
+    _ChosenRoute
+) ->
+    IfEmpty =
+        <<"We only know about limits for this route, but no limit",
+            " was reached, if you see this message contact developer.">>,
+    check_route_limits(RouteLimits, IfEmpty);
 candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
     #{scores := ChosenScores}
@@ -215,7 +223,7 @@ check_route_scores(
         terminal_priority_rating = Rating1
     }
 ) when Rating0 < Rating1 ->
-    format("Priority of this route was less chosen one, where ~p < ~p.", [Rating0, Rating1]);
+    format("Priority of this route was less than in chosen route, where ~p < ~p.", [Rating0, Rating1]);
 check_route_scores(
     #domain_PaymentRouteScores{
         route_pin = Pin0
