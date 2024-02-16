@@ -186,14 +186,16 @@ get_decisions_candidates(#domain_RoutingRuleset{decisions = Decisions}) ->
         {delegates, _Delegates} ->
             throw({misconfiguration, {routing_decisions, Decisions}});
         {candidates, Candidates} ->
-            ok = validate_decisions_candidates(Candidates),
-            Candidates
+            ValidatedCandidates = validate_decisions_candidates(Candidates),
+            ValidatedCandidates
     end.
 
 validate_decisions_candidates([]) ->
-    ok;
-validate_decisions_candidates([#domain_RoutingCandidate{allowed = {constant, true}} | Rest]) ->
+    [];
+validate_decisions_candidates([#domain_RoutingCandidate{is_enabled = false} | Rest]) ->
     validate_decisions_candidates(Rest);
+validate_decisions_candidates([#domain_RoutingCandidate{allowed = {constant, true}} = C | Rest]) ->
+    [C | validate_decisions_candidates(Rest)];
 validate_decisions_candidates([Candidate | _]) ->
     throw({misconfiguration, {routing_candidate, Candidate}}).
 

@@ -251,7 +251,17 @@ mock_party_management(SupPid) ->
                                 ?candidate({constant, true}, ?trm(2)),
                                 ?candidate({constant, true}, ?trm(3)),
                                 ?candidate({constant, true}, ?trm(4)),
-                                ?candidate({constant, true}, ?trm(7))
+                                ?candidate({constant, true}, ?trm(7)),
+                                #domain_RoutingCandidate{
+                                    allowed = {constant, true},
+                                    terminal = ?trm(8),
+                                    is_enabled = false
+                                },
+                                #domain_RoutingCandidate{
+                                    allowed = {constant, true},
+                                    terminal = ?trm(9),
+                                    is_enabled = true
+                                }
                             ]}
                     }};
                 ('ComputeRoutingRuleset', {?ruleset(1), ?base_routing_rule_domain_revision, _}) ->
@@ -467,7 +477,8 @@ no_route_found_for_payment(_C) ->
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
             {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
             {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}},
-            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}}
+            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}},
+            {?prv(9), ?trm(9), {'PaymentsProvisionTerms', cost}}
         ],
         RejectedRoutes1
     ),
@@ -489,7 +500,8 @@ no_route_found_for_payment(_C) ->
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
             {?prv(3), ?trm(3), {'PaymentsProvisionTerms', payment_tool}},
             {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}},
-            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}}
+            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}},
+            {?prv(9), ?trm(9), {'PaymentsProvisionTerms', currency}}
         ],
         RejectedRoutes2
     ).
@@ -516,7 +528,7 @@ gather_route_success(_C) ->
         party_id => ?dummy_party_id,
         client_ip => undefined
     },
-    {ok, {[Route], RejectedRoutes}} = unwrap_routing_context(
+    {ok, {[Route | _], RejectedRoutes}} = unwrap_routing_context(
         hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
     ),
     ?assertMatch(?trm(1), hg_route:terminal_ref(Route)),
@@ -568,7 +580,8 @@ rejected_by_table_prohibitions(_C) ->
             {?prv(1), ?trm(1), {'PaymentsProvisionTerms', payment_tool}},
             {?prv(2), ?trm(2), {'PaymentsProvisionTerms', category}},
             {?prv(4), ?trm(4), {'PaymentsProvisionTerms', allow}},
-            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}}
+            {?prv(7), ?trm(7), {'PaymentsProvisionTerms', global_allow}},
+            {?prv(9), ?trm(9), {'PaymentsProvisionTerms', payment_tool}}
         ],
         RejectedRoutes
     ),
@@ -629,11 +642,11 @@ ruleset_misconfig(_C) ->
 
 -spec routes_selected_for_low_risk_score(config()) -> test_return().
 routes_selected_for_low_risk_score(C) ->
-    routes_selected_with_risk_score(C, low, [?prv(1), ?prv(2), ?prv(3), ?prv(4), ?prv(7)]).
+    routes_selected_with_risk_score(C, low, [?prv(1), ?prv(2), ?prv(3), ?prv(4), ?prv(7), ?prv(9)]).
 
 -spec routes_selected_for_high_risk_score(config()) -> test_return().
 routes_selected_for_high_risk_score(C) ->
-    routes_selected_with_risk_score(C, high, [?prv(2), ?prv(3), ?prv(4), ?prv(7)]).
+    routes_selected_with_risk_score(C, high, [?prv(2), ?prv(3), ?prv(4), ?prv(7), ?prv(9)]).
 
 routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     Currency = ?cur(<<"RUB">>),
@@ -891,6 +904,8 @@ construct_domain_fixture() ->
         {provider, ?prv(5)} => {provider, ?provider_obj(?prv(5), #domain_ProvisionTermSet{})},
         {provider, ?prv(6)} => {provider, ?provider_obj(?prv(6), #domain_ProvisionTermSet{})},
         {provider, ?prv(7)} => {provider, ?provider_obj(?prv(7), #domain_ProvisionTermSet{})},
+        {provider, ?prv(8)} => {provider, ?provider_obj(?prv(8), #domain_ProvisionTermSet{})},
+        {provider, ?prv(9)} => {provider, ?provider_obj(?prv(9), #domain_ProvisionTermSet{})},
         {provider, ?prv(11)} => {provider, ?provider_obj(?prv(11), #domain_ProvisionTermSet{})},
         {provider, ?prv(12)} => {provider, ?provider_obj(?prv(12), #domain_ProvisionTermSet{})},
         {terminal, ?trm(1)} => {terminal, ?terminal_obj(?trm(1), ?prv(1), undefined)},
@@ -900,6 +915,8 @@ construct_domain_fixture() ->
         {terminal, ?trm(5)} => {terminal, ?terminal_obj(?trm(5), ?prv(5))},
         {terminal, ?trm(6)} => {terminal, ?terminal_obj(?trm(6), ?prv(6))},
         {terminal, ?trm(7)} => {terminal, ?terminal_obj(?trm(7), ?prv(7))},
+        {terminal, ?trm(8)} => {terminal, ?terminal_obj(?trm(8), ?prv(8))},
+        {terminal, ?trm(9)} => {terminal, ?terminal_obj(?trm(9), ?prv(9))},
         {terminal, ?trm(11)} => {terminal, ?terminal_obj(?trm(11), ?prv(11))},
         {terminal, ?trm(12)} => {terminal, ?terminal_obj(?trm(12), ?prv(12))},
         {payment_institution, ?pinst(1)} =>
