@@ -8,6 +8,7 @@
 -include_lib("hellgate/include/domain.hrl").
 
 -export([gather_routes/5]).
+-export([check_routes/2]).
 -export([rate_routes/1]).
 -export([choose_route/1]).
 -export([choose_rated_route/1]).
@@ -20,6 +21,7 @@
 %%
 
 -export([filter_by_critical_provider_status/1]).
+-export([filter_by_blacklist/2]).
 -export([choose_route_with_ctx/1]).
 
 %%
@@ -50,6 +52,7 @@
 -type route_groups_by_priority() :: #{{availability_condition(), terminal_priority_rating()} => [fail_rated_route()]}.
 
 -type fail_rated_route() :: {hg_route:t(), provider_status()}.
+-type blacklisted_route() :: {hg_route:t(), boolean()}.
 
 -type scored_route() :: {route_scores(), hg_route:t()}.
 
@@ -83,6 +86,7 @@
 -export_type([route_predestination/0]).
 -export_type([route_choice_context/0]).
 -export_type([fail_rated_route/0]).
+-export_type([blacklisted_route/0]).
 -export_type([route_scores/0]).
 -export_type([limits/0]).
 -export_type([scores/0]).
@@ -106,17 +110,42 @@ filter_by_critical_provider_status(Ctx0) ->
         RoutesFailRates
     ).
 
+-spec filter_by_blacklist(T, hg_inspector:blacklist_context()) -> T when T :: hg_routing_ctx:t().
+filter_by_blacklist(Ctx0, BlCtx) ->
+    BlacklistedRoutes = check_routes(hg_routing_ctx:candidates(Ctx0), BlCtx),
+    RouteScores = score_routes_map(BlacklistedRoutes),
+    Ctx1 = hg_routing_ctx:stash_route_scores(RouteScores, Ctx0),
+    lists:foldr(
+        fun
+            ({R, true = Status}, C) ->
+                R1 = hg_route:to_rejected_route(R, {'InBlackList', Status}),
+                hg_routing_ctx:reject(in_blacklist, R1, C);
+            ({_R, _ProviderStatus}, C) ->
+                C
+        end,
+        hg_routing_ctx:with_blacklisted(BlacklistedRoutes, Ctx1),
+        BlacklistedRoutes
+    ).
+
 -spec choose_route_with_ctx(T) -> T when T :: hg_routing_ctx:t().
 choose_route_with_ctx(Ctx) ->
     Candidates = hg_routing_ctx:candidates(Ctx),
-    {ChoosenRoute, ChoiceContext} =
+    RoutesToFilter0 =
         case hg_routing_ctx:fail_rates(Ctx) of
             undefined ->
-                choose_route(Candidates);
+                [];
             FailRates ->
-                RatedCandidates = filter_rated_routes_with_candidates(FailRates, Candidates),
-                choose_rated_route(RatedCandidates)
+                FailRates
         end,
+    RoutesToFilter1 =
+        case hg_routing_ctx:blacklisted(Ctx) of
+            undefined ->
+                RoutesToFilter0;
+            Blacklisted ->
+                RoutesToFilter0 ++ Blacklisted
+        end,
+    FilteredCandidates = filter_rated_routes_with_candidates(RoutesToFilter1, Candidates),
+    {ChoosenRoute, ChoiceContext} = choose_rated_route(FilteredCandidates),
     hg_routing_ctx:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
 
 filter_rated_routes_with_candidates(FailRates, Candidates) ->
@@ -280,6 +309,10 @@ compute_rule_set(RuleSetRef, VS, Revision) ->
         hg_context:get_party_client_context(Ctx)
     ),
     RuleSet.
+
+-spec check_routes([hg_route:t()], hg_inspector:blacklist_context()) -> [blacklisted_route()].
+check_routes(Routes, BlCtx) ->
+    score_routes_with_inspector(Routes, BlCtx).
 
 -spec rate_routes([hg_route:t()]) -> [fail_rated_route()].
 rate_routes(Routes) ->
@@ -532,6 +565,12 @@ get_provider_conversion_status(_, FDID, Stats) ->
         false ->
             {normal, 0.0}
     end.
+
+-spec score_routes_with_inspector([hg_route:t()], hg_inspector:blacklist_context()) -> [blacklisted_route()].
+score_routes_with_inspector([], _BlCtx) ->
+    [];
+score_routes_with_inspector(Routes, BlCtx) ->
+    [{R, hg_inspector:check_blacklist(BlCtx#{route => R})} || R <- Routes].
 
 build_ids(Routes) ->
     lists:foldl(fun build_fd_ids/2, [], Routes).

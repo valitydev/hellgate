@@ -1,10 +1,12 @@
 -module(hg_inspector).
 
+-export([check_blacklist/1]).
 -export([inspect/4]).
 
 -export([compare_risk_score/2]).
 
 -export_type([risk_score/0]).
+-export_type([blacklist_context/0]).
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_inspector_thrift.hrl").
@@ -15,6 +17,48 @@
 -type inspector() :: dmsl_domain_thrift:'Inspector'().
 -type risk_score() :: dmsl_domain_thrift:'RiskScore'().
 -type risk_magnitude() :: integer().
+-type domain_revision() :: dmsl_domain_thrift:'DataRevision'().
+
+-type blacklist_context() :: #{
+    route => hg_route:t(),
+    revision := domain_revision(),
+    token => binary(),
+    inspector := inspector()
+}.
+
+-spec check_blacklist(blacklist_context()) -> boolean().
+check_blacklist(#{
+    route := Route,
+    revision := Revision,
+    token := Token,
+    inspector := #domain_Inspector{
+        proxy = Proxy
+    }
+}) ->
+    #domain_ProviderRef{id = ProviderID} = hg_route:provider_ref(Route),
+    #domain_TerminalRef{id = TerminalID} = hg_route:terminal_ref(Route),
+    Context = #proxy_inspector_BlackListContext{
+        first_id = genlib:to_binary(ProviderID),
+        second_id = genlib:to_binary(TerminalID),
+        field_name = <<"CARD_TOKEN">>,
+        value = Token
+    },
+    Result = issue_call(
+        'isExistInBlackList',
+        {Context},
+        hg_proxy:get_call_options(
+            Proxy,
+            Revision
+        )
+    ),
+    case Result of
+        {ok, Check} when is_atom(Check) ->
+            Check;
+        {exception, Error} ->
+            error(Error)
+    end;
+check_blacklist(_Ctx) ->
+    false.
 
 -spec inspect(shop(), invoice(), payment(), inspector()) -> risk_score() | no_return().
 inspect(
@@ -112,6 +156,9 @@ get_payment_info(
         invoice = ProxyInvoice,
         payment = ProxyPayment
     }.
+
+issue_call(Func, Args, CallOpts) ->
+    issue_call(Func, Args, CallOpts, undefined, undefined).
 
 issue_call(Func, Args, CallOpts, undefined, _DeadLine) ->
     % Do not set custom deadline without fallback risk score
