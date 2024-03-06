@@ -1968,8 +1968,8 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
             %% accounted for in `St`.
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, St) end,
-            fun hg_routing:filter_by_critical_provider_status/1,
             fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
+            fun hg_routing:filter_by_critical_provider_status/1,
             fun hg_routing:choose_route_with_ctx/1
         ]
     ).

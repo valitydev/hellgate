@@ -34,7 +34,7 @@ check_blacklist(#{
     inspector := #domain_Inspector{
         proxy = Proxy
     }
-}) ->
+}) when Token =/= undefined ->
     #domain_ProviderRef{id = ProviderID} = hg_route:provider_ref(Route),
     #domain_TerminalRef{id = TerminalID} = hg_route:terminal_ref(Route),
     Context = #proxy_inspector_BlackListContext{

@@ -111,10 +111,8 @@ filter_by_critical_provider_status(Ctx0) ->
     ).
 
 -spec filter_by_blacklist(T, hg_inspector:blacklist_context()) -> T when T :: hg_routing_ctx:t().
-filter_by_blacklist(Ctx0, BlCtx) ->
-    BlacklistedRoutes = check_routes(hg_routing_ctx:candidates(Ctx0), BlCtx),
-    RouteScores = score_routes_map(BlacklistedRoutes),
-    Ctx1 = hg_routing_ctx:stash_route_scores(RouteScores, Ctx0),
+filter_by_blacklist(Ctx, BlCtx) ->
+    BlacklistedRoutes = check_routes(hg_routing_ctx:candidates(Ctx), BlCtx),
     lists:foldr(
         fun
             ({R, true = Status}, C) ->
@@ -123,29 +121,21 @@ filter_by_blacklist(Ctx0, BlCtx) ->
             ({_R, _ProviderStatus}, C) ->
                 C
         end,
-        hg_routing_ctx:with_blacklisted(BlacklistedRoutes, Ctx1),
+        Ctx,
         BlacklistedRoutes
     ).
 
 -spec choose_route_with_ctx(T) -> T when T :: hg_routing_ctx:t().
 choose_route_with_ctx(Ctx) ->
     Candidates = hg_routing_ctx:candidates(Ctx),
-    RoutesToFilter0 =
+    {ChoosenRoute, ChoiceContext} =
         case hg_routing_ctx:fail_rates(Ctx) of
             undefined ->
-                [];
+                choose_route(Candidates);
             FailRates ->
-                FailRates
+                RatedCandidates = filter_rated_routes_with_candidates(FailRates, Candidates),
+                choose_rated_route(RatedCandidates)
         end,
-    RoutesToFilter1 =
-        case hg_routing_ctx:blacklisted(Ctx) of
-            undefined ->
-                RoutesToFilter0;
-            Blacklisted ->
-                RoutesToFilter0 ++ Blacklisted
-        end,
-    FilteredCandidates = filter_rated_routes_with_candidates(RoutesToFilter1, Candidates),
-    {ChoosenRoute, ChoiceContext} = choose_rated_route(FilteredCandidates),
     hg_routing_ctx:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
 
 filter_rated_routes_with_candidates(FailRates, Candidates) ->

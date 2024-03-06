@@ -1,8 +1,6 @@
 -module(hg_routing_ctx).
 
 -export([new/1]).
--export([with_blacklisted/2]).
--export([blacklisted/1]).
 -export([with_fail_rates/2]).
 -export([fail_rates/1]).
 -export([set_choosen/3]).
@@ -40,7 +38,6 @@
     choice_meta := hg_routing:route_choice_context() | undefined,
     stashed_candidates => [hg_route:t()],
     fail_rates => [hg_routing:fail_rated_route()],
-    blacklisted => [hg_routing:blacklisted_route()],
     route_limits => route_limits(),
     route_scores => route_scores()
 }.
@@ -60,14 +57,6 @@ new(Candidates) ->
         choosen_route => undefined,
         choice_meta => undefined
     }.
-
--spec with_blacklisted([hg_routing:blacklisted_route()], t()) -> t().
-with_blacklisted(Blacklisted, Ctx) ->
-    maps:put(blacklisted, Blacklisted, Ctx).
-
--spec blacklisted(t()) -> [hg_routing:blacklisted_route()] | undefined.
-blacklisted(Ctx) ->
-    maps:get(blacklisted, Ctx, undefined).
 
 -spec with_fail_rates([hg_routing:fail_rated_route()], t()) -> t().
 with_fail_rates(FailRates, Ctx) ->
