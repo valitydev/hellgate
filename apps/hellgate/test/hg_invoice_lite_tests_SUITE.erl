@@ -13,6 +13,8 @@
 
 -export([payment_start_idempotency/1]).
 -export([payment_success/1]).
+-export([payment_w_first_blacklisted_success/1]).
+-export([payment_w_all_blacklisted/1]).
 -export([register_payment_success/1]).
 -export([register_payment_customer_payer_success/1]).
 -export([payment_success_additional_info/1]).
@@ -51,6 +53,8 @@ groups() ->
         {payments, [parallel], [
             payment_start_idempotency,
             payment_success,
+            payment_w_first_blacklisted_success,
+            payment_w_all_blacklisted,
             register_payment_success,
             register_payment_customer_payer_success,
             payment_success_additional_info,
@@ -188,6 +192,37 @@ payment_success(C) ->
         },
         Trx
     ).
+
+-spec payment_w_first_blacklisted_success(config()) -> test_return().
+payment_w_first_blacklisted_success(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(inspector_fail_first, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [_PaymentSt]
+    ) = hg_client_invoicing:get(InvoiceID, Client).
+
+-spec payment_w_all_blacklisted(config()) -> test_return().
+payment_w_all_blacklisted(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(inspector_fail_all, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)),
+        ?payment_ev(PaymentID, ?route_changed(_Route)),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, _Failure}))
+    ] = next_changes(InvoiceID, 4, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_unpaid()),
+        [_PaymentSt]
+    ) = hg_client_invoicing:get(InvoiceID, Client).
 
 -spec register_payment_success(config()) -> test_return().
 register_payment_success(C) ->
@@ -580,7 +615,7 @@ construct_domain_fixture() ->
             allocations = #domain_PaymentAllocationServiceTerms{
                 allow = {constant, true}
             },
-            attempt_limit = {value, #domain_AttemptLimit{attempts = 2}}
+            attempt_limit = {value, #domain_AttemptLimit{attempts = 1}}
         },
         recurrent_paytools = #domain_RecurrentPaytoolsServiceTerms{
             payment_methods =
@@ -623,7 +658,8 @@ construct_domain_fixture() ->
             ?ruleset(1),
             <<"Policies">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(1))
+                ?candidate({constant, true}, ?trm(1)),
+                ?candidate({constant, true}, ?trm(2))
             ]}
         ),
         hg_ct_fixture:construct_payment_routing_ruleset(
@@ -806,6 +842,14 @@ construct_domain_fixture() ->
             data = #domain_Terminal{
                 name = <<"Brominal 1">>,
                 description = <<"Brominal 1">>,
+                provider_ref = ?prv(1)
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(2),
+            data = #domain_Terminal{
+                name = <<"Brominal 2">>,
+                description = <<"Brominal 2">>,
                 provider_ref = ?prv(1)
             }
         }},
