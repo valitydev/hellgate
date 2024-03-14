@@ -44,7 +44,7 @@ check_blacklist(#{
         value = Token
     },
     Result = issue_call(
-        'isExistInBlackList',
+        'IsBlacklisted',
         {Context},
         hg_proxy:get_call_options(
             Proxy,

@@ -813,6 +813,8 @@ log_rejected_routes(limit_misconfiguration, Routes, _VS) ->
     ?LOG_MD(warning, "Limiter hold error caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(limit_overflow, Routes, _VS) ->
     ?LOG_MD(notice, "Limit overflow caused route candidates to be rejected: ~p", [Routes]);
+log_rejected_routes(in_blacklist, Routes, _VS) ->
+    ?LOG_MD(notice, "Route candidates are blacklisted: ~p", [Routes]);
 log_rejected_routes(adapter_unavailable, Routes, _VS) ->
     ?LOG_MD(notice, "Adapter unavailability caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(provider_conversion_is_too_low, Routes, _VS) ->

@@ -204,7 +204,19 @@ payment_w_first_blacklisted_success(C) ->
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [_PaymentSt]
-    ) = hg_client_invoicing:get(InvoiceID, Client).
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    #payproc_InvoicePaymentExplanation{
+        explained_routes = [
+            #payproc_InvoicePaymentRouteExplanation{
+                route = ?route(?prv(1), ?trm(2)),
+                is_chosen = true
+            },
+            #payproc_InvoicePaymentRouteExplanation{
+                route = ?route(?prv(1), ?trm(1)),
+                is_chosen = false
+            }
+        ]
+    } = hg_client_invoicing:explain_route(InvoiceID, PaymentID, Client).
 
 -spec payment_w_all_blacklisted(config()) -> test_return().
 payment_w_all_blacklisted(C) ->
