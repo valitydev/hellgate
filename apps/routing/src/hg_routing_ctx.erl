@@ -175,6 +175,8 @@ route_scores(Ctx) ->
     maps:get(route_scores, Ctx, undefined).
 
 -spec stash_route_scores(route_scores(), t()) -> t().
+stash_route_scores(RouteScoresNew, Ctx = #{route_scores := RouteScores}) ->
+    Ctx#{route_scores => maps:merge(RouteScores, RouteScoresNew)};
 stash_route_scores(RouteScores, Ctx) ->
     Ctx#{route_scores => RouteScores}.
 

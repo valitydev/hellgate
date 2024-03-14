@@ -140,6 +140,11 @@ candidate_rejection_explanation(
             " was reached, if you see this message contact developer.">>,
     check_route_limits(RouteLimits, IfEmpty);
 candidate_rejection_explanation(
+    R = #{scores := #domain_PaymentRouteScores{blacklist_condition = 1}},
+    _
+) ->
+    check_route_blacklisted(R);
+candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
     #{scores := ChosenScores}
 ) when RouteScores =:= ChosenScores ->
