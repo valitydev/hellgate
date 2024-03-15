@@ -218,7 +218,7 @@ payment_w_first_blacklisted_success(C) ->
                 }
             ]
         } = hg_client_invoicing:explain_route(InvoiceID, PaymentID, Client),
-    erlang:display([Explanation]).
+    _ = erlang:display([Explanation]).
 
 -spec payment_w_all_blacklisted(config()) -> test_return().
 payment_w_all_blacklisted(C) ->

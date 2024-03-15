@@ -8,7 +8,6 @@
 -include_lib("hellgate/include/domain.hrl").
 
 -export([gather_routes/5]).
--export([check_routes/2]).
 -export([rate_routes/1]).
 -export([choose_route/1]).
 -export([choose_rated_route/1]).
@@ -304,8 +303,10 @@ compute_rule_set(RuleSetRef, VS, Revision) ->
     RuleSet.
 
 -spec check_routes([hg_route:t()], hg_inspector:blacklist_context()) -> [blacklisted_route()].
+check_routes([], _BlCtx) ->
+    [];
 check_routes(Routes, BlCtx) ->
-    score_routes_with_inspector(Routes, BlCtx).
+    [{R, hg_inspector:check_blacklist(BlCtx#{route => R})} || R <- Routes].
 
 -spec rate_routes([hg_route:t()]) -> [fail_rated_route()].
 rate_routes(Routes) ->
@@ -564,12 +565,6 @@ get_provider_conversion_status(_, FDID, Stats) ->
         false ->
             {normal, 0.0}
     end.
-
--spec score_routes_with_inspector([hg_route:t()], hg_inspector:blacklist_context()) -> [blacklisted_route()].
-score_routes_with_inspector([], _BlCtx) ->
-    [];
-score_routes_with_inspector(Routes, BlCtx) ->
-    [{R, hg_inspector:check_blacklist(BlCtx#{route => R})} || R <- Routes].
 
 build_ids(Routes) ->
     lists:foldl(fun build_fd_ids/2, [], Routes).
