@@ -267,8 +267,8 @@ check_route_scores(
 ) when Cv0 < Cv1 ->
     format("Conversion is less than in chosen route ~p < ~p.", [Cv0, Cv1]).
 
-check_route_blacklisted(R = #{scores := #domain_PaymentRouteScores{blacklist_condition = 1}}) ->
-    format("Route was blacklisted ~p.", [R]);
+check_route_blacklisted(#{route := R, scores := #domain_PaymentRouteScores{blacklist_condition = 1}}) ->
+    format("Route was blacklisted ~w.", [R]);
 check_route_blacklisted(_) ->
     <<"">>.
 
