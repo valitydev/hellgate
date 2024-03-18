@@ -205,7 +205,7 @@ payment_w_first_blacklisted_success(C) ->
         ?invoice_w_status(?invoice_paid()),
         [_PaymentSt]
     ) = hg_client_invoicing:get(InvoiceID, Client),
-    Explanation =
+    _Explanation =
         #payproc_InvoicePaymentExplanation{
             explained_routes = [
                 #payproc_InvoicePaymentRouteExplanation{
@@ -214,11 +214,14 @@ payment_w_first_blacklisted_success(C) ->
                 },
                 #payproc_InvoicePaymentRouteExplanation{
                     route = ?route(?prv(1), ?trm(1)),
-                    is_chosen = false
+                    is_chosen = false,
+                    rejection_description = Desc
                 }
             ]
         } = hg_client_invoicing:explain_route(InvoiceID, PaymentID, Client),
-    _ = erlang:display([Explanation]).
+    ?assertEqual(
+        <<"Route was blacklisted {domain_PaymentRoute,{domain_ProviderRef,1},{domain_TerminalRef,1}}.">>, Desc
+    ).
 
 -spec payment_w_all_blacklisted(config()) -> test_return().
 payment_w_all_blacklisted(C) ->
