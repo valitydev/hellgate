@@ -20,6 +20,7 @@
 %%
 
 -export([filter_by_critical_provider_status/1]).
+-export([filter_by_blacklist/2]).
 -export([choose_route_with_ctx/1]).
 
 %%
@@ -50,6 +51,7 @@
 -type route_groups_by_priority() :: #{{availability_condition(), terminal_priority_rating()} => [fail_rated_route()]}.
 
 -type fail_rated_route() :: {hg_route:t(), provider_status()}.
+-type blacklisted_route() :: {hg_route:t(), boolean()}.
 
 -type scored_route() :: {route_scores(), hg_route:t()}.
 
@@ -83,6 +85,7 @@
 -export_type([route_predestination/0]).
 -export_type([route_choice_context/0]).
 -export_type([fail_rated_route/0]).
+-export_type([blacklisted_route/0]).
 -export_type([route_scores/0]).
 -export_type([limits/0]).
 -export_type([scores/0]).
@@ -104,6 +107,24 @@ filter_by_critical_provider_status(Ctx0) ->
         end,
         hg_routing_ctx:with_fail_rates(RoutesFailRates, Ctx1),
         RoutesFailRates
+    ).
+
+-spec filter_by_blacklist(T, hg_inspector:blacklist_context()) -> T when T :: hg_routing_ctx:t().
+filter_by_blacklist(Ctx, BlCtx) ->
+    BlacklistedRoutes = check_routes(hg_routing_ctx:candidates(Ctx), BlCtx),
+    lists:foldr(
+        fun
+            ({R, true = Status}, C) ->
+                R1 = hg_route:to_rejected_route(R, {'InBlackList', Status}),
+                Ctx0 = hg_routing_ctx:reject(in_blacklist, R1, C),
+                Scores0 = score_route(R),
+                Scores1 = Scores0#domain_PaymentRouteScores{blacklist_condition = 1},
+                hg_routing_ctx:add_route_scores({hg_route:to_payment_route(R), Scores1}, Ctx0);
+            ({_R, _ProviderStatus}, C) ->
+                C
+        end,
+        Ctx,
+        BlacklistedRoutes
     ).
 
 -spec choose_route_with_ctx(T) -> T when T :: hg_routing_ctx:t().
@@ -281,6 +302,12 @@ compute_rule_set(RuleSetRef, VS, Revision) ->
     ),
     RuleSet.
 
+-spec check_routes([hg_route:t()], hg_inspector:blacklist_context()) -> [blacklisted_route()].
+check_routes([], _BlCtx) ->
+    [];
+check_routes(Routes, BlCtx) ->
+    [{R, hg_inspector:check_blacklist(BlCtx#{route => R})} || R <- Routes].
+
 -spec rate_routes([hg_route:t()]) -> [fail_rated_route()].
 rate_routes(Routes) ->
     score_routes_with_fault_detector(Routes).
@@ -451,7 +478,7 @@ calc_random_condition(StartFrom, Random, [FailRatedRoute | Rest], Routes) ->
 score_routes_map(Routes) ->
     lists:foldl(
         fun({Route, _} = FailRatedRoute, Acc) ->
-            Acc#{hg_route:to_payment_route(Route) => score_route(FailRatedRoute)}
+            Acc#{hg_route:to_payment_route(Route) => score_route_ext(FailRatedRoute)}
         end,
         #{},
         Routes
@@ -459,24 +486,30 @@ score_routes_map(Routes) ->
 
 -spec score_routes([fail_rated_route()]) -> [scored_route()].
 score_routes(Routes) ->
-    [{score_route(FailRatedRoute), Route} || {Route, _} = FailRatedRoute <- Routes].
+    [{score_route_ext(FailRatedRoute), Route} || {Route, _} = FailRatedRoute <- Routes].
 
-score_route({Route, ProviderStatus}) ->
+score_route_ext({Route, ProviderStatus}) ->
+    {AvailabilityStatus, ConversionStatus} = ProviderStatus,
+    {AvailabilityCondition, Availability} = get_availability_score(AvailabilityStatus),
+    {ConversionCondition, Conversion} = get_conversion_score(ConversionStatus),
+    Scores = score_route(Route),
+    Scores#domain_PaymentRouteScores{
+        availability_condition = AvailabilityCondition,
+        conversion_condition = ConversionCondition,
+        availability = Availability,
+        conversion = Conversion
+    }.
+
+score_route(Route) ->
     PriorityRate = hg_route:priority(Route),
     RandomCondition = hg_route:weight(Route),
     Pin = hg_route:pin(Route),
     PinHash = erlang:phash2(Pin),
-    {AvailabilityStatus, ConversionStatus} = ProviderStatus,
-    {AvailabilityCondition, Availability} = get_availability_score(AvailabilityStatus),
-    {ConversionCondition, Conversion} = get_conversion_score(ConversionStatus),
     #domain_PaymentRouteScores{
-        availability_condition = AvailabilityCondition,
-        conversion_condition = ConversionCondition,
         terminal_priority_rating = PriorityRate,
         route_pin = PinHash,
         random_condition = RandomCondition,
-        availability = Availability,
-        conversion = Conversion
+        blacklist_condition = 0
     }.
 
 get_availability_score({alive, FailRate}) -> {1, 1.0 - FailRate};

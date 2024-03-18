@@ -140,6 +140,11 @@ candidate_rejection_explanation(
             " was reached, if you see this message contact developer.">>,
     check_route_limits(RouteLimits, IfEmpty);
 candidate_rejection_explanation(
+    R = #{scores := #domain_PaymentRouteScores{blacklist_condition = 1}},
+    _
+) ->
+    check_route_blacklisted(R);
+candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
     #{scores := ChosenScores}
 ) when RouteScores =:= ChosenScores ->
@@ -152,12 +157,13 @@ candidate_rejection_explanation(
     IfEmpty = <<"No explanation for rejection can be found. Check in with developer.">>,
     check_route_limits(RouteLimits, IfEmpty);
 candidate_rejection_explanation(
-    #{scores := RouteScores, limits := RouteLimits},
+    R = #{scores := RouteScores, limits := RouteLimits},
     #{scores := ChosenScores}
 ) when RouteScores < ChosenScores ->
-    Explanation0 = check_route_scores(RouteScores, ChosenScores),
-    Explanation1 = check_route_limits(RouteLimits, <<"">>),
-    genlib_string:join(<<" ">>, [Explanation0, Explanation1]).
+    Explanation0 = check_route_blacklisted(R),
+    Explanation1 = check_route_scores(RouteScores, ChosenScores),
+    Explanation2 = check_route_limits(RouteLimits, <<"">>),
+    genlib_string:join(<<" ">>, [Explanation0, Explanation1, Explanation2]).
 
 check_route_limits(RouteLimits, IfEmpty) ->
     case check_route_limits(RouteLimits) of
@@ -260,6 +266,11 @@ check_route_scores(
     }
 ) when Cv0 < Cv1 ->
     format("Conversion is less than in chosen route ~p < ~p.", [Cv0, Cv1]).
+
+check_route_blacklisted(#{route := R, scores := #domain_PaymentRouteScores{blacklist_condition = 1}}) ->
+    format("Route was blacklisted ~w.", [R]);
+check_route_blacklisted(_) ->
+    <<"">>.
 
 gather_varset(Payment, Opts) ->
     #domain_InvoicePayment{

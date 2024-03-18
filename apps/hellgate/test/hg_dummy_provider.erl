@@ -282,6 +282,12 @@ process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
         no_preauth ->
             %% simple workflow without 3DS
             maybe_fail(PaymentInfo, CtxOpts, result(?sleep(0), <<"sleeping">>));
+        inspector_fail_first ->
+            %% simple workflow without 3DS
+            result(?sleep(0), <<"sleeping">>);
+        inspector_fail_all ->
+            %% simple workflow without 3DS
+            result(?sleep(0), <<"sleeping">>);
         empty_cvv ->
             %% simple workflow without 3DS
             result(?sleep(0), <<"sleeping">>);
@@ -335,6 +341,8 @@ process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
 process_payment(?processed(), <<"sleeping">>, PaymentInfo, CtxOpts, _) ->
     TrxID = hg_utils:construct_complex_id([get_payment_id(PaymentInfo), get_ctx_opts_override(CtxOpts)]),
     case get_payment_info_scenario(PaymentInfo) of
+        inspector_fail_first ->
+            finish(success(PaymentInfo), mk_trx(TrxID, PaymentInfo));
         change_cash_increase ->
             finish(success(PaymentInfo, get_payment_increased_cost(PaymentInfo)), mk_trx(TrxID, PaymentInfo));
         change_cash_decrease ->
@@ -651,6 +659,10 @@ get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"no_preauth_t
     no_preauth_timeout_failure;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"no_preauth_suspend_default">>}}) ->
     no_preauth_suspend_default;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"inspector_fail_first">>}}) ->
+    inspector_fail_first;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"inspector_fail_all">>}}) ->
+    inspector_fail_all;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"empty_cvv">>}}) ->
     empty_cvv;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"preauth_3ds:timeout=", Timeout/binary>>}}) ->
@@ -736,6 +748,10 @@ make_payment_tool(Code, PSys) when
         Code =:= unexpected_failure_no_trx
 ->
     ?SESSION42(make_bank_card_payment_tool(atom_to_binary(Code, utf8), PSys));
+make_payment_tool(inspector_fail_first, PSys) ->
+    ?SESSION42(make_bank_card_payment_tool(<<"inspector_fail_first">>, PSys));
+make_payment_tool(inspector_fail_all, PSys) ->
+    ?SESSION42(make_bank_card_payment_tool(<<"inspector_fail_all">>, PSys));
 make_payment_tool(empty_cvv, PSys) ->
     {_, BCard} = make_bank_card_payment_tool(<<"empty_cvv">>, PSys),
     ?SESSION42({bank_card, BCard#domain_BankCard{is_cvv_empty = true}});
