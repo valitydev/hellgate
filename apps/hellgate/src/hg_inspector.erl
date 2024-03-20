@@ -80,12 +80,13 @@ inspect(
         payment = get_payment_info(Shop, Invoice, Payment),
         options = maps:merge(ProxyDef#domain_ProxyDefinition.options, ProxyAdditional)
     },
-    FallBackRiskScore1 = case FallBackRiskScore0 of
-        undefined ->
-            high;
-        Score ->
-            Score
-    end,
+    FallBackRiskScore1 =
+        case FallBackRiskScore0 of
+            undefined ->
+                high;
+            Score ->
+                Score
+        end,
     {ok, RiskScore} = issue_call(
         'InspectPayment',
         {Context},
