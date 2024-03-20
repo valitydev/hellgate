@@ -83,7 +83,7 @@ inspect(
     FallBackRiskScore1 =
         case FallBackRiskScore0 of
             undefined ->
-                high;
+                genlib_app:env(hellgate, inspect_score, high);
             Score ->
                 Score
         end,
