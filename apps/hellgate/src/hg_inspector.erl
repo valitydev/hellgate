@@ -44,7 +44,7 @@ check_blacklist(#{
         value = Token
     },
     DeadLine = woody_deadline:from_timeout(genlib_app:env(hellgate, inspect_timeout, infinity)),
-    Result = issue_call(
+    {ok, Check} = issue_call(
         'IsBlacklisted',
         {Context},
         hg_proxy:get_call_options(
@@ -54,12 +54,7 @@ check_blacklist(#{
         false,
         DeadLine
     ),
-    case Result of
-        {ok, Check} when is_atom(Check) ->
-            Check;
-        {exception, Error} ->
-            error(Error)
-    end;
+    Check;
 check_blacklist(_Ctx) ->
     false.
 
