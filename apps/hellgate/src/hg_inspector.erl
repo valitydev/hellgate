@@ -43,13 +43,16 @@ check_blacklist(#{
         field_name = <<"CARD_TOKEN">>,
         value = Token
     },
+    DeadLine = woody_deadline:from_timeout(genlib_app:env(hellgate, inspect_timeout, infinity)),
     Result = issue_call(
         'IsBlacklisted',
         {Context},
         hg_proxy:get_call_options(
             Proxy,
             Revision
-        )
+        ),
+        false,
+        DeadLine
     ),
     case Result of
         {ok, Check} when is_atom(Check) ->
@@ -157,12 +160,6 @@ get_payment_info(
         payment = ProxyPayment
     }.
 
-issue_call(Func, Args, CallOpts) ->
-    issue_call(Func, Args, CallOpts, undefined, undefined).
-
-issue_call(Func, Args, CallOpts, undefined, _DeadLine) ->
-    % Do not set custom deadline without fallback risk score
-    hg_woody_wrapper:call(proxy_inspector, Func, Args, CallOpts);
 issue_call(Func, Args, CallOpts, Default, DeadLine) ->
     try hg_woody_wrapper:call(proxy_inspector, Func, Args, CallOpts, DeadLine) of
         {ok, _} = RiskScore ->
