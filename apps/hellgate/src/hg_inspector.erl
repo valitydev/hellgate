@@ -66,7 +66,7 @@ inspect(
         domain_revision = Revision
     } = Payment,
     #domain_Inspector{
-        fallback_risk_score = FallBackRiskScore,
+        fallback_risk_score = FallBackRiskScore0,
         proxy =
             Proxy = #domain_Proxy{
                 ref = ProxyRef,
@@ -80,22 +80,23 @@ inspect(
         payment = get_payment_info(Shop, Invoice, Payment),
         options = maps:merge(ProxyDef#domain_ProxyDefinition.options, ProxyAdditional)
     },
-    Result = issue_call(
+    FallBackRiskScore1 = case FallBackRiskScore0 of
+        undefined ->
+            high;
+        Score ->
+            Score
+    end,
+    {ok, RiskScore} = issue_call(
         'InspectPayment',
         {Context},
         hg_proxy:get_call_options(
             Proxy,
             Revision
         ),
-        FallBackRiskScore,
+        FallBackRiskScore1,
         DeadLine
     ),
-    case Result of
-        {ok, RiskScore} when is_atom(RiskScore) ->
-            RiskScore;
-        {exception, Error} ->
-            error(Error)
-    end.
+    RiskScore.
 
 get_payment_info(
     #domain_Shop{
@@ -155,9 +156,6 @@ get_payment_info(
         payment = ProxyPayment
     }.
 
-issue_call(Func, Args, CallOpts, undefined, _DeadLine) ->
-    % Do not set custom deadline without fallback risk score
-    hg_woody_wrapper:call(proxy_inspector, Func, Args, CallOpts);
 issue_call(Func, Args, CallOpts, Default, DeadLine) ->
     try hg_woody_wrapper:call(proxy_inspector, Func, Args, CallOpts, DeadLine) of
         {ok, _} = RiskScore ->
