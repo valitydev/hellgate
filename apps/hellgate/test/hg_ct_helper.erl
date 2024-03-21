@@ -199,6 +199,7 @@ start_app(hellgate = AppName) ->
                 refunded => {intervals, [1, 1, 1]}
             }},
             {inspect_timeout, 1000},
+            {inspect_score, high},
             {fault_detector, #{
                 timeout => 2000,
                 enabled => false,
