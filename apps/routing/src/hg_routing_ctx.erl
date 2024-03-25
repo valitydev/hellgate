@@ -22,11 +22,13 @@
 -export([stash_route_limits/2]).
 -export([route_scores/1]).
 -export([stash_route_scores/2]).
+-export([add_route_scores/2]).
 
 -type rejection_group() :: atom().
 -type error() :: {atom(), _Description}.
 -type route_limits() :: hg_routing:limits().
 -type route_scores() :: hg_routing:scores().
+-type one_route_scores() :: {hg_route:payment_route(), hg_routing:route_scores()}.
 
 -type t() :: #{
     initial_candidates := [hg_route:t()],
@@ -173,8 +175,14 @@ route_scores(Ctx) ->
     maps:get(route_scores, Ctx, undefined).
 
 -spec stash_route_scores(route_scores(), t()) -> t().
+stash_route_scores(RouteScoresNew, Ctx = #{route_scores := RouteScores}) ->
+    Ctx#{route_scores => maps:merge(RouteScores, RouteScoresNew)};
 stash_route_scores(RouteScores, Ctx) ->
     Ctx#{route_scores => RouteScores}.
+
+-spec add_route_scores(one_route_scores(), t()) -> t().
+add_route_scores({PR, Scores}, Ctx) ->
+    Ctx#{route_scores => #{PR => Scores}}.
 
 %%
 

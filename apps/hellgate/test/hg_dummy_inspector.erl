@@ -17,6 +17,31 @@ get_service_spec() ->
 
 -spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(
+    'IsBlacklisted',
+    {#proxy_inspector_BlackListContext{
+        value = <<"inspector_fail_first">>,
+        second_id = <<"1">>
+    }},
+    _Options
+) ->
+    true;
+handle_function(
+    'IsBlacklisted',
+    {#proxy_inspector_BlackListContext{
+        value = <<"inspector_fail_all">>
+    }},
+    _Options
+) ->
+    true;
+handle_function(
+    'IsBlacklisted',
+    {#proxy_inspector_BlackListContext{
+        value = _Token
+    }},
+    _Options
+) ->
+    false;
+handle_function(
     'InspectPayment',
     {#proxy_inspector_Context{
         payment = _PaymentInfo,

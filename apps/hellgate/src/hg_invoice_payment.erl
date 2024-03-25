@@ -813,6 +813,8 @@ log_rejected_routes(limit_misconfiguration, Routes, _VS) ->
     ?LOG_MD(warning, "Limiter hold error caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(limit_overflow, Routes, _VS) ->
     ?LOG_MD(notice, "Limit overflow caused route candidates to be rejected: ~p", [Routes]);
+log_rejected_routes(in_blacklist, Routes, _VS) ->
+    ?LOG_MD(notice, "Route candidates are blacklisted: ~p", [Routes]);
 log_rejected_routes(adapter_unavailable, Routes, _VS) ->
     ?LOG_MD(notice, "Adapter unavailability caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(provider_conversion_is_too_low, Routes, _VS) ->
@@ -1968,6 +1970,7 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
             %% accounted for in `St`.
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, St) end,
+            fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
             fun hg_routing:filter_by_critical_provider_status/1,
             fun hg_routing:choose_route_with_ctx/1
         ]
@@ -2022,6 +2025,28 @@ build_routing_context(PaymentInstitution, VS, Revision, St) ->
         undefined ->
             gather_routes(PaymentInstitution, VS, Revision, St)
     end.
+
+build_blacklist_context(St) ->
+    Revision = get_payment_revision(St),
+    #domain_InvoicePayment{payer = Payer} = get_payment(St),
+    Token =
+        case get_payer_payment_tool(Payer) of
+            {bank_card, #domain_BankCard{token = CardToken}} ->
+                CardToken;
+            _ ->
+                undefined
+        end,
+    Opts = get_opts(St),
+    VS1 = get_varset(St, #{}),
+    PaymentInstitutionRef = get_payment_institution_ref(Opts),
+    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
+    InspectorRef = get_selector_value(inspector, PaymentInstitution#domain_PaymentInstitution.inspector),
+    Inspector = hg_domain:get(Revision, {inspector, InspectorRef}),
+    #{
+        revision => Revision,
+        token => Token,
+        inspector => Inspector
+    }.
 
 filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
     lists:foldr(
