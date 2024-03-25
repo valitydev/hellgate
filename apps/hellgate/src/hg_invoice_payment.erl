@@ -2252,6 +2252,14 @@ finalize_payment(Action, St) ->
 process_result(Action, St) ->
     process_result(get_activity(St), Action, St).
 
+process_result({payment, shop_limit_initiation}, Action, St) ->
+    Opts = get_opts(St),
+    _ = hold_limit_shop(Opts, St),
+    {next, {[?shop_limit_initiated()], hg_machine_action:set_timeout(0, Action)}};
+process_result({payment, shop_limit_applied}, Action, St) ->
+    Opts = get_opts(St),
+    _ = commit_shop_limits(Opts, St),
+    {next, {[?shop_limit_applied()], hg_machine_action:set_timeout(0, Action)}};
 process_result({payment, processing_accounter}, Action, St0 = #st{new_cash = Cost}) when
     Cost =/= undefined
 ->
@@ -2524,6 +2532,20 @@ get_limit_overflow_routes(Routes, VS, St) ->
         Routes
     ).
 
+hold_limit_shop(Opts, St) ->
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    Party = get_party(Opts),
+    #domain_Shop{
+        turnover_limits = TurnoverLimits
+    } = Shop = get_shop(Opts),
+    try
+        ok = hg_limiter:hold_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment)
+    catch
+        error:Error ->
+            erlang:error(Error)
+    end.
+
 -spec hold_limit_routes([hg_route:t()], hg_varset:varset(), pos_integer(), st()) ->
     {[hg_route:t()], [hg_route:rejected_route()]}.
 hold_limit_routes(Routes0, VS, Iter, St) ->
@@ -2609,6 +2631,20 @@ rollback_unused_payment_limits(St) ->
 get_turnover_limits(ProviderTerms) ->
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).
+
+commit_shop_limits(Opts, St) ->
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    Party = get_party(Opts),
+    #domain_Shop{
+        turnover_limits = TurnoverLimits
+    } = Shop = get_shop(Opts),
+    try
+        ok = hg_limiter:commit_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment)
+    catch
+        error:Error ->
+            erlang:error(Error)
+    end.
 
 commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     Opts = get_opts(St),
