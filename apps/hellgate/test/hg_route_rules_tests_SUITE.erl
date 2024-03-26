@@ -232,7 +232,7 @@ mock_party_management(SupPid) ->
                                     ?trm(1),
                                     0,
                                     0,
-                                    ?pin([currency, payment_tool, party_id, client_ip])
+                                    ?pin([currency, payment_tool, email, card_token, client_ip])
                                 ),
                                 ?candidate(<<"">>, {constant, true}, ?trm(2), 0, 0, ?pin([currency, payment_tool])),
                                 ?candidate(<<"">>, {constant, true}, ?trm(3), 0, 0, ?pin([currency, payment_tool]))
@@ -454,7 +454,6 @@ no_route_found_for_payment(_C) ->
     Ctx0 = #{
         currency => Currency0,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     {ok, {[], RejectedRoutes1}} = unwrap_routing_context(
@@ -513,7 +512,6 @@ gather_route_success(_C) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     {ok, {[Route], RejectedRoutes}} = unwrap_routing_context(
@@ -556,7 +554,6 @@ rejected_by_table_prohibitions(_C) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     {ok, {[], RejectedRoutes}} = unwrap_routing_context(
@@ -598,7 +595,6 @@ empty_candidate_ok(_C) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     ?assertMatch(
@@ -619,7 +615,6 @@ ruleset_misconfig(_C) ->
     Ctx = #{
         currency => ?cur(<<"RUB">>),
         payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-        party_id => ?party_id_for_ruleset_w_no_delegates,
         client_ip => undefined
     },
     ?assertMatch(
@@ -652,7 +647,6 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     {ok, {Routes, _}} = unwrap_routing_context(
@@ -718,7 +712,6 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     {ok, {Routes, RejectedRoutes}} = unwrap_routing_context(
@@ -759,7 +752,6 @@ terminal_priority_for_shop(ShopID, _C) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
@@ -784,8 +776,9 @@ gather_pinned_route(_C) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
-        client_ip => undefined
+        client_ip => undefined,
+        card_token => undefined,
+        email => undefined
     },
     {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
         hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
@@ -810,13 +803,11 @@ choose_pinned_route(_C) ->
     Pin1 = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     Pin2 = #{
         currency => Currency,
-        payment_tool => PaymentTool,
-        party_id => ?dummy_party_id
+        payment_tool => PaymentTool
     },
     Pin3 = #{
         currency => Currency,

@@ -767,15 +767,17 @@ gather_routes(PaymentInstitution, VS, Revision, St) ->
     Payment = get_payment(St),
     Predestination = choose_routing_predestination(Payment),
     #domain_Cash{currency = Currency} = get_payment_cost(Payment),
-    PartyID = Payment#domain_InvoicePayment.owner_id,
-    Payer = get_payment_payer(St),
+    Payer = Payment#domain_InvoicePayment.payer,
+    #domain_ContactInfo{email = Email} = get_contact_info(Payer),
+    CardToken = get_payer_card_token(Payer),
     PaymentTool = get_payer_payment_tool(Payer),
     ClientIP = get_payer_client_ip(Payer),
     hg_routing:gather_routes(Predestination, PaymentInstitution, VS, Revision, #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => PartyID,
-        client_ip => ClientIP
+        client_ip => ClientIP,
+        email => Email,
+        card_token => CardToken
     }).
 
 -spec check_risk_score(risk_score()) -> ok | {error, risk_score_is_too_high}.
@@ -2914,6 +2916,18 @@ get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
     PaymentTool;
 get_payer_payment_tool(?recurrent_payer(PaymentTool, _, _)) ->
     PaymentTool.
+
+get_payer_card_token(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
+    case get_resource_payment_tool(PaymentResource) of
+        {bank_card, #domain_BankCard{token = Token}} ->
+            Token;
+        _ ->
+            undefined
+    end;
+get_payer_card_token(?customer_payer(_, _, _, _, _)) ->
+    undefined;
+get_payer_card_token(?recurrent_payer(_, _, _)) ->
+    undefined.
 
 get_payer_client_ip(
     ?payment_resource_payer(

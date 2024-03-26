@@ -247,7 +247,6 @@ init(EncodedParams, #{id := RecPaymentToolID}) ->
         NonFailRatedRoutes = gather_routes(PaymentInstitution, VS1, Revision, #{
             currency => Currency,
             payment_tool => PaymentTool,
-            party_id => Params#payproc_RecurrentPaymentToolParams.party_id,
             client_ip => get_client_info_ip(Params#payproc_RecurrentPaymentToolParams.payment_resource)
         }),
         {ChosenRoute, ChoiceContext} = hg_routing:choose_route(NonFailRatedRoutes),
