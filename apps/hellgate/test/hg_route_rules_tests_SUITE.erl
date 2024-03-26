@@ -232,7 +232,7 @@ mock_party_management(SupPid) ->
                                     ?trm(1),
                                     0,
                                     0,
-                                    ?pin([currency, payment_tool, party_id, client_ip])
+                                    ?pin([currency, payment_tool, email, card_token, client_ip])
                                 ),
                                 ?candidate(<<"">>, {constant, true}, ?trm(2), 0, 0, ?pin([currency, payment_tool])),
                                 ?candidate(<<"">>, {constant, true}, ?trm(3), 0, 0, ?pin([currency, payment_tool]))
@@ -776,7 +776,9 @@ gather_pinned_route(_C) ->
     Ctx = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        client_ip => undefined
+        client_ip => undefined,
+        card_token => undefined,
+        email => undefined
     },
     {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
         hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
