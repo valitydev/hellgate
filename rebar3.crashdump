@@ -1,0 +1,17 @@
+Error: {badmatch,{error,{error,{case_clause,underscore}}}}
+[{elvis_core,do_parallel_rock,1,
+             [{file,"/Users/ndiezel/Dev/hellgate/_build/default/plugins/elvis_core/src/elvis_core.erl"},
+              {line,90}]},
+ {lists,map,2,[{file,"lists.erl"},{line,1243}]},
+ {elvis_core,rock,1,
+             [{file,"/Users/ndiezel/Dev/hellgate/_build/default/plugins/elvis_core/src/elvis_core.erl"},
+              {line,46}]},
+ {rebar3_lint_prv,do,1,
+                  [{file,"/Users/ndiezel/Dev/hellgate/_build/default/plugins/rebar3_lint/src/rebar3_lint_prv.erl"},
+                   {line,36}]},
+ {rebar_core,do,2,
+             [{file,"/usr/src/rebar3-src/src/rebar_core.erl"},{line,155}]},
+ {rebar3,run_aux,2,[{file,"/usr/src/rebar3-src/src/rebar3.erl"},{line,183}]},
+ {rebar3,main,1,[{file,"/usr/src/rebar3-src/src/rebar3.erl"},{line,66}]},
+ {escript,run,2,[{file,"escript.erl"},{line,750}]}]
+

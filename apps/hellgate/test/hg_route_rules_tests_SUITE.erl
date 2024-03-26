@@ -803,13 +803,11 @@ choose_pinned_route(_C) ->
     Pin1 = #{
         currency => Currency,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
         client_ip => undefined
     },
     Pin2 = #{
         currency => Currency,
-        payment_tool => PaymentTool,
-        party_id => ?dummy_party_id
+        payment_tool => PaymentTool
     },
     Pin3 = #{
         currency => Currency,
