@@ -2924,9 +2924,9 @@ get_payer_card_token(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
         _ ->
             undefined
     end;
-get_payer_card_token(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
+get_payer_card_token(?customer_payer(_, _, _, _, _)) ->
     undefined;
-get_payer_card_token(?recurrent_payer(PaymentTool, _, _)) ->
+get_payer_card_token(?recurrent_payer(_, _, _)) ->
     undefined.
 
 get_payer_client_ip(
