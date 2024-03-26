@@ -269,7 +269,7 @@ gather_pin_info(#domain_RoutingPin{features = Features}, Ctx) ->
     FeaturesList = ordsets:to_list(Features),
     lists:foldl(
         fun(Feature, Acc) ->
-            Acc#{Feature => maps:get(Feature, Ctx)}
+            Acc#{Feature => maps:get(Feature, Ctx, undefined)}
         end,
         #{},
         FeaturesList
