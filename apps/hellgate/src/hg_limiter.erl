@@ -25,6 +25,7 @@
 
 -export([get_turnover_limits/1]).
 -export([check_limits/4]).
+-export([check_shop_limits/3]).
 -export([hold_payment_limits/5]).
 -export([hold_shop_limits/5]).
 -export([hold_refund_limits/5]).
@@ -32,6 +33,7 @@
 -export([commit_shop_limits/5]).
 -export([commit_refund_limits/5]).
 -export([rollback_payment_limits/6]).
+-export([rollback_shop_limits/6]).
 -export([rollback_refund_limits/5]).
 -export([get_limit_values/4]).
 
@@ -42,11 +44,11 @@
 
 -define(party(PartyID), #domain_Party{
     id = PartyID
-    }).
+}).
 
 -define(shop(ShopID), #domain_Shop{
     id = ShopID
-    }).
+}).
 
 -spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
 get_turnover_limits(undefined) ->
@@ -86,6 +88,21 @@ check_limits(TurnoverLimits, Invoice, Payment, Route) ->
         throw:limit_overflow ->
             IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
             {error, {limit_overflow, IDs, Limits}}
+    end.
+
+-spec check_shop_limits([turnover_limit()], invoice(), payment()) ->
+    ok
+    | {error, {limit_overflow, [binary()]}}.
+check_shop_limits(TurnoverLimits, Invoice, Payment) ->
+    Context = gen_limit_shop_context(Invoice, Payment),
+    {ok, Limits} = gather_limits(TurnoverLimits, Context, []),
+    try
+        ok = check_limits_(Limits, Context),
+        ok
+    catch
+        throw:limit_overflow ->
+            IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
+            {error, {limit_overflow, IDs}}
     end.
 
 check_limits_([], _) ->
@@ -152,13 +169,15 @@ commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCas
     ok = commit(LimitChanges, Clock, Context),
     ok = log_limit_changes(TurnoverLimits, Clock, Context).
 
+-spec commit_shop_limits([turnover_limit()], party(), shop(), invoice(), payment()) -> ok.
 commit_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment) ->
     ChangeIDs = [construct_shop_change_id(Party, Shop, Invoice, Payment)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_shop_context(Invoice, Payment),
     Clock = get_latest_clock(),
     ok = commit(LimitChanges, Clock, Context),
-    ok = log_limit_changes(TurnoverLimits, Clock, Context).
+    ok = log_limit_changes(TurnoverLimits, Clock, Context),
+    ok.
 
 -spec commit_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
 commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
@@ -186,6 +205,14 @@ rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, Flags) ->
     ],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     Context = gen_limit_context(Invoice, Payment, Route),
+    rollback(LimitChanges, get_latest_clock(), Context, Flags).
+
+-spec rollback_shop_limits([turnover_limit()], party(), shop(), invoice(), payment(), [handling_flag()]) ->
+    ok.
+rollback_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment, Flags) ->
+    ChangeIDs = [construct_shop_change_id(Party, Shop, Invoice, Payment)],
+    LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
+    Context = gen_limit_shop_context(Invoice, Payment),
     rollback(LimitChanges, get_latest_clock(), Context, Flags).
 
 -spec rollback_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
@@ -389,7 +416,7 @@ mk_limit_log_attributes(#limiter_LimitContext{
         payment = #context_payproc_InvoicePayment{
             payment = Payment,
             refund = Refund,
-            route = #base_Route{provider = Provider, terminal = Terminal}
+            route = Route
         }
     } = CtxInvoice,
     #domain_Cash{amount = Amount, currency = Currency} =
@@ -405,14 +432,19 @@ mk_limit_log_attributes(#limiter_LimitContext{
         boundary => undefined,
         %% Current amount with accounted change
         amount => undefined,
-        route => #{
-            provider_id => Provider#domain_ProviderRef.id,
-            terminal_id => Terminal#domain_TerminalRef.id
-        },
+        route => maybe_route_context(Route),
         party_id => PartyID,
         shop_id => ShopID,
         change => #{
             amount => Amount,
             currency => Currency#domain_CurrencyRef.symbolic_code
         }
+    }.
+
+maybe_route_context(undefined) ->
+    undefined;
+maybe_route_context(#base_Route{provider = Provider, terminal = Terminal}) ->
+    #{
+        provider_id => Provider#domain_ProviderRef.id,
+        terminal_id => Terminal#domain_TerminalRef.id
     }.

@@ -26,7 +26,7 @@
     register_payment/4,
     start_payment/3,
     start_payment_ev/2,
-    start_payment_ev_no_risk_scoring/2,
+    register_payment_ev_no_risk_scoring/2,
     await_payment_session_started/4,
     await_payment_capture/3,
     await_payment_capture/4,
@@ -237,7 +237,7 @@ register_payment(InvoiceID, RegisterPaymentParams, WithRiskScoring, Client) ->
             true ->
                 start_payment_ev(InvoiceID, Client);
             false ->
-                start_payment_ev_no_risk_scoring(InvoiceID, Client)
+                register_payment_ev_no_risk_scoring(InvoiceID, Client)
         end,
     ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
         next_change(InvoiceID, Client),
@@ -255,17 +255,21 @@ start_payment(InvoiceID, PaymentParams, Client) ->
 start_payment_ev(InvoiceID, Client) ->
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)),
         ?payment_ev(PaymentID, ?route_changed(Route))
-    ] = next_changes(InvoiceID, 3, Client),
+    ] = next_changes(InvoiceID, 5, Client),
     Route.
 
--spec start_payment_ev_no_risk_scoring(_, _) -> _.
-start_payment_ev_no_risk_scoring(InvoiceID, Client) ->
+-spec register_payment_ev_no_risk_scoring(_, _) -> _.
+register_payment_ev_no_risk_scoring(InvoiceID, Client) ->
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?route_changed(Route))
-    ] = next_changes(InvoiceID, 2, Client),
+    ] = next_changes(InvoiceID, 4, Client),
     Route.
 
 -spec await_payment_session_started(_, _, _, _) -> _.
@@ -322,10 +326,12 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Cart, Client) -
 -spec await_payment_cash_flow(_, _, _) -> _.
 await_payment_cash_flow(InvoiceID, PaymentID, Client) ->
     [
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?route_changed(Route)),
         ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow))
-    ] = next_changes(InvoiceID, 3, Client),
+    ] = next_changes(InvoiceID, 5, Client),
     {CashFlow, Route}.
 
 -spec construct_ta_context(_, _, _) -> _.

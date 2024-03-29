@@ -51,15 +51,19 @@
     }}
 ).
 
--define(shop_limit_initiated(), {
-    invoice_payment_shop_limit_initiated,
-    #payproc_InvoicePaymentShopLimitInitiated{}
-}).
+-define(shop_limit_initiated(),
+    {
+        invoice_payment_shop_limit_initiated,
+        #payproc_InvoicePaymentShopLimitInitiated{}
+    }
+).
 
--define(shop_limit_applied(), {
-    invoice_payment_shop_limit_applied,
-    #payproc_InvoicePaymentShopLimitApplied{}
-    }).
+-define(shop_limit_applied(),
+    {
+        invoice_payment_shop_limit_applied,
+        #payproc_InvoicePaymentShopLimitApplied{}
+    }
+).
 
 -define(cash_flow_changed(CashFlow),
     {invoice_payment_cash_flow_changed, #payproc_InvoicePaymentCashFlowChanged{

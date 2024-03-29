@@ -29,7 +29,8 @@
     timings :: undefined | hg_timings:t(),
     allocation :: undefined | hg_allocation:allocation(),
     route_limits = #{} :: hg_routing:limits(),
-    route_scores = #{} :: hg_routing:scores()
+    route_scores = #{} :: hg_routing:scores(),
+    shop_limit_status = undefined :: undefined | initialized | finalized
 }).
 
 -record(refund_st, {
