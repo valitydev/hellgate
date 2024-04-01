@@ -97,7 +97,7 @@ services:
       disable: true
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-28c1b38
+    image: ghcr.io/valitydev/party-management:sha-f81d16a-epic-OPS-442-shop_mod
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:

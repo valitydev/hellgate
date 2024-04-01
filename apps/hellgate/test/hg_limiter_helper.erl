@@ -23,13 +23,15 @@
 -define(LIMIT_ID2, <<"ID2">>).
 -define(LIMIT_ID3, <<"ID3">>).
 -define(LIMIT_ID4, <<"ID4">>).
+-define(SHOPLIMIT_ID, <<"SHOPLIMITID">>).
 
 -spec init_per_suite(config()) -> _.
 init_per_suite(_Config) ->
     _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID)}),
     _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID2)}),
     _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID3)}),
-    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID4)}).
+    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID4)}),
+    _ = dmt_client:upsert({limit_config, mk_config_object(?SHOPLIMIT_ID)}).
 
 -spec get_amount(_) -> pos_integer().
 get_amount(#limiter_Limit{amount = Amount}) ->

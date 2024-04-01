@@ -12,6 +12,7 @@
 -export([create_party_and_shop/6]).
 -export([create_party/2]).
 -export([create_shop/6]).
+-export([create_shop/7]).
 -export([create_battle_ready_shop/6]).
 -export([adjust_contract/4]).
 
@@ -350,6 +351,8 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type party() :: dmsl_domain_thrift:'Party'().
 -type contract_id() :: dmsl_domain_thrift:'ContractID'().
 -type contract_tpl() :: dmsl_domain_thrift:'ContractTemplateRef'().
+-type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
+-type turnover_limits() :: ordsets:ordset(turnover_limit()).
 -type shop_id() :: dmsl_domain_thrift:'ShopID'().
 -type category() :: dmsl_domain_thrift:'CategoryRef'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
@@ -390,9 +393,34 @@ create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, PartyClien
         {ok, _Claim} = party_client_thrift:create_claim(PartyID, Changeset, Client, Context),
         ok
     end,
-    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, PartyClient, Fun).
+    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, undefined, PartyClient, Fun).
 
-create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, {Client, Context}, CreateShopFun) ->
+-spec create_shop(
+    party_id(),
+    category(),
+    currency(),
+    contract_tpl(),
+    payment_inst_ref(),
+    turnover_limits(),
+    party_client()
+) -> shop_id().
+create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, TurnoverLimits, PartyClient) ->
+    Fun = fun(_, Changeset, Client, Context) ->
+        {ok, _Claim} = party_client_thrift:create_claim(PartyID, Changeset, Client, Context),
+        ok
+    end,
+    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, TurnoverLimits, PartyClient, Fun).
+
+create_shop_(
+    PartyID,
+    Category,
+    Currency,
+    TemplateRef,
+    PaymentInstRef,
+    TurnoverLimits0,
+    {Client, Context},
+    CreateShopFun
+) ->
     ShopID = hg_utils:unique_id(),
     ContractID = hg_utils:unique_id(),
     PayoutToolID = hg_utils:unique_id(),
@@ -402,6 +430,8 @@ create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, {Client, 
 
     ContractParams = make_contract_params(TemplateRef, PaymentInstRef),
     PayoutToolParams = make_payout_tool_params(),
+
+    TurnoverLimits1 = genlib:define(TurnoverLimits0, ordsets:new()),
 
     Changeset = [
         {contract_modification, #payproc_ContractModificationUnit{
@@ -417,7 +447,8 @@ create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, {Client, 
                 }}
         }},
         ?shop_modification(ShopID, {creation, ShopParams}),
-        ?shop_modification(ShopID, {shop_account_creation, ShopAccountParams})
+        ?shop_modification(ShopID, {shop_account_creation, ShopAccountParams}),
+        ?shop_modification(ShopID, {turnover_limits_modification, TurnoverLimits1})
     ],
 
     ok = CreateShopFun(PartyID, Changeset, Client, Context),
@@ -465,7 +496,7 @@ create_battle_ready_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRe
     Fun = fun(_, Changeset, _, _) ->
         create_claim(PartyID, Changeset, PartyPair)
     end,
-    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, PartyPair, Fun).
+    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, undefined, PartyPair, Fun).
 
 -spec adjust_contract(party_id(), contract_id(), contract_tpl(), party_client()) -> ok.
 adjust_contract(PartyID, ContractID, TemplateRef, Client) ->

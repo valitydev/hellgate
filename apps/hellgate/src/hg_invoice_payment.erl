@@ -3148,7 +3148,7 @@ merge_change(Change = ?cash_changed(_OldCash, NewCash), #st{} = St, Opts) ->
 merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
     _ = validate_transition(
         [
-            {payment, shop_limit_initializing},
+            {payment, shop_limit_finalizing},
             {payment, cash_flow_building},
             {payment, processing_session}
         ],
