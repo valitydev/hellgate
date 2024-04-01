@@ -41,14 +41,16 @@
 
 -type currency() :: dmsl_domain_thrift:'CurrencyRef'().
 -type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
 -type client_ip() :: dmsl_domain_thrift:'IPAddress'().
+-type email() :: binary().
+-type card_token() :: dmsl_domain_thrift:'Token'().
 
 -type pin() :: #{
     currency => currency(),
     payment_tool => payment_tool(),
-    party_id => party_id(),
-    client_ip => client_ip() | undefined
+    client_ip => client_ip() | undefined,
+    email => email() | undefined,
+    card_token => card_token() | undefined
 }.
 
 -export_type([t/0]).

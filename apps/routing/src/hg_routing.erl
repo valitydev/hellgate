@@ -64,14 +64,16 @@
 
 -type currency() :: dmsl_domain_thrift:'CurrencyRef'().
 -type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
 -type client_ip() :: dmsl_domain_thrift:'IPAddress'().
+-type email() :: binary().
+-type card_token() :: dmsl_domain_thrift:'Token'().
 
 -type gather_route_context() :: #{
     currency := currency(),
     payment_tool := payment_tool(),
-    party_id := party_id(),
-    client_ip := client_ip() | undefined
+    client_ip := client_ip() | undefined,
+    email => email() | undefined,
+    card_token => card_token() | undefined
 }.
 
 -type varset() :: hg_varset:varset().
@@ -269,7 +271,7 @@ gather_pin_info(#domain_RoutingPin{features = Features}, Ctx) ->
     FeaturesList = ordsets:to_list(Features),
     lists:foldl(
         fun(Feature, Acc) ->
-            Acc#{Feature => maps:get(Feature, Ctx)}
+            Acc#{Feature => maps:get(Feature, Ctx, undefined)}
         end,
         #{},
         FeaturesList
