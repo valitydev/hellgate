@@ -382,22 +382,22 @@ groups() ->
         ]},
 
         {operation_limits, [], [
-                        payment_limit_success,
+            payment_limit_success,
             payment_shop_limit_success,
             payment_shop_limit_overflow,
             payment_shop_limit_more_overflow,
-                        payment_routes_limit_values,
-                        register_payment_limit_success,
-                        payment_limit_other_shop_success,
-                        payment_limit_overflow,
-                        payment_partial_capture_limit_success,
-                        switch_provider_after_limit_overflow,
-                        limit_not_found,
-                        refund_limit_success,
-                        limit_hold_currency_error,
-                        limit_hold_operation_not_supported,
-                        limit_hold_payment_tool_not_supported,
-                        limit_hold_two_routes_failure
+            payment_routes_limit_values,
+            register_payment_limit_success,
+            payment_limit_other_shop_success,
+            payment_limit_overflow,
+            payment_partial_capture_limit_success,
+            switch_provider_after_limit_overflow,
+            limit_not_found,
+            refund_limit_success,
+            limit_hold_currency_error,
+            limit_hold_operation_not_supported,
+            limit_hold_payment_tool_not_supported,
+            limit_hold_two_routes_failure
         ]},
 
         {refunds, [], [
