@@ -3083,7 +3083,19 @@ merge_change(Change = ?shop_limit_applied(), #st{} = St, Opts) ->
         activity = {payment, risk_scoring}
     };
 merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
-    _ = validate_transition({payment, risk_scoring}, Change, St, Opts),
+    _ = validate_transition(
+        [
+            {payment, S}
+         || S <- [
+                risk_scoring,
+                %% Added for backward compatibility
+                shop_limit_initializing
+            ]
+        ],
+        Change,
+        St,
+        Opts
+    ),
     St#st{
         risk_score = RiskScore,
         activity = {payment, routing}
@@ -3941,6 +3953,7 @@ get_route_cascade_behaviour(Route, Revision) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("hellgate/test/hg_ct_domain.hrl").
 
 -spec test() -> _.
 
@@ -4031,5 +4044,51 @@ filter_attempted_routes_test_() ->
             )
         )
     ].
+
+-spec shop_limits_regression_test() -> _.
+shop_limits_regression_test() ->
+    DisposableResource = #domain_DisposablePaymentResource{
+        payment_tool =
+            {generic, #domain_GenericPaymentTool{
+                payment_service = ?pmt_srv(<<"id">>)
+            }}
+    },
+    ContactInfo = #domain_ContactInfo{},
+    Payment = #domain_InvoicePayment{
+        id = <<"PaymentID">>,
+        created_at = <<"Timestamp">>,
+        status = ?pending(),
+        cost = ?cash(1000, "USD"),
+        domain_revision = 1,
+        flow = ?invoice_payment_flow_instant(),
+        payer = ?payment_resource_payer(DisposableResource, ContactInfo)
+    },
+    RiskScore = low,
+    Route = #domain_PaymentRoute{
+        provider = ?prv(1),
+        terminal = ?trm(1)
+    },
+    FinalCashflow = [],
+    TransactionInfo = #domain_TransactionInfo{
+        id = <<"TransactionID">>,
+        extra = #{}
+    },
+    Events = [
+        ?payment_started(Payment),
+        ?risk_score_changed(RiskScore),
+        ?route_changed(Route),
+        ?cash_flow_changed(FinalCashflow),
+        hg_session:wrap_event(?processed(), hg_session:create()),
+        hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo)),
+        hg_session:wrap_event(?processed(), ?session_finished(?session_succeeded())),
+        ?payment_status_changed(?processed())
+    ],
+    ChangeOpts = #{
+        invoice_id => <<"InvoiceID">>
+    },
+    ?assertMatch(
+        #st{},
+        collapse_changes(Events, undefined, ChangeOpts)
+    ).
 
 -endif.
