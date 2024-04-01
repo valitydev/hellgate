@@ -4058,7 +4058,7 @@ shop_limits_regression_test() ->
         id = <<"PaymentID">>,
         created_at = <<"Timestamp">>,
         status = ?pending(),
-        cost = ?cash(1000, "USD"),
+        cost = ?cash(1000, <<"USD">>),
         domain_revision = 1,
         flow = ?invoice_payment_flow_instant(),
         payer = ?payment_resource_payer(DisposableResource, ContactInfo)
