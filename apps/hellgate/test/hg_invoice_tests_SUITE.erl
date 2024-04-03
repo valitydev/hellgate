@@ -37,6 +37,9 @@
 -export([invalid_payment_amount/1]).
 
 -export([payment_limit_success/1]).
+-export([payment_shop_limit_success/1]).
+-export([payment_shop_limit_overflow/1]).
+-export([payment_shop_limit_more_overflow/1]).
 -export([payment_routes_limit_values/1]).
 -export([register_payment_limit_success/1]).
 -export([payment_limit_other_shop_success/1]).
@@ -220,11 +223,13 @@ init([]) ->
 
 -define(PARTY_ID_WITH_LIMIT, <<"bIg merch limit">>).
 -define(PARTY_ID_WITH_SEVERAL_LIMITS, <<"bIg merch limit cascading">>).
+-define(PARTY_ID_WITH_SHOP_LIMITS, <<"small merch limit shop">>).
 -define(PARTYID_EXTERNAL, <<"DUBTV">>).
 -define(LIMIT_ID, <<"ID">>).
 -define(LIMIT_ID2, <<"ID2">>).
 -define(LIMIT_ID3, <<"ID3">>).
 -define(LIMIT_ID4, <<"ID4">>).
+-define(SHOPLIMIT_ID, <<"SHOPLIMITID">>).
 -define(LIMIT_UPPER_BOUNDARY, 100000).
 -define(BIG_LIMIT_UPPER_BOUNDARY, 1000000).
 -define(DEFAULT_NEXT_CHANGE_TIMEOUT, 12000).
@@ -378,6 +383,9 @@ groups() ->
 
         {operation_limits, [], [
             payment_limit_success,
+            payment_shop_limit_success,
+            payment_shop_limit_overflow,
+            payment_shop_limit_more_overflow,
             payment_routes_limit_values,
             register_payment_limit_success,
             payment_limit_other_shop_success,
@@ -1100,9 +1108,18 @@ register_invoice_payment(Route, ShopID, Client, C) ->
 init_operation_limits_group(C) ->
     PartyID1 = ?PARTY_ID_WITH_LIMIT,
     PartyID2 = ?PARTY_ID_WITH_SEVERAL_LIMITS,
+    PartyID3 = ?PARTY_ID_WITH_SHOP_LIMITS,
     _ = hg_ct_helper:create_party(PartyID1, cfg(party_client, C)),
     _ = hg_ct_helper:create_party(PartyID2, cfg(party_client, C)),
-    [{limits, #{party_id => PartyID1, party_id_w_several_limits => PartyID2}} | C].
+    _ = hg_ct_helper:create_party(PartyID3, cfg(party_client, C)),
+    [
+        {limits, #{
+            party_id => PartyID1,
+            party_id_w_several_limits => PartyID2,
+            party_id_w_shop_limits => PartyID3
+        }}
+        | C
+    ].
 
 -spec payment_limit_success(config()) -> test_return().
 payment_limit_success(C) ->
@@ -1116,6 +1133,78 @@ payment_limit_success(C) ->
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
     ) = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)).
+
+-spec payment_shop_limit_success(config()) -> test_return().
+payment_shop_limit_success(C) ->
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    PartyID = cfg(party_id_big_merch, C),
+    TurnoverLimits = [
+        #domain_TurnoverLimit{
+            id = ?SHOPLIMIT_ID,
+            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+            domain_revision = dmt_client:get_last_version()
+        }
+    ],
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(_Payment)]
+    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)).
+
+-spec payment_shop_limit_overflow(config()) -> test_return().
+payment_shop_limit_overflow(C) ->
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    PartyID = cfg(party_id_big_merch, C),
+    TurnoverLimits = ordsets:from_list([
+        #domain_TurnoverLimit{
+            id = ?SHOPLIMIT_ID,
+            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+            domain_revision = dmt_client:get_last_version()
+        }
+    ]),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    PaymentAmount = ?LIMIT_UPPER_BOUNDARY + 1,
+    Failure = create_payment_shop_limit_overflow(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)),
+    ok = payproc_errors:match('PaymentFailure', Failure, fun(
+        {authorization_failed, {shop_limit_exceeded, {unknown, _}}}
+    ) ->
+        ok
+    end).
+
+-spec payment_shop_limit_more_overflow(config()) -> test_return().
+payment_shop_limit_more_overflow(C) ->
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    PartyID = cfg(party_id_big_merch, C),
+    TurnoverLimits = ordsets:from_list([
+        #domain_TurnoverLimit{
+            id = ?SHOPLIMIT_ID,
+            upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+            domain_revision = dmt_client:get_last_version()
+        }
+    ]),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+
+    PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(_Payment)]
+    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)),
+
+    Failure = create_payment_shop_limit_overflow(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)),
+    ok = payproc_errors:match('PaymentFailure', Failure, fun(
+        {authorization_failed, {shop_limit_exceeded, {unknown, _}}}
+    ) ->
+        ok
+    end).
 
 -spec payment_routes_limit_values(config()) -> test_return().
 payment_routes_limit_values(C) ->
@@ -1386,6 +1475,15 @@ create_payment_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
     PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
     await_payment_rollback(InvoiceID, PaymentID, Client).
 
+create_payment_shop_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
+    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(Amount)),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+    PaymentParams = make_payment_params(PmtSys),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
+    await_payment_shop_limit_rollback(InvoiceID, PaymentID, Client).
+
 %%----------------- operation_limits group end
 
 -spec payment_success_ruleset(config()) -> test_return().
@@ -1435,9 +1533,11 @@ payment_w_misconfigured_routing_failed(C) ->
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
-    ] = next_changes(InvoiceID, 3, Client),
+    ] = next_changes(InvoiceID, 5, Client),
     Reason = genlib:format({routing_decisions, {delegates, []}}),
     ?assertRouteNotFound(Failure, {unknown, {{unknown_error, <<"misconfiguration">>}, _}}, Reason).
 
@@ -2193,10 +2293,12 @@ payment_risk_score_check(C) ->
     ?payment_state(?payment(PaymentID3)) = hg_client_invoicing:start_payment(InvoiceID3, PaymentParams, Client),
     [
         ?payment_ev(PaymentID3, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         % fatal risk score is not going to be covered
         ?payment_ev(PaymentID3, ?risk_score_changed(fatal)),
         ?payment_ev(PaymentID3, ?payment_status_changed(?failed({failure, Failure})))
-    ] = next_changes(InvoiceID3, 3, Client),
+    ] = next_changes(InvoiceID3, 5, Client),
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
@@ -2721,7 +2823,7 @@ registered_payment_adjustment_success(C) ->
     },
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:register_payment(InvoiceID, PaymentParams, Client),
-    _ = start_payment_ev_no_risk_scoring(InvoiceID, Client),
+    _ = register_payment_ev_no_risk_scoring(InvoiceID, Client),
     ?payment_ev(PaymentID, ?cash_flow_changed(CF1)) =
         next_change(InvoiceID, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -5100,8 +5202,12 @@ repair_fail_routing_succeeded(C) ->
     %% Payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) = next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_RS)) = next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     %% routing broken
     timeout = next_change(InvoiceID, 2000, Client),
 
@@ -5154,9 +5260,13 @@ repair_fail_cash_flow_building_succeeded(C) ->
     %% Payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) = next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_RS)) = next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?route_changed(Route)) = next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_)),
+        ?payment_ev(PaymentID, ?route_changed(Route))
+    ] = next_changes(InvoiceID, 5, Client),
     %% cash_flow_building broken
     timeout = next_change(InvoiceID, 2000, Client),
 
@@ -6075,10 +6185,12 @@ payment_cascade_success(C) ->
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     {Route1, _CashFlow1, TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
@@ -6461,10 +6573,12 @@ payment_cascade_limit_overflow(C) ->
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     {Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
@@ -6515,10 +6629,12 @@ payment_big_cascade_success(C) ->
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     [
         (fun() ->
             {_Route, _CashFlow, _TrxID, Failure} =
@@ -6672,10 +6788,12 @@ payment_cascade_fail_provider_error(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     %% And again
@@ -6774,10 +6892,12 @@ payment_cascade_fail_ui(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(preauth_3ds, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
@@ -6983,10 +7103,12 @@ payment_cascade_fail_wo_available_attempt_limit(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     {_Route, _CashFlow, _TrxID, Failure} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
@@ -7071,10 +7193,12 @@ payment_cascade_failures(C) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
@@ -7170,10 +7294,12 @@ payment_cascade_deadline_failures(C) ->
         processing_deadline = hg_datetime:add_time_span(#base_TimeSpan{seconds = 2}, hg_datetime:format_now())
     },
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
-        next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?risk_score_changed(_)) =
-        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
     {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
@@ -7481,8 +7607,8 @@ register_payment(InvoiceID, RegisterPaymentParams, WithRiskScoring, Client) ->
 start_payment_ev(InvoiceID, Client) ->
     hg_invoice_helper:start_payment_ev(InvoiceID, Client).
 
-start_payment_ev_no_risk_scoring(InvoiceID, Client) ->
-    hg_invoice_helper:start_payment_ev_no_risk_scoring(InvoiceID, Client).
+register_payment_ev_no_risk_scoring(InvoiceID, Client) ->
+    hg_invoice_helper:register_payment_ev_no_risk_scoring(InvoiceID, Client).
 
 process_payment(InvoiceID, PaymentParams, Client) ->
     hg_invoice_helper:process_payment(InvoiceID, PaymentParams, Client).
@@ -7497,18 +7623,29 @@ await_payment_cash_flow(InvoiceID, PaymentID, Client) ->
 
 await_payment_cash_flow(RS, Route, InvoiceID, PaymentID, Client) ->
     [
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(RS)),
         ?payment_ev(PaymentID, ?route_changed(Route)),
         ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow))
-    ] = next_changes(InvoiceID, 3, Client),
+    ] = next_changes(InvoiceID, 5, Client),
     CashFlow.
 
 await_payment_rollback(InvoiceID, PaymentID, Client) ->
     [
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_)),
         ?payment_ev(PaymentID, ?route_changed(_, _)),
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
-    ] = next_changes(InvoiceID, 3, Client),
+    ] = next_changes(InvoiceID, 5, Client),
+    Failure.
+
+await_payment_shop_limit_rollback(InvoiceID, PaymentID, Client) ->
+    [
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
+    ] = next_changes(InvoiceID, 2, Client),
     Failure.
 
 await_payment_session_started(InvoiceID, PaymentID, Client, Target) ->
@@ -7710,9 +7847,11 @@ execute_payment_w_cascade(InvoiceID, Params, Client, CascadeCount) when CascadeC
     #payproc_InvoicePayment{payment = _Payment} = hg_client_invoicing:start_payment(InvoiceID, Params, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] =
-        next_changes(InvoiceID, 2, Client),
+        next_changes(InvoiceID, 4, Client),
     FailedRoutes = [
         begin
             {Route, _CashFlow, _TrxID, _Failure} =
@@ -7856,9 +7995,11 @@ payment_customer_risk_score_check(C) ->
     ?payment_state(?payment(PaymentID1)) = hg_client_invoicing:start_payment(InvoiceID1, PaymentParams, Client),
     [
         ?payment_ev(PaymentID1, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID1, ?risk_score_changed(fatal)),
         ?payment_ev(PaymentID1, ?payment_status_changed(?failed(Failure)))
-    ] = next_changes(InvoiceID1, 3, Client),
+    ] = next_changes(InvoiceID1, 5, Client),
     {failure, #domain_Failure{
         code = <<"no_route_found">>,
         sub = #domain_SubFailure{code = <<"risk_score_is_too_high">>}

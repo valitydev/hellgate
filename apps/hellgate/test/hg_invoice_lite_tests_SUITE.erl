@@ -232,10 +232,12 @@ payment_w_all_blacklisted(C) ->
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)),
         ?payment_ev(PaymentID, ?route_changed(_Route)),
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, _Failure}))
-    ] = next_changes(InvoiceID, 4, Client),
+    ] = next_changes(InvoiceID, 6, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_unpaid()),
         [_PaymentSt]

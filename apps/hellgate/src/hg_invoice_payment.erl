@@ -148,6 +148,9 @@
 
 -type payment_step() ::
     new
+    | shop_limit_initializing
+    | shop_limit_failure
+    | shop_limit_finalizing
     | risk_scoring
     | routing
     | routing_failure
@@ -1813,6 +1816,12 @@ process_timeout(St) ->
     repair_process_timeout(get_activity(St), Action, St).
 
 -spec process_timeout(activity(), action(), st()) -> machine_result().
+process_timeout({payment, shop_limit_initializing}, Action, St) ->
+    process_shop_limit_initialization(Action, St);
+process_timeout({payment, shop_limit_failure}, Action, St) ->
+    process_shop_limit_failure(Action, St);
+process_timeout({payment, shop_limit_finalizing}, Action, St) ->
+    process_shop_limit_finalization(Action, St);
 process_timeout({payment, risk_scoring}, Action, St) ->
     process_risk_score(Action, St);
 process_timeout({payment, routing}, Action, St) ->
@@ -1924,6 +1933,39 @@ process_callback(_Tag, _Payload, undefined, _St) ->
     throw(invalid_callback).
 
 %%
+
+-spec process_shop_limit_initialization(action(), st()) -> machine_result().
+process_shop_limit_initialization(Action, St) ->
+    Opts = get_opts(St),
+    _ = hold_shop_limits(Opts, St),
+    case check_shop_limits(Opts, St) of
+        ok ->
+            {next, {[?shop_limit_initiated()], hg_machine_action:set_timeout(0, Action)}};
+        {error, {limit_overflow = Error, IDs}} ->
+            Failure = construct_shop_limit_failure(Error, IDs),
+            Events = [
+                ?shop_limit_initiated(),
+                ?payment_rollback_started(Failure)
+            ],
+            {next, {Events, hg_machine_action:set_timeout(0, Action)}}
+    end.
+
+construct_shop_limit_failure(limit_overflow, IDs) ->
+    Error = mk_static_error([authorization_failed, shop_limit_exceeded, unknown]),
+    Reason = genlib:format("Limits with following IDs overflowed: ~p", [IDs]),
+    {failure, payproc_errors:construct('PaymentFailure', Error, Reason)}.
+
+process_shop_limit_failure(Action, St = #st{failure = Failure}) ->
+    Opts = get_opts(St),
+    _ = rollback_shop_limits(Opts, St, [ignore_business_error, ignore_not_found]),
+    {done, {[?payment_status_changed(?failed(Failure))], hg_machine_action:set_timeout(0, Action)}}.
+
+-spec process_shop_limit_finalization(action(), st()) -> machine_result().
+process_shop_limit_finalization(Action, St) ->
+    Opts = get_opts(St),
+    _ = commit_shop_limits(Opts, St),
+    {next, {[?shop_limit_applied()], hg_machine_action:set_timeout(0, Action)}}.
+
 -spec process_risk_score(action(), st()) -> machine_result().
 process_risk_score(Action, St) ->
     Opts = get_opts(St),
@@ -2551,6 +2593,52 @@ get_limit_overflow_routes(Routes, VS, St) ->
         Routes
     ).
 
+%% Shop limits
+
+hold_shop_limits(Opts, St) ->
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
+    TurnoverLimits = get_shop_turnover_limits(Shop),
+    ok = hg_limiter:hold_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment).
+
+commit_shop_limits(Opts, St) ->
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
+    TurnoverLimits = get_shop_turnover_limits(Shop),
+    ok = hg_limiter:commit_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment).
+
+check_shop_limits(Opts, St) ->
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    TurnoverLimits = get_shop_turnover_limits(get_shop(Opts)),
+    hg_limiter:check_shop_limits(TurnoverLimits, Invoice, Payment).
+
+rollback_shop_limits(Opts, St, Flags) ->
+    Payment = get_payment(St),
+    Invoice = get_invoice(Opts),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
+    TurnoverLimits = get_shop_turnover_limits(Shop),
+    ok = hg_limiter:rollback_shop_limits(
+        TurnoverLimits,
+        Party,
+        Shop,
+        Invoice,
+        Payment,
+        Flags
+    ).
+
+get_shop_turnover_limits(#domain_Shop{turnover_limits = undefined}) ->
+    [];
+get_shop_turnover_limits(#domain_Shop{turnover_limits = T}) ->
+    ordsets:to_list(T).
+
+%%
+
 -spec hold_limit_routes([hg_route:t()], hg_varset:varset(), pos_integer(), st()) ->
     {[hg_route:t()], [hg_route:rejected_route()]}.
 hold_limit_routes(Routes0, VS, Iter, St) ->
@@ -2979,11 +3067,35 @@ merge_change(Change = ?payment_started(Payment), #st{} = St, Opts) ->
     St#st{
         target = ?processed(),
         payment = Payment,
-        activity = {payment, risk_scoring},
+        activity = {payment, shop_limit_initializing},
         timings = hg_timings:mark(started, define_event_timestamp(Opts))
     };
+merge_change(Change = ?shop_limit_initiated(), #st{} = St, Opts) ->
+    _ = validate_transition({payment, shop_limit_initializing}, Change, St, Opts),
+    St#st{
+        shop_limit_status = initialized,
+        activity = {payment, shop_limit_finalizing}
+    };
+merge_change(Change = ?shop_limit_applied(), #st{} = St, Opts) ->
+    _ = validate_transition({payment, shop_limit_finalizing}, Change, St, Opts),
+    St#st{
+        shop_limit_status = finalized,
+        activity = {payment, risk_scoring}
+    };
 merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
-    _ = validate_transition({payment, risk_scoring}, Change, St, Opts),
+    _ = validate_transition(
+        [
+            {payment, S}
+         || S <- [
+                risk_scoring,
+                %% Added for backward compatibility
+                shop_limit_initializing
+            ]
+        ],
+        Change,
+        St,
+        Opts
+    ),
     St#st{
         risk_score = RiskScore,
         activity = {payment, routing}
@@ -3061,14 +3173,20 @@ merge_change(Change = ?cash_changed(_OldCash, NewCash), #st{} = St, Opts) ->
     St#st{new_cash = NewCash, new_cash_provided = true, payment = Payment1};
 merge_change(Change = ?payment_rollback_started(Failure), St, Opts) ->
     _ = validate_transition(
-        [{payment, cash_flow_building}, {payment, processing_session}],
+        [
+            {payment, shop_limit_finalizing},
+            {payment, cash_flow_building},
+            {payment, processing_session}
+        ],
         Change,
         St,
         Opts
     ),
     Activity =
-        case St#st.cash_flow of
-            undefined ->
+        case St of
+            #st{shop_limit_status = initialized} ->
+                {payment, shop_limit_failure};
+            #st{cash_flow = undefined} ->
                 {payment, routing_failure};
             _ ->
                 {payment, processing_failure}
@@ -3086,6 +3204,7 @@ merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment
                 risk_scoring,
                 routing,
                 cash_flow_building,
+                shop_limit_failure,
                 routing_failure,
                 processing_failure
             ]
@@ -3834,6 +3953,7 @@ get_route_cascade_behaviour(Route, Revision) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("hellgate/test/hg_ct_domain.hrl").
 
 -spec test() -> _.
 
@@ -3924,5 +4044,51 @@ filter_attempted_routes_test_() ->
             )
         )
     ].
+
+-spec shop_limits_regression_test() -> _.
+shop_limits_regression_test() ->
+    DisposableResource = #domain_DisposablePaymentResource{
+        payment_tool =
+            {generic, #domain_GenericPaymentTool{
+                payment_service = ?pmt_srv(<<"id">>)
+            }}
+    },
+    ContactInfo = #domain_ContactInfo{},
+    Payment = #domain_InvoicePayment{
+        id = <<"PaymentID">>,
+        created_at = <<"Timestamp">>,
+        status = ?pending(),
+        cost = ?cash(1000, <<"USD">>),
+        domain_revision = 1,
+        flow = ?invoice_payment_flow_instant(),
+        payer = ?payment_resource_payer(DisposableResource, ContactInfo)
+    },
+    RiskScore = low,
+    Route = #domain_PaymentRoute{
+        provider = ?prv(1),
+        terminal = ?trm(1)
+    },
+    FinalCashflow = [],
+    TransactionInfo = #domain_TransactionInfo{
+        id = <<"TransactionID">>,
+        extra = #{}
+    },
+    Events = [
+        ?payment_started(Payment),
+        ?risk_score_changed(RiskScore),
+        ?route_changed(Route),
+        ?cash_flow_changed(FinalCashflow),
+        hg_session:wrap_event(?processed(), hg_session:create()),
+        hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo)),
+        hg_session:wrap_event(?processed(), ?session_finished(?session_succeeded())),
+        ?payment_status_changed(?processed())
+    ],
+    ChangeOpts = #{
+        invoice_id => <<"InvoiceID">>
+    },
+    ?assertMatch(
+        #st{},
+        collapse_changes(Events, undefined, ChangeOpts)
+    ).
 
 -endif.

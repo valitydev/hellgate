@@ -85,7 +85,9 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
 
     Events =
         [
-            ?payment_started(Payment)
+            ?payment_started(Payment),
+            ?shop_limit_initiated(),
+            ?shop_limit_applied()
         ] ++
             RiskScoreEventList ++
             [
