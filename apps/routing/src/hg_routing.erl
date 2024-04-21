@@ -513,7 +513,7 @@ score_route(Route) ->
     Pin = hg_route:pin(Route),
     RandomCondition =
         case Pin of
-            #{} ->
+            #{} when map_size(Pin) == 0 ->
                 hg_route:weight(Route);
             _ ->
                 0
@@ -850,7 +850,7 @@ pin_random_test() ->
             end
         end,
         undefined,
-        lists:seq(0, 100)
+        lists:seq(0, 1000)
     ).
 
 -spec balance_routes_test_() -> [testcase()].
