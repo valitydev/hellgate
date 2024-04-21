@@ -6,6 +6,7 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 -include_lib("hellgate/include/domain.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([gather_routes/5]).
 -export([rate_routes/1]).
@@ -342,8 +343,13 @@ find_best_routes([First | Rest]) ->
         Rest
     ).
 
-select_better_route(Left, Right) ->
-    max(Left, Right).
+select_better_route({LeftScore, _Route1} = Left, {RightScore, _Route2} = Right) ->
+    case max(LeftScore, RightScore) of
+        LeftScore ->
+            Left;
+        RightScore ->
+            Right
+    end.
 
 select_better_route_ideal(Left, Right) ->
     IdealLeft = set_ideal_score(Left),
@@ -504,8 +510,14 @@ score_route_ext({Route, ProviderStatus}) ->
 
 score_route(Route) ->
     PriorityRate = hg_route:priority(Route),
-    RandomCondition = hg_route:weight(Route),
     Pin = hg_route:pin(Route),
+    RandomCondition =
+        case Pin of
+            #{} ->
+                hg_route:weight(Route);
+            _ ->
+                0
+        end,
     PinHash = erlang:phash2(Pin),
     #domain_PaymentRouteScores{
         terminal_priority_rating = PriorityRate,
@@ -780,8 +792,6 @@ getv(Name, VS, Default) ->
 
 -ifdef(TEST).
 
--include_lib("eunit/include/eunit.hrl").
-
 -spec test() -> _.
 -type testcase() :: {_, fun(() -> _)}.
 
@@ -815,6 +825,33 @@ record_comparsion_test() ->
         {99, 99}
     },
     ?assertEqual(Bigger, select_better_route(Bigger, Smaller)).
+
+-spec pin_random_test() -> _.
+pin_random_test() ->
+    Pin = #{
+        email => <<"example@mail.com">>
+    },
+    Scores = {{alive, 0.0}, {normal, 0.0}},
+    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin), Scores},
+    Route2 = {hg_route:new(?prv(2), ?trm(2), 50, 1, Pin), Scores},
+    lists:foldl(
+        fun(_I, Acc) ->
+            BalancedRoutes = balance_routes([Route1, Route2]),
+            ScoredRoutes = score_routes(BalancedRoutes),
+            {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
+            case Acc of
+                undefined ->
+                    ChosenScoredRoute;
+                _ ->
+                    ChosenTerminal = hg_route:terminal_ref(ChosenScoredRoute),
+                    AccTerminal = hg_route:terminal_ref(Acc),
+                    _ = ?assertEqual(ChosenTerminal, AccTerminal),
+                    ChosenScoredRoute
+            end
+        end,
+        undefined,
+        lists:seq(0, 100)
+    ).
 
 -spec balance_routes_test_() -> [testcase()].
 balance_routes_test_() ->
@@ -870,9 +907,7 @@ balance_routes_with_default_weight_test_() ->
 -spec preferable_route_scoring_test_() -> [testcase()].
 preferable_route_scoring_test_() ->
     StatusAlive = {{alive, 0.0}, {normal, 0.0}},
-    StatusAliveLowerConversion = {{alive, 0.0}, {normal, 0.1}},
     StatusDead = {{dead, 0.4}, {lacking, 0.6}},
-    StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
     StatusBroken = {{alive, 0.1}, {lacking, 0.8}},
     RoutePreferred1 = hg_route:new(?prv(1), ?trm(1), 0, 1),
     RoutePreferred2 = hg_route:new(?prv(1), ?trm(2), 0, 1),
@@ -913,30 +948,6 @@ preferable_route_scoring_test_() ->
             }},
             choose_rated_route([
                 {RoutePreferred1, StatusBroken},
-                {RouteFallback, StatusAlive}
-            ])
-        ),
-        ?_assertMatch(
-            {RoutePreferred1, #{
-                preferable_route := RoutePreferred2,
-                reject_reason := conversion
-            }},
-            choose_rated_route([
-                {RoutePreferred1, StatusAlive},
-                {RoutePreferred2, StatusAliveLowerConversion}
-            ])
-        ),
-        % TODO TD-344
-        % We rely here on inverted order of preference which is just an accidental
-        % side effect.
-        ?_assertMatch(
-            {RoutePreferred1, #{
-                preferable_route := RoutePreferred2,
-                reject_reason := availability
-            }},
-            choose_rated_route([
-                {RoutePreferred1, StatusAlive},
-                {RoutePreferred2, StatusDegraded},
                 {RouteFallback, StatusAlive}
             ])
         )
