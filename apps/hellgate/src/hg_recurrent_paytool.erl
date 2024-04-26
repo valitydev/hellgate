@@ -84,21 +84,6 @@
 %% Woody handler
 
 -spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
-handle_function('GetEvents', {#payproc_EventRange{'after' = After, limit = Limit}}, _Opts) ->
-    %% NOTE This is a legacy handler that relies on now obsolete event-sink machine.
-    case hg_event_sink:get_events(?NS, After, Limit) of
-        {ok, Events} ->
-            publish_rec_payment_tool_events(Events);
-        {error, event_not_found} ->
-            throw(#payproc_EventNotFound{})
-    end;
-handle_function('GetLastEventID', {}, _Opts) ->
-    case hg_event_sink:get_last_event_id(?NS) of
-        {ok, ID} ->
-            ID;
-        {error, no_last_event} ->
-            throw(#payproc_NoLastEvent{})
-    end;
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         recurrent_payment_tools,
@@ -961,23 +946,3 @@ unmarshal_event_payload(#{format_version := 1, data := {bin, Bin}}) ->
     Type = {struct, struct, {dmsl_payproc_thrift, 'RecurrentPaymentToolEventData'}},
     #payproc_RecurrentPaymentToolEventData{changes = Changes} = hg_proto_utils:deserialize(Type, Bin),
     Changes.
-
-%%
-%% Event sink
-%%
-
-publish_rec_payment_tool_events(Events) ->
-    [publish_rec_payment_tool_event(Event) || Event <- Events].
-
-publish_rec_payment_tool_event({ID, _Ns, SourceID, {EventID, Dt, Payload}}) ->
-    publish_rec_payment_tool_event(ID, SourceID, {EventID, Dt, Payload}).
-
-publish_rec_payment_tool_event(EventID, MachineID, {ID, Dt, Ev}) ->
-    Payload = unmarshal_event_payload(Ev),
-    #payproc_RecurrentPaymentToolEvent{
-        id = EventID,
-        source = MachineID,
-        created_at = Dt,
-        payload = Payload,
-        sequence = ID
-    }.
