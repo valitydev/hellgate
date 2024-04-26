@@ -85,6 +85,7 @@
 
 -spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function('GetEvents', {#payproc_EventRange{'after' = After, limit = Limit}}, _Opts) ->
+    %% NOTE This is a legacy handler that relies on now obsolete event-sink machine.
     case hg_event_sink:get_events(?NS, After, Limit) of
         {ok, Events} ->
             publish_rec_payment_tool_events(Events);

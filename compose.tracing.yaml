@@ -16,6 +16,9 @@ services:
   party-management:
     environment: *otlp_enabled
 
+  machinegun:
+    environment: *otlp_enabled
+
   testrunner:
     environment:
       <<: *otlp_enabled
