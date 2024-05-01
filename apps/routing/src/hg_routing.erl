@@ -34,6 +34,8 @@
 
 -define(fd_overrides(Enabled), #domain_RouteFaultDetectorOverrides{enabled = Enabled}).
 
+-define(ZERO, 0).
+
 -type fd_service_stats() :: fd_proto_fault_detector_thrift:'ServiceStatistics'().
 
 -type terminal_priority_rating() :: integer().
@@ -343,13 +345,26 @@ find_best_routes([First | Rest]) ->
         Rest
     ).
 
-select_better_route({LeftScore, _Route1} = Left, {RightScore, _Route2} = Right) ->
+select_better_route({LeftScore, _} = Left, {RightScore, _} = Right) ->
+    LeftPin = LeftScore#domain_PaymentRouteScores.route_pin,
+    RightPin = RightScore#domain_PaymentRouteScores.route_pin,
+    case {LeftPin, RightPin} of
+        _ when LeftPin /= ?ZERO, RightPin /= ?ZERO ->
+            select_better_pinned_route(Left, Right);
+        _ ->
+            select_better_regular_route(Left, Right)
+    end.
+
+select_better_pinned_route({LeftScore, _Route1} = Left, {RightScore, _Route2} = Right) ->
     case max(LeftScore, RightScore) of
         LeftScore ->
             Left;
         RightScore ->
             Right
     end.
+
+select_better_regular_route(Left, Right) ->
+    max(Left, Right).
 
 select_better_route_ideal(Left, Right) ->
     IdealLeft = set_ideal_score(Left),
@@ -511,14 +526,13 @@ score_route_ext({Route, ProviderStatus}) ->
 score_route(Route) ->
     PriorityRate = hg_route:priority(Route),
     Pin = hg_route:pin(Route),
-    RandomCondition =
+    {RandomCondition, PinHash} =
         case Pin of
             #{} when map_size(Pin) == 0 ->
-                hg_route:weight(Route);
+                {hg_route:weight(Route), ?ZERO};
             _ ->
-                0
+                {?ZERO, erlang:phash2(Pin)}
         end,
-    PinHash = erlang:phash2(Pin),
     #domain_PaymentRouteScores{
         terminal_priority_rating = PriorityRate,
         route_pin = PinHash,
@@ -907,7 +921,9 @@ balance_routes_with_default_weight_test_() ->
 -spec preferable_route_scoring_test_() -> [testcase()].
 preferable_route_scoring_test_() ->
     StatusAlive = {{alive, 0.0}, {normal, 0.0}},
+    StatusAliveLowerConversion = {{alive, 0.0}, {normal, 0.1}},
     StatusDead = {{dead, 0.4}, {lacking, 0.6}},
+    StatusDegraded = {{alive, 0.1}, {normal, 0.1}},
     StatusBroken = {{alive, 0.1}, {lacking, 0.8}},
     RoutePreferred1 = hg_route:new(?prv(1), ?trm(1), 0, 1),
     RoutePreferred2 = hg_route:new(?prv(1), ?trm(2), 0, 1),
@@ -948,6 +964,30 @@ preferable_route_scoring_test_() ->
             }},
             choose_rated_route([
                 {RoutePreferred1, StatusBroken},
+                {RouteFallback, StatusAlive}
+            ])
+        ),
+        ?_assertMatch(
+            {RoutePreferred1, #{
+                preferable_route := RoutePreferred2,
+                reject_reason := conversion
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RoutePreferred2, StatusAliveLowerConversion}
+            ])
+        ),
+        % TODO TD-344
+        % We rely here on inverted order of preference which is just an accidental
+        % side effect.
+        ?_assertMatch(
+            {RoutePreferred1, #{
+                preferable_route := RoutePreferred2,
+                reject_reason := availability
+            }},
+            choose_rated_route([
+                {RoutePreferred1, StatusAlive},
+                {RoutePreferred2, StatusDegraded},
                 {RouteFallback, StatusAlive}
             ])
         )
