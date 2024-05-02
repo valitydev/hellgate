@@ -805,6 +805,8 @@ getv(Name, VS, Default) ->
 
 -ifdef(TEST).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -spec test() -> _.
 -type testcase() :: {_, fun(() -> _)}.
 
