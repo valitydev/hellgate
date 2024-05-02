@@ -6,7 +6,6 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 -include_lib("hellgate/include/domain.hrl").
--include_lib("eunit/include/eunit.hrl").
 
 -export([gather_routes/5]).
 -export([rate_routes/1]).
