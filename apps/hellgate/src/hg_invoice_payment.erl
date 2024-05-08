@@ -1524,7 +1524,7 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         status = Status,
         domain_revision = DomainRevision,
         party_revision = PartyRevision
-    } = Payment = get_payment(St),
+    } = get_payment(St),
     ok = assert_adjustment_payment_status(Status),
     ok = assert_no_refunds(St),
     ok = assert_adjustment_payment_statuses(TargetStatus, Status),
@@ -1534,9 +1534,6 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         {status_change, #domain_InvoicePaymentAdjustmentStatusChangeState{
             scenario = Change
         }},
-    AdditionalEvents = maybe_inject_new_capture_cost_amount(
-        Payment, Params#payproc_InvoicePaymentAdjustmentParams.scenario
-    ),
     construct_adjustment(
         Timestamp,
         Params,
@@ -1545,23 +1542,9 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
-        AdditionalEvents,
+        [],
         St
     ).
-
-maybe_inject_new_capture_cost_amount(
-    Payment,
-    {'status_change', #domain_InvoicePaymentAdjustmentStatusChange{
-        target_status =
-            {captured, #domain_InvoicePaymentCaptured{
-                cost = NewCost
-            }}
-    }}
-) when NewCost =/= undefined ->
-    OldCost = get_payment_cost(Payment),
-    [?cash_changed(OldCost, NewCost)];
-maybe_inject_new_capture_cost_amount(_Payment, _AdjustmentScenario) ->
-    [].
 
 -spec maybe_get_domain_revision(undefined | hg_domain:revision()) -> hg_domain:revision().
 maybe_get_domain_revision(undefined) ->
@@ -1750,13 +1733,7 @@ process_adjustment_capture(ID, _Action, St) ->
     Opts = get_opts(St),
     Adjustment = get_adjustment(ID, St),
     ok = assert_adjustment_status(processed, Adjustment),
-    Payment = get_payment(St),
-    case get_payment_status(Payment) of
-        {failed, _} ->
-            ok;
-        _ ->
-            ok = finalize_adjustment_cashflow(Adjustment, St, Opts)
-    end,
+    ok = finalize_adjustment_cashflow(Adjustment, St, Opts),
     Status = ?adjustment_captured(maps:get(timestamp, Opts)),
     Event = ?adjustment_ev(ID, ?adjustment_status_changed(Status)),
     {done, {[Event], hg_machine_action:new()}}.
@@ -2218,13 +2195,7 @@ maybe_set_charged_back_status(_ChargebackStatus, _ChargebackBody, _St) ->
 process_adjustment_cashflow(ID, _Action, St) ->
     Opts = get_opts(St),
     Adjustment = get_adjustment(ID, St),
-    Payment = get_payment(St),
-    case get_payment_status(Payment) of
-        {failed, _} ->
-            ok;
-        _ ->
-            ok = prepare_adjustment_cashflow(Adjustment, St, Opts)
-    end,
+    ok = prepare_adjustment_cashflow(Adjustment, St, Opts),
     Events = [?adjustment_ev(ID, ?adjustment_status_changed(?adjustment_processed()))],
     {next, {Events, hg_machine_action:instant()}}.
 
@@ -3010,9 +2981,6 @@ get_invoice_shop_id(#domain_Invoice{shop_id = ShopID}) ->
 
 get_payment_id(#domain_InvoicePayment{id = ID}) ->
     ID.
-
-get_payment_status(#domain_InvoicePayment{status = Status}) ->
-    Status.
 
 get_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
     Cost.
