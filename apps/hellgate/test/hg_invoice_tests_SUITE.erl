@@ -2694,7 +2694,17 @@ payment_adjustment_captured_from_failed(C) ->
     ?payment_already_has_status(FailedTargetStatus) =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, FailedAdjustmentParams, Client),
 
-    AdjustmentID = execute_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams, Client),
+    ?adjustment(AdjustmentID, ?adjustment_pending()) =
+        Adjustment = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))),
+        ?payment_ev(PaymentID, ?cash_changed(?cash(Amount, <<"RUB">>), ?cash(CaptureAmount, <<"RUB">>))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(
+            PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
+    ] = next_changes(InvoiceID, 4, Client),
+
     ?payment_state(Payment) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
     ?assertMatch(#domain_InvoicePayment{status = Captured, cost = CaptureCost}, Payment),
 
