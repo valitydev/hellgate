@@ -694,6 +694,8 @@ init_per_testcase(Name = limit_hold_payment_tool_not_supported, C) ->
     override_domain_fixture(fun patch_with_unsupported_payment_tool/2, Name, C);
 init_per_testcase(Name = limit_hold_two_routes_failure, C) ->
     override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/2, Name, C);
+init_per_testcase(Name = create_chargeback_provision_terms_not_allowed, C) ->
+    override_domain_fixture(fun unset_providers_chargebacks_terms/2, Name, C);
 init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
     meck:expect(
         hg_limiter,
@@ -1687,6 +1689,25 @@ patch_providers_limits_to_fail_and_overflow(Revision, _C) ->
                 domain_revision = NewRevision
             }
         ])
+    ].
+
+unset_providers_chargebacks_terms(Revision, _C) ->
+    lists:flatten([unset_provider_chargebacks_terms(Revision, ProviderRef) || ProviderRef <- [?prv(2)]]).
+
+unset_provider_chargebacks_terms(Revision, ProviderRef) ->
+    Provider =
+        #domain_Provider{terms = Terms} =
+        hg_domain:get(Revision, {provider, ProviderRef}),
+    PaymentsTermSet = Terms#domain_ProvisionTermSet.payments,
+    [
+        {provider, #domain_ProviderObject{
+            ref = ProviderRef,
+            data = Provider#domain_Provider{
+                terms = Terms#domain_ProvisionTermSet{
+                    payments = PaymentsTermSet#domain_PaymentsProvisionTerms{chargebacks = undefined}
+                }
+            }
+        }}
     ].
 
 change_terms_limit_config_version(Revision, LimitConfigRevision) ->
@@ -3064,16 +3085,16 @@ create_chargeback_not_allowed(C) ->
 
 -spec create_chargeback_provision_terms_not_allowed(config()) -> _ | no_return().
 create_chargeback_provision_terms_not_allowed(C) ->
-    %% TODO Конфиг для успешного старта чарджбека но без термсов провайдер (но с сервис-термсами)
+    %% NOTE See fixture setup in `unset_providers_chargebacks_terms'
     Cost = 42000,
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
         cfg(party_id, C),
-        ?cat(1),
+        ?cat(2),
         <<"RUB">>,
-        ?tmpl(1),
-        ?pinst(1),
+        ?tmpl(2),
+        ?pinst(2),
         PartyClient
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
