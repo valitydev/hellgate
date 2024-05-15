@@ -2798,7 +2798,7 @@ payment_adjustment_greater_captured_from_failed(C) ->
     % new cash flow must be calculated using initial domain and party revisions
     #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} =
         ?adjustment_reason(AdjReason) =
-            hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID, Client),
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
