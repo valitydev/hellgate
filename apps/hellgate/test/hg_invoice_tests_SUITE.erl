@@ -103,6 +103,7 @@
 -export([payment_hold_auto_capturing/1]).
 
 -export([create_chargeback_not_allowed/1]).
+-export([create_chargeback_provision_terms_not_allowed/1]).
 -export([create_chargeback_inconsistent/1]).
 -export([create_chargeback_exceeded/1]).
 -export([create_chargeback_idempotency/1]).
@@ -352,6 +353,7 @@ groups() ->
 
         {chargebacks, [], [
             create_chargeback_not_allowed,
+            create_chargeback_provision_terms_not_allowed,
             create_chargeback_inconsistent,
             create_chargeback_exceeded,
             create_chargeback_idempotency,
@@ -3043,6 +3045,26 @@ terminal_cashflow_overrides_provider(C) ->
 
 -spec create_chargeback_not_allowed(config()) -> _ | no_return().
 create_chargeback_not_allowed(C) ->
+    Cost = 42000,
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_id, C),
+        ?cat(1),
+        <<"RUB">>,
+        ?tmpl(1),
+        ?pinst(1),
+        PartyClient
+    ),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
+    PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    CBParams = make_chargeback_params(?cash(1000, <<"RUB">>)),
+    Result = hg_client_invoicing:create_chargeback(InvoiceID, PaymentID, CBParams, Client),
+    ?assertMatch({exception, #payproc_OperationNotPermitted{}}, Result).
+
+-spec create_chargeback_provision_terms_not_allowed(config()) -> _ | no_return().
+create_chargeback_provision_terms_not_allowed(C) ->
+    %% TODO Конфиг для успешного старта чарджбека но без термсов провайдер (но с сервис-термсами)
     Cost = 42000,
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
