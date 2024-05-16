@@ -103,6 +103,7 @@
 -export([payment_hold_auto_capturing/1]).
 
 -export([create_chargeback_not_allowed/1]).
+-export([create_chargeback_provision_terms_not_allowed/1]).
 -export([create_chargeback_inconsistent/1]).
 -export([create_chargeback_exceeded/1]).
 -export([create_chargeback_idempotency/1]).
@@ -352,6 +353,7 @@ groups() ->
 
         {chargebacks, [], [
             create_chargeback_not_allowed,
+            create_chargeback_provision_terms_not_allowed,
             create_chargeback_inconsistent,
             create_chargeback_exceeded,
             create_chargeback_idempotency,
@@ -692,6 +694,8 @@ init_per_testcase(Name = limit_hold_payment_tool_not_supported, C) ->
     override_domain_fixture(fun patch_with_unsupported_payment_tool/2, Name, C);
 init_per_testcase(Name = limit_hold_two_routes_failure, C) ->
     override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/2, Name, C);
+init_per_testcase(Name = create_chargeback_provision_terms_not_allowed, C) ->
+    override_domain_fixture(fun unset_providers_chargebacks_terms/2, Name, C);
 init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
     meck:expect(
         hg_limiter,
@@ -1687,6 +1691,25 @@ patch_providers_limits_to_fail_and_overflow(Revision, _C) ->
         ])
     ].
 
+unset_providers_chargebacks_terms(Revision, _C) ->
+    lists:flatten([unset_provider_chargebacks_terms(Revision, ProviderRef) || ProviderRef <- [?prv(2)]]).
+
+unset_provider_chargebacks_terms(Revision, ProviderRef) ->
+    Provider =
+        #domain_Provider{terms = Terms} =
+        hg_domain:get(Revision, {provider, ProviderRef}),
+    PaymentsTermSet = Terms#domain_ProvisionTermSet.payments,
+    [
+        {provider, #domain_ProviderObject{
+            ref = ProviderRef,
+            data = Provider#domain_Provider{
+                terms = Terms#domain_ProvisionTermSet{
+                    payments = PaymentsTermSet#domain_PaymentsProvisionTerms{chargebacks = undefined}
+                }
+            }
+        }}
+    ].
+
 change_terms_limit_config_version(Revision, LimitConfigRevision) ->
     change_terms_limit_config_version(Revision, ?prv(5), [
         #domain_TurnoverLimit{
@@ -2361,8 +2384,7 @@ invalid_payment_adjustment(C) ->
     _UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_process_timeout(InvoiceID, PaymentID, Client),
     %% no way to create adjustment for a failed payment
-    %% Correction. It was changed to failed payment not being in the way of adjustment
-    ?adjustment(_AdjustmentID, ?adjustment_pending()) =
+    ?invalid_payment_status(?failed(_)) =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client).
 
 -spec payment_adjustment_success(config()) -> test_return().
@@ -3052,6 +3074,26 @@ create_chargeback_not_allowed(C) ->
         <<"RUB">>,
         ?tmpl(1),
         ?pinst(1),
+        PartyClient
+    ),
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
+    PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    CBParams = make_chargeback_params(?cash(1000, <<"RUB">>)),
+    Result = hg_client_invoicing:create_chargeback(InvoiceID, PaymentID, CBParams, Client),
+    ?assertMatch({exception, #payproc_OperationNotPermitted{}}, Result).
+
+-spec create_chargeback_provision_terms_not_allowed(config()) -> _ | no_return().
+create_chargeback_provision_terms_not_allowed(C) ->
+    %% NOTE See fixture setup in `unset_providers_chargebacks_terms'
+    Cost = 42000,
+    Client = cfg(client, C),
+    PartyClient = cfg(party_client, C),
+    ShopID = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_id, C),
+        ?cat(2),
+        <<"RUB">>,
+        ?tmpl(2),
+        ?pinst(2),
         PartyClient
     ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
