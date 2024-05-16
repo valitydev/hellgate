@@ -280,10 +280,13 @@ do_create(Opts, CreateParams = ?chargeback_params(Levy, Body, _Reason)) ->
     CreatedAt = hg_datetime:format_now(),
     Invoice = get_opts_invoice(Opts),
     Party = get_opts_party(Opts),
+    Route = get_opts_route(Opts),
     Payment = get_opts_payment(Opts),
     ShopID = get_invoice_shop_id(Invoice),
     Shop = hg_party:get_shop(ShopID, Party),
     VS = collect_validation_varset(Party, Shop, Payment, Body),
+    PaymentsTerms = hg_routing:get_payment_terms(Route, VS, Revision),
+    ProviderTerms = get_provider_chargeback_terms(PaymentsTerms, Payment),
     ServiceTerms = get_merchant_chargeback_terms(Party, Shop, VS, Revision, CreatedAt),
     _ = validate_currency(Body, Payment),
     _ = validate_currency(Levy, Payment),
@@ -291,6 +294,7 @@ do_create(Opts, CreateParams = ?chargeback_params(Levy, Body, _Reason)) ->
     _ = validate_contract_active(get_contract(Party, Shop)),
     _ = validate_service_terms(ServiceTerms),
     _ = validate_eligibility_time(ServiceTerms),
+    _ = validate_provider_terms(ProviderTerms),
     Chargeback = build_chargeback(Opts, CreateParams, Revision, CreatedAt),
     Action = hg_machine_action:instant(),
     Result = {[?chargeback_created(Chargeback)], Action},
@@ -557,6 +561,10 @@ validate_service_terms(#domain_PaymentChargebackServiceTerms{allow = {constant, 
     ok;
 validate_service_terms(undefined) ->
     throw(#payproc_OperationNotPermitted{}).
+
+validate_provider_terms(ProviderTerms) ->
+    _ = get_chargeback_provider_cash_flow(ProviderTerms),
+    ok.
 
 validate_contract_active(#domain_Contract{status = {active, _}}) ->
     ok;
