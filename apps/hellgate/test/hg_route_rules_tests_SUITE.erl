@@ -30,7 +30,6 @@
 -export([routes_selected_for_low_risk_score/1]).
 -export([terminal_priority_for_shop/1]).
 -export([gather_pinned_route/1]).
--export([choose_pinned_route/1]).
 -export([choose_route_w_override/1]).
 
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
@@ -73,7 +72,6 @@ groups() ->
             terminal_priority_for_shop,
 
             gather_pinned_route,
-            choose_pinned_route,
             choose_route_w_override
         ]}
     ].
@@ -795,34 +793,6 @@ gather_pinned_route(_C) ->
         ],
         Routes
     ).
-
--spec choose_pinned_route(config()) -> test_return().
-choose_pinned_route(_C) ->
-    Currency = ?cur(<<"RUB">>),
-    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
-    Pin1 = #{
-        currency => Currency,
-        payment_tool => PaymentTool,
-        client_ip => undefined
-    },
-    Pin2 = #{
-        currency => Currency,
-        payment_tool => PaymentTool
-    },
-    Pin3 = #{
-        currency => Currency,
-        payment_tool => PaymentTool
-    },
-    Route1 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin1),
-    Route2 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin2),
-    Route3 = hg_route:new(?prv(1), ?trm(1), 0, 0, Pin3),
-    Routes = [
-        Route1,
-        Route2,
-        Route3
-    ],
-    [ChosenRoute | _] = lists:sort(Routes),
-    {ChosenRoute, _} = hg_routing:choose_route(Routes).
 
 -spec choose_route_w_override(config()) -> test_return().
 choose_route_w_override(_C) ->
