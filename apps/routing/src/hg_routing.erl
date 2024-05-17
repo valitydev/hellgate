@@ -347,23 +347,42 @@ find_best_routes([First | Rest]) ->
 select_better_route({LeftScore, _} = Left, {RightScore, _} = Right) ->
     LeftPin = LeftScore#domain_PaymentRouteScores.route_pin,
     RightPin = RightScore#domain_PaymentRouteScores.route_pin,
-    case {LeftPin, RightPin} of
-        _ when LeftPin /= ?ZERO, RightPin /= ?ZERO ->
-            select_better_pinned_route(Left, Right);
-        _ ->
-            select_better_regular_route(Left, Right)
-    end.
+    Res =
+        case {LeftPin, RightPin} of
+            _ when LeftPin /= ?ZERO, RightPin /= ?ZERO, LeftPin == RightPin ->
+                select_better_pinned_route(Left, Right);
+            _ ->
+                select_better_regular_route(Left, Right)
+        end,
+    Res.
 
-select_better_pinned_route({LeftScore, _Route1} = Left, {RightScore, _Route2} = Right) ->
-    case max(LeftScore, RightScore) of
-        LeftScore ->
+select_better_pinned_route({LeftScore0, _Route1} = Left, {RightScore0, _Route2} = Right) ->
+    LeftScore1 = LeftScore0#domain_PaymentRouteScores{
+        random_condition = 0
+    },
+    RightScore1 = RightScore0#domain_PaymentRouteScores{
+        random_condition = 0
+    },
+    case max(LeftScore1, RightScore1) of
+        LeftScore1 ->
             Left;
-        RightScore ->
+        RightScore1 ->
             Right
     end.
 
-select_better_regular_route(Left, Right) ->
-    max(Left, Right).
+select_better_regular_route({LeftScore0, LRoute}, {RightScore0, RRoute}) ->
+    LeftScore1 = LeftScore0#domain_PaymentRouteScores{
+        route_pin = 0
+    },
+    RightScore1 = RightScore0#domain_PaymentRouteScores{
+        route_pin = 0
+    },
+    case max({LeftScore1, LRoute}, {RightScore1, RRoute}) of
+        {LeftScore1, LRoute} ->
+            {LeftScore0, LRoute};
+        {RightScore1, RRoute} ->
+            {RightScore0, RRoute}
+    end.
 
 select_better_route_ideal(Left, Right) ->
     IdealLeft = set_ideal_score(Left),
@@ -525,19 +544,17 @@ score_route_ext({Route, ProviderStatus}) ->
 score_route(Route) ->
     PriorityRate = hg_route:priority(Route),
     Pin = hg_route:pin(Route),
-    {RandomCondition, PinHash} =
-        case Pin of
-            #{} when map_size(Pin) == 0 ->
-                {hg_route:weight(Route), ?ZERO};
-            _ ->
-                {?ZERO, erlang:phash2(Pin)}
-        end,
     #domain_PaymentRouteScores{
         terminal_priority_rating = PriorityRate,
-        route_pin = PinHash,
-        random_condition = RandomCondition,
+        route_pin = get_pin_hash(Pin),
+        random_condition = hg_route:weight(Route),
         blacklist_condition = 0
     }.
+
+get_pin_hash(Pin) when map_size(Pin) == 0 ->
+    ?ZERO;
+get_pin_hash(Pin) ->
+    erlang:phash2(Pin).
 
 get_availability_score({alive, FailRate}) -> {1, 1.0 - FailRate};
 get_availability_score({dead, FailRate}) -> {0, 1.0 - FailRate}.
@@ -867,6 +884,42 @@ pin_random_test() ->
         undefined,
         lists:seq(0, 1000)
     ).
+
+-spec pin_weight_test() -> _.
+pin_weight_test() ->
+    Pin0 = #{
+        email => <<"example@mail.com">>
+    },
+    Pin1 = #{
+        email => <<"example2@mail.com">>
+    },
+    Scores = {{alive, 0.0}, {normal, 0.0}},
+    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin0), Scores},
+    Route2 = {hg_route:new(?prv(2), ?trm(2), 50, 1, Pin1), Scores},
+    {_, DiffTimes} = lists:foldl(
+        fun(_I, {Acc, Iter}) ->
+            BalancedRoutes = balance_routes([Route1, Route2]),
+            ScoredRoutes = score_routes(BalancedRoutes),
+            {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
+            case Acc of
+                undefined ->
+                    {ChosenScoredRoute, Iter};
+                _ ->
+                    ChosenTerminal = hg_route:terminal_ref(ChosenScoredRoute),
+                    case hg_route:terminal_ref(Acc) of
+                        ChosenTerminal ->
+                            {Acc, Iter};
+                        _ ->
+                            {Acc, Iter + 1}
+                    end
+            end
+        end,
+        {undefined, 0},
+        lists:seq(0, 1000)
+    ),
+    ?assertNotEqual(0, DiffTimes),
+    ?assertEqual(true, DiffTimes > 300),
+    ?assertEqual(true, DiffTimes < 700).
 
 -spec balance_routes_test_() -> [testcase()].
 balance_routes_test_() ->

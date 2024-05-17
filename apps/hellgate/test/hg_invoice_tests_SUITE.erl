@@ -2384,7 +2384,8 @@ invalid_payment_adjustment(C) ->
     _UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_process_timeout(InvoiceID, PaymentID, Client),
     %% no way to create adjustment for a failed payment
-    ?invalid_payment_status(?failed(_)) =
+    %% Correction. It was changed to failed payment not being in the way of adjustment
+    ?adjustment(_AdjustmentID, ?adjustment_pending()) =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client).
 
 -spec payment_adjustment_success(config()) -> test_return().
