@@ -895,31 +895,28 @@ pin_weight_test() ->
     },
     Scores = {{alive, 0.0}, {normal, 0.0}},
     Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin0), Scores},
-    Route2 = {hg_route:new(?prv(2), ?trm(2), 50, 1, Pin1), Scores},
-    {_, DiffTimes} = lists:foldl(
-        fun(_I, {Acc, Iter}) ->
-            BalancedRoutes = balance_routes([Route1, Route2]),
-            ScoredRoutes = score_routes(BalancedRoutes),
-            {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
-            case Acc of
-                undefined ->
-                    {ChosenScoredRoute, Iter};
-                _ ->
-                    ChosenTerminal = hg_route:terminal_ref(ChosenScoredRoute),
-                    case hg_route:terminal_ref(Acc) of
-                        ChosenTerminal ->
-                            {Acc, Iter};
-                        _ ->
-                            {Acc, Iter + 1}
-                    end
+    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin1), Scores},
+    {FI1, FI2} = lists:foldl(
+        fun(_I, {Iter1, Iter2}) ->
+            ShuffledRoute = shuffle_routes([Route1, Route2]),
+            case ShuffledRoute of
+                ?trm(1) ->
+                    {Iter1 + 1, Iter2};
+                ?trm(2) ->
+                    {Iter1, Iter2 + 1}
             end
         end,
-        {undefined, 0},
+        {0, 0},
         lists:seq(0, 1000)
     ),
-    ?assertNotEqual(0, DiffTimes),
-    ?assertEqual(true, DiffTimes > 300),
-    ?assertEqual(true, DiffTimes < 700).
+    ?assertEqual(true, FI1 > 400),
+    ?assertEqual(true, FI2 > 400).
+
+shuffle_routes(Routes) ->
+    BalancedRoutes = balance_routes(Routes),
+    ScoredRoutes = score_routes(BalancedRoutes),
+    {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
+    hg_route:terminal_ref(ChosenScoredRoute).
 
 -spec balance_routes_test_() -> [testcase()].
 balance_routes_test_() ->
