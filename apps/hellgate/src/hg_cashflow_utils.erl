@@ -134,6 +134,8 @@ get_cashflow_payment_institution(Party, Shop, VS, Revision) ->
 
 get_amount(#{refund := #domain_InvoicePaymentRefund{cash = Cash}}) ->
     Cash;
+get_amount(#{payment := #domain_InvoicePayment{changed_cost = ChangedCost}}) when ChangedCost /= undefined ->
+    ChangedCost;
 get_amount(#{payment := #domain_InvoicePayment{cost = Cost}}) ->
     Cost.
 

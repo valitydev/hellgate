@@ -2720,7 +2720,8 @@ payment_adjustment_captured_from_failed(C) ->
 
     AdjustmentID = execute_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams, Client),
     ?payment_state(Payment) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
-    ?assertMatch(#domain_InvoicePayment{status = Captured, cost = CaptureCost}, Payment),
+    %%  Latest change is that CaptureCost is stored not in cost, but in changed_cost
+    ?assertMatch(#domain_InvoicePayment{status = Captured, changed_cost = CaptureCost}, Payment),
 
     % verify that cash deposited correctly everywhere
     % new cash flow must be calculated using initial domain and party revisions

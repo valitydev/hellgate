@@ -901,7 +901,7 @@ collect_validation_varset(Party, Shop, VS) ->
 collect_validation_varset(Party, Shop, Payment, VS) ->
     VS0 = collect_validation_varset(Party, Shop, VS),
     VS0#{
-        cost => get_payment_cost(Payment),
+        cost => get_actual_payment_cost(Payment),
         payment_tool => get_payment_tool(Payment)
     }.
 
@@ -968,11 +968,11 @@ capture(St, Reason, Cost, Cart, AllocationPrototype, Opts) ->
     CaptureCost = genlib:define(Cost, get_payment_cost(Payment)),
     #domain_Invoice{allocation = Allocation0} = get_invoice(Opts),
     Allocation1 = genlib:define(maybe_allocation(AllocationPrototype, CaptureCost, MerchantTerms, Opts), Allocation0),
-    case check_equal_capture_cost_amount(Cost, Payment) of
+    case check_equal_capture_cost_amount(CaptureCost, Payment) of
         true ->
             total_capture(St, Reason, Cart, Allocation1);
         false ->
-            partial_capture(St, Reason, Cost, Cart, Opts, MerchantTerms, Timestamp, Allocation1)
+            partial_capture(St, Reason, CaptureCost, Cart, Opts, MerchantTerms, Timestamp, Allocation1)
     end.
 
 maybe_allocation(undefined, _Cost, _MerchantTerms, _Opts) ->
@@ -1029,7 +1029,7 @@ total_capture(St, Reason, Cart, Allocation) ->
 
 partial_capture(St0, Reason, Cost, Cart, Opts, MerchantTerms, Timestamp, Allocation) ->
     Payment = get_payment(St0),
-    Payment2 = Payment#domain_InvoicePayment{cost = Cost},
+    Payment2 = Payment#domain_InvoicePayment{changed_cost = Cost},
     St = St0#st{payment = Payment2},
     Revision = get_payment_revision(St),
     VS = collect_validation_varset(St, Opts),
@@ -1334,7 +1334,7 @@ get_remaining_payment_amount(Cash, St) ->
 -spec get_remaining_payment_balance(st()) -> cash().
 get_remaining_payment_balance(St) ->
     Chargebacks = [CB#payproc_InvoicePaymentChargeback.chargeback || CB <- get_chargebacks(St)],
-    PaymentAmount = get_payment_cost(get_payment(St)),
+    PaymentAmount = get_actual_payment_cost(get_payment(St)),
     lists:foldl(
         fun
             (#payproc_InvoicePaymentRefund{refund = R}, Acc) ->
@@ -1366,7 +1366,7 @@ get_provider_refunds_terms(
     Refund,
     Payment
 ) when Terms /= undefined ->
-    Cost = get_payment_cost(Payment),
+    Cost = get_actual_payment_cost(Payment),
     Cash = get_refund_cash(Refund),
     case hg_cash:sub(Cost, Cash) of
         ?cash(0, _) ->
@@ -1402,7 +1402,7 @@ get_provider_partial_refunds_terms(
     error({misconfiguration, {'No partial refund terms for a payment', Payment}}).
 
 validate_refund(Terms, Refund, Payment) ->
-    Cost = get_payment_cost(Payment),
+    Cost = get_actual_payment_cost(Payment),
     Cash = get_refund_cash(Refund),
     case hg_cash:sub(Cost, Cash) of
         ?cash(0, _) ->
@@ -1502,9 +1502,9 @@ maybe_inject_new_cost_amount(
     Payment,
     {'cash_flow', #domain_InvoicePaymentAdjustmentCashFlow{new_amount = NewAmount}}
 ) when NewAmount =/= undefined ->
-    OldCost = get_payment_cost(Payment),
+    OldCost = get_actual_payment_cost(Payment),
     NewCost = OldCost#domain_Cash{amount = NewAmount},
-    Payment1 = Payment#domain_InvoicePayment{cost = NewCost},
+    Payment1 = Payment#domain_InvoicePayment{changed_cost = NewCost},
     {Payment1, [?cash_changed(OldCost, NewCost)]};
 maybe_inject_new_cost_amount(Payment, _AdjustmentScenario) ->
     {Payment, []}.
@@ -2847,6 +2847,7 @@ construct_proxy_payment(
         payer = Payer,
         payer_session_info = PayerSessionInfo,
         cost = Cost,
+        changed_cost = ChangedCost,
         make_recurrent = MakeRecurrent,
         processing_deadline = Deadline
     },
@@ -2854,6 +2855,7 @@ construct_proxy_payment(
 ) ->
     ContactInfo = get_contact_info(Payer),
     PaymentTool = get_payer_payment_tool(Payer),
+    FinalCost = genlib:define(ChangedCost, Cost),
     #proxy_provider_InvoicePayment{
         id = ID,
         created_at = CreatedAt,
@@ -2861,7 +2863,7 @@ construct_proxy_payment(
         payment_resource = construct_payment_resource(Payer),
         payment_service = hg_payment_tool:get_payment_service(PaymentTool, Revision),
         payer_session_info = PayerSessionInfo,
-        cost = construct_proxy_cash(Cost),
+        cost = construct_proxy_cash(FinalCost),
         contact_info = ContactInfo,
         make_recurrent = MakeRecurrent,
         processing_deadline = Deadline
@@ -2981,6 +2983,11 @@ get_invoice_shop_id(#domain_Invoice{shop_id = ShopID}) ->
 
 get_payment_id(#domain_InvoicePayment{id = ID}) ->
     ID.
+
+get_actual_payment_cost(#domain_InvoicePayment{changed_cost = ChangedCost}) when ChangedCost /= undefined ->
+    ChangedCost;
+get_actual_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
+    Cost.
 
 get_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
     Cost.
@@ -3226,12 +3233,23 @@ merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{paym
         activity = idle,
         timings = accrue_status_timing(cancelled, Opts, St)
     };
-merge_change(Change = ?payment_status_changed({captured, Captured} = Status), #st{payment = Payment} = St, Opts) ->
+merge_change(
+    Change = ?payment_status_changed({captured, Captured} = Status),
+    #st{payment = Payment, new_cash_provided = NewCashProvided} = St,
+    Opts
+) ->
     _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
+    Cost =
+        case NewCashProvided of
+            true ->
+                Payment#domain_InvoicePayment.changed_cost;
+            _ ->
+                get_captured_cost(Captured, Payment)
+        end,
     St#st{
         payment = Payment#domain_InvoicePayment{
             status = Status,
-            cost = get_captured_cost(Captured, Payment)
+            changed_cost = Cost
         },
         activity = idle,
         timings = accrue_status_timing(captured, Opts, St),
@@ -3482,7 +3500,7 @@ apply_adjustment_effect(status, ?adjustment_target_status(Status), St = #st{paym
             St#st{
                 payment = Payment#domain_InvoicePayment{
                     status = Status,
-                    cost = get_captured_cost(Capture, Payment)
+                    changed_cost = get_captured_cost(Capture, Payment)
                 }
             };
         _ ->
@@ -3602,7 +3620,7 @@ get_origin(#st{payment = #domain_InvoicePayment{registration_origin = Origin}}) 
 
 get_captured_cost(#domain_InvoicePaymentCaptured{cost = Cost}, _) when Cost /= undefined ->
     Cost;
-get_captured_cost(_, #domain_InvoicePayment{cost = Cost}) ->
+get_captured_cost(_, #domain_InvoicePayment{changed_cost = Cost}) ->
     Cost.
 
 get_captured_allocation(#domain_InvoicePaymentCaptured{allocation = Allocation}) ->
