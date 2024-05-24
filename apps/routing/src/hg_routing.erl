@@ -543,18 +543,19 @@ score_route_ext({Route, ProviderStatus}) ->
 
 score_route(Route) ->
     PriorityRate = hg_route:priority(Route),
+    PR = hg_route:to_payment_route(Route),
     Pin = hg_route:pin(Route),
     #domain_PaymentRouteScores{
         terminal_priority_rating = PriorityRate,
-        route_pin = get_pin_hash(Pin),
+        route_pin = get_pin_hash(Pin, PR),
         random_condition = hg_route:weight(Route),
         blacklist_condition = 0
     }.
 
-get_pin_hash(Pin) when map_size(Pin) == 0 ->
+get_pin_hash(Pin, _Context) when map_size(Pin) == 0 ->
     ?ZERO;
-get_pin_hash(Pin) ->
-    erlang:phash2(Pin).
+get_pin_hash(Pin, Context) ->
+    erlang:phash2({Pin, Context}).
 
 get_availability_score({alive, FailRate}) -> {1, 1.0 - FailRate};
 get_availability_score({dead, FailRate}) -> {0, 1.0 - FailRate}.
@@ -893,9 +894,10 @@ pin_weight_test() ->
     Pin1 = #{
         email => <<"example2@mail.com">>
     },
-    Scores = {{alive, 0.0}, {normal, 0.0}},
-    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin0), Scores},
-    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin1), Scores},
+    Scores1 = {{alive, 0.0}, {normal, 0.0}},
+    Scores2 = {{alive, 0.0}, {normal, 0.0}},
+    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin0, ?fd_overrides(true)), Scores1},
+    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin1, ?fd_overrides(true)), Scores2},
     {FI1, FI2} = lists:foldl(
         fun(_I, {Iter1, Iter2}) ->
             ShuffledRoute = shuffle_routes([Route1, Route2]),
