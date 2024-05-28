@@ -1,6 +1,29 @@
 services:
 
+  dominant:
+    environment: &otlp_enabled
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_TRACES_SAMPLER: parentbased_always_off
+      OTEL_EXPORTER_OTLP_PROTOCOL: http_protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+
+  bender:
+    environment: *otlp_enabled
+
+  limiter:
+    environment: *otlp_enabled
+
+  party-management:
+    environment: *otlp_enabled
+
+  machinegun:
+    environment: *otlp_enabled
+
   testrunner:
+    environment:
+      <<: *otlp_enabled
+      OTEL_SERVICE_NAME: hellgate_testrunner
+      OTEL_TRACES_SAMPLER: parentbased_always_on
     depends_on:
       jaeger:
         condition: service_healthy

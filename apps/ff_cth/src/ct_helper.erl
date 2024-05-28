@@ -124,32 +124,6 @@ start_app(ff_server = AppName) ->
             {port, 8022},
             {admin, #{
                 path => <<"/v1/admin">>
-            }},
-            {eventsink, #{
-                identity => #{
-                    namespace => 'ff/identity'
-                },
-                wallet => #{
-                    namespace => 'ff/wallet_v2'
-                },
-                withdrawal => #{
-                    namespace => 'ff/withdrawal_v2'
-                },
-                deposit => #{
-                    namespace => 'ff/deposit_v1'
-                },
-                destination => #{
-                    namespace => 'ff/destination_v2'
-                },
-                source => #{
-                    namespace => 'ff/source_v1'
-                },
-                withdrawal_session => #{
-                    namespace => 'ff/withdrawal/session_v2'
-                },
-                w2w_transfer => #{
-                    namespace => 'ff/w2w_transfer_v1'
-                }
             }}
         ]),
         #{}

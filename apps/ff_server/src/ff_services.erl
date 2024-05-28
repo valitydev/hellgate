@@ -21,20 +21,6 @@ get_service(fistful_provider) ->
     {fistful_provider_thrift, 'Management'};
 get_service(ff_withdrawal_adapter_host) ->
     {dmsl_wthd_provider_thrift, 'AdapterHost'};
-get_service(deposit_event_sink) ->
-    {fistful_deposit_thrift, 'EventSink'};
-get_service(source_event_sink) ->
-    {fistful_source_thrift, 'EventSink'};
-get_service(destination_event_sink) ->
-    {fistful_destination_thrift, 'EventSink'};
-get_service(identity_event_sink) ->
-    {fistful_identity_thrift, 'EventSink'};
-get_service(wallet_event_sink) ->
-    {fistful_wallet_thrift, 'EventSink'};
-get_service(withdrawal_event_sink) ->
-    {fistful_wthd_thrift, 'EventSink'};
-get_service(withdrawal_session_event_sink) ->
-    {fistful_wthd_session_thrift, 'EventSink'};
 get_service(withdrawal_session_repairer) ->
     {fistful_wthd_session_thrift, 'Repairer'};
 get_service(withdrawal_repairer) ->
@@ -55,8 +41,6 @@ get_service(withdrawal_session_management) ->
     {fistful_wthd_session_thrift, 'Management'};
 get_service(deposit_management) ->
     {fistful_deposit_thrift, 'Management'};
-get_service(w2w_transfer_event_sink) ->
-    {fistful_w2w_transfer_thrift, 'EventSink'};
 get_service(w2w_transfer_repairer) ->
     {fistful_w2w_transfer_thrift, 'Repairer'};
 get_service(w2w_transfer_management) ->
@@ -75,20 +59,6 @@ get_service_path(fistful_provider) ->
     "/v1/provider";
 get_service_path(ff_withdrawal_adapter_host) ->
     "/v1/ff_withdrawal_adapter_host";
-get_service_path(deposit_event_sink) ->
-    "/v1/eventsink/deposit";
-get_service_path(source_event_sink) ->
-    "/v1/eventsink/source";
-get_service_path(destination_event_sink) ->
-    "/v1/eventsink/destination";
-get_service_path(identity_event_sink) ->
-    "/v1/eventsink/identity";
-get_service_path(wallet_event_sink) ->
-    "/v1/eventsink/wallet";
-get_service_path(withdrawal_event_sink) ->
-    "/v1/eventsink/withdrawal";
-get_service_path(withdrawal_session_event_sink) ->
-    "/v1/eventsink/withdrawal/session";
 get_service_path(withdrawal_session_repairer) ->
     "/v1/repair/withdrawal/session";
 get_service_path(withdrawal_repairer) ->
@@ -109,8 +79,6 @@ get_service_path(withdrawal_session_management) ->
     "/v1/withdrawal_session";
 get_service_path(deposit_management) ->
     "/v1/deposit";
-get_service_path(w2w_transfer_event_sink) ->
-    "/v1/eventsink/w2w_transfer";
 get_service_path(w2w_transfer_repairer) ->
     "/v1/repair/w2w_transfer";
 get_service_path(w2w_transfer_management) ->

@@ -25,7 +25,6 @@
 -export([no_parallel_adjustments_test/1]).
 -export([no_pending_w2w_transfer_adjustments_test/1]).
 -export([unknown_w2w_transfer_test/1]).
--export([consume_eventsinks/1]).
 
 %% Internal types
 
@@ -42,7 +41,7 @@
 
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
-    [{group, default}, {group, eventsink}].
+    [{group, default}].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
@@ -58,9 +57,6 @@ groups() ->
             no_parallel_adjustments_test,
             no_pending_w2w_transfer_adjustments_test,
             unknown_w2w_transfer_test
-        ]},
-        {eventsink, [], [
-            consume_eventsinks
         ]}
     ].
 
@@ -297,11 +293,6 @@ unknown_w2w_transfer_test(_C) ->
         change => {change_status, pending}
     }),
     ?assertMatch({error, {unknown_w2w_transfer, W2WTransferID}}, Result).
-
--spec consume_eventsinks(config()) -> test_return().
-consume_eventsinks(_) ->
-    EventSinks = [w2w_transfer_event_sink],
-    [_Events = ct_eventsink:consume(1000, Sink) || Sink <- EventSinks].
 
 %% Utils
 

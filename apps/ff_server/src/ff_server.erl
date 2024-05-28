@@ -98,7 +98,7 @@ init([]) ->
             {w2w_transfer_management, ff_w2w_transfer_handler},
             {w2w_transfer_repairer, ff_w2w_transfer_repair},
             {ff_claim_committer, ff_claim_committer_handler}
-        ] ++ get_eventsink_handlers(),
+        ],
     WoodyHandlers = [get_handler(Service, Handler, WrapperOpts) || {Service, Handler} <- Services],
 
     ServicesChildSpec = woody_server:child_spec(
@@ -170,40 +170,6 @@ get_service_client(ServiceID) ->
             ff_woody_client:new(V);
         #{} ->
             error({unknown_service, ServiceID})
-    end.
-
-get_eventsink_handlers() ->
-    Client = get_service_client(eventsink),
-    Cfg = #{
-        client => Client
-    },
-    Publishers = [
-        {deposit, deposit_event_sink, ff_deposit_eventsink_publisher},
-        {source, source_event_sink, ff_source_eventsink_publisher},
-        {destination, destination_event_sink, ff_destination_eventsink_publisher},
-        {identity, identity_event_sink, ff_identity_eventsink_publisher},
-        {wallet, wallet_event_sink, ff_wallet_eventsink_publisher},
-        {withdrawal, withdrawal_event_sink, ff_withdrawal_eventsink_publisher},
-        {withdrawal_session, withdrawal_session_event_sink, ff_withdrawal_session_eventsink_publisher},
-        {w2w_transfer, w2w_transfer_event_sink, ff_w2w_transfer_eventsink_publisher}
-    ],
-    [get_eventsink_handler(Name, Service, Publisher, Cfg) || {Name, Service, Publisher} <- Publishers].
-
-get_eventsink_handler(Name, Service, Publisher, Config) ->
-    Sinks = genlib_app:env(?MODULE, eventsink, #{}),
-    case maps:find(Name, Sinks) of
-        {ok, Opts} ->
-            NS = maps:get(namespace, Opts),
-            StartEvent = maps:get(start_event, Opts, 0),
-            FullConfig = Config#{
-                ns => erlang:atom_to_binary(NS, utf8),
-                publisher => Publisher,
-                start_event => StartEvent,
-                schema => get_namespace_schema(NS)
-            },
-            {Service, {ff_eventsink_handler, FullConfig}};
-        error ->
-            erlang:error({unknown_eventsink, Name, Sinks})
     end.
 
 get_namespace_schema('ff/identity') ->
