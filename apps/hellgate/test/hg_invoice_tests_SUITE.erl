@@ -80,7 +80,7 @@
 -export([payment_adjustment_captured_partial/1]).
 -export([payment_adjustment_captured_from_failed/1]).
 -export([payment_adjustment_failed_from_captured/1]).
--export([payment_adjustment_changed_amount_on_captured/1]).
+-export([payment_adjustment_change_amount_and_captured/1]).
 -export([status_adjustment_of_partial_refunded_payment/1]).
 -export([registered_payment_adjustment_success/1]).
 -export([invalid_payment_w_deprived_party/1]).
@@ -348,7 +348,7 @@ groups() ->
             payment_adjustment_captured_partial,
             payment_adjustment_captured_from_failed,
             payment_adjustment_failed_from_captured,
-            payment_adjustment_changed_amount_on_captured,
+            payment_adjustment_change_amount_and_captured,
             status_adjustment_of_partial_refunded_payment,
             registered_payment_adjustment_success
         ]},
@@ -668,7 +668,7 @@ init_per_testcase(Name, C) when
     Name == payment_adjustment_captured_partial;
     Name == payment_adjustment_captured_from_failed;
     Name == payment_adjustment_failed_from_captured;
-    Name == payment_adjustment_changed_amount_on_captured;
+    Name == payment_adjustment_change_amount_and_captured;
     Name == registered_payment_adjustment_success
 ->
     Revision = hg_domain:head(),
@@ -2794,8 +2794,8 @@ payment_adjustment_failed_from_captured(C) ->
     SysDiff = MrcAmount1 - PrvAmount1,
     ?assertEqual(SysDiff, maps:get(own_amount, SysAccount1) - maps:get(own_amount, SysAccount2)).
 
--spec payment_adjustment_changed_amount_on_captured(config()) -> test_return().
-payment_adjustment_changed_amount_on_captured(C) ->
+-spec payment_adjustment_change_amount_and_captured(config()) -> test_return().
+payment_adjustment_change_amount_and_captured(C) ->
     %% NOTE See share definitions macro
     %% Original cashflow, `?share(21, 1000, operation_amount))` :
     %%     TO | merch  | syst  | prov    | ext

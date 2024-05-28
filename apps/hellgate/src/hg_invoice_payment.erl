@@ -1481,12 +1481,13 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
         revision => NewRevision,
         allocation => Allocation
     },
-    NewCashFlow = case Payment of
-        #domain_InvoicePayment{status = {failed, _}} ->
-            [];
-        _ ->
-            calculate_cashflow(Context, Opts)
-    end,
+    NewCashFlow =
+        case Payment of
+            #domain_InvoicePayment{status = {failed, _}} ->
+                [];
+            _ ->
+                calculate_cashflow(Context, Opts)
+        end,
     AdjState =
         {cash_flow, #domain_InvoicePaymentAdjustmentCashFlowState{
             scenario = #domain_InvoicePaymentAdjustmentCashFlow{domain_revision = DomainRevision}
@@ -1613,14 +1614,15 @@ get_cash_flow_for_target_status({captured, Captured}, St0, Opts) ->
     Payment1 = Payment0#domain_InvoicePayment{
         cost = Cost
     },
-    Payment2 = case Payment1 of
-        #domain_InvoicePayment{changed_cost = ChangedCost} when ChangedCost =/= undefined ->
-            Payment1#domain_InvoicePayment{
-                cost = ChangedCost
-            };
-        _ ->
-            Payment1
-    end,
+    Payment2 =
+        case Payment1 of
+            #domain_InvoicePayment{changed_cost = ChangedCost} when ChangedCost =/= undefined ->
+                Payment1#domain_InvoicePayment{
+                    cost = ChangedCost
+                };
+            _ ->
+                Payment1
+        end,
     Timestamp = get_payment_created_at(Payment2),
     St = St0#st{payment = Payment2},
     Revision = Payment2#domain_InvoicePayment.domain_revision,
