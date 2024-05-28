@@ -893,6 +893,45 @@ pin_random_test() ->
         lists:seq(0, 1000)
     ).
 
+-spec diff_pin_test() -> _.
+diff_pin_test() ->
+    Pin = #{
+        email => <<"example@mail.com">>
+    },
+    Scores = {{alive, 0.0}, {normal, 0.0}},
+    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 33, Pin), Scores},
+    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 33, Pin), Scores},
+    Route3 = {hg_route:new(?prv(1), ?trm(3), 50, 33, Pin#{client_ip => <<"IP">>}), Scores},
+    {I1, I2, I3} = lists:foldl(
+        fun(_I, {Iter1, Iter2, Iter3}) ->
+            {ST, _} = shuffle_routes([Route1, Route2, Route3]),
+            case ST of
+                ?trm(1) ->
+                    {Iter1 + 1, Iter2, Iter3};
+                ?trm(2) ->
+                    {Iter1, Iter2 + 1, Iter3};
+                ?trm(3) ->
+                    {Iter1, Iter2, Iter3 + 1}
+            end
+        end,
+        {0, 0, 0},
+        lists:seq(0, 1000)
+    ),
+    case {I1, I2} of
+        {0, S} when S > 400 ->
+            true;
+        {S, 0} when S > 400 ->
+            true;
+        SomethingElse ->
+            error({{i1, i2}, SomethingElse})
+    end,
+    case I3 of
+        _ when I3 > 300 ->
+            true;
+        _ ->
+            error({i3, I3})
+    end.
+
 -spec pin_weight_test() -> _.
 pin_weight_test() ->
     Pin0 = #{
@@ -925,7 +964,7 @@ pin_weight_test() ->
 shuffle_routes(Routes) ->
     BalancedRoutes = balance_routes(Routes),
     ScoredRoutes = score_routes(BalancedRoutes),
-    {{_, ChosenScoredRoute} = C, _IdealRoute} = find_best_routes(ScoredRoutes),
+    {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
     {hg_route:terminal_ref(ChosenScoredRoute), ChosenScoredRoute}.
 
 -spec balance_routes_test_() -> [testcase()].
