@@ -1481,7 +1481,12 @@ create_cash_flow_adjustment(Timestamp, Params, DomainRevision, St, Opts) ->
         revision => NewRevision,
         allocation => Allocation
     },
-    NewCashFlow = calculate_cashflow(Context, Opts),
+    NewCashFlow = case Payment of
+        #domain_InvoicePayment{status = {failed, _}} ->
+            [];
+        _ ->
+            calculate_cashflow(Context, Opts)
+    end,
     AdjState =
         {cash_flow, #domain_InvoicePaymentAdjustmentCashFlowState{
             scenario = #domain_InvoicePaymentAdjustmentCashFlow{domain_revision = DomainRevision}
@@ -1605,17 +1610,25 @@ get_cash_flow_for_target_status({captured, Captured}, St0, Opts) ->
     Route = get_route(St0),
     Cost = get_captured_cost(Captured, Payment0),
     Allocation = get_captured_allocation(Captured),
-    Payment = Payment0#domain_InvoicePayment{
+    Payment1 = Payment0#domain_InvoicePayment{
         cost = Cost
     },
-    Timestamp = get_payment_created_at(Payment),
-    St = St0#st{payment = Payment},
-    Revision = Payment#domain_InvoicePayment.domain_revision,
+    Payment2 = case Payment1 of
+        #domain_InvoicePayment{changed_cost = ChangedCost} when ChangedCost =/= undefined ->
+            Payment1#domain_InvoicePayment{
+                cost = ChangedCost
+            };
+        _ ->
+            Payment1
+    end,
+    Timestamp = get_payment_created_at(Payment2),
+    St = St0#st{payment = Payment2},
+    Revision = Payment2#domain_InvoicePayment.domain_revision,
     VS = collect_validation_varset(St, Opts),
     Context = #{
         provision_terms => get_provider_terminal_terms(Route, VS, Revision),
         route => Route,
-        payment => Payment,
+        payment => Payment2,
         timestamp => Timestamp,
         varset => VS,
         revision => Revision,
@@ -2982,6 +2995,8 @@ get_invoice_shop_id(#domain_Invoice{shop_id = ShopID}) ->
 get_payment_id(#domain_InvoicePayment{id = ID}) ->
     ID.
 
+get_payment_cost(#domain_InvoicePayment{changed_cost = Cost}) when Cost =/= undefined ->
+    Cost;
 get_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
     Cost.
 
