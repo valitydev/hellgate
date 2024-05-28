@@ -349,20 +349,31 @@ select_better_route({LeftScore, _} = Left, {RightScore, _} = Right) ->
     RightPin = RightScore#domain_PaymentRouteScores.route_pin,
     Res =
         case {LeftPin, RightPin} of
-            _ when LeftPin /= ?ZERO, RightPin /= ?ZERO, LeftPin == RightPin ->
+            _ when LeftPin /= ?ZERO, RightPin /= ?ZERO, RightPin == LeftPin ->
                 select_better_pinned_route(Left, Right);
             _ ->
                 select_better_regular_route(Left, Right)
         end,
     Res.
 
-select_better_pinned_route({LeftScore0, _Route1} = Left, {RightScore0, _Route2} = Right) ->
+select_better_pinned_route({LeftScore0, LeftRoute} = Left, {RightScore0, RightRoute} = Right) ->
     LeftScore1 = LeftScore0#domain_PaymentRouteScores{
-        random_condition = 0
+        random_condition = 0,
+        route_pin = erlang:phash2({
+            LeftScore0#domain_PaymentRouteScores.route_pin,
+            hg_route:provider_ref(LeftRoute),
+            hg_route:terminal_ref(LeftRoute)
+        })
     },
     RightScore1 = RightScore0#domain_PaymentRouteScores{
-        random_condition = 0
+        random_condition = 0,
+        route_pin = erlang:phash2({
+            RightScore0#domain_PaymentRouteScores.route_pin,
+            hg_route:provider_ref(RightRoute),
+            hg_route:terminal_ref(RightRoute)
+        })
     },
+
     case max(LeftScore1, RightScore1) of
         LeftScore1 ->
             Left;
@@ -543,19 +554,18 @@ score_route_ext({Route, ProviderStatus}) ->
 
 score_route(Route) ->
     PriorityRate = hg_route:priority(Route),
-    PR = hg_route:to_payment_route(Route),
     Pin = hg_route:pin(Route),
     #domain_PaymentRouteScores{
         terminal_priority_rating = PriorityRate,
-        route_pin = get_pin_hash(Pin, PR),
+        route_pin = get_pin_hash(Pin),
         random_condition = hg_route:weight(Route),
         blacklist_condition = 0
     }.
 
-get_pin_hash(Pin, _Context) when map_size(Pin) == 0 ->
+get_pin_hash(Pin) when map_size(Pin) == 0 ->
     ?ZERO;
-get_pin_hash(Pin, Context) ->
-    erlang:phash2({Pin, Context}).
+get_pin_hash(Pin) ->
+    erlang:phash2(Pin).
 
 get_availability_score({alive, FailRate}) -> {1, 1.0 - FailRate};
 get_availability_score({dead, FailRate}) -> {0, 1.0 - FailRate}.
@@ -869,17 +879,14 @@ pin_random_test() ->
     Route2 = {hg_route:new(?prv(2), ?trm(2), 50, 1, Pin), Scores},
     lists:foldl(
         fun(_I, Acc) ->
-            BalancedRoutes = balance_routes([Route1, Route2]),
-            ScoredRoutes = score_routes(BalancedRoutes),
-            {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
+            {ST, _} = ShuffledRoute = shuffle_routes([Route1, Route2]),
             case Acc of
                 undefined ->
-                    ChosenScoredRoute;
+                    ShuffledRoute;
+                {ST, _} ->
+                    ShuffledRoute;
                 _ ->
-                    ChosenTerminal = hg_route:terminal_ref(ChosenScoredRoute),
-                    AccTerminal = hg_route:terminal_ref(Acc),
-                    _ = ?assertEqual(ChosenTerminal, AccTerminal),
-                    ChosenScoredRoute
+                    error({ShuffledRoute, Acc})
             end
         end,
         undefined,
@@ -892,33 +899,34 @@ pin_weight_test() ->
         email => <<"example@mail.com">>
     },
     Pin1 = #{
-        email => <<"example2@mail.com">>
+        email => <<"example1@mail.com">>
     },
     Scores1 = {{alive, 0.0}, {normal, 0.0}},
     Scores2 = {{alive, 0.0}, {normal, 0.0}},
     Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin0, ?fd_overrides(true)), Scores1},
-    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin1, ?fd_overrides(true)), Scores2},
-    {FI1, FI2} = lists:foldl(
-        fun(_I, {Iter1, Iter2}) ->
-            ShuffledRoute = shuffle_routes([Route1, Route2]),
-            case ShuffledRoute of
-                ?trm(1) ->
-                    {Iter1 + 1, Iter2};
-                ?trm(2) ->
-                    {Iter1, Iter2 + 1}
+    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin0, ?fd_overrides(true)), Scores2},
+    Route3 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin1, ?fd_overrides(true)), Scores1},
+    Route4 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin1, ?fd_overrides(true)), Scores2},
+    true = lists:foldl(
+        fun(_I, _A) ->
+            {ShuffledRoute1, _} = shuffle_routes([Route1, Route2]),
+            {ShuffledRoute2, _} = shuffle_routes([Route3, Route4]),
+            case true of
+                _ when ShuffledRoute1 == ?trm(1), ShuffledRoute2 == ?trm(2) ->
+                    true;
+                _ ->
+                    error({ShuffledRoute1, ShuffledRoute2})
             end
         end,
-        {0, 0},
+        true,
         lists:seq(0, 1000)
-    ),
-    ?assertEqual(true, FI1 > 400),
-    ?assertEqual(true, FI2 > 400).
+    ).
 
 shuffle_routes(Routes) ->
     BalancedRoutes = balance_routes(Routes),
     ScoredRoutes = score_routes(BalancedRoutes),
-    {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
-    hg_route:terminal_ref(ChosenScoredRoute).
+    {{_, ChosenScoredRoute} = C, _IdealRoute} = find_best_routes(ScoredRoutes),
+    {hg_route:terminal_ref(ChosenScoredRoute), ChosenScoredRoute}.
 
 -spec balance_routes_test_() -> [testcase()].
 balance_routes_test_() ->
