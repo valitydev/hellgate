@@ -2808,6 +2808,14 @@ payment_adjustment_change_amount_and_captured(C) ->
     %% DIFF---|  95500 |  2400 |  -97900 |  0
 
     Client = cfg(client, C),
+    PartyID = cfg(party_id, C),
+    {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
+    {ok, Shop} = party_client_thrift:get_shop(PartyID, cfg(shop_id, C), PartyClient, PartyCtx),
+
+    % reinit terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
+    % reinit merchant fees
+    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(1), PartyPair),
 
     OriginalAmount = 100000,
     NewAmount = 200000,
@@ -2829,6 +2837,26 @@ payment_adjustment_change_amount_and_captured(C) ->
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
 
+    erlang:display([
+        {test_1},
+        {provider, settlement, maps:get(own_amount, PrvAccount1)},
+        {system, settlement, maps:get(own_amount, SysAccount1)},
+        {merchant, settlement, maps:get(own_amount, MrcAccount1)}
+    ]),
+
+    CashFlow1 = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
+    ?assertEqual(
+        [
+            % ?merchant_to_system_share_1 ?share(45, 1000, operation_amount)
+            {{merchant, settlement}, {system, settlement}, 4500},
+            % ?share(1, 1, operation_amount)
+            {{provider, settlement}, {merchant, settlement}, 100000},
+            % ?system_to_provider_share_initial ?share(21, 1000, operation_amount)
+            {{system, settlement}, {provider, settlement}, 2100}
+        ],
+        CashFlow1
+    ),
+
     ?payment_state(#domain_InvoicePayment{cost = OriginalCost}) =
         hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
     ?assertEqual(?cash(OriginalAmount, <<"RUB">>), OriginalCost),
@@ -2849,15 +2877,22 @@ payment_adjustment_change_amount_and_captured(C) ->
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
-    Context0 = #{operation_amount => ?cash(OriginalAmount, <<"RUB">>)},
 
+    erlang:display([
+        {test_2},
+        {provider, settlement, maps:get(own_amount, PrvAccount2)},
+        {system, settlement, maps:get(own_amount, SysAccount2)},
+        {merchant, settlement, maps:get(own_amount, MrcAccount2)}
+    ]),
+
+    Context0 = #{operation_amount => ?cash(OriginalAmount, <<"RUB">>)},
     #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context0),
-    MrcDiff0 = OriginalAmount - MrcAmount1,
-    ?assertEqual(MrcDiff0, maps:get(own_amount, MrcAccount1) - maps:get(own_amount, MrcAccount2)),
     #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context0),
+    MrcDiff0 = OriginalAmount - MrcAmount1,
     PrvDiff0 = PrvAmount1 - OriginalAmount,
-    ?assertEqual(PrvDiff0, maps:get(own_amount, PrvAccount1) - maps:get(own_amount, PrvAccount2)),
     SysDiff0 = MrcAmount1 - PrvAmount1,
+    ?assertEqual(MrcDiff0, maps:get(own_amount, MrcAccount1) - maps:get(own_amount, MrcAccount2)),
+    ?assertEqual(PrvDiff0, maps:get(own_amount, PrvAccount1) - maps:get(own_amount, PrvAccount2)),
     ?assertEqual(SysDiff0, maps:get(own_amount, SysAccount1) - maps:get(own_amount, SysAccount2)),
 
     %% make cashflow adjustment in failed
@@ -2898,15 +2933,35 @@ payment_adjustment_change_amount_and_captured(C) ->
     SysAccount3 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
     MrcAccount3 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
 
+    erlang:display([
+        {test_3},
+        {provider, settlement, maps:get(own_amount, PrvAccount3)},
+        {system, settlement, maps:get(own_amount, SysAccount3)},
+        {merchant, settlement, maps:get(own_amount, MrcAccount3)}
+    ]),
+
+    CashFlow2 = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
+    ?assertEqual(
+        [
+            % ?merchant_to_system_share_1 ?share(45, 1000, operation_amount)
+            {{merchant, settlement}, {system, settlement}, 9000},
+            % ?share(1, 1, operation_amount)
+            {{provider, settlement}, {merchant, settlement}, 200000},
+            % ?system_to_provider_share_initial ?share(21, 1000, operation_amount)
+            {{system, settlement}, {provider, settlement}, 4200}
+        ],
+        CashFlow2
+    ),
+
     Context2 = #{operation_amount => ChangedCost},
     #domain_Cash{amount = MrcAmount3} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context2),
     #domain_Cash{amount = PrvAmount3} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context2),
     MrcDiff2 = NewAmount - MrcAmount3,
     PrvDiff2 = PrvAmount3 - NewAmount,
     SysDiff2 = MrcAmount3 - PrvAmount3,
-    ?assertEqual(MrcDiff2, maps:get(own_amount, MrcAccount3)),
-    ?assertEqual(PrvDiff2, maps:get(own_amount, PrvAccount3)),
-    ?assertEqual(SysDiff2, maps:get(own_amount, SysAccount3)).
+    ?assertEqual(MrcDiff2, maps:get(own_amount, MrcAccount3) - maps:get(own_amount, MrcAccount2)),
+    ?assertEqual(PrvDiff2, maps:get(own_amount, PrvAccount3) - maps:get(own_amount, PrvAccount2)),
+    ?assertEqual(SysDiff2, maps:get(own_amount, SysAccount3) - maps:get(own_amount, SysAccount2)).
 
 -spec status_adjustment_of_partial_refunded_payment(config()) -> test_return().
 status_adjustment_of_partial_refunded_payment(C) ->
