@@ -2890,8 +2890,7 @@ payment_adjustment_change_amount_and_captured(C) ->
     ?adjustment(AdjustmentID1, ?adjustment_pending()) =
         Adjustment1 =
         hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams1, Client),
-    Adjustment1 =
-        #domain_InvoicePaymentAdjustment{id = AdjustmentID1, reason = AdjReason1} =
+    #domain_InvoicePaymentAdjustment{id = AdjustmentID1, reason = AdjReason1} =
         hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID1, Client),
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_created(Adjustment1))) =
         next_change(InvoiceID, Client),
