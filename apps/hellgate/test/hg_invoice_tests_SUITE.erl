@@ -64,7 +64,9 @@
 -export([payments_w_bank_conditions/1]).
 -export([payment_success_on_second_try/1]).
 -export([payment_success_with_increased_cost/1]).
+-export([refund_payment_with_increased_cost/1]).
 -export([payment_success_with_decreased_cost/1]).
+-export([refund_payment_with_decreased_cost/1]).
 -export([payment_fail_after_silent_callback/1]).
 -export([invoice_success_on_third_payment/1]).
 -export([party_revision_check/1]).
@@ -323,7 +325,9 @@ groups() ->
             payment_w_deleted_customer,
             payment_success_on_second_try,
             payment_success_with_increased_cost,
+            refund_payment_with_increased_cost,
             payment_success_with_decreased_cost,
+            refund_payment_with_decreased_cost,
             payment_fail_after_silent_callback,
             payment_temporary_unavailability_retry_success,
             payment_temporary_unavailability_too_many_retries,
@@ -2120,6 +2124,78 @@ payment_success_with_increased_cost(C) ->
         ChangedCost
     ).
 
+-spec refund_payment_with_increased_cost(config()) -> test_return().
+refund_payment_with_increased_cost(C) ->
+    Client = cfg(client, C),
+    PartyID = cfg(party_id, C),
+    ShopID = cfg(shop_id, C),
+    {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
+    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, PartyCtx),
+
+    Amount = 42000,
+    NewAmount = 2 * Amount,
+
+    % reinit terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(1), get_payment_adjustment_provider_cashflow(initial)),
+    % reinit merchant fees
+    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(1), PartyPair),
+
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_increase, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {_, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
+        ?payment_ev(PaymentID, ?cash_changed(_, _)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CF)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 5, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = NewAmount, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ),
+
+    RefundParams = make_refund_params(),
+    % create a refund finally
+    RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+
+    % no more refunds for you
+    ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+
+    Context = #{operation_amount => ChangedCost},
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context),
+    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
+    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
+
 -spec payment_success_with_decreased_cost(config()) -> test_return().
 payment_success_with_decreased_cost(C) ->
     Client = cfg(client, C),
@@ -2138,6 +2214,78 @@ payment_success_with_decreased_cost(C) ->
         ChangedCost
     ).
 
+-spec refund_payment_with_decreased_cost(config()) -> test_return().
+refund_payment_with_decreased_cost(C) ->
+    Client = cfg(client, C),
+    PartyID = cfg(party_id, C),
+    ShopID = cfg(shop_id, C),
+    {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
+    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, PartyCtx),
+
+    Amount = 42000,
+    NewAmount = Amount div 2,
+
+    % reinit terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(1), get_payment_adjustment_provider_cashflow(initial)),
+    % reinit merchant fees
+    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(1), PartyPair),
+
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_decrease, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {_, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
+        ?payment_ev(PaymentID, ?cash_changed(_, _)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CF)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 5, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = NewAmount, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ),
+
+    RefundParams = make_refund_params(),
+    % create a refund finally
+    RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+
+    % no more refunds for you
+    ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+
+    Context = #{operation_amount => ChangedCost},
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context),
+    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
+    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
+
 execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
     PaymentID = hg_invoice_helper:start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = hg_invoice_helper:await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -2145,11 +2293,11 @@ execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
         ?payment_ev(PaymentID, ?cash_changed(_, _)),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
-        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)),
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 5, Client),
     PaymentID = hg_invoice_helper:await_payment_capture(InvoiceID, PaymentID, Client),
-    PaymentID.
+    {PaymentID, CashFlow}.
 
 -spec payment_fail_after_silent_callback(config()) -> _ | no_return().
 payment_fail_after_silent_callback(C) ->
