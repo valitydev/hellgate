@@ -349,20 +349,31 @@ select_better_route({LeftScore, _} = Left, {RightScore, _} = Right) ->
     RightPin = RightScore#domain_PaymentRouteScores.route_pin,
     Res =
         case {LeftPin, RightPin} of
-            _ when LeftPin /= ?ZERO, RightPin /= ?ZERO, LeftPin == RightPin ->
+            _ when LeftPin /= ?ZERO, RightPin /= ?ZERO, RightPin == LeftPin ->
                 select_better_pinned_route(Left, Right);
             _ ->
                 select_better_regular_route(Left, Right)
         end,
     Res.
 
-select_better_pinned_route({LeftScore0, _Route1} = Left, {RightScore0, _Route2} = Right) ->
+select_better_pinned_route({LeftScore0, LeftRoute} = Left, {RightScore0, RightRoute} = Right) ->
     LeftScore1 = LeftScore0#domain_PaymentRouteScores{
-        random_condition = 0
+        random_condition = 0,
+        route_pin = erlang:phash2({
+            LeftScore0#domain_PaymentRouteScores.route_pin,
+            hg_route:provider_ref(LeftRoute),
+            hg_route:terminal_ref(LeftRoute)
+        })
     },
     RightScore1 = RightScore0#domain_PaymentRouteScores{
-        random_condition = 0
+        random_condition = 0,
+        route_pin = erlang:phash2({
+            RightScore0#domain_PaymentRouteScores.route_pin,
+            hg_route:provider_ref(RightRoute),
+            hg_route:terminal_ref(RightRoute)
+        })
     },
+
     case max(LeftScore1, RightScore1) of
         LeftScore1 ->
             Left;
@@ -868,22 +879,58 @@ pin_random_test() ->
     Route2 = {hg_route:new(?prv(2), ?trm(2), 50, 1, Pin), Scores},
     lists:foldl(
         fun(_I, Acc) ->
-            BalancedRoutes = balance_routes([Route1, Route2]),
-            ScoredRoutes = score_routes(BalancedRoutes),
-            {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
+            {ST, _} = ShuffledRoute = shuffle_routes([Route1, Route2]),
             case Acc of
                 undefined ->
-                    ChosenScoredRoute;
+                    ShuffledRoute;
+                {ST, _} ->
+                    ShuffledRoute;
                 _ ->
-                    ChosenTerminal = hg_route:terminal_ref(ChosenScoredRoute),
-                    AccTerminal = hg_route:terminal_ref(Acc),
-                    _ = ?assertEqual(ChosenTerminal, AccTerminal),
-                    ChosenScoredRoute
+                    error({ShuffledRoute, Acc})
             end
         end,
         undefined,
         lists:seq(0, 1000)
     ).
+
+-spec diff_pin_test() -> _.
+diff_pin_test() ->
+    Pin = #{
+        email => <<"example@mail.com">>
+    },
+    Scores = {{alive, 0.0}, {normal, 0.0}},
+    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 33, Pin), Scores},
+    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 33, Pin), Scores},
+    Route3 = {hg_route:new(?prv(1), ?trm(3), 50, 33, Pin#{client_ip => <<"IP">>}), Scores},
+    {I1, I2, I3} = lists:foldl(
+        fun(_I, {Iter1, Iter2, Iter3}) ->
+            {ST, _} = shuffle_routes([Route1, Route2, Route3]),
+            case ST of
+                ?trm(1) ->
+                    {Iter1 + 1, Iter2, Iter3};
+                ?trm(2) ->
+                    {Iter1, Iter2 + 1, Iter3};
+                ?trm(3) ->
+                    {Iter1, Iter2, Iter3 + 1}
+            end
+        end,
+        {0, 0, 0},
+        lists:seq(0, 1000)
+    ),
+    case {I1, I2} of
+        {0, S} when S > 400 ->
+            true;
+        {S, 0} when S > 400 ->
+            true;
+        SomethingElse ->
+            error({{i1, i2}, SomethingElse})
+    end,
+    case I3 of
+        _ when I3 > 300 ->
+            true;
+        _ ->
+            error({i3, I3})
+    end.
 
 -spec pin_weight_test() -> _.
 pin_weight_test() ->
@@ -891,35 +938,34 @@ pin_weight_test() ->
         email => <<"example@mail.com">>
     },
     Pin1 = #{
-        email => <<"example2@mail.com">>
+        email => <<"example1@mail.com">>
     },
-    Scores = {{alive, 0.0}, {normal, 0.0}},
-    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin0), Scores},
-    Route2 = {hg_route:new(?prv(2), ?trm(2), 50, 1, Pin1), Scores},
-    {_, DiffTimes} = lists:foldl(
-        fun(_I, {Acc, Iter}) ->
-            BalancedRoutes = balance_routes([Route1, Route2]),
-            ScoredRoutes = score_routes(BalancedRoutes),
-            {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
-            case Acc of
-                undefined ->
-                    {ChosenScoredRoute, Iter};
+    Scores1 = {{alive, 0.0}, {normal, 0.0}},
+    Scores2 = {{alive, 0.0}, {normal, 0.0}},
+    Route1 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin0, ?fd_overrides(true)), Scores1},
+    Route2 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin0, ?fd_overrides(true)), Scores2},
+    Route3 = {hg_route:new(?prv(1), ?trm(1), 50, 1, Pin1, ?fd_overrides(true)), Scores1},
+    Route4 = {hg_route:new(?prv(1), ?trm(2), 50, 1, Pin1, ?fd_overrides(true)), Scores2},
+    true = lists:foldl(
+        fun(_I, _A) ->
+            {ShuffledRoute1, _} = shuffle_routes([Route1, Route2]),
+            {ShuffledRoute2, _} = shuffle_routes([Route3, Route4]),
+            case true of
+                _ when ShuffledRoute1 == ?trm(1), ShuffledRoute2 == ?trm(2) ->
+                    true;
                 _ ->
-                    ChosenTerminal = hg_route:terminal_ref(ChosenScoredRoute),
-                    case hg_route:terminal_ref(Acc) of
-                        ChosenTerminal ->
-                            {Acc, Iter};
-                        _ ->
-                            {Acc, Iter + 1}
-                    end
+                    error({ShuffledRoute1, ShuffledRoute2})
             end
         end,
-        {undefined, 0},
+        true,
         lists:seq(0, 1000)
-    ),
-    ?assertNotEqual(0, DiffTimes),
-    ?assertEqual(true, DiffTimes > 300),
-    ?assertEqual(true, DiffTimes < 700).
+    ).
+
+shuffle_routes(Routes) ->
+    BalancedRoutes = balance_routes(Routes),
+    ScoredRoutes = score_routes(BalancedRoutes),
+    {{_, ChosenScoredRoute}, _IdealRoute} = find_best_routes(ScoredRoutes),
+    {hg_route:terminal_ref(ChosenScoredRoute), ChosenScoredRoute}.
 
 -spec balance_routes_test_() -> [testcase()].
 balance_routes_test_() ->
