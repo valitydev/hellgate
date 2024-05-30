@@ -2127,18 +2127,10 @@ payment_success_with_increased_cost(C) ->
 -spec refund_payment_with_increased_cost(config()) -> test_return().
 refund_payment_with_increased_cost(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
-    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, PartyCtx),
 
     Amount = 42000,
     NewAmount = 2 * Amount,
-
-    % reinit terminal cashflow
-    ok = update_payment_terms_cashflow(?prv(1), get_payment_adjustment_provider_cashflow(initial)),
-    % reinit merchant fees
-    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(1), PartyPair),
 
     % top up merchant account
     InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
@@ -2217,18 +2209,10 @@ payment_success_with_decreased_cost(C) ->
 -spec refund_payment_with_decreased_cost(config()) -> test_return().
 refund_payment_with_decreased_cost(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
-    {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
-    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, PartyCtx),
 
     Amount = 42000,
     NewAmount = Amount div 2,
-
-    % reinit terminal cashflow
-    ok = update_payment_terms_cashflow(?prv(1), get_payment_adjustment_provider_cashflow(initial)),
-    % reinit merchant fees
-    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(1), PartyPair),
 
     % top up merchant account
     InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
@@ -2293,11 +2277,11 @@ execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
         ?payment_ev(PaymentID, ?cash_changed(_, _)),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
-        ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)),
+        ?payment_ev(PaymentID, ?cash_flow_changed(_)),
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 5, Client),
     PaymentID = hg_invoice_helper:await_payment_capture(InvoiceID, PaymentID, Client),
-    {PaymentID, CashFlow}.
+    PaymentID.
 
 -spec payment_fail_after_silent_callback(config()) -> _ | no_return().
 payment_fail_after_silent_callback(C) ->
