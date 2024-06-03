@@ -64,7 +64,9 @@
 -export([payments_w_bank_conditions/1]).
 -export([payment_success_on_second_try/1]).
 -export([payment_success_with_increased_cost/1]).
+-export([refund_payment_with_increased_cost/1]).
 -export([payment_success_with_decreased_cost/1]).
+-export([refund_payment_with_decreased_cost/1]).
 -export([payment_fail_after_silent_callback/1]).
 -export([invoice_success_on_third_payment/1]).
 -export([party_revision_check/1]).
@@ -80,6 +82,8 @@
 -export([payment_adjustment_captured_partial/1]).
 -export([payment_adjustment_captured_from_failed/1]).
 -export([payment_adjustment_failed_from_captured/1]).
+-export([payment_adjustment_change_amount_and_captured/1]).
+-export([payment_adjustment_change_amount_and_refund_all/1]).
 -export([status_adjustment_of_partial_refunded_payment/1]).
 -export([registered_payment_adjustment_success/1]).
 -export([invalid_payment_w_deprived_party/1]).
@@ -321,7 +325,9 @@ groups() ->
             payment_w_deleted_customer,
             payment_success_on_second_try,
             payment_success_with_increased_cost,
+            refund_payment_with_increased_cost,
             payment_success_with_decreased_cost,
+            refund_payment_with_decreased_cost,
             payment_fail_after_silent_callback,
             payment_temporary_unavailability_retry_success,
             payment_temporary_unavailability_too_many_retries,
@@ -347,6 +353,8 @@ groups() ->
             payment_adjustment_captured_partial,
             payment_adjustment_captured_from_failed,
             payment_adjustment_failed_from_captured,
+            payment_adjustment_change_amount_and_captured,
+            payment_adjustment_change_amount_and_refund_all,
             status_adjustment_of_partial_refunded_payment,
             registered_payment_adjustment_success
         ]},
@@ -631,6 +639,7 @@ end_per_suite(C) ->
 -define(system_to_provider_share_initial, ?share(21, 1000, operation_amount)).
 -define(system_to_provider_share_actual, ?share(16, 1000, operation_amount)).
 -define(system_to_external_fixed, ?fixed(20, <<"RUB">>)).
+-define(merchant_to_system_fixed, ?fixed(100, <<"RUB">>)).
 
 -define(assertRouteNotFound(Failure, Sub, ReasonSubstring), begin
     ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, Sub}) -> ok end),
@@ -666,6 +675,8 @@ init_per_testcase(Name, C) when
     Name == payment_adjustment_captured_partial;
     Name == payment_adjustment_captured_from_failed;
     Name == payment_adjustment_failed_from_captured;
+    Name == payment_adjustment_change_amount_and_captured;
+    Name == payment_adjustment_change_amount_and_refund_all;
     Name == registered_payment_adjustment_success
 ->
     Revision = hg_domain:head(),
@@ -2113,6 +2124,70 @@ payment_success_with_increased_cost(C) ->
         ChangedCost
     ).
 
+-spec refund_payment_with_increased_cost(config()) -> test_return().
+refund_payment_with_increased_cost(C) ->
+    Client = cfg(client, C),
+    ShopID = cfg(shop_id, C),
+
+    Amount = 42000,
+    NewAmount = 2 * Amount,
+
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_increase, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {_, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
+        ?payment_ev(PaymentID, ?cash_changed(_, _)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CF)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 5, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = NewAmount, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ),
+
+    RefundParams = make_refund_params(),
+    % create a refund finally
+    RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+
+    % no more refunds for you
+    ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+
+    Context = #{operation_amount => ChangedCost},
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context),
+    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
+    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
+
 -spec payment_success_with_decreased_cost(config()) -> test_return().
 payment_success_with_decreased_cost(C) ->
     Client = cfg(client, C),
@@ -2130,6 +2205,70 @@ payment_success_with_decreased_cost(C) ->
         #domain_Cash{amount = 42000 div 2, currency = ?cur(<<"RUB">>)},
         ChangedCost
     ).
+
+-spec refund_payment_with_decreased_cost(config()) -> test_return().
+refund_payment_with_decreased_cost(C) ->
+    Client = cfg(client, C),
+    ShopID = cfg(shop_id, C),
+
+    Amount = 42000,
+    NewAmount = Amount div 2,
+
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+
+    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_decrease, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_payment_params(PaymentTool, Session, instant),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {_, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
+        ?payment_ev(PaymentID, ?cash_changed(_, _)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?cash_flow_changed(CF)),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = next_changes(InvoiceID, 5, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(State)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = State,
+    ?payment_w_changed_cost(ChangedCost) = State,
+    ?assertEqual(
+        #domain_Cash{amount = NewAmount, currency = ?cur(<<"RUB">>)},
+        ChangedCost
+    ),
+
+    RefundParams = make_refund_params(),
+    % create a refund finally
+    RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+
+    % no more refunds for you
+    ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+
+    Context = #{operation_amount => ChangedCost},
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context),
+    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
+    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
 
 execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
     PaymentID = hg_invoice_helper:start_payment(InvoiceID, PaymentParams, Client),
@@ -2790,6 +2929,270 @@ payment_adjustment_failed_from_captured(C) ->
     ?assertEqual(PrvDiff, maps:get(own_amount, PrvAccount1) - maps:get(own_amount, PrvAccount2)),
     SysDiff = MrcAmount1 - PrvAmount1,
     ?assertEqual(SysDiff, maps:get(own_amount, SysAccount1) - maps:get(own_amount, SysAccount2)).
+
+-spec payment_adjustment_change_amount_and_captured(config()) -> test_return().
+payment_adjustment_change_amount_and_captured(C) ->
+    %% NOTE See share definitions macro
+    %% Original cashflow, `?share(21, 1000, operation_amount))` :
+    %%     TO | merch  | syst  | prov    | ext
+    %% FROM---|--------|-------|---------|-----
+    %% merch  |      0 |  4500 | -100000 |  0
+    %% syst   |  -4500 |     0 |    2100 |  0
+    %% prov   | 100000 | -2100 |       0 |  0
+    %% ext    |      0 |     0 |       0 |  0
+    %%
+    %% DIFF---|  95500 |  2400 |  -97900 |  0
+
+    Client = cfg(client, C),
+    PartyID = cfg(party_id, C),
+    {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
+    {ok, Shop} = party_client_thrift:get_shop(PartyID, cfg(shop_id, C), PartyClient, PartyCtx),
+
+    % reinit terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
+    % reinit merchant fees
+    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(1), PartyPair),
+
+    OriginalAmount = 100000,
+    NewAmount = 200000,
+
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), OriginalAmount, C),
+    %% start a healthy man's payment
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
+
+    CashFlow1 = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
+    ?assertEqual(
+        [
+            % ?merchant_to_system_share_1 ?share(45, 1000, operation_amount)
+            {{merchant, settlement}, {system, settlement}, 4500},
+            % ?share(1, 1, operation_amount)
+            {{provider, settlement}, {merchant, settlement}, 100000},
+            % ?system_to_provider_share_initial ?share(21, 1000, operation_amount)
+            {{system, settlement}, {provider, settlement}, 2100}
+        ],
+        CashFlow1
+    ),
+
+    ?payment_state(#domain_InvoicePayment{cost = OriginalCost}) =
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?assertEqual(?cash(OriginalAmount, <<"RUB">>), OriginalCost),
+
+    % make status adjustment to fail
+    Failed = ?failed({failure, #domain_Failure{code = <<"404">>}}),
+    AdjustmentParams0 = make_status_adjustment_params(Failed, AdjReason0 = <<"because i can">>),
+    AdjustmentID0 = execute_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams0, Client),
+    ?adjustment_reason(AdjReason0) =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID0, Client),
+    ?assertMatch(
+        ?payment_state(?payment_w_status(PaymentID, Failed)),
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client)
+    ),
+
+    % verify that cash deposited correctly everywhere
+    % new cash flow must be calculated using initial domain and party revisions
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
+
+    Context0 = #{operation_amount => ?cash(OriginalAmount, <<"RUB">>)},
+    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context0),
+    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context0),
+    MrcDiff0 = OriginalAmount - MrcAmount1,
+    PrvDiff0 = PrvAmount1 - OriginalAmount,
+    SysDiff0 = MrcAmount1 - PrvAmount1,
+    ?assertEqual(MrcDiff0, maps:get(own_amount, MrcAccount1) - maps:get(own_amount, MrcAccount2)),
+    ?assertEqual(PrvDiff0, maps:get(own_amount, PrvAccount1) - maps:get(own_amount, PrvAccount2)),
+    ?assertEqual(SysDiff0, maps:get(own_amount, SysAccount1) - maps:get(own_amount, SysAccount2)),
+
+    %% make cashflow adjustment in failed
+    AdjustmentParams1 = make_adjustment_params(AdjReason1 = <<"imdrunk">>, undefined, NewAmount),
+    ?adjustment(AdjustmentID1, ?adjustment_pending()) =
+        Adjustment1 =
+        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams1, Client),
+    #domain_InvoicePaymentAdjustment{id = AdjustmentID1, reason = AdjReason1} =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID1, Client),
+    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_created(Adjustment1))) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_))))
+    ] = next_changes(InvoiceID, 3, Client),
+
+    ?payment_state(Payment1) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    #domain_InvoicePayment{changed_cost = ChangedCost} = Payment1,
+    ?assertEqual(?cash(NewAmount, <<"RUB">>), ChangedCost),
+
+    %% make status adjustment to capture
+    Captured = {captured, #domain_InvoicePaymentCaptured{}},
+    AdjustmentParams2 = make_status_adjustment_params(Captured, AdjReason2 = <<"manual">>),
+
+    AdjustmentID2 = execute_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams2, Client),
+    ?payment_state(Payment2) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    #domain_InvoicePayment{changed_cost = ChangedCost} = Payment2,
+    ?assertMatch(#domain_InvoicePayment{status = Captured, cost = OriginalCost}, Payment2),
+
+    % verify that cash deposited correctly everywhere
+    % new cash flow must be calculated using initial domain and party revisions
+    #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} =
+        ?adjustment_reason(AdjReason2) =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID2, Client),
+    PrvAccount3 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
+    SysAccount3 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
+    MrcAccount3 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
+
+    CashFlow2 = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
+    ?assertEqual(
+        [
+            % ?merchant_to_system_share_1 ?share(45, 1000, operation_amount)
+            {{merchant, settlement}, {system, settlement}, 9000},
+            % ?share(1, 1, operation_amount)
+            {{provider, settlement}, {merchant, settlement}, 200000},
+            % ?system_to_provider_share_initial ?share(21, 1000, operation_amount)
+            {{system, settlement}, {provider, settlement}, 4200}
+        ],
+        CashFlow2
+    ),
+
+    Context2 = #{operation_amount => ChangedCost},
+    #domain_Cash{amount = MrcAmount3} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context2),
+    #domain_Cash{amount = PrvAmount3} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context2),
+    MrcDiff2 = NewAmount - MrcAmount3,
+    PrvDiff2 = PrvAmount3 - NewAmount,
+    SysDiff2 = MrcAmount3 - PrvAmount3,
+    ?assertEqual(MrcDiff2, maps:get(own_amount, MrcAccount3) - maps:get(own_amount, MrcAccount2)),
+    ?assertEqual(PrvDiff2, maps:get(own_amount, PrvAccount3) - maps:get(own_amount, PrvAccount2)),
+    ?assertEqual(SysDiff2, maps:get(own_amount, SysAccount3) - maps:get(own_amount, SysAccount2)).
+
+-spec payment_adjustment_change_amount_and_refund_all(config()) -> test_return().
+payment_adjustment_change_amount_and_refund_all(C) ->
+    %% NOTE See share definitions macro
+    %% Original cashflow, `?share(21, 1000, operation_amount))` :
+    %%     TO | merch  | syst  | prov    | ext
+    %% FROM---|--------|-------|---------|-----
+    %% merch  |      0 |  4500 | -100000 |  0
+    %% syst   |  -4500 |     0 |    2100 |  0
+    %% prov   | 100000 | -2100 |       0 |  0
+    %% ext    |      0 |     0 |       0 |  0
+    %%
+    %% DIFF---|  95500 |  2400 |  -97900 |  0
+
+    Client = cfg(client, C),
+    PartyID = cfg(party_id, C),
+    ShopID = cfg(shop_id, C),
+    {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
+    {ok, Shop} = party_client_thrift:get_shop(PartyID, ShopID, PartyClient, PartyCtx),
+
+    % reinit terminal cashflow
+    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
+    % reinit merchant fees
+    ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_Shop.contract_id, ?tmpl(1), PartyPair),
+
+    OriginalAmount = 100000,
+    NewAmount = 200000,
+
+    % top up merchant account
+    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), OriginalAmount, C),
+    %% start a healthy man's payment
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
+        next_change(InvoiceID, Client),
+    {_CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
+    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
+        next_change(InvoiceID, Client),
+    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+
+    ?payment_state(#domain_InvoicePayment{cost = OriginalCost}) =
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    ?assertEqual(?cash(OriginalAmount, <<"RUB">>), OriginalCost),
+
+    % make status adjustment to fail
+    Failed = ?failed({failure, #domain_Failure{code = <<"404">>}}),
+    AdjustmentParams0 = make_status_adjustment_params(Failed, AdjReason0 = <<"because i can">>),
+    AdjustmentID0 = execute_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams0, Client),
+    ?adjustment_reason(AdjReason0) =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID0, Client),
+    ?assertMatch(
+        ?payment_state(?payment_w_status(PaymentID, Failed)),
+        hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client)
+    ),
+
+    %% make cashflow adjustment in failed
+    AdjustmentParams1 = make_adjustment_params(AdjReason1 = <<"imdrunk">>, undefined, NewAmount),
+    ?adjustment(AdjustmentID1, ?adjustment_pending()) =
+        Adjustment1 =
+        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams1, Client),
+    #domain_InvoicePaymentAdjustment{id = AdjustmentID1, reason = AdjReason1} =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID1, Client),
+    ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_created(Adjustment1))) =
+        next_change(InvoiceID, Client),
+    [
+        ?payment_ev(PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_processed()))),
+        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_))))
+    ] = next_changes(InvoiceID, 3, Client),
+
+    ?payment_state(Payment1) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    #domain_InvoicePayment{changed_cost = ChangedCost} = Payment1,
+    ?assertEqual(?cash(NewAmount, <<"RUB">>), ChangedCost),
+
+    %% make status adjustment to capture
+    Captured = {captured, #domain_InvoicePaymentCaptured{}},
+    AdjustmentParams2 = make_status_adjustment_params(Captured, AdjReason2 = <<"manual">>),
+
+    AdjustmentID2 = execute_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams2, Client),
+    ?payment_state(Payment2) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    #domain_InvoicePayment{changed_cost = ChangedCost} = Payment2,
+    ?assertMatch(#domain_InvoicePayment{status = Captured, cost = OriginalCost}, Payment2),
+
+    % verify that cash deposited correctly everywhere
+    % new cash flow must be calculated using initial domain and party revisions
+    #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} =
+        ?adjustment_reason(AdjReason2) =
+        hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID2, Client),
+    PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
+    SysAccount1 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
+    MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
+
+    RefundParams = make_refund_params(),
+    % create a refund finally
+    RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
+    #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
+        hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
+
+    % no more refunds for you
+    ?invalid_payment_status(?refunded()) =
+        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+
+    PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, DCF2, CFContext),
+    SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
+    MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
+
+    Context2 = #{operation_amount => ChangedCost},
+
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context2),
+    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
+    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
 
 -spec status_adjustment_of_partial_refunded_payment(config()) -> test_return().
 status_adjustment_of_partial_refunded_payment(C) ->

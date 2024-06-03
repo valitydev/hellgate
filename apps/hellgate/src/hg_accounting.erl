@@ -281,6 +281,8 @@ construct_balance(
 call_accounter(Function, Args) ->
     hg_woody_wrapper:call(accounter, Function, Args).
 
+get_payment_cost(#domain_InvoicePayment{changed_cost = Cost}) when Cost =/= undefined ->
+    Cost;
 get_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
     Cost.
 
