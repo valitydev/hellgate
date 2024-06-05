@@ -87,7 +87,12 @@ create_bank_card_destination_ok(C) ->
                 token = <<"TOKEN shmOKEN">>
             }
         }},
-    create_destination_ok(Resource, C).
+    AuthData =
+        {sender_receiver, #destination_SenderReceiverAuthData{
+            sender = <<"SenderToken">>,
+            receiver = <<"ReceiverToken">>
+        }},
+    create_destination_ok(AuthData, Resource, C).
 
 -spec create_crypto_wallet_destination_ok(config()) -> test_return().
 create_crypto_wallet_destination_ok(C) ->
@@ -168,6 +173,9 @@ create_destination_forbidden_withdrawal_method_fail(C) ->
 %%----------------------------------------------------------------------
 
 create_destination_ok(Resource, C) ->
+    create_destination_ok(undefined, Resource, C).
+
+create_destination_ok(AuthData, Resource, C) ->
     Party = create_party(C),
     Currency = <<"RUB">>,
     DstName = <<"loSHara card">>,
@@ -183,7 +191,8 @@ create_destination_ok(Resource, C) ->
         currency = Currency,
         resource = Resource,
         external_id = ExternalId,
-        metadata = Metadata
+        metadata = Metadata,
+        auth_data = AuthData
     },
     {ok, Dst} = call_service('Create', {Params, Ctx}),
     DstName = Dst#destination_DestinationState.name,
@@ -192,6 +201,7 @@ create_destination_ok(Resource, C) ->
     ExternalId = Dst#destination_DestinationState.external_id,
     Metadata = Dst#destination_DestinationState.metadata,
     Ctx = Dst#destination_DestinationState.context,
+    AuthData = Dst#destination_DestinationState.auth_data,
 
     Account = Dst#destination_DestinationState.account,
     IdentityID = Account#account_Account.identity,

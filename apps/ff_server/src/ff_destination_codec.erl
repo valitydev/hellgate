@@ -23,7 +23,8 @@ unmarshal_destination_params(Params) ->
         currency => unmarshal(string, Params#destination_DestinationParams.currency),
         resource => unmarshal(resource, Params#destination_DestinationParams.resource),
         external_id => maybe_unmarshal(id, Params#destination_DestinationParams.external_id),
-        metadata => maybe_unmarshal(ctx, Params#destination_DestinationParams.metadata)
+        metadata => maybe_unmarshal(ctx, Params#destination_DestinationParams.metadata),
+        auth_data => maybe_unmarshal(auth_data, Params#destination_DestinationParams.auth_data)
     }).
 
 -spec marshal_destination_state(ff_destination:destination_state(), ff_entity_context:context()) ->
@@ -46,7 +47,8 @@ marshal_destination_state(DestinationState, Context) ->
         created_at = maybe_marshal(timestamp_ms, ff_destination:created_at(DestinationState)),
         blocking = Blocking,
         metadata = maybe_marshal(ctx, ff_destination:metadata(DestinationState)),
-        context = maybe_marshal(ctx, Context)
+        context = maybe_marshal(ctx, Context),
+        auth_data = maybe_marshal(auth_data, ff_destination:auth_data(DestinationState))
     }.
 
 -spec marshal_event(ff_destination_machine:event()) -> fistful_destination_thrift:'Event'().
@@ -81,7 +83,8 @@ marshal(
         resource = marshal(resource, Resource),
         created_at = maybe_marshal(timestamp_ms, maps:get(created_at, Destination, undefined)),
         external_id = maybe_marshal(id, maps:get(external_id, Destination, undefined)),
-        metadata = maybe_marshal(ctx, maps:get(metadata, Destination, undefined))
+        metadata = maybe_marshal(ctx, maps:get(metadata, Destination, undefined)),
+        auth_data = maybe_marshal(auth_data, maps:get(auth_data, Destination, undefined))
     };
 marshal(status, authorized) ->
     {authorized, #destination_Authorized{}};
@@ -93,6 +96,14 @@ marshal(status_change, authorized) ->
     {changed, {authorized, #destination_Authorized{}}};
 marshal(ctx, Ctx) ->
     marshal(context, Ctx);
+marshal(auth_data, #{
+    sender := SenderToken,
+    receiver := ReceiverToken
+}) ->
+    {sender_receiver, #destination_SenderReceiverAuthData{
+        sender = marshal(string, SenderToken),
+        receiver = marshal(string, ReceiverToken)
+    }};
 marshal(T, V) ->
     ff_codec:marshal(T, V).
 
@@ -122,7 +133,8 @@ unmarshal(destination, Dest) ->
         name => unmarshal(string, Dest#destination_Destination.name),
         created_at => maybe_unmarshal(timestamp_ms, Dest#destination_Destination.created_at),
         external_id => maybe_unmarshal(id, Dest#destination_Destination.external_id),
-        metadata => maybe_unmarshal(ctx, Dest#destination_Destination.metadata)
+        metadata => maybe_unmarshal(ctx, Dest#destination_Destination.metadata),
+        auth_data => maybe_unmarshal(auth_data, Dest#destination_Destination.auth_data)
     });
 unmarshal(status, {authorized, #destination_Authorized{}}) ->
     authorized;
@@ -134,6 +146,17 @@ unmarshal(status_change, {changed, {authorized, #destination_Authorized{}}}) ->
     authorized;
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);
+unmarshal(
+    auth_data,
+    {sender_receiver, #destination_SenderReceiverAuthData{
+        sender = SenderToken,
+        receiver = ReceiverToken
+    }}
+) ->
+    #{
+        sender => unmarshal(string, SenderToken),
+        receiver => unmarshal(string, ReceiverToken)
+    };
 unmarshal(T, V) ->
     ff_codec:unmarshal(T, V).
 

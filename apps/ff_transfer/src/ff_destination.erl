@@ -9,6 +9,7 @@
 -module(ff_destination).
 
 -type id() :: binary().
+-type token() :: binary().
 -type name() :: binary().
 -type account() :: ff_account:account().
 -type identity() :: ff_identity:id().
@@ -30,7 +31,8 @@
     name := name(),
     created_at => timestamp(),
     external_id => id(),
-    metadata => metadata()
+    metadata => metadata(),
+    auth_data => auth_data()
 }.
 
 -type destination_state() :: #{
@@ -40,7 +42,8 @@
     status => status(),
     created_at => timestamp(),
     external_id => id(),
-    metadata => metadata()
+    metadata => metadata(),
+    auth_data => auth_data()
 }.
 
 -type params() :: #{
@@ -50,7 +53,13 @@
     currency := ff_currency:id(),
     resource := resource_params(),
     external_id => id(),
-    metadata => metadata()
+    metadata => metadata(),
+    auth_data => auth_data()
+}.
+
+-type auth_data() :: #{
+    sender := token(),
+    receiver := token()
 }.
 
 -type event() ::
@@ -90,6 +99,7 @@
 -export([external_id/1]).
 -export([created_at/1]).
 -export([metadata/1]).
+-export([auth_data/1]).
 
 %% API
 
@@ -162,6 +172,12 @@ metadata(#{metadata := Metadata}) ->
 metadata(_Destination) ->
     undefined.
 
+-spec auth_data(destination_state()) -> auth_data() | undefined.
+auth_data(#{auth_data := AuthData}) ->
+    AuthData;
+auth_data(_Destination) ->
+    undefined.
+
 %% API
 
 -spec create(params()) ->
@@ -193,6 +209,7 @@ create(Params) ->
                     resource => Resource,
                     external_id => maps:get(external_id, Params, undefined),
                     metadata => maps:get(metadata, Params, undefined),
+                    auth_data => maps:get(auth_data, Params, undefined),
                     created_at => CreatedAt
                 })}
         ] ++
