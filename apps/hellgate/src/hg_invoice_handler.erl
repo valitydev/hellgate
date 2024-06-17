@@ -40,6 +40,8 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     Party = hg_party:get_party(PartyID),
     Shop = assert_shop_exists(hg_party:get_shop(ShopID, Party)),
     _ = assert_party_shop_operable(Shop, Party),
+    %% FIXME Should cost amount to be mutated before calculating
+    %% merchant terms and allocation?
     VS = #{
         cost => InvoiceParams#payproc_InvoiceParams.cost,
         shop_id => Shop#domain_Shop.id
@@ -337,7 +339,8 @@ make_invoice_params(Params) ->
         product = Product,
         description = Description,
         details = TplDetails,
-        context = TplContext
+        context = TplContext,
+        mutations = MutationsParams
     } = hg_invoice_template:get(TplID),
     Party = hg_party:get_party(PartyID),
     Shop = assert_shop_exists(hg_party:get_shop(ShopID, Party)),
@@ -359,13 +362,18 @@ make_invoice_params(Params) ->
         due = InvoiceDue,
         cost = InvoiceCost,
         context = InvoiceContext,
-        external_id = ExternalID
+        external_id = ExternalID,
+        mutations = MutationsParams
     },
     {Party, Shop, InvoiceParams}.
 
-validate_invoice_params(#payproc_InvoiceParams{cost = Cost}, Shop, MerchantTerms) ->
+validate_invoice_params(#payproc_InvoiceParams{cost = Cost} = InvoiceParams, Shop, MerchantTerms) ->
     ok = validate_invoice_cost(Cost, Shop, MerchantTerms),
+    ok = validate_mutations(InvoiceParams),
     ok.
+
+validate_mutations(#payproc_InvoiceParams{mutations = Mutations, details = Details}) ->
+    hg_invoice_utils:validate_mutations(Mutations, Details).
 
 validate_invoice_cost(Cost, Shop, #domain_TermSet{payments = PaymentTerms}) ->
     _ = hg_invoice_utils:validate_cost(Cost, Shop),

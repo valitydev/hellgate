@@ -10,6 +10,7 @@
 -export([validate_cost/2]).
 -export([validate_currency/2]).
 -export([validate_cash_range/1]).
+-export([validate_mutations/2]).
 -export([assert_party_operable/1]).
 -export([assert_shop_exists/1]).
 -export([assert_shop_operable/1]).
@@ -36,6 +37,9 @@
 -type timestamp() :: dmsl_base_thrift:'Timestamp'().
 -type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
 -type varset() :: dmsl_payproc_thrift:'ComputeShopTermsVarset'().
+-type invoice_details() :: dmsl_domain_thrift:'InvoiceDetails'().
+-type invoice_template_details() :: dmsl_domain_thrift:'InvoiceTemplateDetails'().
+-type invoice_mutation() :: dmsl_payproc_thrift:'InvoiceMutationParams'().
 
 -spec validate_cost(cash(), shop()) -> ok.
 validate_cost(#domain_Cash{currency = Currency, amount = Amount}, Shop) ->
@@ -65,6 +69,25 @@ validate_cash_range(#domain_CashRange{
     ok;
 validate_cash_range(_) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid cost range">>]}).
+
+-spec validate_mutations([invoice_mutation()], invoice_details() | invoice_template_details()) -> ok.
+validate_mutations(Mutations, #domain_InvoiceDetails{cart = Cart}) ->
+    validate_mutations_w_cart(Mutations, Cart);
+validate_mutations(Mutations, {cart, #domain_InvoiceCart{} = Cart}) ->
+    validate_mutations_w_cart(Mutations, Cart);
+validate_mutations(_Mutations, _Details) ->
+    ok.
+
+validate_mutations_w_cart(Mutations, #domain_InvoiceCart{lines = Lines}) ->
+    lists:any(
+        fun
+            ({amount, _}) -> true;
+            (_) -> false
+        end,
+        Mutations
+    ) andalso length(Lines) > 1 andalso
+        throw(#base_InvalidRequest{errors = [<<"Amount mutation with multiline cart is not allowed">>]}),
+    ok.
 
 -spec assert_party_operable(party()) -> party().
 assert_party_operable(V) ->

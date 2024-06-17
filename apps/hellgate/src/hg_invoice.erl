@@ -132,7 +132,7 @@ create(ID, InvoiceTplID, PartyRevision, V = #payproc_InvoiceParams{}, Allocation
     OwnerID = V#payproc_InvoiceParams.party_id,
     ShopID = V#payproc_InvoiceParams.shop_id,
     Cost = V#payproc_InvoiceParams.cost,
-    #domain_Invoice{
+    apply_mutations(V#payproc_InvoiceParams.mutations, #domain_Invoice{
         id = ID,
         shop_id = ShopID,
         owner_id = OwnerID,
@@ -147,7 +147,47 @@ create(ID, InvoiceTplID, PartyRevision, V = #payproc_InvoiceParams{}, Allocation
         external_id = V#payproc_InvoiceParams.external_id,
         client_info = V#payproc_InvoiceParams.client_info,
         allocation = Allocation
-    }.
+    }).
+
+apply_mutations(MutationsParams, Invoice) ->
+    lists:foldl(fun apply_mutation/2, Invoice, MutationsParams).
+
+-define(SATISFY_RANDOMIZATION_CONDITION(P, Amount),
+    %% Multiplicity check
+    (P#domain_RandomizationMutationParams.amount_multiplicity_condition =:= undefined orelse
+        Amount rem P#domain_RandomizationMutationParams.amount_multiplicity_condition =:= 0) andalso
+        %% Min amount
+        (P#domain_RandomizationMutationParams.min_amount_condition =:= undefined orelse
+            P#domain_RandomizationMutationParams.min_amount_condition =< Amount) andalso
+        %% Max amount
+        (P#domain_RandomizationMutationParams.max_amount_condition =:= undefined orelse
+            P#domain_RandomizationMutationParams.max_amount_condition >= Amount)
+).
+
+apply_mutation(
+    {amount,
+        {randomization,
+            Params = #domain_RandomizationMutationParams{
+                deviation = MaxDeviation,
+                precision = Precision,
+                rounding = Rounding
+            }}},
+    Invoice = #domain_Invoice{cost = Cost = #domain_Cash{amount = Amount}}
+) when ?SATISFY_RANDOMIZATION_CONDITION(Params, Amount) ->
+    RoundingFun =
+        case Rounding of
+            round_half_towards_zero -> fun round/1;
+            round_half_away_from_zero -> fun round/1;
+            round_down -> fun floor/1;
+            round_up -> fun ceil/1
+        end,
+    PrecisionFactor = trunc(math:pow(10, Precision)),
+    Deviation0 = rand:uniform(MaxDeviation + 1) - 1,
+    Deviation1 = RoundingFun(Deviation0 / PrecisionFactor) * PrecisionFactor,
+    Sign = trunc(math:pow(-1, rand:uniform(2))),
+    Invoice#domain_Invoice{cost = Cost#domain_Cash{amount = Amount + Sign * Deviation1}};
+apply_mutation(_, Invoice) ->
+    Invoice.
 
 %%----------------- invoice asserts
 assert_invoice(Checks, #st{} = St) when is_list(Checks) ->
