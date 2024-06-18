@@ -88,7 +88,8 @@ update_invoice_line_price(NewAmount, Line = #domain_InvoiceLine{price = Price}) 
 
 -spec make_mutations([mutation_params()], mutation_context()) -> [mutation()].
 make_mutations(MutationsParams, Context) ->
-    lists:reverse(lists:foldl(fun make_mutation/2, {[], Context}, genlib:define(MutationsParams, []))).
+    {Mutations, _} = lists:foldl(fun make_mutation/2, {[], Context}, genlib:define(MutationsParams, [])),
+    lists:reverse(Mutations).
 
 -define(SATISFY_RANDOMIZATION_CONDITION(P, Amount),
     %% Multiplicity check
@@ -104,17 +105,13 @@ make_mutations(MutationsParams, Context) ->
 
 make_mutation(
     {amount, {randomization, Params = #domain_RandomizationMutationParams{}}},
-    {Mutations, #{cost := #domain_Cash{amount = Amount}}}
+    {Mutations, Context = #{cost := #domain_Cash{amount = Amount}}}
 ) when ?SATISFY_RANDOMIZATION_CONDITION(Params, Amount) ->
-    [
-        {amount, #domain_InvoiceAmountMutation{
-            original = Amount,
-            mutated = calc_new_amount(Amount, Params)
-        }}
-        | Mutations
-    ];
-make_mutation(_, {Mutations, _Context}) ->
-    Mutations.
+    NewMutation =
+        {amount, #domain_InvoiceAmountMutation{original = Amount, mutated = calc_new_amount(Amount, Params)}},
+    {[NewMutation | Mutations], Context};
+make_mutation(_, {Mutations, Context}) ->
+    {Mutations, Context}.
 
 calc_new_amount(Amount, #domain_RandomizationMutationParams{
     deviation = MaxDeviation,
