@@ -62,7 +62,8 @@
     id := binary(),
     payment_service := payment_service(),
     token => binary(),
-    account_name => binary()
+    account_name => binary(),
+    account_identity_number => binary()
 }.
 
 -type resource_generic_params() :: #{
@@ -135,7 +136,8 @@
     id := binary(),
     payment_service := payment_service(),
     token => binary(),
-    account_name => binary()
+    account_name => binary(),
+    account_identity_number => binary()
 }.
 
 -type generic_resource() :: #{
@@ -356,7 +358,8 @@ create_digital_wallet(#{
                 id => ID,
                 payment_service => PaymentService,
                 token => Token,
-                account_name => maps:get(account_name, Wallet, undefined)
+                account_name => maps:get(account_name, Wallet, undefined),
+                account_identity_number => maps:get(account_identity_number, Wallet, undefined)
             })
         }}}.
 

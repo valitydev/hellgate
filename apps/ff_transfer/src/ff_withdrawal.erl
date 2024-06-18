@@ -1221,7 +1221,8 @@ construct_payment_tool(
         id = ID,
         payment_service = ff_dmsl_codec:marshal(payment_service, PaymentService),
         token = Token,
-        account_name = maps:get(account_name, Wallet, undefined)
+        account_name = maps:get(account_name, Wallet, undefined),
+        account_identity_number = maps:get(account_identity_number, Wallet, undefined)
     }}.
 
 %% Quote helpers

@@ -536,7 +536,7 @@ construct_inaccessibilty({suspension, _}) ->
 construct_party_params(#{email := Email}) ->
     #payproc_PartyParams{
         contact_info = #domain_PartyContactInfo{
-            email = Email
+            registration_email = Email
         }
     }.
 

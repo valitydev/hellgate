@@ -239,7 +239,8 @@ marshal(
         id = DigitalWalletID,
         token = Token,
         payment_service = marshal(payment_service, PaymentService),
-        account_name = maps:get(account_name, Wallet, undefined)
+        account_name = maps:get(account_name, Wallet, undefined),
+        account_identity_number = maps:get(account_identity_number, Wallet, undefined)
     }};
 marshal(resource, Resource = {generic, _}) ->
     ff_dmsl_codec:marshal(payment_tool, Resource);
