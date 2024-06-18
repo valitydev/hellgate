@@ -125,7 +125,7 @@ validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = Details, m
     ok = validate_details(Details, Mutations, Shop).
 
 validate_details({cart, #domain_InvoiceCart{}} = Details, Mutations, _) ->
-    hg_invoice_utils:validate_mutations(Mutations, Details);
+    hg_invoice_mutation:validate_mutations(Mutations, Details);
 validate_details({product, #domain_InvoiceTemplateProduct{price = Price}}, _, Shop) ->
     validate_price(Price, Shop).
 

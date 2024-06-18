@@ -373,7 +373,7 @@ validate_invoice_params(#payproc_InvoiceParams{cost = Cost} = InvoiceParams, Sho
     ok.
 
 validate_mutations(#payproc_InvoiceParams{mutations = Mutations, details = Details}) ->
-    hg_invoice_utils:validate_mutations(Mutations, Details).
+    hg_invoice_mutation:validate_mutations(Mutations, Details).
 
 validate_invoice_cost(Cost, Shop, #domain_TermSet{payments = PaymentTerms}) ->
     _ = hg_invoice_utils:validate_cost(Cost, Shop),
