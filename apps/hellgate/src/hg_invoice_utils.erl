@@ -79,15 +79,23 @@ validate_mutations(_Mutations, _Details) ->
     ok.
 
 validate_mutations_w_cart(Mutations, #domain_InvoiceCart{lines = Lines}) ->
+    amount_mutation_is_present(Mutations) andalso cart_is_valid_for_mutation(Lines) andalso
+        throw(#base_InvalidRequest{
+            errors = [<<"Amount mutation with multiline cart or multiple items in a line is not allowed">>]
+        }),
+    ok.
+
+amount_mutation_is_present(Mutations) ->
     lists:any(
         fun
             ({amount, _}) -> true;
             (_) -> false
         end,
         Mutations
-    ) andalso length(Lines) > 1 andalso
-        throw(#base_InvalidRequest{errors = [<<"Amount mutation with multiline cart is not allowed">>]}),
-    ok.
+    ).
+
+cart_is_valid_for_mutation(Lines) ->
+    length(Lines) > 1 orelse (hd(Lines))#domain_InvoiceLine.quantity =/= 1.
 
 -spec assert_party_operable(party()) -> party().
 assert_party_operable(V) ->

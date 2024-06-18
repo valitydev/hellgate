@@ -164,6 +164,7 @@ apply_mutations(MutationsParams, Invoice) ->
             P#domain_RandomizationMutationParams.max_amount_condition >= Amount)
 ).
 
+%% FIXME Split into smaller and cleaner funcs
 apply_mutation(
     {amount,
         {randomization,
@@ -172,7 +173,11 @@ apply_mutation(
                 precision = Precision,
                 rounding = Rounding
             }}},
-    Invoice = #domain_Invoice{cost = Cost = #domain_Cash{amount = Amount}}
+    Invoice = #domain_Invoice{
+        cost = Cost = #domain_Cash{amount = Amount},
+        mutations = Mutations,
+        details = Details = #domain_InvoiceDetails{cart = Cart = #domain_InvoiceCart{lines = [Line]}}
+    }
 ) when ?SATISFY_RANDOMIZATION_CONDITION(Params, Amount) ->
     RoundingFun =
         case Rounding of
@@ -185,7 +190,15 @@ apply_mutation(
     Deviation0 = rand:uniform(MaxDeviation + 1) - 1,
     Deviation1 = RoundingFun(Deviation0 / PrecisionFactor) * PrecisionFactor,
     Sign = trunc(math:pow(-1, rand:uniform(2))),
-    Invoice#domain_Invoice{cost = Cost#domain_Cash{amount = Amount + Sign * Deviation1}};
+    NewAmount = Amount + Sign * Deviation1,
+    NewMutation = {amount, #domain_InvoiceAmountMutation{original = Amount, mutated = NewAmount}},
+    NewLines = [Line#domain_InvoiceLine{price = (Line#domain_InvoiceLine.price)#domain_Cash{amount = NewAmount}}],
+    NewCart = Cart#domain_InvoiceCart{lines = NewLines},
+    Invoice#domain_Invoice{
+        cost = Cost#domain_Cash{amount = NewAmount},
+        mutations = [NewMutation | genlib:define(Mutations, [])],
+        details = Details#domain_InvoiceDetails{cart = NewCart}
+    };
 apply_mutation(_, Invoice) ->
     Invoice.
 
@@ -1040,5 +1053,109 @@ construct_refund_id_test() ->
     IDs = [X || {_, X} <- lists:sort([{rand:uniform(), N} || N <- lists:seq(1, 10)])],
     Refunds = lists:map(fun create_dummy_refund_with_id/1, IDs),
     ?assert(<<"11">> =:= construct_refund_id(Refunds)).
+
+-define(mutations(Deviation, Precision, Rounding, Min, Max, Multiplicity), [
+    {amount,
+        {randomization, #domain_RandomizationMutationParams{
+            deviation = Deviation,
+            precision = Precision,
+            rounding = Rounding,
+            min_amount_condition = Min,
+            max_amount_condition = Max,
+            amount_multiplicity_condition = Multiplicity
+        }}}
+]).
+
+-define(currency(), #domain_Currency{
+    name = <<"RUB">>,
+    numeric_code = 666,
+    symbolic_code = <<"RUB">>,
+    exponent = 2
+}).
+
+-define(invoice(Amount, Lines, Mutations), #domain_Invoice{
+    id = <<"invoice">>,
+    shop_id = <<"shop_id">>,
+    owner_id = <<"owner_id">>,
+    created_at = <<"1970-01-01T00:00:00Z">>,
+    status = ?invoice_unpaid(),
+    cost = #domain_Cash{
+        amount = Amount,
+        currency = ?currency()
+    },
+    due = <<"1970-01-01T00:00:00Z">>,
+    details = #domain_InvoiceDetails{cart = #domain_InvoiceCart{lines = Lines}},
+    mutations = Mutations
+}).
+
+-define(mutated_invoice(OriginalAmount, MutatedAmount, Lines),
+    ?invoice(MutatedAmount, Lines, [
+        {amount, #domain_InvoiceAmountMutation{original = OriginalAmount, mutated = MutatedAmount}}
+    ])
+).
+
+-define(not_mutated_invoice(Amount, Lines), ?invoice(Amount, Lines, undefined)).
+
+-define(cart_line(Price), #domain_InvoiceLine{
+    product = <<"product">>,
+    quantity = 1,
+    price = #domain_Cash{amount = Price, currency = ?currency()},
+    metadata = #{}
+}).
+
+-spec apply_mutations_test_() -> [_TestGen].
+apply_mutations_test_() ->
+    lists:flatten([
+        %% Didn't mutate because of conditions
+        ?_assertEqual(
+            ?not_mutated_invoice(1000_00, [?cart_line(1000_00)]),
+            apply_mutations(
+                ?mutations(100_00, 2, round_half_away_from_zero, 0, 100_00, 1_00),
+                ?not_mutated_invoice(1000_00, [?cart_line(1000_00)])
+            )
+        ),
+        ?_assertEqual(
+            ?not_mutated_invoice(1234_00, [?cart_line(1234_00)]),
+            apply_mutations(
+                ?mutations(100_00, 2, round_half_away_from_zero, 0, 1000_00, 7_00),
+                ?not_mutated_invoice(1234_00, [?cart_line(1234_00)])
+            )
+        ),
+
+        %% No deviation, stil did mutate, but amount is same
+        ?_assertEqual(
+            ?mutated_invoice(100_00, 100_00, [?cart_line(100_00)]),
+            apply_mutations(
+                ?mutations(0, 2, round_half_away_from_zero, 0, 1000_00, 1_00),
+                ?not_mutated_invoice(100_00, [?cart_line(100_00)])
+            )
+        ),
+
+        %% Deviate only with 2 other possible values
+        [
+            ?_assertMatch(
+                ?mutated_invoice(100_00, A, [?cart_line(A)]) when
+                    A =:= 0 orelse A =:= 100_00 orelse A =:= 200_00,
+                apply_mutations(
+                    Mutations,
+                    ?not_mutated_invoice(100_00, [?cart_line(100_00)])
+                )
+            )
+         || Mutations <- lists:duplicate(10, ?mutations(100_00, 4, round_half_away_from_zero, 0, 1000_00, 1_00))
+        ],
+
+        %% Deviate in segment [900_00, 1100_00] without minor units
+        [
+            ?_assertMatch(
+                ?mutated_invoice(1000_00, A, [?cart_line(A)]) when
+                    A >= 900_00 andalso A =< 1100_00 andalso A rem 100 =:= 0,
+                apply_mutations(
+                    Mutations,
+                    ?not_mutated_invoice(1000_00, [?cart_line(1000_00)])
+                )
+            )
+         || Mutations <- lists:duplicate(10, ?mutations(100_00, 2, round_half_away_from_zero, 0, 1000_00, 1_00))
+        ]
+    ]).
 
 -endif.
