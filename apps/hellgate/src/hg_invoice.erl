@@ -164,43 +164,56 @@ apply_mutations(MutationsParams, Invoice) ->
             P#domain_RandomizationMutationParams.max_amount_condition >= Amount)
 ).
 
-%% FIXME Split into smaller and cleaner funcs
 apply_mutation(
-    {amount,
-        {randomization,
-            Params = #domain_RandomizationMutationParams{
-                deviation = MaxDeviation,
-                precision = Precision,
-                rounding = Rounding
-            }}},
-    Invoice = #domain_Invoice{
-        cost = Cost = #domain_Cash{amount = Amount},
-        mutations = Mutations,
-        details = Details = #domain_InvoiceDetails{cart = Cart = #domain_InvoiceCart{lines = [Line]}}
-    }
+    {amount, {randomization, Params = #domain_RandomizationMutationParams{}}},
+    Invoice = #domain_Invoice{cost = #domain_Cash{amount = Amount}}
 ) when ?SATISFY_RANDOMIZATION_CONDITION(Params, Amount) ->
-    RoundingFun =
-        case Rounding of
-            round_half_towards_zero -> fun round/1;
-            round_half_away_from_zero -> fun round/1;
-            round_down -> fun floor/1;
-            round_up -> fun ceil/1
-        end,
-    PrecisionFactor = trunc(math:pow(10, Precision)),
-    Deviation0 = rand:uniform(MaxDeviation + 1) - 1,
-    Deviation1 = RoundingFun(Deviation0 / PrecisionFactor) * PrecisionFactor,
-    Sign = trunc(math:pow(-1, rand:uniform(2))),
-    NewAmount = Amount + Sign * Deviation1,
-    NewMutation = {amount, #domain_InvoiceAmountMutation{original = Amount, mutated = NewAmount}},
-    NewLines = [Line#domain_InvoiceLine{price = (Line#domain_InvoiceLine.price)#domain_Cash{amount = NewAmount}}],
-    NewCart = Cart#domain_InvoiceCart{lines = NewLines},
-    Invoice#domain_Invoice{
-        cost = Cost#domain_Cash{amount = NewAmount},
-        mutations = [NewMutation | genlib:define(Mutations, [])],
-        details = Details#domain_InvoiceDetails{cart = NewCart}
-    };
+    update_invoice_cost(Amount, calc_new_amount(Amount, Params), Invoice);
 apply_mutation(_, Invoice) ->
     Invoice.
+
+update_invoice_cost(OldAmount, NewAmount, Invoice) ->
+    #domain_Invoice{cost = Cost, mutations = Mutations} = Invoice,
+    update_invoice_details_price(NewAmount, Invoice#domain_Invoice{
+        cost = Cost#domain_Cash{amount = NewAmount},
+        mutations = [new_amount_mutation(OldAmount, NewAmount) | genlib:define(Mutations, [])]
+    }).
+
+update_invoice_details_price(NewAmount, Invoice) ->
+    #domain_Invoice{details = Details} = Invoice,
+    #domain_InvoiceDetails{cart = Cart} = Details,
+    #domain_InvoiceCart{lines = [Line]} = Cart,
+    NewLines = [update_invoice_line_price(NewAmount, Line)],
+    NewCart = Cart#domain_InvoiceCart{lines = NewLines},
+    Invoice#domain_Invoice{details = Details#domain_InvoiceDetails{cart = NewCart}}.
+
+update_invoice_line_price(NewAmount, Line = #domain_InvoiceLine{price = Price}) ->
+    Line#domain_InvoiceLine{price = Price#domain_Cash{amount = NewAmount}}.
+
+new_amount_mutation(OldAmount, NewAmount) ->
+    {amount, #domain_InvoiceAmountMutation{original = OldAmount, mutated = NewAmount}}.
+
+calc_new_amount(Amount, #domain_RandomizationMutationParams{
+    deviation = MaxDeviation,
+    precision = Precision,
+    rounding = RoundingMethod
+}) ->
+    Deviation = calc_deviation(RoundingMethod, MaxDeviation, trunc(math:pow(10, Precision))),
+    Sign = trunc(math:pow(-1, rand:uniform(2))),
+    Amount + Sign * Deviation.
+
+calc_deviation(RoundingMethod, MaxDeviation, PrecisionFactor) ->
+    RoundingFun = rounding_fun(RoundingMethod),
+    Deviation0 = rand:uniform(MaxDeviation + 1) - 1,
+    RoundingFun(Deviation0 / PrecisionFactor) * PrecisionFactor.
+
+rounding_fun(RoundingMethod) ->
+    case RoundingMethod of
+        round_half_towards_zero -> fun round/1;
+        round_half_away_from_zero -> fun round/1;
+        round_down -> fun floor/1;
+        round_up -> fun ceil/1
+    end.
 
 %%----------------- invoice asserts
 assert_invoice(Checks, #st{} = St) when is_list(Checks) ->
@@ -1066,12 +1079,7 @@ construct_refund_id_test() ->
         }}}
 ]).
 
--define(currency(), #domain_Currency{
-    name = <<"RUB">>,
-    numeric_code = 666,
-    symbolic_code = <<"RUB">>,
-    exponent = 2
-}).
+-define(currency(), #domain_CurrencyRef{symbolic_code = <<"RUB">>}).
 
 -define(invoice(Amount, Lines, Mutations), #domain_Invoice{
     id = <<"invoice">>,
@@ -1084,7 +1092,10 @@ construct_refund_id_test() ->
         currency = ?currency()
     },
     due = <<"1970-01-01T00:00:00Z">>,
-    details = #domain_InvoiceDetails{cart = #domain_InvoiceCart{lines = Lines}},
+    details = #domain_InvoiceDetails{
+        product = <<"rubberduck">>,
+        cart = #domain_InvoiceCart{lines = Lines}
+    },
     mutations = Mutations
 }).
 
