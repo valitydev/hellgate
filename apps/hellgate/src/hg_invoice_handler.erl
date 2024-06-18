@@ -40,18 +40,17 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     Party = hg_party:get_party(PartyID),
     Shop = assert_shop_exists(hg_party:get_shop(ShopID, Party)),
     _ = assert_party_shop_operable(Shop, Party),
-    %% FIXME Should cost amount to be mutated before calculating
-    %% merchant terms and allocation?
+    ok = validate_invoice_mutations(InvoiceParams),
+    {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
-        cost => InvoiceParams#payproc_InvoiceParams.cost,
+        cost => Cost,
         shop_id => Shop#domain_Shop.id
     },
     MerchantTerms = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, hg_datetime:format_now(), VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
-    Cost = InvoiceParams#payproc_InvoiceParams.cost,
     Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
-    ok = ensure_started(InvoiceID, undefined, Party#domain_Party.revision, InvoiceParams, Allocation),
+    ok = ensure_started(InvoiceID, undefined, Party#domain_Party.revision, InvoiceParams, Allocation, Mutations),
     get_invoice_state(get_state(InvoiceID));
 handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     DomainRevision = hg_domain:head(),
@@ -59,16 +58,17 @@ handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
     TplID = Params#payproc_InvoiceWithTemplateParams.template_id,
     {Party, Shop, InvoiceParams} = make_invoice_params(Params),
+    ok = validate_invoice_mutations(InvoiceParams),
+    {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
-        cost => InvoiceParams#payproc_InvoiceParams.cost,
+        cost => Cost,
         shop_id => Shop#domain_Shop.id
     },
     MerchantTerms = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, hg_datetime:format_now(), VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
-    Cost = InvoiceParams#payproc_InvoiceParams.cost,
     Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
-    ok = ensure_started(InvoiceID, TplID, Party#domain_Party.revision, InvoiceParams, Allocation),
+    ok = ensure_started(InvoiceID, TplID, Party#domain_Party.revision, InvoiceParams, Allocation, Mutations),
     get_invoice_state(get_state(InvoiceID));
 handle_function_('CapturePaymentNew', Args, Opts) ->
     handle_function_('CapturePayment', Args, Opts);
@@ -148,8 +148,8 @@ handle_function_('ExplainRoute', {InvoiceID, PaymentID}, _Opts) ->
     St = get_state(InvoiceID),
     hg_routing_explanation:get_explanation(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)).
 
-ensure_started(ID, TemplateID, PartyRevision, Params, Allocation) ->
-    Invoice = hg_invoice:create(ID, TemplateID, PartyRevision, Params, Allocation),
+ensure_started(ID, TemplateID, PartyRevision, Params, Allocation, Mutations) ->
+    Invoice = hg_invoice:create(ID, TemplateID, PartyRevision, Params, Allocation, Mutations),
     case hg_machine:start(hg_invoice:namespace(), ID, hg_invoice:marshal_invoice(Invoice)) of
         {ok, _} -> ok;
         {error, exists} -> ok;
@@ -367,18 +367,23 @@ make_invoice_params(Params) ->
     },
     {Party, Shop, InvoiceParams}.
 
-validate_invoice_params(#payproc_InvoiceParams{cost = Cost} = InvoiceParams, Shop, MerchantTerms) ->
+validate_invoice_params(#payproc_InvoiceParams{cost = Cost}, Shop, MerchantTerms) ->
     ok = validate_invoice_cost(Cost, Shop, MerchantTerms),
-    ok = validate_mutations(InvoiceParams),
     ok.
 
-validate_mutations(#payproc_InvoiceParams{mutations = Mutations, details = Details}) ->
+validate_invoice_mutations(#payproc_InvoiceParams{mutations = Mutations, details = Details}) ->
     hg_invoice_mutation:validate_mutations(Mutations, Details).
 
 validate_invoice_cost(Cost, Shop, #domain_TermSet{payments = PaymentTerms}) ->
     _ = hg_invoice_utils:validate_cost(Cost, Shop),
     _ = hg_invoice_utils:assert_cost_payable(Cost, PaymentTerms),
     ok.
+
+maybe_make_mutations(InvoiceParams) ->
+    Cost = InvoiceParams#payproc_InvoiceParams.cost,
+    Mutations = hg_invoice_mutation:make_mutations(InvoiceParams#payproc_InvoiceParams.mutations, #{cost => Cost}),
+    NewCost = hg_invoice_mutation:get_mutated_cost(Mutations, Cost),
+    {NewCost, Mutations}.
 
 make_invoice_cart(_, {cart, Cart}, _Shop) ->
     Cart;

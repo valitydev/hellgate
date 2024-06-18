@@ -3,14 +3,34 @@
 -include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
+-export([make_mutations/2]).
+-export([get_mutated_cost/2]).
 -export([validate_mutations/2]).
 -export([apply_mutations/2]).
 
 -type mutation_params() :: dmsl_domain_thrift:'InvoiceMutationParams'().
+-type mutation() :: dmsl_domain_thrift:'InvoiceMutation'().
+-type mutation_context() :: #{
+    cost := hg_cash:cash()
+}.
 
 -export_type([mutation_params/0]).
+-export_type([mutation/0]).
 
 %%
+
+-spec get_mutated_cost([mutation()], Cost) -> Cost when Cost :: hg_cash:cash().
+get_mutated_cost(Mutations, Cost) ->
+    lists:foldl(
+        fun
+            ({amount, #domain_InvoiceAmountMutation{mutated = MutatedAmount}}, C) ->
+                C#domain_Cash{amount = MutatedAmount};
+            (_, C) ->
+                C
+        end,
+        Cost,
+        Mutations
+    ).
 
 -type invoice_details() :: dmsl_domain_thrift:'InvoiceDetails'().
 -type invoice_template_details() :: dmsl_domain_thrift:'InvoiceTemplateDetails'().
@@ -42,13 +62,33 @@ amount_mutation_is_present(Mutations) ->
 cart_is_valid_for_mutation(Lines) ->
     length(Lines) > 1 orelse (hd(Lines))#domain_InvoiceLine.quantity =/= 1.
 
-%%
-
 -spec apply_mutations([mutation_params()] | undefined, Invoice) -> Invoice when Invoice :: hg_invoice:invoice().
 apply_mutations(MutationsParams, Invoice) ->
     lists:foldl(fun apply_mutation/2, Invoice, genlib:define(MutationsParams, [])).
 
-%%
+apply_mutation(Mutation = {amount, #domain_InvoiceAmountMutation{mutated = NewAmount}}, Invoice) ->
+    #domain_Invoice{cost = Cost, mutations = Mutations} = Invoice,
+    update_invoice_details_price(NewAmount, Invoice#domain_Invoice{
+        cost = Cost#domain_Cash{amount = NewAmount},
+        mutations = genlib:define(Mutations, []) ++ [Mutation]
+    });
+apply_mutation(_, Invoice) ->
+    Invoice.
+
+update_invoice_details_price(NewAmount, Invoice) ->
+    #domain_Invoice{details = Details} = Invoice,
+    #domain_InvoiceDetails{cart = Cart} = Details,
+    #domain_InvoiceCart{lines = [Line]} = Cart,
+    NewLines = [update_invoice_line_price(NewAmount, Line)],
+    NewCart = Cart#domain_InvoiceCart{lines = NewLines},
+    Invoice#domain_Invoice{details = Details#domain_InvoiceDetails{cart = NewCart}}.
+
+update_invoice_line_price(NewAmount, Line = #domain_InvoiceLine{price = Price}) ->
+    Line#domain_InvoiceLine{price = Price#domain_Cash{amount = NewAmount}}.
+
+-spec make_mutations([mutation_params()], mutation_context()) -> [mutation()].
+make_mutations(MutationsParams, Context) ->
+    lists:reverse(lists:foldl(fun make_mutation/2, {[], Context}, genlib:define(MutationsParams, []))).
 
 -define(SATISFY_RANDOMIZATION_CONDITION(P, Amount),
     %% Multiplicity check
@@ -62,34 +102,19 @@ apply_mutations(MutationsParams, Invoice) ->
             P#domain_RandomizationMutationParams.max_amount_condition >= Amount)
 ).
 
-apply_mutation(
+make_mutation(
     {amount, {randomization, Params = #domain_RandomizationMutationParams{}}},
-    Invoice = #domain_Invoice{cost = #domain_Cash{amount = Amount}}
+    {Mutations, #{cost := #domain_Cash{amount = Amount}}}
 ) when ?SATISFY_RANDOMIZATION_CONDITION(Params, Amount) ->
-    update_invoice_cost(Amount, calc_new_amount(Amount, Params), Invoice);
-apply_mutation(_, Invoice) ->
-    Invoice.
-
-update_invoice_cost(OldAmount, NewAmount, Invoice) ->
-    #domain_Invoice{cost = Cost, mutations = Mutations} = Invoice,
-    update_invoice_details_price(NewAmount, Invoice#domain_Invoice{
-        cost = Cost#domain_Cash{amount = NewAmount},
-        mutations = [new_amount_mutation(OldAmount, NewAmount) | genlib:define(Mutations, [])]
-    }).
-
-update_invoice_details_price(NewAmount, Invoice) ->
-    #domain_Invoice{details = Details} = Invoice,
-    #domain_InvoiceDetails{cart = Cart} = Details,
-    #domain_InvoiceCart{lines = [Line]} = Cart,
-    NewLines = [update_invoice_line_price(NewAmount, Line)],
-    NewCart = Cart#domain_InvoiceCart{lines = NewLines},
-    Invoice#domain_Invoice{details = Details#domain_InvoiceDetails{cart = NewCart}}.
-
-update_invoice_line_price(NewAmount, Line = #domain_InvoiceLine{price = Price}) ->
-    Line#domain_InvoiceLine{price = Price#domain_Cash{amount = NewAmount}}.
-
-new_amount_mutation(OldAmount, NewAmount) ->
-    {amount, #domain_InvoiceAmountMutation{original = OldAmount, mutated = NewAmount}}.
+    [
+        {amount, #domain_InvoiceAmountMutation{
+            original = Amount,
+            mutated = calc_new_amount(Amount, Params)
+        }}
+        | Mutations
+    ];
+make_mutation(_, {Mutations, _Context}) ->
+    Mutations.
 
 calc_new_amount(Amount, #domain_RandomizationMutationParams{
     deviation = MaxDeviation,
@@ -115,7 +140,6 @@ rounding_fun(RoundingMethod) ->
 
 %%
 
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -133,6 +157,8 @@ rounding_fun(RoundingMethod) ->
         }}}
 ]).
 
+-define(cash(Amount), #domain_Cash{amount = Amount, currency = ?currency()}).
+
 -define(currency(), #domain_CurrencyRef{symbolic_code = <<"RUB">>}).
 
 -define(invoice(Amount, Lines, Mutations), #domain_Invoice{
@@ -141,10 +167,7 @@ rounding_fun(RoundingMethod) ->
     owner_id = <<"owner_id">>,
     created_at = <<"1970-01-01T00:00:00Z">>,
     status = {unpaid, #domain_InvoiceUnpaid{}},
-    cost = #domain_Cash{
-        amount = Amount,
-        currency = ?currency()
-    },
+    cost = ?cash(Amount),
     due = <<"1970-01-01T00:00:00Z">>,
     details = #domain_InvoiceDetails{
         product = <<"rubberduck">>,
@@ -164,7 +187,7 @@ rounding_fun(RoundingMethod) ->
 -define(cart_line(Price), #domain_InvoiceLine{
     product = <<"product">>,
     quantity = 1,
-    price = #domain_Cash{amount = Price, currency = ?currency()},
+    price = ?cash(Price),
     metadata = #{}
 }).
 
@@ -175,14 +198,18 @@ apply_mutations_test_() ->
         ?_assertEqual(
             ?not_mutated_invoice(1000_00, [?cart_line(1000_00)]),
             apply_mutations(
-                ?mutations(100_00, 2, round_half_away_from_zero, 0, 100_00, 1_00),
+                make_mutations(?mutations(100_00, 2, round_half_away_from_zero, 0, 100_00, 1_00), #{
+                    cost => ?cash(1000_00)
+                }),
                 ?not_mutated_invoice(1000_00, [?cart_line(1000_00)])
             )
         ),
         ?_assertEqual(
             ?not_mutated_invoice(1234_00, [?cart_line(1234_00)]),
             apply_mutations(
-                ?mutations(100_00, 2, round_half_away_from_zero, 0, 1000_00, 7_00),
+                make_mutations(?mutations(100_00, 2, round_half_away_from_zero, 0, 1000_00, 7_00), #{
+                    cost => ?cash(1234_00)
+                }),
                 ?not_mutated_invoice(1234_00, [?cart_line(1234_00)])
             )
         ),
@@ -191,7 +218,9 @@ apply_mutations_test_() ->
         ?_assertEqual(
             ?mutated_invoice(100_00, 100_00, [?cart_line(100_00)]),
             apply_mutations(
-                ?mutations(0, 2, round_half_away_from_zero, 0, 1000_00, 1_00),
+                make_mutations(?mutations(0, 2, round_half_away_from_zero, 0, 1000_00, 1_00), #{
+                    cost => ?cash(100_00)
+                }),
                 ?not_mutated_invoice(100_00, [?cart_line(100_00)])
             )
         ),
@@ -202,7 +231,7 @@ apply_mutations_test_() ->
                 ?mutated_invoice(100_00, A, [?cart_line(A)]) when
                     A =:= 0 orelse A =:= 100_00 orelse A =:= 200_00,
                 apply_mutations(
-                    Mutations,
+                    make_mutations(Mutations, #{cost => ?cash(100_00)}),
                     ?not_mutated_invoice(100_00, [?cart_line(100_00)])
                 )
             )
@@ -215,7 +244,7 @@ apply_mutations_test_() ->
                 ?mutated_invoice(1000_00, A, [?cart_line(A)]) when
                     A >= 900_00 andalso A =< 1100_00 andalso A rem 100 =:= 0,
                 apply_mutations(
-                    Mutations,
+                    make_mutations(Mutations, #{cost => ?cash(1000_00)}),
                     ?not_mutated_invoice(1000_00, [?cart_line(1000_00)])
                 )
             )
