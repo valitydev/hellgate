@@ -36,7 +36,7 @@ get_mutated_cost(Mutations, Cost) ->
 -type invoice_template_details() :: dmsl_domain_thrift:'InvoiceTemplateDetails'().
 
 -spec validate_mutations([mutation_params()], invoice_details() | invoice_template_details()) -> ok.
-validate_mutations(Mutations, #domain_InvoiceDetails{cart = Cart}) ->
+validate_mutations(Mutations, #domain_InvoiceDetails{cart = #domain_InvoiceCart{} = Cart}) ->
     validate_mutations_w_cart(Mutations, Cart);
 validate_mutations(Mutations, {cart, #domain_InvoiceCart{} = Cart}) ->
     validate_mutations_w_cart(Mutations, Cart);
@@ -44,7 +44,8 @@ validate_mutations(_Mutations, _Details) ->
     ok.
 
 validate_mutations_w_cart(Mutations, #domain_InvoiceCart{lines = Lines}) ->
-    amount_mutation_is_present(Mutations) andalso cart_is_valid_for_mutation(Lines) andalso
+    Mutations1 = genlib:define(Mutations, []),
+    amount_mutation_is_present(Mutations1) andalso cart_is_valid_for_mutation(Lines) andalso
         throw(#base_InvalidRequest{
             errors = [<<"Amount mutation with multiline cart or multiple items in a line is not allowed">>]
         }),
