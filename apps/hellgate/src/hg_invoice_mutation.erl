@@ -114,27 +114,14 @@ make_mutation(
 make_mutation(_, {Mutations, Context}) ->
     {Mutations, Context}.
 
-calc_new_amount(Amount, #domain_RandomizationMutationParams{
-    deviation = MaxDeviation,
-    precision = Precision,
-    rounding = RoundingMethod
-}) ->
-    Deviation = calc_deviation(RoundingMethod, MaxDeviation, trunc(math:pow(10, Precision))),
+calc_new_amount(Amount, #domain_RandomizationMutationParams{deviation = MaxDeviation, precision = Precision}) ->
+    Deviation = calc_deviation(MaxDeviation, trunc(math:pow(10, Precision))),
     Sign = trunc(math:pow(-1, rand:uniform(2))),
     Amount + Sign * Deviation.
 
-calc_deviation(RoundingMethod, MaxDeviation, PrecisionFactor) ->
-    RoundingFun = rounding_fun(RoundingMethod),
+calc_deviation(MaxDeviation, PrecisionFactor) ->
     Deviation0 = rand:uniform(MaxDeviation + 1) - 1,
-    RoundingFun(Deviation0 / PrecisionFactor) * PrecisionFactor.
-
-rounding_fun(RoundingMethod) ->
-    case RoundingMethod of
-        round_half_towards_zero -> fun round/1;
-        round_half_away_from_zero -> fun round/1;
-        round_down -> fun floor/1;
-        round_up -> fun ceil/1
-    end.
+    erlang:round(Deviation0 / PrecisionFactor) * PrecisionFactor.
 
 %%
 
@@ -143,12 +130,11 @@ rounding_fun(RoundingMethod) ->
 
 -spec test() -> _.
 
--define(mutations(Deviation, Precision, Rounding, Min, Max, Multiplicity), [
+-define(mutations(Deviation, Precision, Min, Max, Multiplicity), [
     {amount,
         {randomization, #domain_RandomizationMutationParams{
             deviation = Deviation,
             precision = Precision,
-            rounding = Rounding,
             min_amount_condition = Min,
             max_amount_condition = Max,
             amount_multiplicity_condition = Multiplicity
@@ -196,7 +182,7 @@ apply_mutations_test_() ->
         ?_assertEqual(
             ?not_mutated_invoice(1000_00, [?cart_line(1000_00)]),
             apply_mutations(
-                make_mutations(?mutations(100_00, 2, round_half_away_from_zero, 0, 100_00, 1_00), #{
+                make_mutations(?mutations(100_00, 2, 0, 100_00, 1_00), #{
                     cost => ?cash(1000_00)
                 }),
                 ?not_mutated_invoice(1000_00, [?cart_line(1000_00)])
@@ -205,7 +191,7 @@ apply_mutations_test_() ->
         ?_assertEqual(
             ?not_mutated_invoice(1234_00, [?cart_line(1234_00)]),
             apply_mutations(
-                make_mutations(?mutations(100_00, 2, round_half_away_from_zero, 0, 1000_00, 7_00), #{
+                make_mutations(?mutations(100_00, 2, 0, 1000_00, 7_00), #{
                     cost => ?cash(1234_00)
                 }),
                 ?not_mutated_invoice(1234_00, [?cart_line(1234_00)])
@@ -216,7 +202,7 @@ apply_mutations_test_() ->
         ?_assertEqual(
             ?mutated_invoice(100_00, 100_00, [?cart_line(100_00)]),
             apply_mutations(
-                make_mutations(?mutations(0, 2, round_half_away_from_zero, 0, 1000_00, 1_00), #{
+                make_mutations(?mutations(0, 2, 0, 1000_00, 1_00), #{
                     cost => ?cash(100_00)
                 }),
                 ?not_mutated_invoice(100_00, [?cart_line(100_00)])
@@ -233,7 +219,7 @@ apply_mutations_test_() ->
                     ?not_mutated_invoice(100_00, [?cart_line(100_00)])
                 )
             )
-         || Mutations <- lists:duplicate(10, ?mutations(100_00, 4, round_half_away_from_zero, 0, 1000_00, 1_00))
+         || Mutations <- lists:duplicate(10, ?mutations(100_00, 4, 0, 1000_00, 1_00))
         ],
 
         %% Deviate in segment [900_00, 1100_00] without minor units
@@ -246,7 +232,7 @@ apply_mutations_test_() ->
                     ?not_mutated_invoice(1000_00, [?cart_line(1000_00)])
                 )
             )
-         || Mutations <- lists:duplicate(10, ?mutations(100_00, 2, round_half_away_from_zero, 0, 1000_00, 1_00))
+         || Mutations <- lists:duplicate(10, ?mutations(100_00, 2, 0, 1000_00, 1_00))
         ]
     ]).
 
