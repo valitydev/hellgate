@@ -2,6 +2,7 @@
 
 -module(hg_invoice_template).
 
+-include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
@@ -115,17 +116,17 @@ get_shop(ShopID, Party) ->
 set_meta(ID) ->
     scoper:add_meta(#{invoice_template_id => ID}).
 
-validate_create_params(#payproc_InvoiceTemplateCreateParams{details = Details}, Shop) ->
-    ok = validate_details(Details, Shop).
+validate_create_params(#payproc_InvoiceTemplateCreateParams{details = Details, mutations = Mutations}, Shop) ->
+    ok = validate_details(Details, Mutations, Shop).
 
 validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = undefined}, _) ->
     ok;
-validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = Details}, Shop) ->
-    ok = validate_details(Details, Shop).
+validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = Details, mutations = Mutations}, Shop) ->
+    ok = validate_details(Details, Mutations, Shop).
 
-validate_details({cart, #domain_InvoiceCart{}}, _) ->
-    ok;
-validate_details({product, #domain_InvoiceTemplateProduct{price = Price}}, Shop) ->
+validate_details({cart, #domain_InvoiceCart{}} = Details, Mutations, _) ->
+    hg_invoice_mutation:validate_mutations(Mutations, Details);
+validate_details({product, #domain_InvoiceTemplateProduct{price = Price}}, _, Shop) ->
     validate_price(Price, Shop).
 
 validate_price({fixed, Cash}, Shop) ->

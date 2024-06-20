@@ -480,7 +480,7 @@ make_shop_params(Category, ContractID, PayoutToolID) ->
 make_party_params() ->
     #payproc_PartyParams{
         contact_info = #domain_PartyContactInfo{
-            email = <<?MODULE_STRING>>
+            registration_email = <<?MODULE_STRING>>
         }
     }.
 

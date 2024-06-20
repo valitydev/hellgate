@@ -36,7 +36,7 @@
 -export([get/1]).
 -export([get_payment/2]).
 -export([get_payment_opts/1]).
--export([create/5]).
+-export([create/6]).
 -export([marshal_invoice/1]).
 -export([unmarshal_history/1]).
 -export([collapse_history/1]).
@@ -126,13 +126,20 @@ get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
         timestamp => hg_datetime:format_now()
     }.
 
--spec create(hg_machine:id(), undefined | hg_machine:id(), hg_party:party_revision(), invoice_params(), allocation()) ->
+-spec create(
+    hg_machine:id(),
+    undefined | hg_machine:id(),
+    hg_party:party_revision(),
+    invoice_params(),
+    allocation(),
+    [hg_invoice_mutation:mutation()]
+) ->
     invoice().
-create(ID, InvoiceTplID, PartyRevision, V = #payproc_InvoiceParams{}, Allocation) ->
+create(ID, InvoiceTplID, PartyRevision, V = #payproc_InvoiceParams{}, Allocation, Mutations) ->
     OwnerID = V#payproc_InvoiceParams.party_id,
     ShopID = V#payproc_InvoiceParams.shop_id,
     Cost = V#payproc_InvoiceParams.cost,
-    #domain_Invoice{
+    hg_invoice_mutation:apply_mutations(Mutations, #domain_Invoice{
         id = ID,
         shop_id = ShopID,
         owner_id = OwnerID,
@@ -147,7 +154,7 @@ create(ID, InvoiceTplID, PartyRevision, V = #payproc_InvoiceParams{}, Allocation
         external_id = V#payproc_InvoiceParams.external_id,
         client_info = V#payproc_InvoiceParams.client_info,
         allocation = Allocation
-    }.
+    }).
 
 %%----------------- invoice asserts
 assert_invoice(Checks, #st{} = St) when is_list(Checks) ->
