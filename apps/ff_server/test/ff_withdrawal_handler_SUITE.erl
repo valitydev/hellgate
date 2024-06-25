@@ -8,6 +8,7 @@
 -include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_cashflow_thrift.hrl").
+-include_lib("validator_personal_data_proto/include/validator_personal_data_validator_personal_data_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -31,6 +32,8 @@
 -export([create_destination_resource_no_bindata_fail_test/1]).
 -export([create_destination_notfound_test/1]).
 -export([create_destination_generic_ok_test/1]).
+-export([create_destination_auth_data_valid_test/1]).
+-export([create_destination_auth_data_invalid_test/1]).
 -export([create_wallet_notfound_test/1]).
 -export([unknown_test/1]).
 -export([get_context_test/1]).
@@ -48,7 +51,10 @@
 
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
-    [{group, default}].
+    [
+        {group, default},
+        {group, validator}
+    ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
@@ -75,6 +81,10 @@ groups() ->
             create_adjustment_already_has_status_error_test,
             create_adjustment_already_has_data_revision_error_test,
             withdrawal_state_content_test
+        ]},
+        {validator, [], [
+            create_destination_auth_data_valid_test,
+            create_destination_auth_data_invalid_test
         ]}
     ].
 
@@ -389,6 +399,114 @@ create_destination_generic_ok_test(C) ->
         FinalWithdrawalState#wthd_WithdrawalState.status
     ).
 
+-spec create_destination_auth_data_valid_test(config()) -> test_return().
+create_destination_auth_data_valid_test(C) ->
+    %% mock validator
+    ok = meck:expect(ff_woody_client, call, fun
+        (validator, {_, _, {Token}}) ->
+            {ok, #validator_personal_data_ValidationResponse{
+                validation_id = <<"ID">>,
+                token = Token,
+                validation_status = valid
+            }};
+        (Service, Request) ->
+            meck:passthrough([Service, Request])
+    end),
+    Cash = make_cash({424242, <<"RUB">>}),
+    AuthData = #{
+        auth_data => #{
+            sender => <<"SenderPersonalDataToken">>,
+            receiver => <<"ReceiverPersonalDataToken">>
+        }
+    },
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, undefined, AuthData, C),
+    WithdrawalID = generate_id(),
+    Params = #wthd_WithdrawalParams{
+        id = WithdrawalID,
+        wallet_id = WalletID,
+        destination_id = DestinationID,
+        body = Cash
+    },
+    Result = call_withdrawal('Create', {Params, #{}}),
+    ?assertMatch({ok, _}, Result),
+    succeeded = await_final_withdrawal_status(WithdrawalID),
+    ExpectedValidation = #wthd_WithdrawalValidation{
+        sender = [
+            {personal, #wthd_PersonalDataValidationResult{
+                validation_id = <<"ID">>,
+                token = <<"SenderPersonalDataToken">>,
+                validation_status = valid
+            }}
+        ],
+        receiver = [
+            {personal, #wthd_PersonalDataValidationResult{
+                validation_id = <<"ID">>,
+                token = <<"ReceiverPersonalDataToken">>,
+                validation_status = valid
+            }}
+        ]
+    },
+    {ok, WithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
+    ?assertEqual(ExpectedValidation, WithdrawalState#wthd_WithdrawalState.withdrawal_validation),
+    meck:unload(ff_woody_client).
+
+-spec create_destination_auth_data_invalid_test(config()) -> test_return().
+create_destination_auth_data_invalid_test(C) ->
+    %% mock validator
+    ok = meck:expect(ff_woody_client, call, fun
+        (validator, {_, _, {Token}}) ->
+            {ok, #validator_personal_data_ValidationResponse{
+                validation_id = <<"ID">>,
+                token = Token,
+                validation_status = invalid
+            }};
+        (Service, Request) ->
+            meck:passthrough([Service, Request])
+    end),
+    Cash = make_cash({424242, <<"RUB">>}),
+    AuthData = #{
+        auth_data => #{
+            sender => <<"SenderPersonalDataToken">>,
+            receiver => <<"ReceiverPersonalDataToken">>
+        }
+    },
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, undefined, AuthData, C),
+    WithdrawalID = generate_id(),
+    Params = #wthd_WithdrawalParams{
+        id = WithdrawalID,
+        wallet_id = WalletID,
+        destination_id = DestinationID,
+        body = Cash
+    },
+    Result = call_withdrawal('Create', {Params, #{}}),
+    ?assertMatch({ok, _}, Result),
+    {failed, #{code := <<"invalid_personal_data">>}} = await_final_withdrawal_status(WithdrawalID),
+    ExpectedValidation = #wthd_WithdrawalValidation{
+        sender = [
+            {personal, #wthd_PersonalDataValidationResult{
+                validation_id = <<"ID">>,
+                token = <<"SenderPersonalDataToken">>,
+                validation_status = invalid
+            }}
+        ],
+        receiver = [
+            {personal, #wthd_PersonalDataValidationResult{
+                validation_id = <<"ID">>,
+                token = <<"ReceiverPersonalDataToken">>,
+                validation_status = invalid
+            }}
+        ]
+    },
+    {ok, WithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
+    ?assertEqual(ExpectedValidation, WithdrawalState#wthd_WithdrawalState.withdrawal_validation),
+    meck:unload(ff_woody_client).
+
 -spec create_wallet_notfound_test(config()) -> test_return().
 create_wallet_notfound_test(C) ->
     Cash = make_cash({100, <<"RUB">>}),
@@ -573,6 +691,9 @@ prepare_standard_environment(Body, C) ->
     prepare_standard_environment(Body, undefined, C).
 
 prepare_standard_environment(Body, Token, C) ->
+    prepare_standard_environment(Body, Token, #{}, C).
+
+prepare_standard_environment(Body, Token, AuthData, C) ->
     #'fistful_base_Cash'{
         amount = Amount,
         currency = #'fistful_base_CurrencyRef'{symbolic_code = Currency}
@@ -581,7 +702,7 @@ prepare_standard_environment(Body, Token, C) ->
     IdentityID = create_identity(Party, C),
     WalletID = create_wallet(IdentityID, <<"My wallet">>, Currency, C),
     ok = await_wallet_balance({0, Currency}, WalletID),
-    DestinationID = create_destination(IdentityID, Token, C),
+    DestinationID = create_destination(IdentityID, Token, AuthData, C),
     ok = set_wallet_balance({Amount, Currency}, WalletID),
     #{
         identity_id => IdentityID,
@@ -694,12 +815,12 @@ get_account_balance(Account) ->
 generate_id() ->
     ff_id:generate_snowflake_id().
 
-create_destination(IID, <<"USD_CURRENCY">>, C) ->
-    create_destination(IID, <<"USD">>, undefined, C);
-create_destination(IID, Token, C) ->
-    create_destination(IID, <<"RUB">>, Token, C).
+create_destination(IID, <<"USD_CURRENCY">>, AuthData, C) ->
+    create_destination(IID, <<"USD">>, undefined, AuthData, C);
+create_destination(IID, Token, AuthData, C) ->
+    create_destination(IID, <<"RUB">>, Token, AuthData, C).
 
-create_destination(IID, Currency, Token, C) ->
+create_destination(IID, Currency, Token, AuthData, C) ->
     ID = generate_id(),
     StoreSource = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}, C),
     NewStoreResource =
@@ -710,7 +831,8 @@ create_destination(IID, Currency, Token, C) ->
                 StoreSource#{token => Token}
         end,
     Resource = {bank_card, #{bank_card => NewStoreResource}},
-    Params = #{id => ID, identity => IID, name => <<"XDesination">>, currency => Currency, resource => Resource},
+    Params0 = #{id => ID, identity => IID, name => <<"XDesination">>, currency => Currency, resource => Resource},
+    Params = maps:merge(AuthData, Params0),
     ok = ff_destination_machine:create(Params, ff_entity_context:new()),
     authorized = ct_helper:await(
         authorized,

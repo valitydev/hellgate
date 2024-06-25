@@ -11,6 +11,7 @@
         scoper,
         party_client,
         fistful_proto,
+        ff_validator,
         fistful,
         ff_transfer,
         w2w,

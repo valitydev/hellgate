@@ -79,7 +79,8 @@ marshal_withdrawal_state(WithdrawalState, Context) ->
         adjustments = [ff_withdrawal_adjustment_codec:marshal(adjustment_state, A) || A <- Adjustments],
         context = marshal(ctx, Context),
         metadata = marshal(ctx, ff_withdrawal:metadata(WithdrawalState)),
-        quote = maybe_marshal(quote_state, ff_withdrawal:quote(WithdrawalState))
+        quote = maybe_marshal(quote_state, ff_withdrawal:quote(WithdrawalState)),
+        withdrawal_validation = maybe_marshal(withdrawal_validation, ff_withdrawal:validation(WithdrawalState))
     }.
 
 -spec marshal_event(ff_withdrawal_machine:event()) -> fistful_wthd_thrift:'Event'().
@@ -119,6 +120,19 @@ marshal(change, {adjustment, #{id := ID, payload := Payload}}) ->
         id = marshal(id, ID),
         payload = ff_withdrawal_adjustment_codec:marshal(change, Payload)
     }};
+marshal(change, {validation, {Part, ValidationResult}}) when Part =:= sender; Part =:= receiver ->
+    {validation, {Part, marshal(validation_result, ValidationResult)}};
+marshal(validation_result, {personal, #{validation_id := ValidationID, token := Token, validation_status := Status}}) ->
+    {
+        personal,
+        #wthd_PersonalDataValidationResult{
+            validation_id = marshal(id, ValidationID),
+            token = marshal(string, Token),
+            validation_status = marshal(validation_status, Status)
+        }
+    };
+marshal(validation_status, V) when V =:= valid; V =:= invalid ->
+    V;
 marshal(withdrawal, Withdrawal) ->
     #wthd_Withdrawal{
         id = marshal(id, ff_withdrawal:id(Withdrawal)),
@@ -190,6 +204,11 @@ marshal(quote, Quote) ->
         domain_revision = maybe_marshal(domain_revision, genlib_map:get(domain_revision, Quote)),
         operation_timestamp = maybe_marshal(timestamp_ms, genlib_map:get(operation_timestamp, Quote))
     };
+marshal(withdrawal_validation, WithdrawalValidation) ->
+    #wthd_WithdrawalValidation{
+        sender = maybe_marshal({list, validation_result}, maps:get(sender, WithdrawalValidation, undefined)),
+        receiver = maybe_marshal({list, validation_result}, maps:get(receiver, WithdrawalValidation, undefined))
+    };
 marshal(ctx, Ctx) ->
     maybe_marshal(context, Ctx);
 marshal(T, V) ->
@@ -227,6 +246,19 @@ unmarshal(change, {adjustment, Change}) ->
         id => unmarshal(id, Change#wthd_AdjustmentChange.id),
         payload => ff_withdrawal_adjustment_codec:unmarshal(change, Change#wthd_AdjustmentChange.payload)
     }};
+unmarshal(change, {validation, {Part, ValidationResult}}) when Part =:= sender; Part =:= receiver ->
+    {validation, {Part, unmarshal(validation_result, ValidationResult)}};
+unmarshal(validation_result, {personal, Validation}) ->
+    {personal, #{
+        validation_id => unmarshal(id, Validation#wthd_PersonalDataValidationResult.validation_id),
+        token => unmarshal(string, Validation#wthd_PersonalDataValidationResult.token),
+        validation_status => unmarshal(
+            validation_status,
+            Validation#wthd_PersonalDataValidationResult.validation_status
+        )
+    }};
+unmarshal(validation_status, V) when V =:= valid; V =:= invalid ->
+    V;
 unmarshal(withdrawal, Withdrawal = #wthd_Withdrawal{}) ->
     ff_withdrawal:gen(#{
         id => unmarshal(id, Withdrawal#wthd_Withdrawal.id),
