@@ -64,8 +64,8 @@ cart_is_not_valid_for_mutation(Lines) ->
     length(Lines) > 1 orelse (hd(Lines))#domain_InvoiceLine.quantity =/= 1.
 
 -spec apply_mutations([mutation()] | undefined, Invoice) -> Invoice when Invoice :: hg_invoice:invoice().
-apply_mutations(MutationsParams, Invoice) ->
-    lists:foldl(fun apply_mutation/2, Invoice, genlib:define(MutationsParams, [])).
+apply_mutations(Mutations, Invoice) ->
+    lists:foldl(fun apply_mutation/2, Invoice, genlib:define(Mutations, [])).
 
 apply_mutation(Mutation = {amount, #domain_InvoiceAmountMutation{mutated = NewAmount}}, Invoice) ->
     #domain_Invoice{cost = Cost, mutations = Mutations} = Invoice,
