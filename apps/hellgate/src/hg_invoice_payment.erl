@@ -26,6 +26,9 @@
 -include_lib("hellgate/include/domain.hrl").
 -include_lib("hellgate/include/allocation.hrl").
 
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
+
 -include("hg_invoice_payment.hrl").
 
 %% API
@@ -410,15 +413,17 @@ get_chargeback_opts(#st{opts = Opts} = St) ->
 
 -spec init(payment_id(), _, opts()) -> {st(), result()}.
 init(PaymentID, PaymentParams, Opts) ->
-    scoper:scope(
-        payment,
-        #{
-            id => PaymentID
-        },
-        fun() ->
-            init_(PaymentID, PaymentParams, Opts)
-        end
-    ).
+    ?with_span(<<"initializing payment">>, mk_default_span_opts(), fun(_SpanCtx) ->
+        scoper:scope(
+            payment,
+            #{
+                id => PaymentID
+            },
+            fun() ->
+                init_(PaymentID, PaymentParams, Opts)
+            end
+        )
+    end).
 
 -spec init_(payment_id(), _, opts()) -> {st(), result()}.
 init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
@@ -1827,8 +1832,11 @@ process_signal(timeout, St, Options) ->
     ).
 
 process_timeout(St) ->
-    Action = hg_machine_action:new(),
-    repair_process_timeout(get_activity(St), Action, St).
+    Activity = get_activity(St),
+    maybe_with_activity_span(Activity, fun() ->
+        Action = hg_machine_action:new(),
+        repair_process_timeout(Activity, Action, St)
+    end).
 
 -spec process_timeout(activity(), action(), st()) -> machine_result().
 process_timeout({payment, shop_limit_initializing}, Action, St) ->
@@ -3967,6 +3975,40 @@ get_route_cascade_behaviour(Route, Revision) ->
     ProviderRef = get_route_provider(Route),
     #domain_Provider{cascade_behaviour = Behaviour} = hg_domain:get(Revision, {provider, ProviderRef}),
     Behaviour.
+
+maybe_with_activity_span(Activity, Fun) ->
+    case mk_activity_span_params(Activity) of
+        {undefined, _SpanOpts} ->
+            Fun();
+        {SpanName, SpanOpts} ->
+            ?with_span(SpanName, SpanOpts, fun(_SpanCtx) ->
+                Fun()
+            end)
+    end.
+
+mk_activity_span_params(Activity) ->
+    {mk_activity_span_name(Activity), mk_default_span_opts()}.
+
+mk_activity_span_name({payment, PaymentActivity}) when is_atom(PaymentActivity) ->
+    payment_activity_to_binary(PaymentActivity);
+mk_activity_span_name(_Activity) ->
+    %% TODO Handle unknown activity
+    undefined.
+
+payment_activity_to_binary(PaymentActivity) ->
+    %% Transforms
+    %% 'shop_limit_initializing' to <<"shop limit initializing">>,
+    %% 'risk_scoring' to <<"risk scoring">>
+    %% etc.
+    binary:replace(erlang:atom_to_binary(PaymentActivity), <<$_>>, <<$\s>>, [global]).
+
+mk_default_span_opts() ->
+    #{kind => ?SPAN_KIND_INTERNAL, attributes => mk_business_logic_attrs()}.
+
+mk_business_logic_attrs() ->
+    #{
+        <<"hg.business_logic">> => true
+    }.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
