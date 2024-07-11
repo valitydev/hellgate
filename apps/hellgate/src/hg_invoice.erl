@@ -306,7 +306,8 @@ handle_signal(timeout, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_signal(timeout, PaymentID, PaymentSession, St);
 handle_signal(timeout, St = #st{activity = invoice}) ->
-    ?with_span(<<"invoice expiration">>, #{kind => ?SPAN_KIND_INTERNAL}, fun(_SpanCtx) ->
+    SpanOpts = #{kind => ?SPAN_KIND_INTERNAL, attributes => #{<<"hg.business_logic">> => true}},
+    ?with_span(<<"invoice expiration">>, SpanOpts, fun(_SpanCtx) ->
         % invoice is expired
         handle_expiration(St)
     end).

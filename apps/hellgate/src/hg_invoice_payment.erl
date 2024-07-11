@@ -2028,18 +2028,36 @@ process_routing(Action, St) ->
             handle_choose_route_error(Error, [], St, Action)
     end.
 
+-define(ROUTING_SPAN(Name, Fun), fun(A) ->
+    ?with_span(Name, mk_default_span_opts(), fun(_SpanCtx) ->
+        Fun(A)
+    end)
+end).
+
 run_routing_decision_pipeline(Ctx0, VS, St) ->
     hg_routing_ctx:pipeline(
         Ctx0,
         [
-            fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
+            ?ROUTING_SPAN(<<"excluding attempted routes">>, fun(Ctx) ->
+                filter_attempted_routes(Ctx, St)
+            end),
             %% Since this is routing step then current attempt is not yet
             %% accounted for in `St`.
-            fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St) end,
-            fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, St) end,
-            fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
-            fun hg_routing:filter_by_critical_provider_status/1,
-            fun hg_routing:choose_route_with_ctx/1
+            ?ROUTING_SPAN(<<"holding limits">>, fun(Ctx) ->
+                filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St)
+            end),
+            ?ROUTING_SPAN(<<"checking limits overflows">>, fun(Ctx) ->
+                filter_routes_by_limit_overflow(Ctx, VS, St)
+            end),
+            ?ROUTING_SPAN(<<"filtering blacklisted">>, fun(Ctx) ->
+                hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St))
+            end),
+            ?ROUTING_SPAN(<<"rejecting routes with critical provider status">>, fun(Ctx) ->
+                hg_routing:filter_by_critical_provider_status(Ctx)
+            end),
+            ?ROUTING_SPAN(<<"choosing best scored route">>, fun(Ctx) ->
+                hg_routing:choose_route_with_ctx(Ctx)
+            end)
         ]
     ).
 
@@ -3990,12 +4008,26 @@ mk_activity_span_params(Activity) ->
     {mk_activity_span_name(Activity), mk_default_span_opts()}.
 
 mk_activity_span_name({payment, PaymentActivity}) when is_atom(PaymentActivity) ->
-    payment_activity_to_binary(PaymentActivity);
+    activity_atom_to_binary(PaymentActivity);
+mk_activity_span_name({chargeback, _ID, preparing_initial_cash_flow}) ->
+    <<"preparing initial chargeback cash flow">>;
+mk_activity_span_name({chargeback, _ID, updating_chargeback}) ->
+    <<"updating chargeback">>;
+mk_activity_span_name({chargeback, _ID, updating_cash_flow}) ->
+    <<"updating chargeback cash flow">>;
+mk_activity_span_name({chargeback, _ID, finalising_accounter}) ->
+    <<"finalizing chargeback accounter">>;
+mk_activity_span_name({refund, _ID}) ->
+    <<"processing refund">>;
+mk_activity_span_name({adjustment_new, _ID}) ->
+    <<"processing new adjustment">>;
+mk_activity_span_name({adjustment_pending, _ID}) ->
+    <<"capturing pending adjustment">>;
 mk_activity_span_name(_Activity) ->
     %% TODO Handle unknown activity
     undefined.
 
-payment_activity_to_binary(PaymentActivity) ->
+activity_atom_to_binary(PaymentActivity) ->
     %% Transforms
     %% 'shop_limit_initializing' to <<"shop limit initializing">>,
     %% 'risk_scoring' to <<"risk scoring">>
