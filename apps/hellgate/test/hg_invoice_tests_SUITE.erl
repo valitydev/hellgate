@@ -29,7 +29,8 @@
 -export([invalid_shop_status/1]).
 -export([invalid_invoice_template_cost/1]).
 -export([invalid_invoice_template_id/1]).
--export([invoive_w_template_idempotency/1]).
+-export([invoice_w_template_idempotency/1]).
+-export([invoice_w_template_amount_randomization/1]).
 -export([invoice_w_template/1]).
 -export([invoice_cancellation/1]).
 -export([overdue_invoice_cancellation/1]).
@@ -308,7 +309,8 @@ groups() ->
             invalid_invoice_currency,
             invalid_invoice_template_cost,
             invalid_invoice_template_id,
-            invoive_w_template_idempotency,
+            invoice_w_template_idempotency,
+            invoice_w_template_amount_randomization,
             invoice_w_template,
             invoice_cancellation,
             overdue_invoice_cancellation,
@@ -955,8 +957,8 @@ invalid_invoice_template_id(C) ->
     Params2 = hg_ct_helper:make_invoice_params_tpl(TplID2),
     {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoicing:create_with_tpl(Params2, Client).
 
--spec invoive_w_template_idempotency(config()) -> _ | no_return().
-invoive_w_template_idempotency(C) ->
+-spec invoice_w_template_idempotency(config()) -> _ | no_return().
+invoice_w_template_idempotency(C) ->
     Client = cfg(client, C),
     TplCost1 = {_, FixedCost} = make_tpl_cost(fixed, 10000, <<"RUB">>),
     TplContext1 = hg_ct_helper:make_invoice_context(<<"default context">>),
@@ -998,6 +1000,48 @@ invoive_w_template_idempotency(C) ->
         context = InvoiceContext1,
         external_id = ExternalID
     }) = hg_client_invoicing:create_with_tpl(Params2, Client).
+
+-spec invoice_w_template_amount_randomization(config()) -> _.
+invoice_w_template_amount_randomization(C) ->
+    Client = cfg(client, C),
+    OriginalAmount = 1500_00,
+    TplCost1 = {_, FixedCost} = make_tpl_cost(fixed, OriginalAmount, <<"RUB">>),
+    TplContext1 = hg_ct_helper:make_invoice_context(<<"default context">>),
+    TplClient = cfg(client_tpl, C),
+    PartyID = cfg(party_id, C),
+    ShopID = cfg(shop_id, C),
+    Lifetime = hg_ct_helper:make_lifetime(0, 1, 0),
+    Product = <<"rubberduck">>,
+    Details = hg_ct_helper:make_invoice_tpl_details(Product, TplCost1),
+    TplParams = #payproc_InvoiceTemplateCreateParams{
+        template_id = hg_utils:unique_id(),
+        party_id = PartyID,
+        shop_id = ShopID,
+        invoice_lifetime = Lifetime,
+        product = Product,
+        details = Details,
+        context = TplContext1,
+        mutations = [
+            {amount,
+                {randomization, #domain_RandomizationMutationParams{
+                    deviation = 10_00,
+                    precision = 2,
+                    direction = downward,
+                    min_amount_condition = 50_00,
+                    max_amount_condition = 10000_00,
+                    amount_multiplicity_condition = 100_00
+                }}}
+        ]
+    },
+    #domain_InvoiceTemplate{id = TplID} = hg_client_invoice_templating:create(TplParams, TplClient),
+    InvoiceID = hg_utils:unique_id(),
+    Params = hg_ct_helper:make_invoice_params_tpl(InvoiceID, TplID, FixedCost, hg_ct_helper:make_invoice_context()),
+    ?invoice_state(#domain_Invoice{mutations = Mutations}) = hg_client_invoicing:create_with_tpl(Params, Client),
+    ?assertMatch(
+        [{amount, #domain_InvoiceAmountMutation{original = OriginalAmount, mutated = Mutated}}] when
+            Mutated =< OriginalAmount,
+        Mutations
+    ).
 
 -spec invoice_w_template(config()) -> _ | no_return().
 invoice_w_template(C) ->
