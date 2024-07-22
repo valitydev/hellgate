@@ -29,8 +29,8 @@
 -export([invalid_shop_status/1]).
 -export([invalid_invoice_template_cost/1]).
 -export([invalid_invoice_template_id/1]).
--export([invoive_w_template_idempotency/1]).
--export([invoive_w_template_amount_randomization/1]).
+-export([invoice_w_template_idempotency/1]).
+-export([invoice_w_template_amount_randomization/1]).
 -export([invoice_w_template/1]).
 -export([invoice_cancellation/1]).
 -export([overdue_invoice_cancellation/1]).
@@ -309,8 +309,8 @@ groups() ->
             invalid_invoice_currency,
             invalid_invoice_template_cost,
             invalid_invoice_template_id,
-            invoive_w_template_idempotency,
-            invoive_w_template_amount_randomization,
+            invoice_w_template_idempotency,
+            invoice_w_template_amount_randomization,
             invoice_w_template,
             invoice_cancellation,
             overdue_invoice_cancellation,
@@ -957,8 +957,8 @@ invalid_invoice_template_id(C) ->
     Params2 = hg_ct_helper:make_invoice_params_tpl(TplID2),
     {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoicing:create_with_tpl(Params2, Client).
 
--spec invoive_w_template_idempotency(config()) -> _ | no_return().
-invoive_w_template_idempotency(C) ->
+-spec invoice_w_template_idempotency(config()) -> _ | no_return().
+invoice_w_template_idempotency(C) ->
     Client = cfg(client, C),
     TplCost1 = {_, FixedCost} = make_tpl_cost(fixed, 10000, <<"RUB">>),
     TplContext1 = hg_ct_helper:make_invoice_context(<<"default context">>),
@@ -1001,8 +1001,8 @@ invoive_w_template_idempotency(C) ->
         external_id = ExternalID
     }) = hg_client_invoicing:create_with_tpl(Params2, Client).
 
--spec invoive_w_template_amount_randomization(config()) -> _.
-invoive_w_template_amount_randomization(C) ->
+-spec invoice_w_template_amount_randomization(config()) -> _.
+invoice_w_template_amount_randomization(C) ->
     Client = cfg(client, C),
     OriginalAmount = 1500_00,
     TplCost1 = {_, FixedCost} = make_tpl_cost(fixed, OriginalAmount, <<"RUB">>),
