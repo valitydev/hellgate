@@ -10,6 +10,7 @@
         stdlib,
         genlib,
         fault_detector_proto,
+        progressor,
         hg_proto,
         routing,
         cowboy,
