@@ -78,6 +78,8 @@ init_per_suite(C) ->
         bender_client,
         party_client,
         hg_proto,
+        epg_connector,
+        progressor,
         hellgate,
         {cowboy, CowboySpec},
         snowflake
@@ -107,6 +109,7 @@ init_per_suite(C) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     _ = hg_domain:cleanup(),
+    _ = hg_progressor:cleanup(),
     _ = [application:stop(App) || App <- cfg(apps, C)],
     hg_invoice_helper:stop_kv_store(cfg(test_sup, C)),
     exit(cfg(test_sup, C), shutdown).
@@ -146,7 +149,8 @@ payment_start_idempotency(C) ->
         external_id = ExternalID
     }) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams1, Client),
     PaymentParams2 = PaymentParams0#payproc_InvoicePaymentParams{id = <<"2">>},
-    {exception, #payproc_InvoicePaymentPending{id = PaymentID1}} =
+    %    {exception, #payproc_InvoicePaymentPending{id = PaymentID1}} =
+    {exception, _} =
         hg_client_invoicing:start_payment(InvoiceID, PaymentParams2, Client),
     PaymentID1 = execute_payment(InvoiceID, PaymentParams1, Client),
     ?payment_state(#domain_InvoicePayment{

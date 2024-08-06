@@ -86,6 +86,8 @@ init_per_suite(C) ->
         dmt_client,
         party_client,
         hg_proto,
+        epg_connector,
+        progressor,
         hellgate,
         {cowboy, CowboySpec}
     ]),
@@ -109,6 +111,7 @@ init_per_suite(C) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     SupPid = cfg(suite_test_sup, C),
+    _ = hg_progressor:cleanup(),
     hg_mock_helper:stop_sup(SupPid).
 
 -spec init_per_group(group_name(), config()) -> config().
