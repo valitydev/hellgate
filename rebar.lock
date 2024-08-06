@@ -65,7 +65,7 @@
  {<<"herd">>,
   {git,"https://github.com/wgnet/herd.git",
        {ref,"934847589dcf5a6d2b02a1f546ffe91c04066f17"}},
-  2},
+  0},
  {<<"hpack">>,{pkg,<<"hpack_erl">>,<<"0.2.3">>},3},
  {<<"idna">>,{pkg,<<"idna">>,<<"6.1.1">>},2},
  {<<"jsone">>,{pkg,<<"jsone">>,<<"1.8.0">>},3},
