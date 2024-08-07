@@ -19,6 +19,9 @@
 -include("domain.hrl").
 -include("hg_invoice.hrl").
 
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
+
 -include_lib("damsel/include/dmsl_repair_thrift.hrl").
 
 -define(NS, <<"invoice">>).
@@ -303,8 +306,11 @@ handle_signal(timeout, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_signal(timeout, PaymentID, PaymentSession, St);
 handle_signal(timeout, St = #st{activity = invoice}) ->
-    % invoice is expired
-    handle_expiration(St).
+    SpanOpts = #{kind => ?SPAN_KIND_INTERNAL, attributes => #{<<"hg.business_logic">> => true}},
+    ?with_span(<<"invoice expiration">>, SpanOpts, fun(_SpanCtx) ->
+        % invoice is expired
+        handle_expiration(St)
+    end).
 
 construct_repair_action(CA) when CA /= undefined ->
     lists:foldl(

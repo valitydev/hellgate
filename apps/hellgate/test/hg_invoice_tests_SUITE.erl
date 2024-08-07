@@ -506,6 +506,8 @@ groups() ->
 
 -spec init_per_suite(config()) -> config().
 init_per_suite(C) ->
+    %% Don't wait for batches, flush local collector right away:
+    % ok = application:set_env(opentelemetry, span_processor, simple),
     % _ = dbg:tracer(),
     % _ = dbg:p(all, c),
     % _ = dbg:tpl({'hg_invoice_payment', 'p', '_'}, x),
