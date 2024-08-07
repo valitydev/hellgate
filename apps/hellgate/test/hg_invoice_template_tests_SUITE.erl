@@ -15,6 +15,7 @@
 -export([create_invalid_cost_fixed_currency/1]).
 -export([create_invalid_cost_range/1]).
 -export([create_invoice_template/1]).
+-export([create_invoice_template_with_mutations/1]).
 -export([get_invoice_template_anyhow/1]).
 -export([update_invalid_party_status/1]).
 -export([update_invalid_shop_status/1]).
@@ -23,6 +24,7 @@
 -export([update_invalid_cost_range/1]).
 -export([update_invoice_template/1]).
 -export([update_with_cart/1]).
+-export([update_with_mutations/1]).
 -export([delete_invalid_party_status/1]).
 -export([delete_invalid_shop_status/1]).
 -export([delete_invoice_template/1]).
@@ -54,6 +56,7 @@ all() ->
         create_invalid_cost_fixed_currency,
         create_invalid_cost_range,
         create_invoice_template,
+        create_invoice_template_with_mutations,
         get_invoice_template_anyhow,
         update_invalid_party_status,
         update_invalid_shop_status,
@@ -62,6 +65,7 @@ all() ->
         update_invalid_cost_range,
         update_invoice_template,
         update_with_cart,
+        update_with_mutations,
         delete_invalid_party_status,
         delete_invalid_shop_status,
         delete_invoice_template,
@@ -193,6 +197,17 @@ create_invoice_template(C) ->
     ok = create_cost(make_cost(range, {inclusive, 42, <<"RUB">>}, {inclusive, 42, <<"RUB">>}), C),
     ok = create_cost(make_cost(range, {inclusive, 42, <<"RUB">>}, {inclusive, 100, <<"RUB">>}), C).
 
+-spec create_invoice_template_with_mutations(config()) -> _.
+create_invoice_template_with_mutations(C) ->
+    Client = cfg(client, C),
+    Cost = make_cost(fixed, 42_00, <<"RUB">>),
+    Mutations = make_mutations(),
+    Product = <<"rubberduck">>,
+    Lifetime = make_lifetime(0, 0, 2),
+    #domain_InvoiceTemplate{id = TplID, mutations = Mutations} =
+        create_invoice_tpl_w_mutations(C, Product, Lifetime, Cost, Mutations),
+    #domain_InvoiceTemplate{mutations = Mutations} = hg_client_invoice_templating:get(TplID, Client).
+
 create_cost(Cost, C) ->
     Product = <<"rubberduck">>,
     Details = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
@@ -203,6 +218,22 @@ create_cost(Cost, C) ->
         details = Details
     } = create_invoice_tpl(C, Product, Lifetime, Cost),
     ok.
+
+make_mutations() ->
+    make_mutations(10_00).
+
+make_mutations(Deviation) ->
+    [
+        {amount,
+            {randomization, #domain_RandomizationMutationParams{
+                deviation = Deviation,
+                precision = 2,
+                direction = both,
+                min_amount_condition = 1,
+                max_amount_condition = 10000_00,
+                amount_multiplicity_condition = 1
+            }}}
+    ].
 
 -spec get_invoice_template_anyhow(config()) -> _.
 get_invoice_template_anyhow(C) ->
@@ -379,6 +410,27 @@ update_with_cart(C) ->
     } = hg_client_invoice_templating:update(TplID, Diff, Client),
     #domain_InvoiceTemplate{} = hg_client_invoice_templating:get(TplID, Client).
 
+-spec update_with_mutations(config()) -> _.
+update_with_mutations(C) ->
+    Client = cfg(client, C),
+    Cost = make_cost(fixed, 42_00, <<"RUB">>),
+    Product = <<"rubberduck">>,
+    Lifetime = make_lifetime(0, 0, 2),
+    #domain_InvoiceTemplate{id = TplID, mutations = undefined} =
+        create_invoice_tpl_w_mutations(C, Product, Lifetime, Cost, undefined),
+    [
+        begin
+            Diff = make_invoice_tpl_update_params(#{mutations => M}),
+            #domain_InvoiceTemplate{mutations = M} =
+                hg_client_invoice_templating:update(TplID, Diff, Client)
+        end
+     || M <- [
+            make_mutations(),
+            [],
+            make_mutations(420_00)
+        ]
+    ].
+
 -spec delete_invalid_party_status(config()) -> _.
 delete_invalid_party_status(C) ->
     Client = cfg(client, C),
@@ -482,6 +534,23 @@ create_invoice_tpl(Config, Product, Lifetime, Cost) ->
     PartyID = cfg(party_id, Config),
     Details = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
     Params = make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details),
+    hg_client_invoice_templating:create(Params, Client).
+
+create_invoice_tpl_w_mutations(Config, Product, Lifetime, Cost, Mutations) ->
+    Client = cfg(client, Config),
+    ShopID = cfg(shop_id, Config),
+    PartyID = cfg(party_id, Config),
+    Details = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
+    Params = hg_ct_helper:make_invoice_tpl_create_params(
+        hg_utils:unique_id(),
+        PartyID,
+        ShopID,
+        Lifetime,
+        Product,
+        Details,
+        hg_ct_helper:make_invoice_context(),
+        Mutations
+    ),
     hg_client_invoice_templating:create(Params, Client).
 
 update_invalid_cost(Cost, amount, TplID, Client) ->
