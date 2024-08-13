@@ -570,8 +570,9 @@ init_per_suite(C) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     _ = hg_domain:cleanup(),
-    _ = [application:stop(App) || App <- cfg(apps, C)],
+    _ = application:stop(progressor),
     _ = hg_progressor:cleanup(),
+    _ = [application:stop(App) || App <- cfg(apps, C)],
     _ = hg_invoice_helper:stop_kv_store(cfg(test_sup, C)),
     exit(cfg(test_sup, C), shutdown).
 
