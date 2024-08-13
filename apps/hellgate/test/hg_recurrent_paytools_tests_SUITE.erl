@@ -96,8 +96,8 @@ init_per_suite(C) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     _ = hg_domain:cleanup(),
-    _ = hg_progressor:cleanup(),
-    [application:stop(App) || App <- cfg(apps, C)].
+    [application:stop(App) || App <- cfg(apps, C)],
+    _ = hg_progressor:cleanup().
 
 -spec all() -> [test_case_name()].
 all() ->

@@ -287,7 +287,7 @@ start_app(epg_connector = AppName) ->
             {pools, #{
                 default_pool => #{
                     database => default_db,
-                    size => 10
+                    size => 100
                 }
             }}
         ]),
@@ -313,7 +313,7 @@ start_app(progressor = AppName) ->
                     non_retryable_errors => []
                 },
                 task_scan_timeout => 1,
-                worker_pool_size => 100,
+                worker_pool_size => 30,
                 process_step_timeout => 30
             }},
             {namespaces, #{

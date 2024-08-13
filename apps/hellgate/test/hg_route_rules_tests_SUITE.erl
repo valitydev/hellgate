@@ -111,6 +111,7 @@ init_per_suite(C) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     SupPid = cfg(suite_test_sup, C),
+    _ = application:stop(progressor),
     _ = hg_progressor:cleanup(),
     hg_mock_helper:stop_sup(SupPid).
 
