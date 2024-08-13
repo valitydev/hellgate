@@ -29,6 +29,7 @@
 -export([make_invoice_tpl_create_params/5]).
 -export([make_invoice_tpl_create_params/6]).
 -export([make_invoice_tpl_create_params/7]).
+-export([make_invoice_tpl_create_params/8]).
 -export([make_invoice_tpl_details/2]).
 
 -export([make_invoice_tpl_update_params/1]).
@@ -451,6 +452,7 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type invoice_params_tpl() :: dmsl_payproc_thrift:'InvoiceWithTemplateParams'().
 -type timestamp() :: integer().
 -type context() :: dmsl_base_thrift:'Content'().
+-type mutation() :: dmsl_domain_thrift:'InvoiceMutationParams'().
 -type lifetime_interval() :: dmsl_domain_thrift:'LifetimeInterval'().
 -type invoice_details() :: dmsl_domain_thrift:'InvoiceDetails'().
 -type invoice_tpl_details() :: dmsl_domain_thrift:'InvoiceTemplateDetails'().
@@ -744,6 +746,19 @@ make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details, Cont
     context()
 ) -> invoice_tpl_create_params().
 make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Product, Details, Context) ->
+    make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Product, Details, Context, undefined).
+
+-spec make_invoice_tpl_create_params(
+    invoice_template_id(),
+    party_id(),
+    shop_id(),
+    lifetime_interval(),
+    binary(),
+    invoice_tpl_details(),
+    context(),
+    [mutation()] | undefined
+) -> invoice_tpl_create_params().
+make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Product, Details, Context, Mutations) ->
     #payproc_InvoiceTemplateCreateParams{
         template_id = InvoiceTemplateID,
         party_id = PartyID,
@@ -751,7 +766,8 @@ make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Pro
         invoice_lifetime = Lifetime,
         product = Product,
         details = Details,
-        context = Context
+        context = Context,
+        mutations = Mutations
     }.
 
 -spec make_invoice_tpl_details(binary(), invoice_tpl_cost()) -> invoice_tpl_details().
@@ -775,7 +791,9 @@ update_field(product, V, Params) ->
 update_field(description, V, Params) ->
     Params#payproc_InvoiceTemplateUpdateParams{description = V};
 update_field(context, V, Params) ->
-    Params#payproc_InvoiceTemplateUpdateParams{context = V}.
+    Params#payproc_InvoiceTemplateUpdateParams{context = V};
+update_field(mutations, V, Params) ->
+    Params#payproc_InvoiceTemplateUpdateParams{mutations = V}.
 
 -spec make_lifetime(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> lifetime_interval().
 make_lifetime(Y, M, D) ->

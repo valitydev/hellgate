@@ -146,7 +146,7 @@ validate_price({unlim, _}, _Shop) ->
     ok.
 
 start(ID, Params) ->
-    EncodedParams = marchal_invoice_template_params(Params),
+    EncodedParams = marshal_invoice_template_params(Params),
     map_start_error(hg_machine:start(?NS, ID, EncodedParams)).
 
 call(ID, Function, Args) ->
@@ -208,7 +208,7 @@ namespace() ->
 
 -spec init(binary(), hg_machine:machine()) -> hg_machine:result().
 init(EncodedParams, #{id := ID}) ->
-    Params = unmarchal_invoice_template_params(EncodedParams),
+    Params = unmarshal_invoice_template_params(EncodedParams),
     Tpl = create_invoice_template(ID, Params),
     #{events => [marshal_event_payload([?tpl_created(Tpl)])]}.
 
@@ -223,7 +223,8 @@ create_invoice_template(ID, P) ->
         description = P#payproc_InvoiceTemplateCreateParams.description,
         created_at = hg_datetime:format_now(),
         details = P#payproc_InvoiceTemplateCreateParams.details,
-        context = P#payproc_InvoiceTemplateCreateParams.context
+        context = P#payproc_InvoiceTemplateCreateParams.context,
+        mutations = P#payproc_InvoiceTemplateCreateParams.mutations
     }.
 
 -spec process_repair(hg_machine:args(), hg_machine:machine()) -> no_return().
@@ -272,7 +273,8 @@ merge_changes(
             product = Product,
             description = Description,
             details = Details,
-            context = Context
+            context = Context,
+            mutations = Mutations
         })
     ],
     Tpl
@@ -283,7 +285,8 @@ merge_changes(
         {product, Product},
         {description, Description},
         {details, Details},
-        {context, Context}
+        {context, Context},
+        {mutations, Mutations}
     ],
     lists:foldl(fun update_field/2, Tpl, Diff).
 
@@ -300,12 +303,14 @@ update_field({description, V}, Tpl) ->
 update_field({details, V}, Tpl) ->
     Tpl#domain_InvoiceTemplate{details = V};
 update_field({context, V}, Tpl) ->
-    Tpl#domain_InvoiceTemplate{context = V}.
+    Tpl#domain_InvoiceTemplate{context = V};
+update_field({mutations, V}, Tpl) ->
+    Tpl#domain_InvoiceTemplate{mutations = V}.
 
 %% Marshaling
 
--spec marchal_invoice_template_params(create_params()) -> binary().
-marchal_invoice_template_params(Params) ->
+-spec marshal_invoice_template_params(create_params()) -> binary().
+marshal_invoice_template_params(Params) ->
     Type = {struct, struct, {dmsl_payproc_thrift, 'InvoiceTemplateCreateParams'}},
     hg_proto_utils:serialize(Type, Params).
 
@@ -323,8 +328,8 @@ wrap_event_payload(Payload) ->
 
 %% Unmashaling
 
--spec unmarchal_invoice_template_params(binary()) -> create_params().
-unmarchal_invoice_template_params(EncodedParams) ->
+-spec unmarshal_invoice_template_params(binary()) -> create_params().
+unmarshal_invoice_template_params(EncodedParams) ->
     Type = {struct, struct, {dmsl_payproc_thrift, 'InvoiceTemplateCreateParams'}},
     hg_proto_utils:deserialize(Type, EncodedParams).
 
