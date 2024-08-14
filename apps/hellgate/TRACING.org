@@ -1,0 +1,212 @@
+* Активности
+
+Поскольку появление некоторых активностей инвойса/платежа в процессинге определяется динамически на основе откликов от других частей системы, сбоев и изменений конфигруации, то стоит возможно рассмотривать трассировку бизнес логики как трассировку отдельных сценариев процессинга. И как следствие сразу добавлять в инструменты трассировки кор-сервиса процецссинга управление этими сценариями.
+
+Как примитивный сценарий трассировки предлагаю рассмотреть трассировку всех активностей как спанов и с ключевыми бизнес-событиями как событями внутри этих спанов, а параметризацию такого сценария захардкодить как набор флагов: какую активность записываем / какую игнорируем.
+
+** Инвойс
+
+Ввиду того что сущности платежей не едут на машинах отдельных от сущности инвойса, то не возможности вынести процессинг платежа инвоса с ~activity = {payment, payment_id()}~ в отдельный цельный спан.
+
+*** "creating invoice"
+
+Эта активность выполняется в рамка ~init~ вызова машины. Фактическая инициализация объекта сущности.
+
+Перевод в ~activity = invoice~.
+
+*** "invoice expiration"
+
+Таймаут машины сущности когда нет активностей по процессинга платежей. То есть когда ~activity = invoice~. В случае если в данный момент происходит процессинг платежа, то в состоянии сущности инвойса в процессоре будет ~activity = {payment, payment_id()}~.
+
+** Платёж
+
+Создание спанов платежа производится на основе текущих исполняемы активностей внутри реализации процессора машины.
+
+Следующие спеки описываю возможные значения активности по платежу.
+
+#+begin_src erlang
+
+  -type activity() ::
+      payment_activity()
+      | {refund, refund_id()}
+      | adjustment_activity()
+      | chargeback_activity()
+      | idle.
+
+  -type payment_activity() :: {payment, payment_step()}.
+
+  -type adjustment_activity() ::
+      {adjustment_new, adjustment_id()}
+      | {adjustment_pending, adjustment_id()}.
+
+  -type chargeback_activity() :: {chargeback, chargeback_id(), chargeback_activity_type()}.
+
+  -type chargeback_activity_type() :: hg_invoice_payment_chargeback:activity().
+
+  -type payment_step() ::
+      new
+      | shop_limit_initializing
+      | shop_limit_failure
+      | shop_limit_finalizing
+      | risk_scoring
+      | routing
+      | routing_failure
+      | cash_flow_building
+      | processing_session
+      | processing_accounter
+      | processing_capture
+      | processing_failure
+      | updating_accounter
+      | flow_waiting
+      | finalizing_session
+      | finalizing_accounter.
+
+#+end_src
+
+Из этого следует что аджастменты, чарджбеки и рефанды осуществляются как соответствующие активности сущности платежа.
+
+Далее активности указаны в порядке их выполнения в рамках обслуживания платежа.
+
+*** "initializing payment"
+
+Вызов ~init~ функции при вызове к машине инвойса для создания платежа. Все последующие активности выполняются при таймаут-сигналах машины.
+
+*** "new"
+
+Не "таймаутная" активность, это фактиечески и есть =initializing payment=.
+
+*** "shop limit initializing"
+
+Удержание лимитов по магазину.
+
+Тут есть информация о лимитах. И так как тут происходит проверка переполнения то можно добавить в спаны или события трассировки контекстные данные по затронутым лимитам.
+
+*** "shop limit failure"
+
+Выброс бизнес-ошибки переполнения одного или нескольких лимитов магазина.
+
+*** "shop limit finalizing"
+
+Подтверждение обновления (коммит) лимитов магазина.
+
+*** "risk scoring"
+
+Опрос инспектора, оценки риска платежа.
+
+Этот шаг может быть пропущен при использвании сценария починки.
+
+*** "routing"
+
+Выбор согласно некоторым условия подходящего маршрута (провайдера и терминала) для осуществления непосредственных проводок через API банков.
+
+*** "routing failure"
+
+Откат возможно прежде удержанных лимитов на шаге выбора маршрута. Эта активность происходит когда не был найдет подходящий маршрут и платёж впоследствии будет признан неуспешным с причиной формулируемой на этом шаге.
+
+*** "cash flow building"
+
+Зная провайдера и его условия в этой активности платежа формируется набор проводок регистирующих платёж в системе.
+
+Тут выполняются следующие действия с побочным эффектам за пределами процессора:
+
+- отменяются удержания лимитов затронутых по другим рассмотренным, но не подошедшим по тем или иным причинам, маршрутам;
+
+-  в подсистеме бухгалтерского учёта регистрируются сформированные проводки.
+
+Для трассировки могут быть интересны данные об аккаунтах и движениях учавствующих в проводках.
+
+Сами проводки это список структур, которые можно попробовать выразить в виде =json= и атрибутов спана или события.
+
+#+begin_src thrift
+
+  struct FinalCashFlowPosting {
+    1: required FinalCashFlowAccount source
+    2: required FinalCashFlowAccount destination
+    3: required Cash volume
+    4: optional string details
+  }
+
+#+end_src
+
+*** TODO "processing session"
+
+Осуществляется непосредственное обращение к внешнему по отношению к процессору адаптеру взаимодействия с банковской системой.
+
+В интересах трассировки может быть интересно обернуть спанам дочерней сущности платежа -- сессии. Сессии различимы в рамках одного платежа и имею свои независимые активности исполняемые в этом спане платежа.
+
+*** TODO "processing accounter"
+
+*** "processing capture"
+
+Обработка после подтверждение получения платежа от адаптера. В частности проверки получения полного или частичного платежа.
+
+*** "processing failure"
+
+Обработка неуспеха платежа либо по результатам общения с адаптером (то есть уже имела место сессия), либо на этапе маршрутизации, либо попытки удержания лимитов магазина.
+
+*** "updating accounter"
+
+Обновление проводок и старт сессии на получения платежа в адаптере в случае если имело место изменение суммы платежа. Например при корректировке.
+
+*** TODO "flow waiting"
+
+*** TODO "finalizing session"
+
+*** TODO "finalizing accounter"
+
+** TODO Чарджбеки
+
+*** "preparing initial chargeback cash flow"
+
+*** "updating chargeback"
+
+*** "updating chargeback cash flow"
+
+*** "finalizing chargeback accounter"
+
+** Возвраты
+
+При создании рефанда можно сериализовывать его параметры в атрибуты спана или события трассировки.
+
+#+begin_src thrift
+
+    struct InvoicePaymentRefund {
+      1 : required InvoicePaymentRefundID id
+      2 : required InvoicePaymentRefundStatus status
+      3 : required base.Timestamp created_at
+      4 : required DataRevision domain_revision
+      7 : optional PartyRevision party_revision
+      6 : optional Cash cash
+      5 : optional string reason
+      8 : optional InvoiceCart cart
+      9 : optional string external_id
+      10: optional Allocation allocation
+  }
+
+#+end_src
+
+*** TODO "processing refund"
+
+** Корректировки
+
+При создании корректировки можно создавать событие и добавлять в качестве атрибутов KV параметры самой корректировки.
+
+#+begin_src thrift
+
+    struct InvoicePaymentAdjustment {
+      1: required InvoicePaymentAdjustmentID id
+      2: required InvoicePaymentAdjustmentStatus status
+      3: required base.Timestamp created_at
+      4: required DataRevision domain_revision
+      5: required string reason
+      6: required FinalCashFlow new_cash_flow
+      7: required FinalCashFlow old_cash_flow_inverse
+      8: optional PartyRevision party_revision
+      9: optional InvoicePaymentAdjustmentState state
+  }
+
+#+end_src
+
+*** TODO "processing new adjustment"
+
+*** TODO "capturing pending adjustment"

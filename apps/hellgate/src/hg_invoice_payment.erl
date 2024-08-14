@@ -4007,6 +4007,7 @@ maybe_with_activity_span(Activity, Fun) ->
 mk_activity_span_params(Activity) ->
     {mk_activity_span_name(Activity), mk_default_span_opts()}.
 
+%% NOTE Tries to name and wrap every activity into an OTEL span
 mk_activity_span_name({payment, PaymentActivity}) when is_atom(PaymentActivity) ->
     activity_atom_to_binary(PaymentActivity);
 mk_activity_span_name({chargeback, _ID, preparing_initial_cash_flow}) ->
