@@ -12,6 +12,7 @@
         fault_detector_proto,
         herd,
         progressor,
+        hg_progressor,
         hg_proto,
         routing,
         cowboy,
