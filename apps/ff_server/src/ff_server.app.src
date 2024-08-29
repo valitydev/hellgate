@@ -6,6 +6,8 @@
     {applications, [
         kernel,
         stdlib,
+        prometheus,
+        prometheus_cowboy,
         woody,
         erl_health,
         scoper,

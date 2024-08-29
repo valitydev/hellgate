@@ -321,9 +321,6 @@ do_validate_terms(CombinedTerms, PartyVarset, _Route, _RoutingContext) ->
             allow = Allow,
             global_allow = GAllow,
             currencies = CurrenciesSelector,
-            %% PayoutMethodsSelector is useless for withdrawals
-            %% so we can just ignore it
-            %% payout_methods = PayoutMethodsSelector,
             cash_limit = CashLimitSelector
         } = CombinedTerms,
         valid = unwrap(validate_selectors_defined(CombinedTerms)),
@@ -339,7 +336,6 @@ do_validate_terms(CombinedTerms, PartyVarset, _Route, _RoutingContext) ->
 validate_selectors_defined(Terms) ->
     Selectors = [
         Terms#domain_WithdrawalProvisionTerms.currencies,
-        Terms#domain_WithdrawalProvisionTerms.payout_methods,
         Terms#domain_WithdrawalProvisionTerms.cash_limit,
         Terms#domain_WithdrawalProvisionTerms.cash_flow
     ],

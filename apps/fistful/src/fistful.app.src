@@ -6,6 +6,8 @@
         kernel,
         stdlib,
         genlib,
+        prometheus,
+        prometheus_cowboy,
         ff_core,
         snowflake,
         machinery,

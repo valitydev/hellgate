@@ -1237,7 +1237,6 @@ build_party_varset(#{body := Body, wallet_id := WalletID, party_id := PartyID} =
         cost => ff_dmsl_codec:marshal(cash, Body),
         party_id => PartyID,
         wallet_id => WalletID,
-        payout_method => #domain_PayoutMethodRef{id = wallet_info},
         % TODO it's not fair, because it's PAYOUT not PAYMENT tool.
         payment_tool => PaymentTool,
         bin_data => ff_dmsl_codec:marshal(bin_data, BinData)

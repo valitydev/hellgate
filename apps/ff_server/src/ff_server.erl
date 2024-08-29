@@ -38,6 +38,7 @@ start() ->
 
 -spec start(normal, any()) -> {ok, pid()} | {error, any()}.
 start(_StartType, _StartArgs) ->
+    ok = setup_metrics(),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec stop(any()) -> ok.
@@ -192,3 +193,9 @@ get_namespace_schema('ff/w2w_transfer_v1') ->
 wrap_handler(Handler, WrapperOpts) ->
     FullOpts = maps:merge(#{handler => Handler}, WrapperOpts),
     {ff_woody_wrapper, FullOpts}.
+
+%%
+
+setup_metrics() ->
+    ok = woody_ranch_prometheus_collector:setup(),
+    ok = woody_hackney_prometheus_collector:setup().

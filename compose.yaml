@@ -40,7 +40,7 @@ services:
       retries: 10
 
   machinegun:
-    image: ghcr.io/valitydev/mg2:sha-436f723
+    image: ghcr.io/valitydev/mg2:sha-8bbcd29
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
