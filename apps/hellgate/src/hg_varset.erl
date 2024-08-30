@@ -17,7 +17,6 @@
     shop_id => dmsl_domain_thrift:'ShopID'(),
     risk_score => hg_inspector:risk_score(),
     flow => instant | {hold, dmsl_domain_thrift:'HoldLifetime'()},
-    payout_method => dmsl_domain_thrift:'PayoutMethodRef'(),
     wallet_id => dmsl_domain_thrift:'WalletID'(),
     identification_level => dmsl_domain_thrift:'ContractorIdentificationLevel'()
 }.
@@ -28,7 +27,6 @@ prepare_varset(Varset) ->
         category = genlib_map:get(category, Varset),
         currency = genlib_map:get(currency, Varset),
         amount = genlib_map:get(cost, Varset),
-        payout_method = genlib_map:get(payout_method, Varset),
         wallet_id = genlib_map:get(wallet_id, Varset),
         payment_tool = genlib_map:get(payment_tool, Varset),
         identification_level = genlib_map:get(identification_level, Varset),
@@ -41,7 +39,6 @@ prepare_contract_terms_varset(Varset) ->
     #payproc_ComputeContractTermsVarset{
         amount = genlib_map:get(cost, Varset),
         shop_id = genlib_map:get(shop_id, Varset),
-        payout_method = genlib_map:get(payout_method, Varset),
         payment_tool = genlib_map:get(payment_tool, Varset),
         wallet_id = genlib_map:get(wallet_id, Varset),
         bin_data = genlib_map:get(bin_data, Varset)
@@ -51,6 +48,5 @@ prepare_contract_terms_varset(Varset) ->
 prepare_shop_terms_varset(Varset) ->
     #payproc_ComputeShopTermsVarset{
         amount = genlib_map:get(cost, Varset),
-        payout_method = genlib_map:get(payout_method, Varset),
         payment_tool = genlib_map:get(payment_tool, Varset)
     }.
