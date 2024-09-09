@@ -16,7 +16,6 @@
 -type encoded_args() :: binary().
 -type encoded_ctx() :: binary().
 
--define(HANDLER, hg_machine).
 -define(EMPTY_CONTENT, #mg_stateproc_Content{data = {bin, <<>>}}).
 
 -spec call_automaton(woody:func(), woody:args()) -> term().
