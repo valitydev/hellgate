@@ -86,7 +86,7 @@ services:
       disable: true
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-6d0040d
+    image: ghcr.io/valitydev/party-management:sha-9af7d71
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
