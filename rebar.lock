@@ -107,7 +107,7 @@
  {<<"pooler">>,{pkg,<<"pooler">>,<<"1.5.3">>},3},
  {<<"progressor">>,
   {git,"https://github.com/valitydev/progressor.git",
-       {ref,"8a6a5f9adf54139596bed66717950b18fa911e75"}},
+       {ref,"9a12ecb82d9d02c897dad819b673584c0b969c02"}},
   0},
  {<<"prometheus">>,{pkg,<<"prometheus">>,<<"4.8.1">>},0},
  {<<"prometheus_cowboy">>,{pkg,<<"prometheus_cowboy">>,<<"0.1.8">>},0},
