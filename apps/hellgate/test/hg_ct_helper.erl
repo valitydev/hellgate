@@ -288,6 +288,14 @@ start_app(epg_connector = AppName) ->
                 default_pool => #{
                     database => default_db,
                     size => 100
+                },
+                default_front_pool => #{
+                    database => default_db,
+                    size => 10
+                },
+                default_scan_pool => #{
+                    database => default_db,
+                    size => 4
                 }
             }}
         ]),
@@ -301,7 +309,9 @@ start_app(progressor = AppName) ->
                 storage => #{
                     client => prg_pg_backend,
                     options => #{
-                        pool => default_pool
+                        pool => default_pool,
+                        front_pool => default_front_pool,
+                        scan_pool => default_scan_pool
                     }
                 },
                 retry_policy => #{
