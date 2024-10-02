@@ -49,11 +49,16 @@ handle_function('GetPayment', {Tag}, _) ->
             end;
         {error, notfound} ->
             hg_woody_service_wrapper:raise(#proxy_provider_PaymentNotFound{})
-    end.
+    end;
+handle_function('ChangePaymentSession', {Tag, SessionChange}, _) ->
+    handle_callback_result(hg_invoice:process_session_change_by_tag(Tag, SessionChange)).
 
 -spec handle_callback_result
+    (ok) -> ok;
     ({ok, callback_response()}) -> callback_response();
     ({error, any()}) -> no_return().
+handle_callback_result(ok) ->
+    ok;
 handle_callback_result({ok, Response}) ->
     Response;
 handle_callback_result({error, invalid_callback}) ->
