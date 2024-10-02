@@ -48,7 +48,7 @@ init([]) ->
 all() ->
     [
         {group, payments}
-%        {group, wrap_load}
+        % {group, wrap_load}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
@@ -60,9 +60,7 @@ groups() ->
         {load, [{repeat, 10}], [
             {group, pool_payments}
         ]},
-        {pool_payments, [parallel],
-            lists:foldl(fun(_, Acc) -> [payment_ok_test | Acc] end, [], lists:seq(1, 100))
-        },
+        {pool_payments, [parallel], lists:foldl(fun(_, Acc) -> [payment_ok_test | Acc] end, [], lists:seq(1, 100))},
         {payments, [parallel], [
             payment_start_idempotency,
             payment_success,
