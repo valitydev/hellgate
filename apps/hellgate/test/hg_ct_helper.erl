@@ -287,15 +287,15 @@ start_app(epg_connector = AppName) ->
             {pools, #{
                 default_pool => #{
                     database => default_db,
-                    size => 100
+                    size => 200
                 },
                 default_front_pool => #{
                     database => default_db,
-                    size => 10
+                    size => 50
                 },
                 default_scan_pool => #{
                     database => default_db,
-                    size => 4
+                    size => 8
                 }
             }}
         ]),
@@ -307,7 +307,7 @@ start_app(progressor = AppName) ->
             {call_wait_timeout, 20},
             {defaults, #{
                 storage => #{
-                    client => prg_pg_backend,
+                    client => prg_pg_backend2,
                     options => #{
                         pool => default_pool,
                         front_pool => default_front_pool,
@@ -335,7 +335,8 @@ start_app(progressor = AppName) ->
                             ns => <<"invoice">>,
                             handler => hg_machine
                         }
-                    }
+                    },
+                    worker_pool_size => 150
                 },
                 invoice_template => #{
                     processor => #{

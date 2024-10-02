@@ -125,7 +125,7 @@ services:
 
   postgres:
     image: postgres:15-bookworm
-    command: -c 'max_connections=200'
+    command: -c 'max_connections=300'
     environment:
       POSTGRES_DB: "progressor_db"
       POSTGRES_USER: "progressor"
@@ -145,7 +145,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: '2'
           memory: 4G
 
 volumes:
