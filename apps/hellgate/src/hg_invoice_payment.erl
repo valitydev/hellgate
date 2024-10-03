@@ -200,7 +200,7 @@
 -type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
 -type tag() :: dmsl_proxy_provider_thrift:'CallbackTag'().
 -type callback() :: dmsl_proxy_provider_thrift:'Callback'().
--type session_change() :: dmsl_proxy_provider_thrift:'PaymentSessionChange'().
+-type session_change() :: hg_session:change().
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 -type make_recurrent() :: true | false.
 -type retry_strategy() :: hg_retry:strategy().
@@ -1961,17 +1961,14 @@ process_callback(Tag, Payload, Session, St) when Session /= undefined ->
 process_callback(_Tag, _Payload, undefined, _St) ->
     throw(invalid_callback).
 
-process_session_change(Tag, SessionChange, Session, St) when Session /= undefined ->
+process_session_change(Tag, SessionChange, Session0, _St) when Session0 /= undefined ->
     %% NOTE Change allowed only for suspended session. Not suspended
     %% session does not have registered callback with tag.
-    case {hg_session:status(Session), hg_session:tags(Session)} of
+    case {hg_session:status(Session0), hg_session:tags(Session0)} of
         {suspended, [Tag | _]} ->
-            _ = get_activity(St),
-            _ = SessionChange,
-            _ = St,
-            %% handle_callback(get_activity(St), SessionChange, Session, St);
-            %% TODO Session change event?
-            {ok, {next, {[], hg_machine_action:instant()}}};
+            {{SessionEvents, Action}, Session1} = hg_session:process_change(SessionChange, Session0),
+            Events = hg_session:wrap_events(SessionEvents, Session1),
+            {ok, {next, {Events, Action}}};
         _ ->
             throw(invalid_callback)
     end;

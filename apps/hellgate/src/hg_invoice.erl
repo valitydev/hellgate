@@ -212,7 +212,7 @@ get_payment_state(PaymentSession) ->
 %%
 
 -type tag() :: dmsl_base_thrift:'Tag'().
--type session_change() :: dmsl_proxy_provider_thrift:'PaymentSessionChange'().
+-type session_change() :: hg_session:change().
 -type callback() :: {provider, dmsl_proxy_provider_thrift:'Callback'()}.
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 
