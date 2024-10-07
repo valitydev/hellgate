@@ -869,7 +869,7 @@ terminate(_Reason, _Req, _State) ->
 get_callback_url() ->
     genlib:to_binary("http://127.0.0.1:" ++ integer_to_list(?COWBOY_PORT)).
 
--spec change_payment_session(tag(), session_change()) -> ok.
+-spec change_payment_session(tag(), session_change()) -> ok | {exception, _Reason} | {error, _Reason}.
 change_payment_session(Tag, Change) ->
     Client = hg_client_api:new(hg_ct_helper:get_hellgate_url()),
     case hg_client_api:call(proxy_host_provider, 'ChangePaymentSession', [Tag, Change], Client) of
