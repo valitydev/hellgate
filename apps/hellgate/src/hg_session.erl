@@ -206,7 +206,6 @@ process_callback(Payload, Session) ->
 
 -spec process_change(change(), t()) -> process_result().
 process_change(#proxy_provider_PaymentSessionChange{status = {failure, Failure}}, Session) ->
-    %% TODO Assert session state is viable for change
     SessionEvents = [?session_finished(?session_failed({failure, Failure}))],
     Result = {SessionEvents, hg_machine_action:instant()},
     apply_result(Result, Session);

@@ -16,6 +16,8 @@
 -export([get_callback_url/0]).
 -export([construct_silent_callback/1]).
 
+-export([change_payment_session/2]).
+
 -export([make_payment_tool/2]).
 -export([mk_trx/1]).
 
@@ -733,6 +735,9 @@ get_payment_tool_scenario(
     | {preauth_3ds, integer()}
     | {preauth_3ds_sleep, integer()}.
 
+-type tag() :: dmsl_proxy_provider_thrift:'CallbackTag'().
+-type session_change() :: dmsl_proxy_provider_thrift:'PaymentSessionChange'().
+
 -spec make_payment_tool(payment_tool_code(), payment_system()) -> payment_tool().
 make_payment_tool(Code, PSys) when
     Code =:= no_preauth orelse
@@ -863,6 +868,15 @@ terminate(_Reason, _Req, _State) ->
 -spec get_callback_url() -> binary().
 get_callback_url() ->
     genlib:to_binary("http://127.0.0.1:" ++ integer_to_list(?COWBOY_PORT)).
+
+-spec change_payment_session(tag(), session_change()) -> ok.
+change_payment_session(Tag, Change) ->
+    Client = hg_client_api:new(hg_ct_helper:get_hellgate_url()),
+    case hg_client_api:call(proxy_host_provider, 'ChangePaymentSession', [Tag, Change], Client) of
+        {{ok, ok}, _} -> ok;
+        {{exception, _Reason} = Exception, _} -> Exception;
+        {{error, _Reason} = Error, _} -> Error
+    end.
 
 handle_user_interaction_response(<<"POST">>, Req) ->
     {ok, Body, Req2} = cowboy_req:read_body(Req),
