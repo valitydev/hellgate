@@ -1961,14 +1961,13 @@ process_callback(Tag, Payload, Session, St) when Session /= undefined ->
 process_callback(_Tag, _Payload, undefined, _St) ->
     throw(invalid_callback).
 
-process_session_change(Tag, SessionChange, Session0, _St) when Session0 /= undefined ->
+process_session_change(Tag, SessionChange, Session0, St) when Session0 /= undefined ->
     %% NOTE Change allowed only for suspended session. Not suspended
     %% session does not have registered callback with tag.
     case {hg_session:status(Session0), hg_session:tags(Session0)} of
         {suspended, [Tag | _]} ->
-            {{SessionEvents, Action}, Session1} = hg_session:process_change(SessionChange, Session0),
-            Events = hg_session:wrap_events(SessionEvents, Session1),
-            {ok, {next, {Events, Action}}};
+            {Result, Session1} = hg_session:process_change(SessionChange, Session0),
+            {ok, finish_session_processing(get_activity(St), Result, Session1, St)};
         _ ->
             throw(invalid_callback)
     end;

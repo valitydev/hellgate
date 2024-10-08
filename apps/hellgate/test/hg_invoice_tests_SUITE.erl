@@ -2351,12 +2351,12 @@ payment_session_changed_to_fail(C) ->
 
     Failure = payproc_errors:construct(
         'PaymentFailure',
-        {authorization_failed, {temporarily_unavailable, ?err_gen_failure()}},
+        {authorization_failed, {operation_blocked, ?err_gen_failure()}},
         genlib:unique()
     ),
     Change = #proxy_provider_PaymentSessionChange{status = {failure, Failure}},
 
-    %% Bad session callback tag
+    %% Unknown session callback tag
     ?assertMatch(
         {exception, #base_InvalidRequest{errors = [<<"Not found">>]}},
         hg_dummy_provider:change_payment_session(<<"unknown tag">>, Change)
@@ -2366,10 +2366,13 @@ payment_session_changed_to_fail(C) ->
     %% from request parameter.
     Tag = user_interaction_callback_tag(UserInteraction),
     ok = hg_dummy_provider:change_payment_session(Tag, Change),
+    {failed, PaymentID, {failure, Failure}} = await_payment_process_failure(InvoiceID, PaymentID, Client),
 
-    [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure}))))
-    ] = next_changes(InvoiceID, 1, Client).
+    %% Bad session callback tag must not be found again
+    ?assertMatch(
+        {exception, #base_InvalidRequest{errors = [<<"Not found">>]}},
+        hg_dummy_provider:change_payment_session(Tag, Change)
+    ).
 
 -spec payments_w_bank_card_issuer_conditions(config()) -> test_return().
 payments_w_bank_card_issuer_conditions(C) ->

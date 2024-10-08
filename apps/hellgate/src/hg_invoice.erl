@@ -231,14 +231,14 @@ process_callback(Tag, Callback) ->
     end).
 
 -spec process_session_change_by_tag(tag(), session_change()) ->
-    ok | {error, invalid_callback | notfound | failed} | no_return().
+    ok | {error, notfound | failed} | no_return().
 process_session_change_by_tag(Tag, SessionChange) ->
     process_with_tag(Tag, fun(MachineID) ->
         case hg_machine:call(?NS, MachineID, {session_change, Tag, SessionChange}) of
             ok ->
                 ok;
             {exception, invalid_callback} ->
-                {error, invalid_callback};
+                {error, notfound};
             {error, _} = Error ->
                 Error
         end
