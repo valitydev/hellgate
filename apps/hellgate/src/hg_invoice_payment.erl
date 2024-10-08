@@ -200,6 +200,7 @@
 -type trx_info() :: dmsl_domain_thrift:'TransactionInfo'().
 -type tag() :: dmsl_proxy_provider_thrift:'CallbackTag'().
 -type callback() :: dmsl_proxy_provider_thrift:'Callback'().
+-type session_change() :: hg_session:change().
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 -type make_recurrent() :: true | false.
 -type retry_strategy() :: hg_retry:strategy().
@@ -1924,18 +1925,31 @@ repair_process_timeout(Activity, Action, St = #st{repair_scenario = Scenario}) -
             process_timeout(Activity, Action, St)
     end.
 
--spec process_call({callback, tag(), callback()}, st(), opts()) -> {callback_response(), machine_result()}.
+-spec process_call
+    ({callback, tag(), callback()}, st(), opts()) -> {callback_response(), machine_result()};
+    ({session_change, tag(), session_change()}, st(), opts()) -> {ok, machine_result()}.
 process_call({callback, Tag, Payload}, St, Options) ->
     scoper:scope(
         payment,
         get_st_meta(St),
         fun() -> process_callback(Tag, Payload, St#st{opts = Options}) end
+    );
+process_call({session_change, Tag, SessionChange}, St, Options) ->
+    scoper:scope(
+        payment,
+        get_st_meta(St),
+        fun() -> process_session_change(Tag, SessionChange, St#st{opts = Options}) end
     ).
 
 -spec process_callback(tag(), callback(), st()) -> {callback_response(), machine_result()}.
 process_callback(Tag, Payload, St) ->
     Session = get_activity_session(St),
     process_callback(Tag, Payload, Session, St).
+
+-spec process_session_change(tag(), session_change(), st()) -> {ok, machine_result()}.
+process_session_change(Tag, SessionChange, St) ->
+    Session = get_activity_session(St),
+    process_session_change(Tag, SessionChange, Session, St).
 
 process_callback(Tag, Payload, Session, St) when Session /= undefined ->
     case {hg_session:status(Session), hg_session:tags(Session)} of
@@ -1945,6 +1959,19 @@ process_callback(Tag, Payload, Session, St) when Session /= undefined ->
             throw(invalid_callback)
     end;
 process_callback(_Tag, _Payload, undefined, _St) ->
+    throw(invalid_callback).
+
+process_session_change(Tag, SessionChange, Session0, St) when Session0 /= undefined ->
+    %% NOTE Change allowed only for suspended session. Not suspended
+    %% session does not have registered callback with tag.
+    case {hg_session:status(Session0), hg_session:tags(Session0)} of
+        {suspended, [Tag | _]} ->
+            {Result, Session1} = hg_session:process_change(SessionChange, Session0),
+            {ok, finish_session_processing(get_activity(St), Result, Session1, St)};
+        _ ->
+            throw(invalid_callback)
+    end;
+process_session_change(_Tag, _Payload, undefined, _St) ->
     throw(invalid_callback).
 
 %%

@@ -39,6 +39,7 @@
 -type repair_scenario() :: {result, proxy_result()}.
 
 -export_type([t/0]).
+-export_type([change/0]).
 -export_type([event_context/0]).
 -export_type([process_result/0]).
 
@@ -73,6 +74,7 @@
 
 -export([process/1]).
 -export([process_callback/2]).
+-export([process_change/2]).
 
 %% Internal types
 
@@ -88,6 +90,7 @@
 -type interaction() :: dmsl_user_interaction_thrift:'UserInteraction'().
 -type payment_info() :: dmsl_proxy_provider_thrift:'PaymentInfo'().
 -type timings() :: hg_timings:t().
+-type change() :: dmsl_proxy_provider_thrift:'PaymentSessionChange'().
 
 -type wrapped_event() :: dmsl_payproc_thrift:'InvoicePaymentChangePayload'().
 -type wrapped_events() :: [wrapped_event()].
@@ -200,6 +203,18 @@ process_callback(Payload, Session) ->
     {ok, CallbackResult} = process_session_callback(Payload, Session),
     {Response, Result} = handle_callback_result(CallbackResult, Session),
     {Response, apply_result(Result, Session)}.
+
+-spec process_change(change(), t()) -> process_result().
+process_change(#proxy_provider_PaymentSessionChange{status = {failure, Failure}}, Session) ->
+    SessionEvents = [
+        ?session_activated(),
+        ?session_finished(?session_failed({failure, Failure}))
+    ],
+    Result = {SessionEvents, hg_machine_action:instant()},
+    apply_result(Result, Session);
+process_change(_Change, _Session) ->
+    %% NOTE For now there is no other applicable change defined in protocol.
+    throw(unknown_change).
 
 -spec deduce_activity(t()) -> activity().
 deduce_activity(#{repair_scenario := Scenario}) when Scenario =/= undefined ->
