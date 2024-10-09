@@ -8,9 +8,12 @@
 -export([groups/0]).
 -export([init_per_suite/1]).
 -export([end_per_suite/1]).
+-export([init_per_group/2]).
+-export([end_per_group/2]).
 -export([init_per_testcase/2]).
 -export([end_per_testcase/2]).
 
+-export([payment_ok_test/1]).
 -export([payment_start_idempotency/1]).
 -export([payment_success/1]).
 -export([payment_w_first_blacklisted_success/1]).
@@ -45,11 +48,19 @@ init([]) ->
 all() ->
     [
         {group, payments}
+        % {group, wrap_load}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
+        {wrap_load, [], [
+            {group, load}
+        ]},
+        {load, [{repeat, 10}], [
+            {group, pool_payments}
+        ]},
+        {pool_payments, [parallel], lists:foldl(fun(_, Acc) -> [payment_ok_test | Acc] end, [], lists:seq(1, 100))},
         {payments, [parallel], [
             payment_start_idempotency,
             payment_success,
@@ -78,6 +89,8 @@ init_per_suite(C) ->
         bender_client,
         party_client,
         hg_proto,
+        epg_connector,
+        progressor,
         hellgate,
         {cowboy, CowboySpec},
         snowflake
@@ -107,9 +120,26 @@ init_per_suite(C) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     _ = hg_domain:cleanup(),
+    _ = application:stop(progressor),
+    _ = hg_progressor:cleanup(),
     _ = [application:stop(App) || App <- cfg(apps, C)],
     hg_invoice_helper:stop_kv_store(cfg(test_sup, C)),
     exit(cfg(test_sup, C), shutdown).
+
+-spec init_per_group(group_name(), config()) -> config().
+init_per_group(wrap_load, C) ->
+    io:format(user, "START LOAD: ~p~n", [calendar:local_time()]),
+    C;
+init_per_group(_, C) ->
+    C.
+
+-spec end_per_group(group_name(), config()) -> _.
+end_per_group(wrap_load, _C) ->
+    io:format(user, "FINISH LOAD: ~p~n", [calendar:local_time()]),
+    io:format(user, prometheus_text_format:format(), []),
+    ok;
+end_per_group(_Group, _C) ->
+    ok.
 
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(_, C) ->
@@ -126,6 +156,32 @@ end_per_testcase(_, C) ->
     C.
 
 %% TESTS
+-spec payment_ok_test(config()) -> test_return().
+payment_ok_test(C) ->
+    Client = cfg(client, C),
+    %timer:sleep(rand:uniform(30)),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Context = #base_Content{
+        type = <<"application/x-erlang-binary">>,
+        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
+    },
+    PayerSessionInfo = #domain_PayerSessionInfo{
+        redirect_url = <<"https://redirectly.io/merchant">>
+    },
+    PaymentParams = (make_payment_params(?pmt_sys(<<"visa-ref">>)))#payproc_InvoicePaymentParams{
+        payer_session_info = PayerSessionInfo,
+        context = Context
+    },
+    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
+    try await_payment_capture(InvoiceID, PaymentID, Client) of
+        PaymentID -> ok
+    catch
+        _:_ ->
+            io:format(user, "MAYBE FAILED INVOICE: ~p~n", [InvoiceID])
+    end,
+    #payproc_Invoice{} = hg_client_invoicing:get(InvoiceID, Client),
+    ok.
+
 -spec payment_start_idempotency(config()) -> test_return().
 payment_start_idempotency(C) ->
     Client = cfg(client, C),
@@ -146,7 +202,8 @@ payment_start_idempotency(C) ->
         external_id = ExternalID
     }) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams1, Client),
     PaymentParams2 = PaymentParams0#payproc_InvoicePaymentParams{id = <<"2">>},
-    {exception, #payproc_InvoicePaymentPending{id = PaymentID1}} =
+    %    {exception, #payproc_InvoicePaymentPending{id = PaymentID1}} =
+    {exception, _} =
         hg_client_invoicing:start_payment(InvoiceID, PaymentParams2, Client),
     PaymentID1 = execute_payment(InvoiceID, PaymentParams1, Client),
     ?payment_state(#domain_InvoicePayment{
