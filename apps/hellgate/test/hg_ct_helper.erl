@@ -307,7 +307,7 @@ start_app(progressor = AppName) ->
             {call_wait_timeout, 20},
             {defaults, #{
                 storage => #{
-                    client => prg_pg_backend2,
+                    client => prg_pg_backend,
                     options => #{
                         pool => default_pool,
                         front_pool => default_front_pool,

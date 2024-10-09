@@ -30,7 +30,9 @@ call_automaton('Start', {NS, ID, Args}) ->
         {ok, ok} = Result ->
             Result;
         {error, <<"process already exists">>} ->
-            {error, exists}
+            {error, exists};
+        {error, {exception, _, _} = Exception} ->
+            handle_exception(Exception)
     end;
 call_automaton('Call', {MachineDesc, Args}) ->
     #mg_stateproc_MachineDescriptor{
@@ -49,7 +51,9 @@ call_automaton('Call', {MachineDesc, Args}) ->
         {error, <<"process not found">>} ->
             {error, notfound};
         {error, <<"process is error">>} ->
-            {error, failed}
+            {error, failed};
+        {error, {exception, _, _} = Exception} ->
+            handle_exception(Exception)
     end;
 call_automaton('GetMachine', {MachineDesc}) ->
     #mg_stateproc_MachineDescriptor{
@@ -67,7 +71,9 @@ call_automaton('GetMachine', {MachineDesc}) ->
             Machine = marshal(process, Process#{ns => NS}),
             {ok, Machine#mg_stateproc_Machine{history_range = Range}};
         {error, <<"process not found">>} ->
-            {error, notfound}
+            {error, notfound};
+        {error, {exception, _, _} = Exception} ->
+            handle_exception(Exception)
     end;
 call_automaton('Repair', {MachineDesc, Args}) ->
     #mg_stateproc_MachineDescriptor{
@@ -88,7 +94,9 @@ call_automaton('Repair', {MachineDesc, Args}) ->
         {error, <<"process is running">>} ->
             {error, working};
         {error, <<"process is error">>} ->
-            {error, failed}
+            {error, failed};
+        {error, {exception, _, _} = Exception} ->
+            handle_exception(Exception)
     end.
 
 %-ifdef(TEST).
@@ -172,6 +180,10 @@ handle_result(
         })};
 handle_result(_Unexpected, _LastEventId) ->
     {error, <<"unexpected result">>}.
+
+-spec handle_exception(_) -> no_return().
+handle_exception({exception, Class, Reason}) ->
+    erlang:raise(Class, Reason, []).
 
 get_context() ->
     try hg_context:load() of
