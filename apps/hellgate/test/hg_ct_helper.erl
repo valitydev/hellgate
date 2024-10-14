@@ -431,7 +431,6 @@ create_shop_(
     ShopAccountParams = #payproc_ShopAccountParams{currency = ?cur(Currency)},
 
     ContractParams = make_contract_params(TemplateRef, PaymentInstRef),
-    PayoutToolParams = make_payout_tool_params(),
 
     TurnoverLimits1 = genlib:define(TurnoverLimits0, ordsets:new()),
 
@@ -439,14 +438,6 @@ create_shop_(
         {contract_modification, #payproc_ContractModificationUnit{
             id = ContractID,
             modification = {creation, ContractParams}
-        }},
-        {contract_modification, #payproc_ContractModificationUnit{
-            id = ContractID,
-            modification =
-                {payout_tool_modification, #payproc_PayoutToolModificationUnit{
-                    payout_tool_id = PayoutToolID,
-                    modification = {creation, PayoutToolParams}
-                }}
         }},
         ?shop_modification(ShopID, {creation, ShopParams}),
         ?shop_modification(ShopID, {shop_account_creation, ShopAccountParams}),
@@ -558,19 +549,6 @@ make_contractor() ->
             representative_document = <<"100$ banknote">>,
             russian_bank_account = BankAccount
         }}}.
-
--spec make_payout_tool_params() -> dmsl_payproc_thrift:'PayoutToolParams'().
-make_payout_tool_params() ->
-    #payproc_PayoutToolParams{
-        currency = ?cur(<<"RUB">>),
-        tool_info =
-            {russian_bank_account, #domain_RussianBankAccount{
-                account = <<"4276300010908312893">>,
-                bank_name = <<"SomeBank">>,
-                bank_post_account = <<"123129876">>,
-                bank_bik = <<"66642666">>
-            }}
-    }.
 
 -spec make_invoice_params(party_id(), shop_id(), binary(), cash()) -> invoice_params().
 make_invoice_params(PartyID, ShopID, Product, Cost) ->
