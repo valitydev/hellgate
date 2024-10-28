@@ -24,6 +24,7 @@
 -define(NS, <<"invoice">>).
 
 -export([process_callback/2]).
+-export([process_session_change_by_tag/2]).
 
 -export_type([activity/0]).
 -export_type([invoice/0]).
@@ -211,22 +212,42 @@ get_payment_state(PaymentSession) ->
 %%
 
 -type tag() :: dmsl_base_thrift:'Tag'().
+-type session_change() :: hg_session:change().
 -type callback() :: {provider, dmsl_proxy_provider_thrift:'Callback'()}.
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 
 -spec process_callback(tag(), callback()) ->
     {ok, callback_response()} | {error, invalid_callback | notfound | failed} | no_return().
 process_callback(Tag, Callback) ->
+    process_with_tag(Tag, fun(MachineID) ->
+        case hg_machine:call(?NS, MachineID, {callback, Tag, Callback}) of
+            {ok, _} = Ok ->
+                Ok;
+            {exception, invalid_callback} ->
+                {error, invalid_callback};
+            {error, _} = Error ->
+                Error
+        end
+    end).
+
+-spec process_session_change_by_tag(tag(), session_change()) ->
+    ok | {error, notfound | failed} | no_return().
+process_session_change_by_tag(Tag, SessionChange) ->
+    process_with_tag(Tag, fun(MachineID) ->
+        case hg_machine:call(?NS, MachineID, {session_change, Tag, SessionChange}) of
+            ok ->
+                ok;
+            {exception, invalid_callback} ->
+                {error, notfound};
+            {error, _} = Error ->
+                Error
+        end
+    end).
+
+process_with_tag(Tag, F) ->
     case hg_machine_tag:get_binding(namespace(), Tag) of
         {ok, _EntityID, MachineID} ->
-            case hg_machine:call(?NS, MachineID, {callback, Tag, Callback}) of
-                {ok, _} = Ok ->
-                    Ok;
-                {exception, invalid_callback} ->
-                    {error, invalid_callback};
-                {error, _} = Error ->
-                    Error
-            end;
+            F(MachineID);
         {error, _} = Error ->
             Error
     end.
@@ -342,7 +363,8 @@ handle_expiration(St) ->
 
 -type thrift_call() :: hg_machine:thrift_call().
 -type callback_call() :: {callback, tag(), callback()}.
--type call() :: thrift_call() | callback_call().
+-type session_change_call() :: {session_change, tag(), session_change()}.
+-type call() :: thrift_call() | callback_call() | session_change_call().
 -type call_result() :: #{
     changes => [invoice_change()],
     action => hg_machine_action:t(),
@@ -458,14 +480,20 @@ handle_call({{'Invoicing', 'CreatePaymentAdjustment'}, {_InvoiceID, PaymentID, P
         hg_invoice_payment:create_adjustment(Timestamp, Params, PaymentSession, Opts),
         St
     );
-handle_call({callback, Tag, Callback}, St) ->
-    dispatch_callback(Tag, Callback, St).
+handle_call({callback, _Tag, _Callback} = Call, St) ->
+    dispatch_to_session(Call, St);
+handle_call({session_change, _Tag, _SessionChange} = Call, St) ->
+    dispatch_to_session(Call, St).
 
--spec dispatch_callback(tag(), callback(), st()) -> call_result().
-dispatch_callback(Tag, {provider, Payload}, St = #st{activity = {payment, PaymentID}}) ->
+-spec dispatch_to_session({callback, tag(), callback()} | {session_change, tag(), session_change()}, st()) ->
+    call_result().
+dispatch_to_session({callback, Tag, {provider, Payload}}, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_call({callback, Tag, Payload}, PaymentID, PaymentSession, St);
-dispatch_callback(_Tag, _Callback, _St) ->
+dispatch_to_session({session_change, _Tag, _SessionChange} = Call, St = #st{activity = {payment, PaymentID}}) ->
+    PaymentSession = get_payment_session(PaymentID, St),
+    process_payment_call(Call, PaymentID, PaymentSession, St);
+dispatch_to_session(_Call, _St) ->
     throw(invalid_callback).
 
 assert_no_pending_payment(#st{activity = {payment, PaymentID}}) ->

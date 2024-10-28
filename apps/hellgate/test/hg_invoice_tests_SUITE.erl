@@ -7,6 +7,7 @@
 -include("hg_ct_domain.hrl").
 -include("hg_ct_invoice.hrl").
 -include_lib("damsel/include/dmsl_repair_thrift.hrl").
+-include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 -include_lib("hellgate/include/allocation.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 
@@ -69,6 +70,7 @@
 -export([payment_success_with_decreased_cost/1]).
 -export([refund_payment_with_decreased_cost/1]).
 -export([payment_fail_after_silent_callback/1]).
+-export([payment_session_changed_to_fail/1]).
 -export([invoice_success_on_third_payment/1]).
 -export([party_revision_check/1]).
 -export([payment_customer_risk_score_check/1]).
@@ -331,6 +333,8 @@ groups() ->
             payment_success_with_decreased_cost,
             refund_payment_with_decreased_cost,
             payment_fail_after_silent_callback,
+            payment_session_changed_to_fail,
+
             payment_temporary_unavailability_retry_success,
             payment_temporary_unavailability_too_many_retries,
             invoice_success_on_third_payment,
@@ -2340,6 +2344,39 @@ payment_fail_after_silent_callback(C) ->
     {URL, Form} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, hg_dummy_provider:construct_silent_callback(Form)}),
     PaymentID = await_payment_process_timeout(InvoiceID, PaymentID, Client).
+
+-spec payment_session_changed_to_fail(config()) -> _ | no_return().
+payment_session_changed_to_fail(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberdick">>, make_due_date(20), 42000, C),
+    %% Payment w/ preauth for suspend w/ user interaction occurrence.
+    PaymentID = start_payment(InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client),
+    UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
+
+    Failure = payproc_errors:construct(
+        'PaymentFailure',
+        {authorization_failed, {operation_blocked, ?err_gen_failure()}},
+        genlib:unique()
+    ),
+    Change = #proxy_provider_PaymentSessionChange{status = {failure, Failure}},
+
+    %% Unknown session callback tag
+    ?assertMatch(
+        {exception, #base_InvalidRequest{errors = [<<"Not found">>]}},
+        hg_dummy_provider:change_payment_session(<<"unknown tag">>, Change)
+    ),
+
+    %% Since we expect UI to be a redirect, then parse tag value from
+    %% from request parameter.
+    Tag = user_interaction_callback_tag(UserInteraction),
+    ok = hg_dummy_provider:change_payment_session(Tag, Change),
+    {failed, PaymentID, {failure, Failure}} = await_payment_process_failure(InvoiceID, PaymentID, Client),
+
+    %% Bad session callback tag must not be found again
+    ?assertMatch(
+        {exception, #base_InvalidRequest{errors = [<<"Not found">>]}},
+        hg_dummy_provider:change_payment_session(Tag, Change)
+    ).
 
 -spec payments_w_bank_card_issuer_conditions(config()) -> test_return().
 payments_w_bank_card_issuer_conditions(C) ->
@@ -8311,6 +8348,13 @@ assert_success_post_request(Req) ->
 
 assert_invalid_post_request(Req) ->
     {ok, 400, _RespHeaders, _RespBody} = post_request(Req).
+
+user_interaction_callback_tag(
+    {redirect, {post_request, #user_interaction_BrowserPostRequest{form = #{<<"tag">> := Tag}}}}
+) ->
+    Tag;
+user_interaction_callback_tag(_UserInteraction) ->
+    undefined.
 
 post_request({URL, Form}) ->
     Method = post,

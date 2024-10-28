@@ -29,7 +29,7 @@ services:
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-2150eea
+    image: ghcr.io/valitydev/dominant:sha-fae8726
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -99,7 +99,7 @@ services:
       disable: true
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-9af7d71
+    image: ghcr.io/valitydev/party-management:sha-b78d0f5
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:
