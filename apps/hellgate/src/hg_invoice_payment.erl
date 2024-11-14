@@ -2623,7 +2623,8 @@ get_limit_overflow_routes(Routes, VS, St) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
+            Iter = get_iter(St),
+            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter) of
                 {ok, Limits} ->
                     {[Route | RoutesNoOverflowIn], RejectedIn, LimitsIn#{PaymentRoute => Limits}};
                 {error, {limit_overflow, IDs, Limits}} ->
@@ -2656,8 +2657,10 @@ commit_shop_limits(Opts, St) ->
 check_shop_limits(Opts, St) ->
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
     TurnoverLimits = get_shop_turnover_limits(get_shop(Opts)),
-    hg_limiter:check_shop_limits(TurnoverLimits, Invoice, Payment).
+    hg_limiter:check_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment).
 
 rollback_shop_limits(Opts, St, Flags) ->
     Payment = get_payment(St),

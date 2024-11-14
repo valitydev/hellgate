@@ -24,8 +24,8 @@
 -export_type([turnover_limit_value/0]).
 
 -export([get_turnover_limits/1]).
--export([check_limits/4]).
--export([check_shop_limits/3]).
+-export([check_limits/5]).
+-export([check_shop_limits/5]).
 -export([hold_payment_limits/5]).
 -export([hold_shop_limits/5]).
 -export([hold_refund_limits/5]).
@@ -59,26 +59,36 @@ get_turnover_limits(Ambiguous) ->
     error({misconfiguration, {'Could not reduce selector to a value', Ambiguous}}).
 
 -spec get_limit_values([turnover_limit()], invoice(), payment(), route(), pos_integer()) -> [turnover_limit_value()].
-get_limit_values(TurnoverLimits, Invoice, Payment, Route, Iter) ->
+get_limit_values(TurnoverLimits, Invoice, Payment, Route = ?route(ProviderRef, TerminalRef), Iter) ->
     Context = gen_limit_context(Invoice, Payment, Route),
+    get_limit_values(Context, TurnoverLimits, [
+        genlib:to_binary(get_provider_id(ProviderRef)),
+        genlib:to_binary(get_terminal_id(TerminalRef)),
+        get_invoice_id(Invoice),
+        get_payment_id(Payment),
+        integer_to_binary(Iter)
+    ]).
+
+get_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    get_legacy_limit_values(Context, LegacyTurnoverLimits) ++
+        get_batch_limit_values(Context, BatchTurnoverLimits, OperationIdSegments).
+
+get_legacy_limit_values(Context, TurnoverLimits) ->
     lists:foldl(
         fun(TurnoverLimit, Acc) ->
             #domain_TurnoverLimit{id = LimitID, domain_revision = Version} = TurnoverLimit,
             Clock = get_latest_clock(),
             Limit = hg_limiter_client:get(LimitID, Version, Clock, Context),
-            #limiter_Limit{
-                amount = LimiterAmount
-            } = Limit,
+            #limiter_Limit{amount = LimiterAmount} = Limit,
             [#payproc_TurnoverLimitValue{limit = TurnoverLimit, value = LimiterAmount} | Acc]
         end,
         [],
-        LegacyTurnoverLimits
-    ) ++
-        get_batch_limit_values(Context, BatchTurnoverLimits, Invoice, Payment, Route, Iter).
+        TurnoverLimits
+    ).
 
-get_batch_limit_values(Context, TurnoverLimits, Invoice, Payment, Route, Iter) ->
-    {LimitRequest, TurnoverLimitsMap} = prepare_limit_request(TurnoverLimits, Invoice, Payment, Route, Iter),
+get_batch_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
+    {LimitRequest, TurnoverLimitsMap} = prepare_limit_request(TurnoverLimits, OperationIdSegments),
     lists:map(
         fun(#limiter_Limit{id = Id, amount = Amount}) ->
             #payproc_TurnoverLimitValue{limit = maps:get(Id, TurnoverLimitsMap), value = Amount}
@@ -86,27 +96,18 @@ get_batch_limit_values(Context, TurnoverLimits, Invoice, Payment, Route, Iter) -
         hg_limiter_client:get_values(LimitRequest, Context)
     ).
 
--spec check_limits([turnover_limit()], invoice(), payment(), route()) ->
+-spec check_limits([turnover_limit()], invoice(), payment(), route(), pos_integer()) ->
     {ok, [turnover_limit_value()]}
     | {error, {limit_overflow, [binary()], [turnover_limit_value()]}}.
-check_limits(TurnoverLimits, Invoice, Payment, Route) ->
+check_limits(TurnoverLimits, Invoice, Payment, Route = ?route(ProviderRef, TerminalRef), Iter) ->
     Context = gen_limit_context(Invoice, Payment, Route),
-    check_limits_w_context(TurnoverLimits, Context).
-
--spec check_shop_limits([turnover_limit()], invoice(), payment()) ->
-    ok
-    | {error, {limit_overflow, [binary()]}}.
-check_shop_limits(TurnoverLimits, Invoice, Payment) ->
-    Context = gen_limit_shop_context(Invoice, Payment),
-    case check_limits_w_context(TurnoverLimits, Context) of
-        {ok, _Limits} ->
-            ok;
-        {error, {limit_overflow, IDs, _Limits}} ->
-            {error, {limit_overflow, IDs}}
-    end.
-
-check_limits_w_context(TurnoverLimits, Context) ->
-    {ok, Limits} = gather_limits(TurnoverLimits, Context, []),
+    Limits = get_limit_values(Context, TurnoverLimits, [
+        genlib:to_binary(get_provider_id(ProviderRef)),
+        genlib:to_binary(get_terminal_id(TerminalRef)),
+        get_invoice_id(Invoice),
+        get_payment_id(Payment),
+        integer_to_binary(Iter)
+    ]),
     try
         ok = check_limits_(Limits, Context),
         {ok, Limits}
@@ -114,6 +115,25 @@ check_limits_w_context(TurnoverLimits, Context) ->
         throw:limit_overflow ->
             IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
             {error, {limit_overflow, IDs, Limits}}
+    end.
+
+-spec check_shop_limits([turnover_limit()], party(), shop(), invoice(), payment()) ->
+    ok
+    | {error, {limit_overflow, [binary()]}}.
+check_shop_limits(TurnoverLimits, ?party(PartyID), ?shop(ShopID), Invoice, Payment) ->
+    Context = gen_limit_shop_context(Invoice, Payment),
+    Limits = get_limit_values(Context, TurnoverLimits, [
+        PartyID,
+        ShopID,
+        get_invoice_id(Invoice),
+        get_payment_id(Payment)
+    ]),
+    try
+        check_limits_(Limits, Context)
+    catch
+        throw:limit_overflow ->
+            IDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
+            {error, {limit_overflow, IDs}}
     end.
 
 check_limits_([], _) ->
@@ -137,15 +157,6 @@ check_limits_([TurnoverLimitValue | TLVs], Context) ->
             ]),
             throw(limit_overflow)
     end.
-
-gather_limits([], _Context, Acc) ->
-    {ok, Acc};
-gather_limits([T | TurnoverLimits], Context, Acc) ->
-    #domain_TurnoverLimit{id = LimitID, domain_revision = Version} = T,
-    Clock = get_latest_clock(),
-    #limiter_Limit{amount = Amount} = hg_limiter_client:get(LimitID, Version, Clock, Context),
-    TurnoverLimitValue = #payproc_TurnoverLimitValue{limit = T, value = Amount},
-    gather_limits(TurnoverLimits, Context, [TurnoverLimitValue | Acc]).
 
 -spec hold_payment_limits([turnover_limit()], route(), pos_integer(), invoice(), payment()) -> ok.
 hold_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment) ->
@@ -463,7 +474,7 @@ maybe_route_context(#base_Route{provider = Provider, terminal = Terminal}) ->
 split_turnover_limits_by_available_limiter_api(TurnoverLimits) ->
     lists:partition(fun(#domain_TurnoverLimit{domain_revision = V}) -> V =:= undefined end, TurnoverLimits).
 
-prepare_limit_request(TurnoverLimits, Invoice, Payment, Route, Iter) ->
+prepare_limit_request(TurnoverLimits, IdSegments) ->
     {TurnoverLimitsIdList, LimitChanges} = lists:unzip(
         lists:map(
             fun(TurnoverLimit = #domain_TurnoverLimit{id = Id, domain_revision = DomainRevision}) ->
@@ -472,18 +483,10 @@ prepare_limit_request(TurnoverLimits, Invoice, Payment, Route, Iter) ->
             TurnoverLimits
         )
     ),
-    OperationId = make_operation_id(Invoice, Payment, Route, Iter),
+    OperationId = make_operation_id(IdSegments),
     LimitRequest = #limiter_LimitRequest{operation_id = OperationId, limit_changes = LimitChanges},
     TurnoverLimitsMap = maps:from_list(TurnoverLimitsIdList),
     {LimitRequest, TurnoverLimitsMap}.
 
-make_operation_id(Invoice, Payment, ?route(ProviderRef, TerminalRef), Iter) ->
-    hg_utils:construct_complex_id([
-        <<"limiter">>,
-        <<"batch-request">>,
-        genlib:to_binary(get_provider_id(ProviderRef)),
-        genlib:to_binary(get_terminal_id(TerminalRef)),
-        get_invoice_id(Invoice),
-        get_payment_id(Payment),
-        integer_to_binary(Iter)
-    ]).
+make_operation_id(IdSegments) ->
+    hg_utils:construct_complex_id([<<"limiter">>, <<"batch-request">>] ++ IdSegments).
