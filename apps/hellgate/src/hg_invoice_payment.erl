@@ -3576,7 +3576,9 @@ get_limit_values(St) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            TurnoverLimitValues = hg_limiter:get_limit_values(TurnoverLimits, Invoice, Payment, PaymentRoute),
+            TurnoverLimitValues = hg_limiter:get_limit_values(
+                TurnoverLimits, Invoice, Payment, PaymentRoute, get_iter(St)
+            ),
             Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
