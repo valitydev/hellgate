@@ -189,7 +189,7 @@ hold_payment_limits(Invoice, Payment, St) ->
     Route = hg_invoice_payment:get_route(St),
     TurnoverLimits = get_turnover_limits(Payment, Route, St),
     Iter = hg_invoice_payment:get_iter(St),
-    hg_limiter:hold_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment).
+    hg_limiter:hold_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter).
 
 get_turnover_limits(Payment, Route, St) ->
     Route = hg_invoice_payment:get_route(St),

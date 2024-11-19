@@ -2697,7 +2697,7 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
             try
-                ok = hg_limiter:hold_payment_limits(TurnoverLimits, PaymentRoute, Iter, Invoice, Payment),
+                ok = hg_limiter:hold_payment_limits(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter),
                 {[Route | LimitHeldRoutes], RejectedRoutes}
             catch
                 error:(#limiter_InvalidOperationCurrency{} = LimiterError) ->
@@ -2728,7 +2728,7 @@ rollback_payment_limits(Routes, Iter, St, Flags) ->
         fun(Route) ->
             ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, Flags)
+            ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags)
         end,
         Routes
     ).
@@ -2752,7 +2752,7 @@ rollback_broken_payment_limits(St) ->
                         [],
                         Values
                     ),
-                ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, [
+                ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, [
                     ignore_business_error
                 ])
         end,
@@ -2780,7 +2780,7 @@ commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     ProviderTerms = get_provider_terms(St, Revision),
     TurnoverLimits = get_turnover_limits(ProviderTerms),
     Iter = get_iter(St),
-    hg_limiter:commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCash).
+    hg_limiter:commit_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, CapturedCash).
 
 commit_payment_cashflow(St) ->
     Plan = get_cashflow_plan(St),
