@@ -2,7 +2,6 @@
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
--include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_limiter_config_thrift.hrl").
 
@@ -10,8 +9,8 @@
 
 -export([init_per_suite/1]).
 -export([get_amount/1]).
--export([assert_payment_limit_amount/3]).
--export([assert_payment_limit_amount/4]).
+-export([assert_payment_limit_amount/5]).
+-export([maybe_uninitialized_limit/1]).
 -export([get_payment_limit_amount/4]).
 -export([mk_config_object/2, mk_config_object/3, mk_config_object/4]).
 -export([mk_context_type/1]).
@@ -25,29 +24,35 @@
 -define(LIMIT_ID4, <<"ID4">>).
 -define(SHOPLIMIT_ID, <<"SHOPLIMITID">>).
 
--spec init_per_suite(config()) -> _.
+-spec init_per_suite(config()) -> dmt_client:vsn().
 init_per_suite(_Config) ->
-    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID)}),
-    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID2)}),
-    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID3)}),
-    _ = dmt_client:upsert({limit_config, mk_config_object(?LIMIT_ID4)}),
-    _ = dmt_client:upsert({limit_config, mk_config_object(?SHOPLIMIT_ID)}).
+    dmt_client:upsert([
+        {limit_config, mk_config_object(?LIMIT_ID)},
+        {limit_config, mk_config_object(?LIMIT_ID2)},
+        {limit_config, mk_config_object(?LIMIT_ID3)},
+        {limit_config, mk_config_object(?LIMIT_ID4)},
+        {limit_config, mk_config_object(?SHOPLIMIT_ID)}
+    ]).
 
 -spec get_amount(_) -> pos_integer().
 get_amount(#limiter_Limit{amount = Amount}) ->
     Amount.
 
--spec assert_payment_limit_amount(_, _, _) -> _.
-assert_payment_limit_amount(AssertAmount, Payment, Invoice) ->
-    assert_payment_limit_amount(?LIMIT_ID, AssertAmount, Payment, Invoice).
-
--spec assert_payment_limit_amount(_, _, _, _) -> _.
-assert_payment_limit_amount(LimitID, AssertAmount, Payment, Invoice) ->
-    L =
-        dmt_client:checkout_versioned_object({'limit_config', #domain_LimitConfigRef{id = LimitID}}),
-    #domain_conf_VersionedObject{version = Version} = L,
-    {ok, Limit} = get_payment_limit_amount(LimitID, Version, Payment, Invoice),
+-spec assert_payment_limit_amount(_, _, _, _, _) -> _.
+assert_payment_limit_amount(LimitID, Version, AssertAmount, Payment, Invoice) ->
+    Limit = maybe_uninitialized_limit(get_payment_limit_amount(LimitID, Version, Payment, Invoice)),
     ?assertMatch(#limiter_Limit{amount = AssertAmount}, Limit).
+
+-spec maybe_uninitialized_limit({ok, _} | {exception, _}) -> _Limit.
+maybe_uninitialized_limit({ok, Limit}) ->
+    Limit;
+maybe_uninitialized_limit({exception, _}) ->
+    #limiter_Limit{
+        id = <<"uninitialized limit">>,
+        amount = 0,
+        creation_time = undefined,
+        description = undefined
+    }.
 
 -spec get_payment_limit_amount(_, _, _, _) -> _.
 get_payment_limit_amount(LimitId, Version, Payment, Invoice) ->
@@ -62,7 +67,21 @@ get_payment_limit_amount(LimitId, Version, Payment, Invoice) ->
             }
         }
     },
-    hg_dummy_limiter:get(LimitId, Version, Context, hg_dummy_limiter:new()).
+    LimitRequest = #limiter_LimitRequest{
+        operation_id = <<"get values">>,
+        limit_changes = [#limiter_LimitChange{id = LimitId, version = Version}]
+    },
+    ct:print("GET LIMIT AMOUNT: ~p~n", [LimitRequest]),
+    try hg_limiter_client:get_values(LimitRequest, Context) of
+        [L] ->
+            ct:print("~p~n", [{LimitId, L}]),
+            {ok, L};
+        _ ->
+            {exception, #limiter_LimitNotFound{}}
+    catch
+        error:not_found ->
+            {exception, #limiter_LimitNotFound{}}
+    end.
 
 mk_config_object(LimitID) ->
     mk_config_object(LimitID, <<"RUB">>).
