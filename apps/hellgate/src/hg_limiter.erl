@@ -98,7 +98,7 @@ get_batch_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
         fun(#limiter_Limit{id = Id, amount = Amount}) ->
             #payproc_TurnoverLimitValue{limit = maps:get(Id, TurnoverLimitsMap), value = Amount}
         end,
-        hg_limiter_client:get_values(LimitRequest, Context)
+        hg_limiter_client:get_batch(LimitRequest, Context)
     ).
 
 -spec check_limits([turnover_limit()], invoice(), payment(), route(), pos_integer()) ->
@@ -176,7 +176,8 @@ batch_hold_limits(_Context, [], _OperationIdSegments) ->
     ok;
 batch_hold_limits(Context, TurnoverLimits, OperationIdSegments) ->
     {LimitRequest, _} = prepare_limit_request(TurnoverLimits, OperationIdSegments),
-    hg_limiter_client:hold_batch(LimitRequest, Context).
+    _ = hg_limiter_client:hold_batch(LimitRequest, Context),
+    ok.
 
 -spec hold_shop_limits([turnover_limit()], party(), shop(), invoice(), payment()) -> ok.
 hold_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment) ->
