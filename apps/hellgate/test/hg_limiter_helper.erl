@@ -24,6 +24,9 @@
 -define(LIMIT_ID4, <<"ID4">>).
 -define(SHOPLIMIT_ID, <<"SHOPLIMITID">>).
 
+-define(PLACEHOLDER_UNINITIALIZED_LIMIT_ID, <<"uninitialized limit">>).
+-define(PLACEHOLDER_OPERATION_GET_LIMIT_VALUES, <<"get values">>).
+
 -spec init_per_suite(config()) -> dmt_client:vsn().
 init_per_suite(_Config) ->
     dmt_client:upsert([
@@ -48,7 +51,7 @@ maybe_uninitialized_limit({ok, Limit}) ->
     Limit;
 maybe_uninitialized_limit({exception, _}) ->
     #limiter_Limit{
-        id = <<"uninitialized limit">>,
+        id = ?PLACEHOLDER_UNINITIALIZED_LIMIT_ID,
         amount = 0,
         creation_time = undefined,
         description = undefined
@@ -68,13 +71,11 @@ get_payment_limit_amount(LimitId, Version, Payment, Invoice) ->
         }
     },
     LimitRequest = #limiter_LimitRequest{
-        operation_id = <<"get values">>,
+        operation_id = ?PLACEHOLDER_OPERATION_GET_LIMIT_VALUES,
         limit_changes = [#limiter_LimitChange{id = LimitId, version = Version}]
     },
-    ct:print("GET LIMIT AMOUNT: ~p~n", [LimitRequest]),
     try hg_limiter_client:get_values(LimitRequest, Context) of
         [L] ->
-            ct:print("~p~n", [{LimitId, L}]),
             {ok, L};
         _ ->
             {exception, #limiter_LimitNotFound{}}

@@ -271,7 +271,7 @@ get_payment(#st{payment = Payment}) ->
 get_risk_score(#st{risk_score = RiskScore}) ->
     RiskScore.
 
--spec get_route(st()) -> route().
+-spec get_route(st()) -> route() | undefined.
 get_route(#st{routes = []}) ->
     undefined;
 get_route(#st{routes = [Route | _AttemptedRoutes]}) ->

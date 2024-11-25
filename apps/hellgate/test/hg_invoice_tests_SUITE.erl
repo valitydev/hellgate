@@ -747,8 +747,8 @@ override_collect_cashflow(_) -> throw(unknown).
 
 override_domain_fixture(Fixture, C) ->
     Revision = hg_domain:head(),
-    NewRevision = hg_domain:upsert(Fixture(Revision, C)),
-    [{original_domain_revision, Revision}, {overridden_domain_revision, NewRevision} | C].
+    _NewRevision = hg_domain:upsert(Fixture(Revision, C)),
+    [{original_domain_revision, Revision} | C].
 
 override_domain_fixture(Fixture, Name, C) ->
     init_per_testcase_(Name, override_domain_fixture(Fixture, C)).
@@ -1344,7 +1344,6 @@ payment_limit_overflow(C) ->
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
     Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
-    ct:print("configured_limit_version: ~p~n", [configured_limit_version(?LIMIT_ID, C)]),
     ok = hg_limiter_helper:assert_payment_limit_amount(
         ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
     ),
@@ -6718,7 +6717,7 @@ payment_cascade_success(C) ->
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     Limit = hg_limiter_helper:maybe_uninitialized_limit(
         hg_limiter_helper:get_payment_limit_amount(
-            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), hg_domain:head(), Payment, Invoice
+            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
         )
     ),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
@@ -7110,7 +7109,7 @@ payment_cascade_limit_overflow(C) ->
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     Limit = hg_limiter_helper:maybe_uninitialized_limit(
         hg_limiter_helper:get_payment_limit_amount(
-            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), hg_domain:head(), Payment, Invoice
+            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
         )
     ),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
@@ -7172,7 +7171,7 @@ payment_big_cascade_success(C) ->
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     Limit = hg_limiter_helper:maybe_uninitialized_limit(
         hg_limiter_helper:get_payment_limit_amount(
-            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), hg_domain:head(), Payment, Invoice
+            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
         )
     ),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
@@ -10847,7 +10846,4 @@ mock_fault_detector(SupPid) ->
     ).
 
 configured_limit_version(_LimitID, C) ->
-    genlib:define(
-        genlib:define(cfg(overridden_domain_revision, C), cfg(original_domain_revision, C)),
-        cfg(base_limits_domain_revision, C)
-    ).
+    genlib:define(cfg(original_domain_revision, C), cfg(base_limits_domain_revision, C)).
