@@ -271,7 +271,7 @@ get_payment(#st{payment = Payment}) ->
 get_risk_score(#st{risk_score = RiskScore}) ->
     RiskScore.
 
--spec get_route(st()) -> route().
+-spec get_route(st()) -> route() | undefined.
 get_route(#st{routes = []}) ->
     undefined;
 get_route(#st{routes = [Route | _AttemptedRoutes]}) ->
@@ -2048,14 +2048,15 @@ process_routing(Action, St) ->
     end.
 
 run_routing_decision_pipeline(Ctx0, VS, St) ->
+    %% NOTE Since this is routing step then current attempt is not yet
+    %% accounted for in `St`.
+    NewIter = get_iter(St) + 1,
     hg_routing_ctx:pipeline(
         Ctx0,
         [
             fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
-            %% Since this is routing step then current attempt is not yet
-            %% accounted for in `St`.
-            fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, get_iter(St) + 1, St) end,
-            fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, St) end,
+            fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, NewIter, St) end,
+            fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
             fun hg_routing:filter_by_critical_provider_status/1,
             fun hg_routing:choose_route_with_ctx/1
@@ -2601,8 +2602,8 @@ filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
     Ctx1 = reject_routes(limit_misconfiguration, RejectedRoutes, Ctx0),
     hg_routing_ctx:stash_current_candidates(Ctx1).
 
-filter_routes_by_limit_overflow(Ctx0, VS, St) ->
-    {_Routes, RejectedRoutes, Limits} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx0), VS, St),
+filter_routes_by_limit_overflow(Ctx0, VS, Iter, St) ->
+    {_Routes, RejectedRoutes, Limits} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx0), VS, Iter, St),
     Ctx1 = hg_routing_ctx:stash_route_limits(Limits, Ctx0),
     reject_routes(limit_overflow, RejectedRoutes, Ctx1).
 
@@ -2613,7 +2614,7 @@ reject_routes(GroupReason, RejectedRoutes, Ctx) ->
         RejectedRoutes
     ).
 
-get_limit_overflow_routes(Routes, VS, St) ->
+get_limit_overflow_routes(Routes, VS, Iter, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
     Payment = get_payment(St),
@@ -2623,7 +2624,7 @@ get_limit_overflow_routes(Routes, VS, St) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute) of
+            case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter) of
                 {ok, Limits} ->
                     {[Route | RoutesNoOverflowIn], RejectedIn, LimitsIn#{PaymentRoute => Limits}};
                 {error, {limit_overflow, IDs, Limits}} ->
@@ -2656,8 +2657,10 @@ commit_shop_limits(Opts, St) ->
 check_shop_limits(Opts, St) ->
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
+    Party = get_party(Opts),
+    Shop = get_shop(Opts),
     TurnoverLimits = get_shop_turnover_limits(get_shop(Opts)),
-    hg_limiter:check_shop_limits(TurnoverLimits, Invoice, Payment).
+    hg_limiter:check_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment).
 
 rollback_shop_limits(Opts, St, Flags) ->
     Payment = get_payment(St),
@@ -2694,7 +2697,7 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
             try
-                ok = hg_limiter:hold_payment_limits(TurnoverLimits, PaymentRoute, Iter, Invoice, Payment),
+                ok = hg_limiter:hold_payment_limits(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter),
                 {[Route | LimitHeldRoutes], RejectedRoutes}
             catch
                 error:(#limiter_InvalidOperationCurrency{} = LimiterError) ->
@@ -2725,7 +2728,7 @@ rollback_payment_limits(Routes, Iter, St, Flags) ->
         fun(Route) ->
             ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, Flags)
+            ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags)
         end,
         Routes
     ).
@@ -2749,7 +2752,7 @@ rollback_broken_payment_limits(St) ->
                         [],
                         Values
                     ),
-                ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, [
+                ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, [
                     ignore_business_error
                 ])
         end,
@@ -2777,7 +2780,7 @@ commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     ProviderTerms = get_provider_terms(St, Revision),
     TurnoverLimits = get_turnover_limits(ProviderTerms),
     Iter = get_iter(St),
-    hg_limiter:commit_payment_limits(TurnoverLimits, Route, Iter, Invoice, Payment, CapturedCash).
+    hg_limiter:commit_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, CapturedCash).
 
 commit_payment_cashflow(St) ->
     Plan = get_cashflow_plan(St),
@@ -3571,12 +3574,22 @@ get_limit_values(St) ->
     Ctx = build_routing_context(PaymentInstitution, VS, Revision, St),
     Payment = get_payment(St),
     Invoice = get_invoice(get_opts(St)),
+    %% NOTE If event 'route_changed' didn't occur, then there may be
+    %% no route yet, however this must be accounted as first iteration
+    %% of routing attempt.
+    Iter =
+        case get_route(St) of
+            undefined -> 1;
+            _ -> get_iter(St)
+        end,
     lists:foldl(
         fun(Route, Acc) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            TurnoverLimitValues = hg_limiter:get_limit_values(TurnoverLimits, Invoice, Payment, PaymentRoute),
+            TurnoverLimitValues = hg_limiter:get_limit_values(
+                TurnoverLimits, Invoice, Payment, PaymentRoute, Iter
+            ),
             Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
