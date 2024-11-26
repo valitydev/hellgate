@@ -4,6 +4,7 @@
 
 -export([get/4]).
 
+%% TODO Remove obsolete functions
 -export([create_config/2]).
 -export([get_config/2]).
 
@@ -17,9 +18,24 @@
 
 %%% API
 
--spec get(limit_id(), limit_version(), limit_context(), client()) -> woody:result() | no_return().
+-define(PLACEHOLDER_OPERATION_GET_LIMIT_VALUES, <<"get values">>).
+
+-spec get(limit_id(), limit_version() | undefined, limit_context(), client()) -> woody:result() | no_return().
+get(LimitID, undefined, Context, Client) ->
+    call('GetVersioned', {LimitID, undefined, clock(), Context}, Client);
 get(LimitID, Version, Context, Client) ->
-    call('GetVersioned', {LimitID, Version, clock(), Context}, Client).
+    LimitRequest = #limiter_LimitRequest{
+        operation_id = ?PLACEHOLDER_OPERATION_GET_LIMIT_VALUES,
+        limit_changes = [#limiter_LimitChange{id = LimitID, version = Version}]
+    },
+    case call('GetValues', {LimitRequest, Context}, Client) of
+        {ok, [L]} ->
+            {ok, L};
+        {ok, []} ->
+            {exception, #limiter_LimitNotFound{}};
+        {exception, _} = Exception ->
+            Exception
+    end.
 
 -spec create_config(limit_config_params(), client()) -> woody:result() | no_return().
 create_config(LimitCreateParams, Client) ->

@@ -290,7 +290,7 @@ do_rollback_limits(CombinedTerms, _PartyVarset, Route, #{withdrawal := Withdrawa
         turnover_limit = TurnoverLimit
     } = CombinedTerms,
     Limits = ff_limiter:get_turnover_limits(TurnoverLimit),
-    ff_limiter:rollback_withdrawal_limits(Limits, Route, Withdrawal, Iter).
+    ff_limiter:rollback_withdrawal_limits(Limits, Withdrawal, Route, Iter).
 
 -spec do_commit_limits(withdrawal_provision_terms(), party_varset(), route(), routing_context()) ->
     ok.
@@ -299,7 +299,7 @@ do_commit_limits(CombinedTerms, _PartyVarset, Route, #{withdrawal := Withdrawal,
         turnover_limit = TurnoverLimit
     } = CombinedTerms,
     Limits = ff_limiter:get_turnover_limits(TurnoverLimit),
-    ff_limiter:commit_withdrawal_limits(Limits, Route, Withdrawal, Iter).
+    ff_limiter:commit_withdrawal_limits(Limits, Withdrawal, Route, Iter).
 
 -spec do_validate_limits(withdrawal_provision_terms(), party_varset(), route(), routing_context()) ->
     {ok, valid}
@@ -391,8 +391,8 @@ validate_turnover_limits(undefined, _VS, _Route, _RoutingContext) ->
     {ok, valid};
 validate_turnover_limits({value, TurnoverLimits}, _VS, Route, #{withdrawal := Withdrawal, iteration := Iter}) ->
     try
-        ok = ff_limiter:hold_withdrawal_limits(TurnoverLimits, Route, Withdrawal, Iter),
-        case ff_limiter:check_limits(TurnoverLimits, Route, Withdrawal) of
+        ok = ff_limiter:hold_withdrawal_limits(TurnoverLimits, Withdrawal, Route, Iter),
+        case ff_limiter:check_limits(TurnoverLimits, Withdrawal, Route, Iter) of
             {ok, _} ->
                 {ok, valid};
             {error, Error} ->

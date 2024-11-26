@@ -179,7 +179,10 @@ limit_success(C) ->
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)),
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(
-        PreviousAmount + 1, ff_limiter_helper:get_limit_amount(?LIMIT_TURNOVER_NUM_PAYTOOL_ID1, Withdrawal, C)
+        PreviousAmount + 1,
+        ff_limiter_helper:get_limit_amount(
+            ?LIMIT_TURNOVER_NUM_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
+        )
     ).
 
 -spec limit_overflow(config()) -> test_return().
@@ -204,18 +207,23 @@ limit_overflow(C) ->
     %% we get final withdrawal status before we rollback limits so wait for it some amount of time
     ok = timer:sleep(500),
     Withdrawal = get_withdrawal(WithdrawalID),
-    ?assertEqual(PreviousAmount, ff_limiter_helper:get_limit_amount(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, Withdrawal, C)).
+    ?assertEqual(
+        PreviousAmount,
+        ff_limiter_helper:get_limit_amount(
+            ?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
+        )
+    ).
 
 -spec limit_hold_currency_error(config()) -> test_return().
 limit_hold_currency_error(C) ->
-    mock_limiter_trm_hold(?trm(1800), fun(_LimitChange, _Clock, _Context) ->
+    mock_limiter_trm_hold_batch(?trm(1800), fun(_LimitRequest, _Context) ->
         {exception, #limiter_InvalidOperationCurrency{currency = <<"RUB">>, expected_currency = <<"KEK">>}}
     end),
     limit_hold_error(C).
 
 -spec limit_hold_operation_error(config()) -> test_return().
 limit_hold_operation_error(C) ->
-    mock_limiter_trm_hold(?trm(1800), fun(_LimitChange, _Clock, _Context) ->
+    mock_limiter_trm_hold_batch(?trm(1800), fun(_LimitRequest, _Context) ->
         {exception, #limiter_OperationContextNotSupported{
             context_type = {withdrawal_processing, #limiter_config_LimitContextTypeWithdrawalProcessing{}}
         }}
@@ -224,14 +232,14 @@ limit_hold_operation_error(C) ->
 
 -spec limit_hold_paytool_error(config()) -> test_return().
 limit_hold_paytool_error(C) ->
-    mock_limiter_trm_hold(?trm(1800), fun(_LimitChange, _Clock, _Context) ->
+    mock_limiter_trm_hold_batch(?trm(1800), fun(_LimitRequest, _Context) ->
         {exception, #limiter_PaymentToolNotSupported{payment_tool = <<"unsupported paytool">>}}
     end),
     limit_hold_error(C).
 
 -spec limit_hold_error_two_routes_failure(config()) -> test_return().
 limit_hold_error_two_routes_failure(C) ->
-    mock_limiter_trm_call(?trm(2000), fun(_LimitChange, _Clock, _Context) ->
+    mock_limiter_trm_call(?trm(2000), fun(_LimitRequest, _Context) ->
         {exception, #limiter_PaymentToolNotSupported{payment_tool = <<"unsupported paytool">>}}
     end),
     %% See `?ruleset(?PAYINST1_ROUTING_POLICIES + 18)` with two candidates in `ct_payment_system:domain_config/1`.
@@ -255,27 +263,25 @@ limit_hold_error_two_routes_failure(C) ->
 -define(LIMITER_REQUEST(Func, TerminalRef), {
     {limproto_limiter_thrift, 'Limiter'},
     Func,
-    {_LimitChange, _Clock, #limiter_LimitContext{
+    {_LimitRequest, #limiter_LimitContext{
         withdrawal_processing = #context_withdrawal_Context{
             withdrawal = #context_withdrawal_Withdrawal{route = #base_Route{terminal = TerminalRef}}
         }
     }}
 }).
-mock_limiter_trm_hold(ExpectTerminalRef, ReturnFunc) ->
-    ok = meck:expect(ff_woody_client, call, fun
-        (limiter, {_, _, Args} = ?LIMITER_REQUEST('Hold', TerminalRef)) when TerminalRef =:= ExpectTerminalRef ->
-            apply(ReturnFunc, tuple_to_list(Args));
-        (Service, Request) ->
-            meck:passthrough([Service, Request])
-    end).
+
+-define(MOCKED_LIMITER_FUNC(CallFunc, ExpectTerminalRef, ReturnFunc), fun
+    (limiter, {_, _, Args} = ?LIMITER_REQUEST(CallFunc, TerminalRef)) when TerminalRef =:= ExpectTerminalRef ->
+        apply(ReturnFunc, tuple_to_list(Args));
+    (Service, Request) ->
+        meck:passthrough([Service, Request])
+end).
+
+mock_limiter_trm_hold_batch(ExpectTerminalRef, ReturnFunc) ->
+    ok = meck:expect(ff_woody_client, call, ?MOCKED_LIMITER_FUNC('HoldBatch', ExpectTerminalRef, ReturnFunc)).
 
 mock_limiter_trm_call(ExpectTerminalRef, ReturnFunc) ->
-    ok = meck:expect(ff_woody_client, call, fun
-        (limiter, {_, _, Args} = ?LIMITER_REQUEST(_Func, TerminalRef)) when TerminalRef =:= ExpectTerminalRef ->
-            apply(ReturnFunc, tuple_to_list(Args));
-        (Service, Request) ->
-            meck:passthrough([Service, Request])
-    end).
+    ok = meck:expect(ff_woody_client, call, ?MOCKED_LIMITER_FUNC(_, ExpectTerminalRef, ReturnFunc)).
 
 limit_hold_error(C) ->
     Cash = {800800, <<"RUB">>},
@@ -315,7 +321,10 @@ choose_provider_without_limit_overflow(C) ->
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)),
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(
-        PreviousAmount + 1, ff_limiter_helper:get_limit_amount(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, Withdrawal, C)
+        PreviousAmount + 1,
+        ff_limiter_helper:get_limit_amount(
+            ?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
+        )
     ).
 
 -spec provider_limits_exhaust_orderly(config()) -> test_return().
@@ -343,7 +352,12 @@ provider_limits_exhaust_orderly(C) ->
     ok = ff_withdrawal_machine:create(WithdrawalParams1, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID1)),
     Withdrawal1 = get_withdrawal(WithdrawalID1),
-    ?assertEqual(902000, ff_limiter_helper:get_limit_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, Withdrawal1, C)),
+    ?assertEqual(
+        902000,
+        ff_limiter_helper:get_limit_amount(
+            ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal1, C
+        )
+    ),
 
     %% Second withdrawal goes to limit 2 as limit 1 doesn't have enough and spents all its amount
     WithdrawalID2 = generate_id(),
@@ -358,7 +372,12 @@ provider_limits_exhaust_orderly(C) ->
     ok = ff_withdrawal_machine:create(WithdrawalParams2, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID2)),
     Withdrawal2 = get_withdrawal(WithdrawalID2),
-    ?assertEqual(903000, ff_limiter_helper:get_limit_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2, Withdrawal2, C)),
+    ?assertEqual(
+        903000,
+        ff_limiter_helper:get_limit_amount(
+            ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2, ct_helper:cfg('$limits_domain_revision', C), Withdrawal2, C
+        )
+    ),
 
     %% Third withdrawal goes to limit 1 and spents all its amount
     WithdrawalID3 = generate_id(),
@@ -373,7 +392,12 @@ provider_limits_exhaust_orderly(C) ->
     ok = ff_withdrawal_machine:create(WithdrawalParams3, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID3)),
     Withdrawal3 = get_withdrawal(WithdrawalID3),
-    ?assertEqual(1804000, ff_limiter_helper:get_limit_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, Withdrawal3, C)),
+    ?assertEqual(
+        1804000,
+        ff_limiter_helper:get_limit_amount(
+            ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal3, C
+        )
+    ),
 
     %% Last withdrawal can't find route cause all limits are drained
     WithdrawalID = generate_id(),
@@ -498,7 +522,7 @@ get_limit_withdrawal(Cash, WalletID, DestinationID) ->
 
 get_limit_amount(Cash, WalletID, DestinationID, LimitID, C) ->
     Withdrawal = get_limit_withdrawal(Cash, WalletID, DestinationID),
-    ff_limiter_helper:get_limit_amount(LimitID, Withdrawal, C).
+    ff_limiter_helper:get_limit_amount(LimitID, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C).
 
 get_destination_resource(DestinationID) ->
     {ok, DestinationMachine} = ff_destination_machine:get(DestinationID),

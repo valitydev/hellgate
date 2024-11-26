@@ -8,31 +8,35 @@
 -include_lib("ff_cth/include/ct_domain.hrl").
 
 -export([init_per_suite/1]).
--export([get_limit_amount/3]).
--export([get_limit/3]).
+-export([get_limit_amount/4]).
+-export([get_limit/4]).
 
 -type withdrawal() :: ff_withdrawal:withdrawal_state() | dmsl_wthd_domain_thrift:'Withdrawal'().
 -type limit() :: limproto_limiter_thrift:'Limit'().
 -type config() :: ct_suite:ct_config().
 -type id() :: binary().
 
--spec init_per_suite(config()) -> _.
-init_per_suite(_Config) ->
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID1)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID3)}),
-    _ = dmt_client:upsert({limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID4)}),
-    ok.
+-define(PLACEHOLDER_UNINITIALIZED_LIMIT_ID, <<"uninitialized limit">>).
 
--spec get_limit_amount(id(), withdrawal(), config()) -> integer().
-get_limit_amount(LimitID, Withdrawal, Config) ->
-    #limiter_Limit{amount = Amount} = get_limit(LimitID, Withdrawal, Config),
+-spec init_per_suite(config()) -> _.
+init_per_suite(Config) ->
+    LimitsRevision = dmt_client:upsert([
+        {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID1)},
+        {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2)},
+        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1)},
+        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2)},
+        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID3)},
+        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID4)}
+    ]),
+    [{'$limits_domain_revision', LimitsRevision} | Config].
+
+-spec get_limit_amount(id(), dmt_client:vsn(), withdrawal(), config()) -> integer().
+get_limit_amount(LimitID, Version, Withdrawal, Config) ->
+    #limiter_Limit{amount = Amount} = get_limit(LimitID, Version, Withdrawal, Config),
     Amount.
 
--spec get_limit(id(), withdrawal(), config()) -> limit().
-get_limit(LimitId, Withdrawal, Config) ->
+-spec get_limit(id(), dmt_client:vsn(), withdrawal(), config()) -> limit().
+get_limit(LimitId, Version, Withdrawal, Config) ->
     MarshaledWithdrawal = maybe_marshal_withdrawal(Withdrawal),
     Context = #limiter_LimitContext{
         withdrawal_processing = #context_withdrawal_Context{
@@ -40,10 +44,18 @@ get_limit(LimitId, Withdrawal, Config) ->
             withdrawal = #context_withdrawal_Withdrawal{withdrawal = MarshaledWithdrawal}
         }
     },
-    #domain_conf_VersionedObject{version = Version} =
-        dmt_client:checkout_versioned_object({'limit_config', #domain_LimitConfigRef{id = LimitId}}),
-    {ok, Limit} = ff_ct_limiter_client:get(LimitId, Version, Context, ct_helper:get_woody_ctx(Config)),
-    Limit.
+    maybe_uninitialized_limit(ff_ct_limiter_client:get(LimitId, Version, Context, ct_helper:get_woody_ctx(Config))).
+
+-spec maybe_uninitialized_limit({ok, _} | {exception, _}) -> _Limit.
+maybe_uninitialized_limit({ok, Limit}) ->
+    Limit;
+maybe_uninitialized_limit({exception, _}) ->
+    #limiter_Limit{
+        id = ?PLACEHOLDER_UNINITIALIZED_LIMIT_ID,
+        amount = 0,
+        creation_time = undefined,
+        description = undefined
+    }.
 
 maybe_marshal_withdrawal(Withdrawal = #wthd_domain_Withdrawal{}) ->
     Withdrawal;
