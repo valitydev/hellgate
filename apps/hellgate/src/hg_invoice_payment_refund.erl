@@ -155,17 +155,17 @@ cash_flow(#{cash_flow := V}) ->
 sessions(#{sessions := V}) ->
     V.
 
--spec session(t()) -> hg_maybe:maybe(session()).
+-spec session(t()) -> hg_maybe:'maybe'(session()).
 session(#{sessions := []}) ->
     undefined;
 session(#{sessions := [Session | _]}) ->
     Session.
 
--spec transaction_info(t()) -> hg_maybe:maybe(trx_info()).
+-spec transaction_info(t()) -> hg_maybe:'maybe'(trx_info()).
 transaction_info(T) ->
     maps:get(transaction_info, T, undefined).
 
--spec failure(t()) -> hg_maybe:maybe(failure()).
+-spec failure(t()) -> hg_maybe:'maybe'(failure()).
 failure(T) ->
     maps:get(failure, T, undefined).
 

@@ -8878,6 +8878,7 @@ construct_domain_fixture() ->
             }
         }
     },
+    PaymentTerms = ?payment_terms,
     [
         hg_ct_fixture:construct_bank_card_category(
             ?bc_cat(1),
@@ -9911,7 +9912,7 @@ construct_domain_fixture() ->
         {provider, #domain_ProviderObject{
             ref = ?prv(6),
             data = ?provider(#domain_ProvisionTermSet{
-                payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                payments = PaymentTerms#domain_PaymentsProvisionTerms{
                     categories =
                         {value,
                             ?ordset([
@@ -9956,7 +9957,7 @@ construct_domain_fixture() ->
         {provider, #domain_ProviderObject{
             ref = ?prv(7),
             data = ?provider(#domain_ProvisionTermSet{
-                payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                payments = PaymentTerms#domain_PaymentsProvisionTerms{
                     categories =
                         {value,
                             ?ordset([
