@@ -65,13 +65,15 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-920d6ac
+    image: ghcr.io/valitydev/limiter:sha-2271094
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
         condition: service_healthy
       shumway:
         condition: service_started
+      liminator:
+        condition: service_healthy
     healthcheck:
       test: "/opt/limiter/bin/limiter ping"
       interval: 5s
@@ -98,6 +100,36 @@ services:
     healthcheck:
       disable: true
 
+  liminator:
+    image: ghcr.io/valitydev/liminator:sha-fc6546f
+    restart: unless-stopped
+    entrypoint:
+      - java
+      - -Xmx512m
+      - -jar
+      - /opt/liminator/liminator.jar
+      - --spring.datasource.url=jdbc:postgresql://liminator-db:5432/liminator
+      - --spring.datasource.username=vality
+      - --spring.datasource.password=postgres
+      - --spring.flyway.url=jdbc:postgresql://liminator-db:5432/liminator
+      - --spring.flyway.username=vality
+      - --spring.flyway.password=postgres
+      - --service.skipExistedHoldOps=false
+    depends_on:
+      - liminator-db
+    healthcheck:
+      test: "curl http://localhost:8022/actuator/health"
+      interval: 5s
+      timeout: 1s
+      retries: 20
+
+  liminator-db:
+    image: docker.io/library/postgres:13.10
+    environment:
+      - POSTGRES_DB=liminator
+      - POSTGRES_USER=vality
+      - POSTGRES_PASSWORD=postgres
+
   party-management:
     image: ghcr.io/valitydev/party-management:sha-b78d0f5
     command: /opt/party-management/bin/party-management foreground
@@ -116,8 +148,6 @@ services:
 
   shumway-db:
     image: docker.io/library/postgres:13.10
-    ports:
-      - "5432"
     environment:
       - POSTGRES_DB=shumway
       - POSTGRES_USER=postgres

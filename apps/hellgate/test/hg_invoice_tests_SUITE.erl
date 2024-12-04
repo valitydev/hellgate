@@ -529,8 +529,8 @@ init_per_suite(C) ->
         {cowboy, CowboySpec}
     ]),
 
-    _ = hg_limiter_helper:init_per_suite(C),
-    _ = hg_domain:insert(construct_domain_fixture()),
+    BaseLimitsRevision = hg_limiter_helper:init_per_suite(C),
+    _BaseRevision = hg_domain:insert(construct_domain_fixture()),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -564,7 +564,8 @@ init_per_suite(C) ->
         {another_customer_client, CustomerClient2},
         {root_url, RootUrl},
         {apps, Apps},
-        {test_sup, SupPid}
+        {test_sup, SupPid},
+        {base_limits_domain_revision, BaseLimitsRevision}
         | C
     ],
 
@@ -721,7 +722,7 @@ init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
     meck:expect(
         hg_limiter,
         check_limits,
-        fun override_check_limits/4
+        fun override_check_limits/5
     ),
     init_per_testcase_(Name, C);
 init_per_testcase(Name = repair_fail_cash_flow_building_succeeded, C) ->
@@ -742,15 +743,15 @@ init_per_testcase(Name, C) ->
         end,
     init_per_testcase_(Name, C1).
 
-override_check_limits(_, _, _, _) -> throw(unknown).
--dialyzer({nowarn_function, override_check_limits/4}).
+override_check_limits(_, _, _, _, _) -> throw(unknown).
+-dialyzer({nowarn_function, override_check_limits/5}).
 
 override_collect_cashflow(_) -> throw(unknown).
 -dialyzer({nowarn_function, override_collect_cashflow/1}).
 
 override_domain_fixture(Fixture, C) ->
     Revision = hg_domain:head(),
-    _ = hg_domain:upsert(Fixture(Revision, C)),
+    _NewRevision = hg_domain:upsert(Fixture(Revision, C)),
     [{original_domain_revision, Revision} | C].
 
 override_domain_fixture(Fixture, Name, C) ->
@@ -1347,7 +1348,9 @@ payment_limit_overflow(C) ->
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
     Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
-    ok = hg_limiter_helper:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
+    ok = hg_limiter_helper:assert_payment_limit_amount(
+        ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
+    ),
     ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, {rejected, {limit_overflow, _}}}) ->
         ok
     end).
@@ -1413,7 +1416,9 @@ switch_provider_after_limit_overflow(C) ->
         [?payment_state(Payment)]
     ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
 
-    ok = hg_limiter_helper:assert_payment_limit_amount(PaymentAmount, Payment, Invoice),
+    ok = hg_limiter_helper:assert_payment_limit_amount(
+        ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
+    ),
 
     #domain_InvoicePayment{id = PaymentID} = Payment,
     InvoiceID = start_invoice(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), PaymentAmount, Client),
@@ -6714,7 +6719,11 @@ payment_cascade_success(C) ->
     },
     #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
+    Limit = hg_limiter_helper:maybe_uninitialized_limit(
+        hg_limiter_helper:get_payment_limit_amount(
+            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
+        )
+    ),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
@@ -6765,7 +6774,7 @@ payment_cascade_success(C) ->
     ),
     %% At the end of this scenario limit must be accounted only once.
     _ = hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice
+        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
     ),
     #payproc_InvoicePaymentExplanation{
         explained_routes = [
@@ -7102,7 +7111,11 @@ payment_cascade_limit_overflow(C) ->
     },
     #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
+    Limit = hg_limiter_helper:maybe_uninitialized_limit(
+        hg_limiter_helper:get_payment_limit_amount(
+            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
+        )
+    ),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
@@ -7130,7 +7143,9 @@ payment_cascade_limit_overflow(C) ->
     ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, FinalPayment),
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client),
     %% At the end of this scenario limit must not be changed.
-    hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount, FinalPayment, Invoice).
+    hg_limiter_helper:assert_payment_limit_amount(
+        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount, FinalPayment, Invoice
+    ).
 
 -spec payment_big_cascade_success(config()) -> test_return().
 payment_big_cascade_success(C) ->
@@ -7158,7 +7173,11 @@ payment_big_cascade_success(C) ->
     },
     #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    {ok, Limit} = hg_limiter_helper:get_payment_limit_amount(?LIMIT_ID4, hg_domain:head(), Payment, Invoice),
+    Limit = hg_limiter_helper:maybe_uninitialized_limit(
+        hg_limiter_helper:get_payment_limit_amount(
+            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
+        )
+    ),
     InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
@@ -7214,7 +7233,9 @@ payment_big_cascade_success(C) ->
         Trx
     ),
     %% At the end of this scenario limit must be accounted only once.
-    hg_limiter_helper:assert_payment_limit_amount(?LIMIT_ID4, InitialAccountedAmount + Amount, PaymentFinal, Invoice).
+    hg_limiter_helper:assert_payment_limit_amount(
+        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
+    ).
 
 payment_cascade_fail_provider_error_fixture_pre(Revision, _C) ->
     lists:flatten([
@@ -8861,6 +8882,7 @@ construct_domain_fixture() ->
             }
         }
     },
+    PaymentTerms = ?payment_terms,
     [
         hg_ct_fixture:construct_bank_card_category(
             ?bc_cat(1),
@@ -9894,7 +9916,7 @@ construct_domain_fixture() ->
         {provider, #domain_ProviderObject{
             ref = ?prv(6),
             data = ?provider(#domain_ProvisionTermSet{
-                payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                payments = PaymentTerms#domain_PaymentsProvisionTerms{
                     categories =
                         {value,
                             ?ordset([
@@ -9939,7 +9961,7 @@ construct_domain_fixture() ->
         {provider, #domain_ProviderObject{
             ref = ?prv(7),
             data = ?provider(#domain_ProvisionTermSet{
-                payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                payments = PaymentTerms#domain_PaymentsProvisionTerms{
                     categories =
                         {value,
                             ?ordset([
@@ -10827,3 +10849,6 @@ mock_fault_detector(SupPid) ->
         ],
         SupPid
     ).
+
+configured_limit_version(_LimitID, C) ->
+    genlib:define(cfg(original_domain_revision, C), cfg(base_limits_domain_revision, C)).

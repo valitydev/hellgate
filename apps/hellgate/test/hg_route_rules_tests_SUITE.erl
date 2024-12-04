@@ -173,6 +173,7 @@ mock_dominant(SupPid) ->
     ).
 
 mock_party_management(SupPid) ->
+    PaymentTerms = ?payment_terms,
     _ = hg_mock_helper:mock_party_management(
         [
             {party_management, fun
@@ -302,7 +303,7 @@ mock_party_management(SupPid) ->
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(2), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             categories =
                                 {value,
                                     ?ordset([
@@ -318,7 +319,7 @@ mock_party_management(SupPid) ->
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(3), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             payment_methods =
                                 {value,
                                     ?ordset([
@@ -334,38 +335,38 @@ mock_party_management(SupPid) ->
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(4), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             allow = {constant, false}
                         }
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(7), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             allow = {constant, true},
                             global_allow = {constant, false}
                         }
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(1), _, ?routing_with_risk_coverage_set_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             risk_coverage = {value, low}
                         }
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(2), _, ?routing_with_risk_coverage_set_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             risk_coverage = {value, high}
                         }
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(5), _, ?empty_allow_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             allow = undefined
                         }
                     }};
                 ('ComputeProviderTerminalTerms', {?prv(6), _, ?not_reduced_allow_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
-                        payments = ?payment_terms#domain_PaymentsProvisionTerms{
+                        payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             allow = {all_of, [{constant, false}]}
                         }
                     }};
