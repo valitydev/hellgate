@@ -8,7 +8,7 @@
 -type t() :: #{
     target := target(),
     status := session_status(),
-    trx := hg_maybe:maybe(trx_info()),
+    trx := hg_maybe:'maybe'(trx_info()),
     tags := [tag()],
     timeout_behaviour := timeout_behaviour(),
     context := tag_context(),
@@ -120,7 +120,7 @@ target(#{target := V}) ->
 status(#{status := V}) ->
     V.
 
--spec trx_info(t()) -> hg_maybe:maybe(trx_info()).
+-spec trx_info(t()) -> hg_maybe:'maybe'(trx_info()).
 trx_info(#{trx := V}) ->
     V.
 
@@ -140,7 +140,7 @@ route(#{route := V}) ->
 payment_info(#{payment_info := V}) ->
     V.
 
--spec result(t()) -> hg_maybe:maybe(session_result()).
+-spec result(t()) -> hg_maybe:'maybe'(session_result()).
 result(T) ->
     maps:get(result, T, undefined).
 
@@ -148,19 +148,19 @@ result(T) ->
 timeout_behaviour(#{timeout_behaviour := V}) ->
     V.
 
--spec proxy_state(t()) -> hg_maybe:maybe(proxy_state()).
+-spec proxy_state(t()) -> hg_maybe:'maybe'(proxy_state()).
 proxy_state(T) ->
     maps:get(proxy_state, T, undefined).
 
--spec timings(t()) -> hg_maybe:maybe(timings()).
+-spec timings(t()) -> hg_maybe:'maybe'(timings()).
 timings(T) ->
     maps:get(timings, T, undefined).
 
--spec repair_scenario(t()) -> hg_maybe:maybe(repair_scenario()).
+-spec repair_scenario(t()) -> hg_maybe:'maybe'(repair_scenario()).
 repair_scenario(T) ->
     maps:get(repair_scenario, T, undefined).
 
--spec user_interaction(t()) -> hg_maybe:maybe(interaction()).
+-spec user_interaction(t()) -> hg_maybe:'maybe'(interaction()).
 user_interaction(T) ->
     maps:get(interaction, T, undefined).
 
@@ -185,7 +185,7 @@ set_repair_scenario(Scenario, Session) ->
 set_payment_info(PaymentInfo, Session) ->
     Session#{payment_info => PaymentInfo}.
 
--spec set_trx_info(hg_maybe:maybe(trx_info()), t()) -> t().
+-spec set_trx_info(hg_maybe:'maybe'(trx_info()), t()) -> t().
 set_trx_info(Trx, Session) ->
     Session#{trx := Trx}.
 
