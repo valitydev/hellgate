@@ -102,7 +102,7 @@
   0},
  {<<"progressor">>,
   {git,"https://github.com/valitydev/progressor.git",
-       {ref,"a3dbe6c1a83f688d746948c7dd1b7835e325e704"}},
+       {ref,"a67d4ddbcc3ddc3471e903d6d7291ca8e194906c"}},
   0},
  {<<"prometheus">>,{pkg,<<"prometheus">>,<<"4.8.1">>},0},
  {<<"prometheus_cowboy">>,{pkg,<<"prometheus_cowboy">>,<<"0.1.8">>},0},
