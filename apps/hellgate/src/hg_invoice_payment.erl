@@ -2700,6 +2700,8 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
                 ok = hg_limiter:hold_payment_limits(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter),
                 {[Route | LimitHeldRoutes], RejectedRoutes}
             catch
+                error:(#limiter_LimitNotFound{} = LimiterError) ->
+                    do_reject_route(LimiterError, Route, TurnoverLimits, Acc);
                 error:(#limiter_InvalidOperationCurrency{} = LimiterError) ->
                     do_reject_route(LimiterError, Route, TurnoverLimits, Acc);
                 error:(#limiter_OperationContextNotSupported{} = LimiterError) ->
