@@ -367,6 +367,7 @@ process_changes_try_wrap([LimitChange | OtherLimitChanges], WithFun, Clock, Cont
             handle_caught_exception(Class, Reason, Stacktrace, IgnoreBusinessError)
     end.
 
+handle_caught_exception(error, #limiter_LimitNotFound{}, _Stacktrace, true) -> ok;
 handle_caught_exception(error, #limiter_InvalidOperationCurrency{}, _Stacktrace, true) -> ok;
 handle_caught_exception(error, #limiter_OperationContextNotSupported{}, _Stacktrace, true) -> ok;
 handle_caught_exception(error, #limiter_PaymentToolNotSupported{}, _Stacktrace, true) -> ok;
