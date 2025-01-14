@@ -14,6 +14,8 @@
 
 -export([get_child_spec/0]).
 -export([report/0]).
+-export([scan_proc/0]).
+-export([scan_proc/1]).
 
 -spec get_child_spec() -> _.
 get_child_spec() ->
@@ -32,6 +34,43 @@ report() ->
         {epgsql_sock, init, 1}
     ],
     lists:foreach(fun(MFA) -> do_report(MFA, TargetItem) end, MFAs).
+
+-spec scan_proc() -> _.
+scan_proc() ->
+    scan_proc(memory).
+
+-spec scan_proc(_) -> _.
+scan_proc(Item) ->
+    ScanResult = lists:foldl(
+        fun(P, Acc) ->
+            try maps:from_list(process_info(P, [dictionary, Item])) of
+                #{dictionary := Dict} = Info ->
+                    case maps:from_list(Dict) of
+                        #{'$initial_call' := InitialMFA} ->
+                            Value = maps:get(Item, Info),
+                            {Cnt, Sm} = maps:get(InitialMFA, Acc, {0, 0}),
+                            Acc#{InitialMFA => {Cnt + 1, Sm + Value}};
+                        _ ->
+                            io:format(user, "UNKNOWN '$initial_call': ~p~n", [P]),
+                            Acc
+                    end;
+                _ ->
+                    Acc
+            catch
+                _:_ ->
+                    Acc
+            end
+        end,
+        #{},
+        processes()
+    ),
+    Sorted = lists:sort(fun({_, {_, SumA}}, {_, {_, SumB}}) -> SumA >= SumB end, maps:to_list(ScanResult)),
+    lists:foreach(
+        fun({MFA, {Count, Sum}}) ->
+            io:format(user, "MFA: ~p Count: ~p Memory: ~p~n", [MFA, Count, Sum])
+        end,
+        Sorted
+    ).
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
