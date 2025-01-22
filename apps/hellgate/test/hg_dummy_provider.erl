@@ -744,7 +744,8 @@ get_payment_tool_scenario(
     | empty_cvv
     | {scenario, failure_scenario()}
     | {preauth_3ds, integer()}
-    | {preauth_3ds_sleep, integer()}.
+    | {preauth_3ds_sleep, integer()}
+    | {assert_contact_info, dmsl_domain_thrift:'ContactInfo'()}.
 
 -type tag() :: dmsl_proxy_provider_thrift:'CallbackTag'().
 -type session_change() :: dmsl_proxy_provider_thrift:'PaymentSessionChange'().
