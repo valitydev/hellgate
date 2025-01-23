@@ -286,10 +286,13 @@ marshal_withdrawal(Withdrawal) ->
 
     Resource = ff_withdrawal:destination_resource(Withdrawal),
     MarshaledResource = ff_adapter_withdrawal_codec:marshal(resource, Resource),
+    AuthData = ff_destination:auth_data(Destination),
+    MarshaledAuthData = ff_adapter_withdrawal_codec:maybe_marshal(auth_data, AuthData),
     #wthd_domain_Withdrawal{
         created_at = ff_codec:marshal(timestamp_ms, ff_withdrawal:created_at(Withdrawal)),
         body = ff_dmsl_codec:marshal(cash, ff_withdrawal:body(Withdrawal)),
         destination = MarshaledResource,
+        auth_data = MarshaledAuthData,
         sender = ff_adapter_withdrawal_codec:marshal(identity, #{
             id => ff_identity:id(SenderIdentity),
             owner_id => ff_identity:party(SenderIdentity)

@@ -95,6 +95,16 @@ process_withdrawal(#{quote := #wthd_provider_Quote{quote_data = QuoteData}}, Sta
         intent => {finish, {success, #{id => <<"test">>}}},
         next_state => State
     }};
+process_withdrawal(#{auth_data := #{sender := <<"SenderToken">>, receiver := <<"ReceiverToken">>}}, State, _Options) ->
+    {ok, #{
+        intent => {finish, {success, #{id => <<"test">>}}},
+        next_state => State
+    }};
+process_withdrawal(#{auth_data := _AuthData}, State, _Options) ->
+    {ok, #{
+        intent => {finish, {failed, #{code => <<"auth_data_error">>}}},
+        next_state => State
+    }};
 process_withdrawal(_Withdrawal, State, _Options) ->
     {ok, #{
         intent => {finish, {success, #{id => <<"test">>}}},

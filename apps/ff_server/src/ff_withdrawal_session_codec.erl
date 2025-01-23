@@ -4,6 +4,7 @@
 
 -include_lib("fistful_proto/include/fistful_wthd_session_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
 
 -export([marshal_state/3]).
 
@@ -77,6 +78,7 @@ marshal(
     ReceiverIdentity = maps:get(receiver, Params, undefined),
     SessionID = maps:get(session_id, Params, undefined),
     Quote = maps:get(quote, Params, undefined),
+    DestAuthData = maps:get(dest_auth_data, Params, undefined),
     #wthd_session_Withdrawal{
         id = marshal(id, WithdrawalID),
         destination_resource = marshal(resource, Resource),
@@ -84,7 +86,8 @@ marshal(
         sender = marshal(identity, SenderIdentity),
         receiver = marshal(identity, ReceiverIdentity),
         session_id = maybe_marshal(id, SessionID),
-        quote = maybe_marshal(quote, Quote)
+        quote = maybe_marshal(quote, Quote),
+        auth_data = maybe_marshal(auth_data, DestAuthData)
     };
 marshal(identity, Identity = #{id := ID}) ->
     #wthd_session_Identity{
@@ -121,6 +124,14 @@ marshal(quote, #{
         quote_data = maybe_marshal(msgpack, Data),
         quote_data_legacy = marshal(ctx, #{})
     };
+marshal(auth_data, #{
+    sender := SenderToken,
+    receiver := ReceiverToken
+}) ->
+    {sender_receiver, #destination_SenderReceiverAuthData{
+        sender = SenderToken,
+        receiver = ReceiverToken
+    }};
 marshal(ctx, Ctx) ->
     maybe_marshal(context, Ctx);
 marshal(session_result, success) ->
@@ -210,7 +221,8 @@ unmarshal(withdrawal, #wthd_session_Withdrawal{
     sender = SenderIdentity,
     receiver = ReceiverIdentity,
     session_id = SessionID,
-    quote = Quote
+    quote = Quote,
+    auth_data = DestAuthData
 }) ->
     genlib_map:compact(#{
         id => unmarshal(id, WithdrawalID),
@@ -219,7 +231,8 @@ unmarshal(withdrawal, #wthd_session_Withdrawal{
         sender => unmarshal(identity, SenderIdentity),
         receiver => unmarshal(identity, ReceiverIdentity),
         session_id => maybe_unmarshal(id, SessionID),
-        quote => maybe_unmarshal(quote, Quote)
+        quote => maybe_unmarshal(quote, Quote),
+        dest_auth_data => maybe_unmarshal(auth_data, DestAuthData)
     });
 unmarshal(identity, #wthd_session_Identity{
     identity_id = ID,
@@ -261,6 +274,17 @@ unmarshal(quote, #wthd_session_Quote{
         expires_on => ExpiresOn,
         quote_data => maybe_unmarshal(msgpack, Data)
     });
+unmarshal(
+    auth_data,
+    {sender_receiver, #destination_SenderReceiverAuthData{
+        sender = SenderToken,
+        receiver = ReceiverToken
+    }}
+) ->
+    #{
+        sender => SenderToken,
+        receiver => ReceiverToken
+    };
 unmarshal(session_result, {success, #wthd_session_SessionResultSuccess{trx_info = undefined}}) ->
     success;
 unmarshal(session_result, {success, #wthd_session_SessionResultSuccess{trx_info = TransactionInfo}}) ->

@@ -7,6 +7,7 @@
 -include_lib("damsel/include/dmsl_limiter_config_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_base_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_withdrawal_thrift.hrl").
+-include_lib("validator_personal_data_proto/include/validator_personal_data_validator_personal_data_thrift.hrl").
 
 %% Common test API
 
@@ -21,6 +22,7 @@
 
 %% Tests
 -export([limit_success/1]).
+-export([sender_receiver_limit_success/1]).
 -export([limit_overflow/1]).
 -export([limit_hold_currency_error/1]).
 -export([limit_hold_operation_error/1]).
@@ -52,6 +54,7 @@ groups() ->
     [
         {default, [sequence], [
             limit_success,
+            sender_receiver_limit_success,
             limit_overflow,
             limit_hold_currency_error,
             limit_hold_operation_error,
@@ -184,6 +187,52 @@ limit_success(C) ->
             ?LIMIT_TURNOVER_NUM_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
         )
     ).
+
+-spec sender_receiver_limit_success(config()) -> test_return().
+sender_receiver_limit_success(C) ->
+    %% mock validator
+    ok = meck:expect(ff_woody_client, call, fun
+        (validator, {_, _, {Token}}) ->
+            {ok, #validator_personal_data_ValidationResponse{
+                validation_id = <<"ID">>,
+                token = Token,
+                validation_status = valid
+            }};
+        (Service, Request) ->
+            meck:passthrough([Service, Request])
+    end),
+    Cash = {_Amount, Currency} = {3002000, <<"RUB">>},
+    #{
+        wallet_id := WalletID,
+        identity_id := IdentityID
+    } = prepare_standard_environment(Cash, C),
+    AuthData = #{
+        sender => <<"SenderToken">>,
+        receiver => <<"ReceiverToken">>
+    },
+    MarshaledAuthData = ff_adapter_withdrawal_codec:maybe_marshal(auth_data, AuthData),
+    DestinationID = create_destination(IdentityID, Currency, AuthData, C),
+    WithdrawalID = generate_id(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        body => Cash,
+        external_id => WithdrawalID
+    },
+    PreviousAmount = get_limit_amount(
+        Cash, WalletID, DestinationID, ?LIMIT_TURNOVER_NUM_SENDER_ID1, MarshaledAuthData, C
+    ),
+    ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
+    ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)),
+    Withdrawal = get_withdrawal(WithdrawalID),
+    ?assertEqual(
+        PreviousAmount + 1,
+        ff_limiter_helper:get_limit_amount(
+            ?LIMIT_TURNOVER_NUM_SENDER_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
+        )
+    ),
+    meck:unload(ff_woody_client).
 
 -spec limit_overflow(config()) -> test_return().
 limit_overflow(C) ->
@@ -503,7 +552,7 @@ set_retryable_errors(PartyID, ErrorList) ->
         }
     }).
 
-get_limit_withdrawal(Cash, WalletID, DestinationID) ->
+get_limit_withdrawal(Cash, WalletID, DestinationID, AuthData) ->
     {ok, WalletMachine} = ff_wallet_machine:get(WalletID),
     Wallet = ff_wallet_machine:wallet(WalletMachine),
     WalletAccount = ff_wallet:account(Wallet),
@@ -517,11 +566,14 @@ get_limit_withdrawal(Cash, WalletID, DestinationID) ->
         sender = ff_adapter_withdrawal_codec:marshal(identity, #{
             id => ff_identity:id(SenderIdentity),
             owner_id => ff_identity:party(SenderIdentity)
-        })
+        }),
+        auth_data = AuthData
     }.
 
 get_limit_amount(Cash, WalletID, DestinationID, LimitID, C) ->
-    Withdrawal = get_limit_withdrawal(Cash, WalletID, DestinationID),
+    get_limit_amount(Cash, WalletID, DestinationID, LimitID, undefined, C).
+get_limit_amount(Cash, WalletID, DestinationID, LimitID, AuthData, C) ->
+    Withdrawal = get_limit_withdrawal(Cash, WalletID, DestinationID, AuthData),
     ff_limiter_helper:get_limit_amount(LimitID, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C).
 
 get_destination_resource(DestinationID) ->
@@ -627,10 +679,20 @@ generate_id() ->
     ff_id:generate_snowflake_id().
 
 create_destination(IID, Currency, C) ->
+    create_destination(IID, Currency, undefined, C).
+
+create_destination(IID, Currency, AuthData, C) ->
     ID = generate_id(),
     StoreSource = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}, C),
     Resource = {bank_card, #{bank_card => StoreSource}},
-    Params = #{id => ID, identity => IID, name => <<"XDesination">>, currency => Currency, resource => Resource},
+    Params = genlib_map:compact(#{
+        id => ID,
+        identity => IID,
+        name => <<"XDesination">>,
+        currency => Currency,
+        resource => Resource,
+        auth_data => AuthData
+    }),
     ok = ff_destination_machine:create(Params, ff_entity_context:new()),
     authorized = ct_helper:await(
         authorized,

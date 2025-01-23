@@ -415,8 +415,8 @@ create_destination_auth_data_valid_test(C) ->
     Cash = make_cash({424242, <<"RUB">>}),
     AuthData = #{
         auth_data => #{
-            sender => <<"SenderPersonalDataToken">>,
-            receiver => <<"ReceiverPersonalDataToken">>
+            sender => <<"SenderToken">>,
+            receiver => <<"ReceiverToken">>
         }
     },
     #{
@@ -437,14 +437,14 @@ create_destination_auth_data_valid_test(C) ->
         sender = [
             {personal, #wthd_PersonalDataValidationResult{
                 validation_id = <<"ID">>,
-                token = <<"SenderPersonalDataToken">>,
+                token = <<"SenderToken">>,
                 validation_status = valid
             }}
         ],
         receiver = [
             {personal, #wthd_PersonalDataValidationResult{
                 validation_id = <<"ID">>,
-                token = <<"ReceiverPersonalDataToken">>,
+                token = <<"ReceiverToken">>,
                 validation_status = valid
             }}
         ]

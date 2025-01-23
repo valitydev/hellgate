@@ -20,13 +20,15 @@
 
 -spec init_per_suite(config()) -> _.
 init_per_suite(Config) ->
+    SenderScopes = [{sender, #limiter_config_LimitScopeEmptyDetails{}}],
     LimitsRevision = dmt_client:upsert([
         {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID1)},
         {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2)},
         {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1)},
         {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2)},
         {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID3)},
-        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID4)}
+        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID4)},
+        {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_SENDER_ID1, SenderScopes)}
     ]),
     [{'$limits_domain_revision', LimitsRevision} | Config].
 
@@ -63,6 +65,9 @@ maybe_marshal_withdrawal(Withdrawal) ->
     ff_limiter:marshal_withdrawal(Withdrawal).
 
 limiter_mk_config_object_num(LimitID) ->
+    limiter_mk_config_object_num(LimitID, [{payment_tool, #limiter_config_LimitScopeEmptyDetails{}}]).
+
+limiter_mk_config_object_num(LimitID, Scopes) ->
     #domain_LimitConfigObject{
         ref = #domain_LimitConfigRef{id = LimitID},
         data = #limiter_config_LimitConfig{
@@ -73,7 +78,7 @@ limiter_mk_config_object_num(LimitID) ->
             time_range_type = {calendar, {month, #limiter_config_TimeRangeTypeCalendarMonth{}}},
             context_type = {withdrawal_processing, #limiter_config_LimitContextTypeWithdrawalProcessing{}},
             type = {turnover, #limiter_config_LimitTypeTurnover{}},
-            scopes = [{payment_tool, #limiter_config_LimitScopeEmptyDetails{}}],
+            scopes = Scopes,
             description = <<"description">>,
             op_behaviour = #limiter_config_OperationLimitBehaviour{
                 invoice_payment_refund = {subtraction, #limiter_config_Subtraction{}}

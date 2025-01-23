@@ -45,6 +45,7 @@
     id => binary(),
     session_id => binary(),
     resource => resource(),
+    dest_auth_data => ff_destination:auth_data(),
     cash => cash(),
     sender => identity() | undefined,
     receiver => identity() | undefined,

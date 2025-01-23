@@ -7,6 +7,7 @@
 -include_lib("damsel/include/dmsl_msgpack_thrift.hrl").
 
 -export([marshal/2]).
+-export([maybe_marshal/2]).
 -export([unmarshal/2]).
 -export([marshal_msgpack/1]).
 -export([unmarshal_msgpack/1]).
@@ -255,6 +256,7 @@ marshal(
     } = Withdrawal
 ) ->
     SesID = maps:get(session_id, Withdrawal, undefined),
+    DestAuthData = maps:get(dest_auth_data, Withdrawal, undefined),
     #wthd_provider_Withdrawal{
         id = ID,
         session_id = SesID,
@@ -262,10 +264,19 @@ marshal(
         destination = marshal(resource, Resource),
         sender = maybe_marshal(identity, Sender),
         receiver = maybe_marshal(identity, Receiver),
+        auth_data = maybe_marshal(auth_data, DestAuthData),
         quote = maybe_marshal(quote, maps:get(quote, Withdrawal, undefined))
     };
 marshal(transaction_info, TrxInfo) ->
-    ff_dmsl_codec:marshal(transaction_info, TrxInfo).
+    ff_dmsl_codec:marshal(transaction_info, TrxInfo);
+marshal(auth_data, #{
+    sender := SenderToken,
+    receiver := ReceiverToken
+}) ->
+    {sender_receiver, #wthd_domain_SenderReceiverAuthData{
+        sender = SenderToken,
+        receiver = ReceiverToken
+    }}.
 
 try_encode_proof_document({rus_domestic_passport, Token}, Acc) ->
     [{rus_domestic_passport, #wthd_domain_RUSDomesticPassport{token = Token}} | Acc];
@@ -385,7 +396,7 @@ unmarshal(transaction_info, TransactionInfo) ->
     ff_dmsl_codec:unmarshal(transaction_info, TransactionInfo).
 
 %%
-
+-spec maybe_marshal(type_name(), decoded_value() | undefined) -> encoded_value() | undefined.
 maybe_marshal(_Type, undefined) ->
     undefined;
 maybe_marshal(Type, Value) ->

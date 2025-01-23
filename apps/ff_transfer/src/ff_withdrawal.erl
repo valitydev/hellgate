@@ -1009,10 +1009,12 @@ process_session_creation(Withdrawal) ->
         receiver => ff_identity_machine:identity(ReceiverSt),
         quote => build_session_quote(quote(Withdrawal))
     }),
+    AuthData = ff_destination:auth_data(Destination),
     SessionParams = #{
         withdrawal_id => id(Withdrawal),
         resource => destination_resource(Withdrawal),
-        route => Route
+        route => Route,
+        dest_auth_data => AuthData
     },
     ok = create_session(ID, TransferData, SessionParams),
     {continue, [{session_started, ID}]}.

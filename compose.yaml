@@ -28,7 +28,7 @@ services:
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-f17373b
+    image: ghcr.io/valitydev/dominant:sha-c0ebc36
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -111,7 +111,7 @@ services:
       retries: 20
 
   liminator-db:
-    image: docker.io/library/postgres:13.10
+    image: docker.io/library/postgres:14.3
     environment:
       - POSTGRES_DB=liminator
       - POSTGRES_USER=vality

@@ -86,6 +86,7 @@
 -export_type([event/0]).
 -export_type([create_error/0]).
 -export_type([exp_date/0]).
+-export_type([auth_data/0]).
 
 %% Accessors
 

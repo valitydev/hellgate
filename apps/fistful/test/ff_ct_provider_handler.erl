@@ -4,6 +4,7 @@
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_wthd_provider_thrift.hrl").
+-include_lib("damsel/include/dmsl_wthd_domain_thrift.hrl").
 
 %% woody_server_thrift_handler callbacks
 -export([handle_function/4]).
@@ -61,16 +62,31 @@ decode_withdrawal(#wthd_provider_Withdrawal{
     destination = Destination,
     sender = Sender,
     receiver = Receiver,
-    quote = Quote
+    quote = Quote,
+    auth_data = AuthData
 }) ->
-    #{
+    genlib_map:compact(#{
         id => Id,
         body => Body,
         destination => Destination,
         sender => Sender,
         receiver => Receiver,
-        quote => Quote
-    }.
+        quote => Quote,
+        auth_data => decode_auth_data(AuthData)
+    }).
+
+decode_auth_data(undefined) ->
+    undefined;
+decode_auth_data(
+    {sender_receiver, #wthd_domain_SenderReceiverAuthData{
+        sender = Sender,
+        receiver = Receiver
+    }}
+) ->
+    genlib_map:compact(#{
+        sender => Sender,
+        receiver => Receiver
+    }).
 
 decode_quote_params(#wthd_provider_GetQuoteParams{
     idempotency_id = IdempotencyID,

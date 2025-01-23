@@ -89,7 +89,8 @@
 -type params() :: #{
     resource := ff_destination:resource(),
     route := route(),
-    withdrawal_id := ff_withdrawal:id()
+    withdrawal_id := ff_withdrawal:id(),
+    dest_auth_data => ff_destination:auth_data()
 }.
 
 -type callback_params() :: ff_withdrawal_callback:process_params().
@@ -319,11 +320,12 @@ process_adapter_intent({sleep, #{timer := Timer}}, _Session) ->
 %%
 
 -spec create_session(id(), data(), params()) -> session().
-create_session(ID, Data, #{withdrawal_id := WdthID, resource := Res, route := Route}) ->
+create_session(ID, Data, #{withdrawal_id := WdthID, resource := Res, route := Route} = Params) ->
+    DestAuthData = maps:get(dest_auth_data, Params, undefined),
     #{
         version => ?ACTUAL_FORMAT_VERSION,
         id => ID,
-        withdrawal => create_adapter_withdrawal(Data, Res, WdthID),
+        withdrawal => create_adapter_withdrawal(Data, Res, WdthID, DestAuthData),
         route => Route,
         status => active
     }.
@@ -365,13 +367,16 @@ get_adapter_terminal_opts(TerminalID, DomainRevision) ->
     {ok, Terminal} = ff_payouts_terminal:get(TerminalID, DomainRevision),
     ff_payouts_terminal:adapter_opts(Terminal).
 
-create_adapter_withdrawal(#{id := SesID, sender := Sender, receiver := Receiver} = Data, Resource, WdthID) ->
+create_adapter_withdrawal(
+    #{id := SesID, sender := Sender, receiver := Receiver} = Data, Resource, WdthID, DestAuthData
+) ->
     Data#{
         sender => convert_identity_state_to_adapter_identity(Sender),
         receiver => convert_identity_state_to_adapter_identity(Receiver),
         resource => Resource,
         id => WdthID,
-        session_id => SesID
+        session_id => SesID,
+        dest_auth_data => DestAuthData
     }.
 
 -spec set_callbacks_index(callbacks_index(), session_state()) -> session_state().
