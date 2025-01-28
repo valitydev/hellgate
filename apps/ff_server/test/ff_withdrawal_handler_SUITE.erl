@@ -22,6 +22,7 @@
 %% Tests
 -export([session_unknown_test/1]).
 -export([session_get_context_test/1]).
+-export([session_get_events_test/1]).
 -export([create_withdrawal_and_get_session_ok_test/1]).
 
 -export([create_withdrawal_ok_test/1]).
@@ -62,6 +63,7 @@ groups() ->
         {default, [parallel], [
             session_unknown_test,
             session_get_context_test,
+            session_get_events_test,
             create_withdrawal_and_get_session_ok_test,
 
             create_withdrawal_ok_test,
@@ -177,6 +179,38 @@ session_get_context_test(C) ->
     {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
     [#wthd_SessionState{id = SessionID} | _Rest] = FinalWithdrawalState#wthd_WithdrawalState.sessions,
     {ok, _Session} = call_withdrawal_session('GetContext', {SessionID}).
+
+-spec session_get_events_test(config()) -> test_return().
+session_get_events_test(C) ->
+    Cash = make_cash({1000, <<"RUB">>}),
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID
+    } = prepare_standard_environment(Cash, C),
+    WithdrawalID = generate_id(),
+    ExternalID = generate_id(),
+    Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
+    Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
+    Params = #wthd_WithdrawalParams{
+        id = WithdrawalID,
+        wallet_id = WalletID,
+        destination_id = DestinationID,
+        body = Cash,
+        metadata = Metadata,
+        external_id = ExternalID
+    },
+    {ok, _WithdrawalState} = call_withdrawal('Create', {Params, Ctx}),
+
+    succeeded = await_final_withdrawal_status(WithdrawalID),
+    {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),
+    [#wthd_SessionState{id = SessionID} | _Rest] = FinalWithdrawalState#wthd_WithdrawalState.sessions,
+
+    Range = {undefined, undefined},
+    EncodedRange = ff_codec:marshal(event_range, Range),
+    {ok, Events} = call_withdrawal_session('GetEvents', {SessionID, EncodedRange}),
+    {ok, ExpectedEvents} = ff_withdrawal_session_machine:events(SessionID, Range),
+    EncodedEvents = lists:map(fun ff_withdrawal_session_codec:marshal_event/1, ExpectedEvents),
+    ?assertEqual(EncodedEvents, Events).
 
 -spec session_unknown_test(config()) -> test_return().
 session_unknown_test(_C) ->

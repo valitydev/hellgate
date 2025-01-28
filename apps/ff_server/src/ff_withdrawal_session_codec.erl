@@ -7,6 +7,7 @@
 -include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
 
 -export([marshal_state/3]).
+-export([marshal_event/1]).
 
 -export([marshal/2]).
 -export([unmarshal/2]).
@@ -21,6 +22,15 @@ marshal_state(State, ID, Context) ->
         withdrawal = marshal(withdrawal, ff_withdrawal_session:withdrawal(State)),
         route = marshal(route, ff_withdrawal_session:route(State)),
         context = marshal(ctx, Context)
+    }.
+
+-spec marshal_event(ff_withdrawal_machine:event()) -> fistful_wthd_session_thrift:'Event'().
+marshal_event({EventID, {ev, Timestamp, Change}}) ->
+    #wthd_session_Event{
+        sequence = ff_codec:marshal(event_id, EventID),
+        occured_at = ff_codec:marshal(timestamp, Timestamp),
+        %% NOTE Each emitted session event contains single change
+        changes = [marshal(change, Change)]
     }.
 
 -spec marshal(ff_codec:type_name(), ff_codec:decoded_value()) -> ff_codec:encoded_value().

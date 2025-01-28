@@ -35,6 +35,13 @@ handle_function_('Get', {ID, EventRange}, _Opts) ->
         {error, notfound} ->
             woody_error:raise(business, #fistful_WithdrawalSessionNotFound{})
     end;
+handle_function_('GetEvents', {ID, EventRange}, _Opts) ->
+    case ff_withdrawal_session_machine:events(ID, ff_codec:unmarshal(event_range, EventRange)) of
+        {ok, Events} ->
+            {ok, lists:map(fun ff_withdrawal_session_codec:marshal_event/1, Events)};
+        {error, notfound} ->
+            woody_error:raise(business, #fistful_WithdrawalSessionNotFound{})
+    end;
 handle_function_('GetContext', {ID}, _Opts) ->
     case ff_withdrawal_session_machine:get(ID, {undefined, 0}) of
         {ok, Machine} ->
