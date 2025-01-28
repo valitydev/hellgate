@@ -75,6 +75,29 @@ start(Opts) ->
 %% Processing callbacks
 %%
 
+-define(STRING, <<"STRING">>).
+-define(TIMESTAMP, <<"2024-01-28T08:26:00.000000Z">>).
+
+-define(TRX_INFO, #{
+    id => ?STRING,
+    timestamp => ?TIMESTAMP,
+    extra => #{?STRING => ?STRING},
+    additional_info => #{
+        rrn => ?STRING,
+        approval_code => ?STRING,
+        acs_url => ?STRING,
+        pareq => ?STRING,
+        md => ?STRING,
+        term_url => ?STRING,
+        pares => ?STRING,
+        eci => ?STRING,
+        cavv => ?STRING,
+        xid => ?STRING,
+        cavv_algorithm => ?STRING,
+        three_ds_verification => authentication_successful
+    }
+}).
+
 -spec process_withdrawal(withdrawal(), state(), map()) ->
     {ok, #{
         intent := ff_adapter_withdrawal:intent(),
@@ -92,12 +115,12 @@ process_withdrawal(#{quote := #wthd_provider_Quote{quote_data = QuoteData}}, Sta
     QuoteData =:= ?DUMMY_QUOTE
 ->
     {ok, #{
-        intent => {finish, {success, #{id => <<"test">>}}},
+        intent => {finish, {success, ?TRX_INFO}},
         next_state => State
     }};
 process_withdrawal(#{auth_data := #{sender := <<"SenderToken">>, receiver := <<"ReceiverToken">>}}, State, _Options) ->
     {ok, #{
-        intent => {finish, {success, #{id => <<"test">>}}},
+        intent => {finish, {success, ?TRX_INFO}},
         next_state => State
     }};
 process_withdrawal(#{auth_data := _AuthData}, State, _Options) ->
@@ -107,7 +130,7 @@ process_withdrawal(#{auth_data := _AuthData}, State, _Options) ->
     }};
 process_withdrawal(_Withdrawal, State, _Options) ->
     {ok, #{
-        intent => {finish, {success, #{id => <<"test">>}}},
+        intent => {finish, {success, ?TRX_INFO}},
         next_state => State
     }}.
 

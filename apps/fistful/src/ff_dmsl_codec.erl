@@ -228,9 +228,34 @@ marshal(transaction_info, V = #{id := ID}) ->
     #domain_TransactionInfo{
         id = marshal(string, ID),
         timestamp = maybe_marshal(string, maps:get(timestamp, V, undefined)),
-        extra = maps:get(extra, V, #{})
-        % TODO additional info
+        extra = maps:get(extra, V, #{}),
+        additional_info = maybe_marshal(additional_transaction_info, maps:get(additional_info, V, undefined))
     };
+marshal(additional_transaction_info, V) ->
+    #domain_AdditionalTransactionInfo{
+        rrn = maybe_marshal(string, maps:get(rrn, V, undefined)),
+        approval_code = maybe_marshal(string, maps:get(approval_code, V, undefined)),
+        acs_url = maybe_marshal(string, maps:get(acs_url, V, undefined)),
+        pareq = maybe_marshal(string, maps:get(pareq, V, undefined)),
+        md = maybe_marshal(string, maps:get(md, V, undefined)),
+        term_url = maybe_marshal(string, maps:get(term_url, V, undefined)),
+        pares = maybe_marshal(string, maps:get(pares, V, undefined)),
+        eci = maybe_marshal(string, maps:get(eci, V, undefined)),
+        cavv = maybe_marshal(string, maps:get(cavv, V, undefined)),
+        xid = maybe_marshal(string, maps:get(xid, V, undefined)),
+        cavv_algorithm = maybe_marshal(string, maps:get(cavv_algorithm, V, undefined)),
+        three_ds_verification = maybe_marshal(three_ds_verification, maps:get(three_ds_verification, V, undefined))
+        %% TODO 'short_payment_id' and 'extra_payment_info'
+        %% short_payment_id = maybe_marshal(string, maps:get(short_payment_id, V, undefined)),
+        %% extra_payment_info = maps:get(extra_payment_info, V, undefined)
+    };
+marshal(three_ds_verification, V) when
+    V =:= authentication_successful orelse
+        V =:= attempts_processing_performed orelse
+        V =:= authentication_failed orelse
+        V =:= authentication_could_not_be_performed
+->
+    V;
 marshal(failure, V = #{code := Code}) ->
     #domain_Failure{
         code = marshal(string, Code),
