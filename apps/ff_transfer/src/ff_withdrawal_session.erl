@@ -4,8 +4,6 @@
 
 -module(ff_withdrawal_session).
 
--include_lib("damsel/include/dmsl_domain_thrift.hrl").
-
 %% Accessors
 
 -export([id/1]).
@@ -177,7 +175,7 @@ result(_) ->
     undefined.
 
 -spec transaction_info(session_state()) -> transaction_info() | undefined.
-transaction_info(Session = #{}) ->
+transaction_info(#{} = Session) ->
     maps:get(transaction_info, Session, undefined).
 
 %%
@@ -244,7 +242,7 @@ assert_transaction_info(NewTrxInfo, _TrxInfo) ->
     erlang:error({transaction_info_is_different, NewTrxInfo}).
 
 -spec set_session_result(session_result(), session_state()) -> process_result().
-set_session_result(Result, Session = #{status := active}) ->
+set_session_result(Result, #{status := active} = Session) ->
     process_adapter_intent({finish, Result}, Session).
 
 -spec process_callback(callback_params(), session_state()) ->

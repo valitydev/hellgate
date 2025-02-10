@@ -1,7 +1,5 @@
 -module(ff_resource).
 
--include_lib("damsel/include/dmsl_domain_thrift.hrl").
-
 -type resource() ::
     {bank_card, resource_bank_card()}
     | {crypto_wallet, resource_crypto_wallet()}
@@ -194,53 +192,53 @@
 token(#{token := Token}) ->
     Token.
 
--spec bin(bank_card()) -> ff_maybe:maybe(bin()).
+-spec bin(bank_card()) -> ff_maybe:'maybe'(bin()).
 bin(BankCard) ->
     maps:get(bin, BankCard, undefined).
 
--spec bin_data_id(bank_card()) -> ff_maybe:maybe(bin_data_id()).
+-spec bin_data_id(bank_card()) -> ff_maybe:'maybe'(bin_data_id()).
 bin_data_id(BankCard) ->
     maps:get(bin_data_id, BankCard, undefined).
 
--spec masked_pan(bank_card()) -> ff_maybe:maybe(masked_pan()).
+-spec masked_pan(bank_card()) -> ff_maybe:'maybe'(masked_pan()).
 masked_pan(BankCard) ->
     maps:get(masked_pan, BankCard, undefined).
 
--spec payment_system(bank_card()) -> ff_maybe:maybe(payment_system()).
+-spec payment_system(bank_card()) -> ff_maybe:'maybe'(payment_system()).
 payment_system(BankCard) ->
     maps:get(payment_system, BankCard, undefined).
 
--spec issuer_country(bank_card()) -> ff_maybe:maybe(issuer_country()).
+-spec issuer_country(bank_card()) -> ff_maybe:'maybe'(issuer_country()).
 issuer_country(BankCard) ->
     maps:get(issuer_country, BankCard, undefined).
 
--spec category(bank_card()) -> ff_maybe:maybe(category()).
+-spec category(bank_card()) -> ff_maybe:'maybe'(category()).
 category(BankCard) ->
     maps:get(category, BankCard, undefined).
 
--spec bank_name(bank_card()) -> ff_maybe:maybe(bank_name()).
+-spec bank_name(bank_card()) -> ff_maybe:'maybe'(bank_name()).
 bank_name(BankCard) ->
     maps:get(bank_name, BankCard, undefined).
 
--spec exp_date(bank_card()) -> ff_maybe:maybe(exp_date()).
+-spec exp_date(bank_card()) -> ff_maybe:'maybe'(exp_date()).
 exp_date(BankCard) ->
     maps:get(exp_date, BankCard, undefined).
 
--spec card_type(bank_card()) -> ff_maybe:maybe(card_type()).
+-spec card_type(bank_card()) -> ff_maybe:'maybe'(card_type()).
 card_type(BankCard) ->
     maps:get(card_type, BankCard, undefined).
 
--spec cardholder_name(bank_card()) -> ff_maybe:maybe(cardholder_name()).
+-spec cardholder_name(bank_card()) -> ff_maybe:'maybe'(cardholder_name()).
 cardholder_name(BankCard) ->
     maps:get(cardholder_name, BankCard, undefined).
 
--spec resource_descriptor(ff_maybe:maybe(resource())) -> ff_maybe:maybe(resource_descriptor()).
+-spec resource_descriptor(ff_maybe:'maybe'(resource())) -> ff_maybe:'maybe'(resource_descriptor()).
 resource_descriptor({bank_card, #{bank_card := #{bin_data_id := ID}}}) ->
     {bank_card, ID};
 resource_descriptor(_) ->
     undefined.
 
--spec method(resource()) -> ff_maybe:maybe(method()).
+-spec method(resource()) -> ff_maybe:'maybe'(method()).
 method({bank_card, #{bank_card := #{payment_system := PaymentSystem}}}) ->
     {bank_card, #{payment_system => PaymentSystem}};
 method({digital_wallet, #{digital_wallet := #{payment_service := PaymentService}}}) ->
@@ -252,7 +250,7 @@ method({generic, #{generic := #{provider := PaymentService}}}) ->
 method(_) ->
     undefined.
 
--spec get_bin_data(binary(), ff_maybe:maybe(resource_descriptor())) ->
+-spec get_bin_data(binary(), ff_maybe:'maybe'(resource_descriptor())) ->
     {ok, bin_data()}
     | {error, bin_data_error()}.
 get_bin_data(Token, undefined) ->

@@ -65,7 +65,7 @@ ctx(St) ->
 %%
 
 -spec create(params(), ctx()) -> ok | {error, exists | ff_wallet:create_error()}.
-create(Params = #{id := ID}, Ctx) ->
+create(#{id := ID} = Params, Ctx) ->
     do(fun() ->
         Events = unwrap(ff_wallet:create(Params)),
         unwrap(machinery:start(?NS, ID, {Events, Ctx}, backend()))

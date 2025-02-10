@@ -224,7 +224,7 @@ maybe_unmarshal(Type, V) ->
     unmarshal(Type, V).
 
 -spec marshal(ff_dmsl_codec:type_name(), ff_dmsl_codec:decoded_value()) -> ff_dmsl_codec:encoded_value().
-marshal(transaction_info, V = #{id := ID}) ->
+marshal(transaction_info, #{id := ID} = V) ->
     #domain_TransactionInfo{
         id = marshal(string, ID),
         timestamp = maybe_marshal(string, maps:get(timestamp, V, undefined)),
@@ -256,13 +256,13 @@ marshal(three_ds_verification, V) when
         V =:= authentication_could_not_be_performed
 ->
     V;
-marshal(failure, V = #{code := Code}) ->
+marshal(failure, #{code := Code} = V) ->
     #domain_Failure{
         code = marshal(string, Code),
         reason = maybe_marshal(string, maps:get(reason, V, undefined)),
         sub = maybe_marshal(sub_failure, maps:get(sub, V, undefined))
     };
-marshal(sub_failure, V = #{code := Code}) ->
+marshal(sub_failure, #{code := Code} = V) ->
     #domain_SubFailure{
         code = marshal(string, Code),
         sub = maybe_marshal(sub_failure, maps:get(sub, V, undefined))
@@ -305,7 +305,7 @@ marshal(payment_method, {crypto_currency, CryptoCurrencyRef}) ->
     {crypto_currency, marshal(crypto_currency, CryptoCurrencyRef)};
 marshal(payment_method, {bank_card, #{payment_system := PaymentSystem}}) ->
     {bank_card, #domain_BankCardPaymentMethod{payment_system = marshal(payment_system, PaymentSystem)}};
-marshal(payment_resource_payer, Payer = #{resource := Resource}) ->
+marshal(payment_resource_payer, #{resource := Resource} = Payer) ->
     ClientInfo = maps:get(client_info, Payer, undefined),
     ContactInfo = maps:get(contact_info, Payer, undefined),
     #domain_PaymentResourcePayer{

@@ -38,7 +38,7 @@ get_limit_amount(LimitID, Version, Withdrawal, Config) ->
     Amount.
 
 -spec get_limit(id(), dmt_client:vsn(), withdrawal(), config()) -> limit().
-get_limit(LimitId, Version, Withdrawal, Config) ->
+get_limit(LimitID, Version, Withdrawal, Config) ->
     MarshaledWithdrawal = maybe_marshal_withdrawal(Withdrawal),
     Context = #limiter_LimitContext{
         withdrawal_processing = #context_withdrawal_Context{
@@ -46,7 +46,7 @@ get_limit(LimitId, Version, Withdrawal, Config) ->
             withdrawal = #context_withdrawal_Withdrawal{withdrawal = MarshaledWithdrawal}
         }
     },
-    maybe_uninitialized_limit(ff_ct_limiter_client:get(LimitId, Version, Context, ct_helper:get_woody_ctx(Config))).
+    maybe_uninitialized_limit(ff_ct_limiter_client:get(LimitID, Version, Context, ct_helper:get_woody_ctx(Config))).
 
 -spec maybe_uninitialized_limit({ok, _} | {exception, _}) -> _Limit.
 maybe_uninitialized_limit({ok, Limit}) ->
@@ -59,7 +59,7 @@ maybe_uninitialized_limit({exception, _}) ->
         description = undefined
     }.
 
-maybe_marshal_withdrawal(Withdrawal = #wthd_domain_Withdrawal{}) ->
+maybe_marshal_withdrawal(#wthd_domain_Withdrawal{} = Withdrawal) ->
     Withdrawal;
 maybe_marshal_withdrawal(Withdrawal) ->
     ff_limiter:marshal_withdrawal(Withdrawal).

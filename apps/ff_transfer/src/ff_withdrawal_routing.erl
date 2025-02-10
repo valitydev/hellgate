@@ -88,7 +88,7 @@ gather_routes(PartyVarset, Context) ->
 
 -spec gather_routes(party_varset(), routing_context(), [terminal_id()]) ->
     routing_state().
-gather_routes(PartyVarset, Context = #{identity := Identity, domain_revision := DomainRevision}, ExcludeRoutes) ->
+gather_routes(PartyVarset, #{identity := Identity, domain_revision := DomainRevision} = Context, ExcludeRoutes) ->
     {ok, PaymentInstitutionID} = ff_party:get_identity_payment_institution_id(Identity),
     {ok, PaymentInstitution} = ff_payment_institution:get(PaymentInstitutionID, PartyVarset, DomainRevision),
     {Routes, RejectContext} = ff_routing_rule:gather_routes(
@@ -230,7 +230,7 @@ process_routes_with(Func, Routes, PartyVarset, RoutingContext) ->
     routing_state().
 validate_routes_with(Func, #{routes := Routes, reject_context := RejectContext}, PartyVarset, RoutingContext) ->
     lists:foldl(
-        fun(Route, State = #{routes := ValidRoutes0, reject_context := RejectContext0}) ->
+        fun(Route, #{routes := ValidRoutes0, reject_context := RejectContext0} = State) ->
             ProviderRef = maps:get(provider_ref, Route),
             TerminalRef = maps:get(terminal_ref, Route),
             case get_route_terms_and_process(Func, ProviderRef, TerminalRef, PartyVarset, RoutingContext) of
@@ -249,7 +249,7 @@ validate_routes_with(Func, #{routes := Routes, reject_context := RejectContext},
     ).
 
 get_route_terms_and_process(
-    Func, ProviderRef, TerminalRef, PartyVarset, RoutingContext = #{domain_revision := DomainRevision}
+    Func, ProviderRef, TerminalRef, PartyVarset, #{domain_revision := DomainRevision} = RoutingContext
 ) ->
     case ff_party:compute_provider_terminal_terms(ProviderRef, TerminalRef, PartyVarset, DomainRevision) of
         {ok, #domain_ProvisionTermSet{
@@ -265,7 +265,7 @@ get_route_terms_and_process(
 
 exclude_routes(#{routes := Routes, reject_context := RejectContext}, ExcludeRoutes) ->
     lists:foldl(
-        fun(Route, State = #{routes := ValidRoutes0, reject_context := RejectContext0}) ->
+        fun(Route, #{routes := ValidRoutes0, reject_context := RejectContext0} = State) ->
             ProviderRef = maps:get(provider_ref, Route),
             TerminalRef = maps:get(terminal_ref, Route),
             case not lists:member(ff_routing_rule:terminal_id(Route), ExcludeRoutes) of

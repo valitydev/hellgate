@@ -3,9 +3,6 @@
 %% Storage schema behaviour
 -behaviour(machinery_mg_schema).
 
--include_lib("fistful_proto/include/fistful_wthd_session_thrift.hrl").
--include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
-
 -export([get_version/1]).
 -export([marshal/3]).
 -export([unmarshal/3]).
@@ -98,7 +95,7 @@ unmarshal_aux_state(undefined = Version, EncodedAuxState, Context0) ->
     {maybe_migrate_aux_state(AuxState, Context0), Context1}.
 
 -spec maybe_migrate(any(), context()) -> ff_withdrawal_session:event().
-maybe_migrate(Event = {created, #{version := 5}}, _Context) ->
+maybe_migrate({created, #{version := 5}} = Event, _Context) ->
     Event;
 maybe_migrate(
     {created,

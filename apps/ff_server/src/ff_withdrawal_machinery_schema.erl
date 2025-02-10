@@ -3,8 +3,6 @@
 %% Storage schema behaviour
 -behaviour(machinery_mg_schema).
 
--include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
-
 -export([get_version/1]).
 -export([marshal/3]).
 -export([unmarshal/3]).
@@ -96,7 +94,7 @@ unmarshal_event(undefined = Version, EncodedChange, Context) ->
     ),
     {{ev, Timestamp, maybe_migrate(Change, Context1)}, Context1}.
 
-maybe_migrate(Ev = {created, #{version := 4}}, _MigrateParams) ->
+maybe_migrate({created, #{version := 4}} = Ev, _MigrateParams) ->
     Ev;
 maybe_migrate({route_changed, Route}, _MigrateParams) ->
     {route_changed, maybe_migrate_route(Route)};

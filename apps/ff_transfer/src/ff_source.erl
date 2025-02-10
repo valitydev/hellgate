@@ -205,18 +205,18 @@ authorize(#{status := unauthorized}) ->
 authorize(#{status := authorized}) ->
     {ok, []}.
 
--spec apply_event(event(), ff_maybe:maybe(source_state())) -> source_state().
+-spec apply_event(event(), ff_maybe:'maybe'(source_state())) -> source_state().
 apply_event({created, Source}, undefined) ->
     Source;
 apply_event({status_changed, S}, Source) ->
     Source#{status => S};
-apply_event({account, Ev}, Source = #{account := Account}) ->
+apply_event({account, Ev}, #{account := Account} = Source) ->
     Source#{account => ff_account:apply_event(Ev, Account)};
 apply_event({account, Ev}, Source) ->
     apply_event({account, Ev}, Source#{account => undefined}).
 
 -spec maybe_migrate(event() | legacy_event(), ff_machine:migrate_params()) -> event().
-maybe_migrate(Event = {created, #{version := ?ACTUAL_FORMAT_VERSION}}, _MigrateParams) ->
+maybe_migrate({created, #{version := ?ACTUAL_FORMAT_VERSION}} = Event, _MigrateParams) ->
     Event;
 maybe_migrate({created, Source = #{version := 3}}, MigrateParams) ->
     maybe_migrate(

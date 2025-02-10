@@ -337,14 +337,14 @@ apply_event_({p_transfer, Ev}, T) ->
 apply_event_({adjustment, _Ev} = Event, T) ->
     apply_adjustment_event(Event, T).
 
-apply_negative_body(T = #{body := {Amount, Currency}}) when Amount < 0 ->
+apply_negative_body(#{body := {Amount, Currency}} = T) when Amount < 0 ->
     T#{body => {-1 * Amount, Currency}, is_negative => true};
 apply_negative_body(T) ->
     T.
 
 -spec maybe_migrate(event() | legacy_event()) -> event().
 % Actual events
-maybe_migrate(Ev = {limit_check, {wallet_receiver, _Details}}) ->
+maybe_migrate({limit_check, {wallet_receiver, _Details}} = Ev) ->
     Ev;
 maybe_migrate({adjustment, _Payload} = Event) ->
     ff_adjustment_utils:maybe_migrate(Event);

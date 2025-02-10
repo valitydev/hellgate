@@ -10,7 +10,7 @@
 -type cash() :: dmsl_domain_thrift:'Cash'().
 
 -spec is_inside(cash(), cash_range()) -> within | {exceeds, lower | upper}.
-is_inside(Cash, CashRange = #domain_CashRange{lower = Lower, upper = Upper}) ->
+is_inside(Cash, #domain_CashRange{lower = Lower, upper = Upper} = CashRange) ->
     case
         {
             compare_cash(fun erlang:'>'/2, Cash, Lower),

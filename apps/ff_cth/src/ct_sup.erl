@@ -13,9 +13,9 @@
 
 -spec start() -> pid().
 start() ->
-    {ok, PID} = supervisor:start_link(?MODULE, []),
-    true = unlink(PID),
-    PID.
+    {ok, Pid} = supervisor:start_link(?MODULE, []),
+    true = unlink(Pid),
+    Pid.
 
 -spec stop(pid()) -> ok.
 stop(Pid) ->

@@ -4,7 +4,6 @@
 -behaviour(machinery_mg_schema).
 
 -include_lib("fistful_proto/include/fistful_identity_thrift.hrl").
--include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 -export([get_version/1]).
 -export([marshal/3]).
@@ -118,7 +117,7 @@ maybe_migrate_thrift_change(Change, _MigrateContext) ->
     Change.
 
 -spec maybe_migrate_change(legacy_change(), context()) -> ff_identity:event().
-maybe_migrate_change(Event = {created, #{version := 2, name := _}}, _MigrateContext) ->
+maybe_migrate_change({created, #{version := 2, name := _}} = Event, _MigrateContext) ->
     Event;
 maybe_migrate_change({created, Identity = #{version := 2, id := ID}}, MigrateContext) ->
     Context = fetch_entity_context(ID, MigrateContext),

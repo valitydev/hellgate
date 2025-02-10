@@ -70,10 +70,10 @@ marshal(change, {status_changed, Status}) ->
     {status, #source_StatusChange{status = marshal(status, Status)}};
 marshal(
     source,
-    Source = #{
+    #{
         name := Name,
         resource := Resource
-    }
+    } = Source
 ) ->
     #source_Source{
         id = marshal(id, ff_source:id(Source)),

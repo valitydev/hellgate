@@ -39,6 +39,7 @@
 -export([repair/5]).
 -export([get/4]).
 -export([notify/5]).
+-export([remove/3]).
 
 %% Gen Server
 
@@ -56,7 +57,7 @@
 %% API
 
 -spec new(backend_opts()) -> backend().
-new(Opts = #{name := _}) ->
+new(#{name := _} = Opts) ->
     {?MODULE, Opts}.
 
 -spec child_spec(logic_handler(_), backend_opts()) -> supervisor:child_spec().
@@ -129,6 +130,10 @@ report_notfound(NS, ID) ->
 notify(_NS, _ID, _Range, _Args, _Opts) ->
     erlang:error({not_implemented, notify}).
 
+-spec remove(namespace(), id(), backend_opts()) -> no_return().
+remove(_Namespace, _ID, _Opts) ->
+    erlang:error({not_implemented, remove}).
+
 %% Gen Server + Supervisor
 
 -spec start_machine_link(logic_handler(_), namespace(), id(), args(_)) -> {ok, pid()}.
@@ -171,7 +176,7 @@ construct_machine(NS, ID) ->
 -spec handle_call({call, range(), args(_)}, {pid(), reference()}, st(E, Aux, Args)) ->
     {reply, response(_), st(E, Aux, Args), timeout()}
     | {stop, normal, st(E, Aux, Args)}.
-handle_call({call, Range, Args}, _From, St0 = #{machine := #{namespace := NS, id := ID}}) ->
+handle_call({call, Range, Args}, _From, #{machine := #{namespace := NS, id := ID}} = St0) ->
     St1 = apply_range(Range, St0),
     _ = logger:debug("[machinery/gensrv][server][~s:~s] dispatching call: ~p with state: ~p", [NS, ID, Args, St1]),
     {Response, Result} = dispatch_call(Args, St0),
@@ -183,7 +188,7 @@ handle_call({call, Range, Args}, _From, St0 = #{machine := #{namespace := NS, id
             _ = logger:debug("[machinery/gensrv][server][~s:~s] responded: ~p, removed", [NS, ID, Response]),
             {stop, normal, Response, St0}
     end;
-handle_call({get, Range}, _From, St = #{machine := M}) ->
+handle_call({get, Range}, _From, #{machine := M} = St) ->
     {reply, apply_range(Range, M), St, compute_timeout(St)};
 handle_call(Call, _From, _St) ->
     error({badcall, Call}).
@@ -195,7 +200,7 @@ handle_cast(Cast, _St) ->
 -spec handle_info(timeout, st(E, Aux, Args)) ->
     {noreply, st(E, Aux, Args), timeout()}
     | {stop, normal, st(E, Aux, Args)}.
-handle_info(timeout, St0 = #{machine := #{namespace := NS, id := ID}}) ->
+handle_info(timeout, #{machine := #{namespace := NS, id := ID}} = St0) ->
     _ = logger:debug("[machinery/gensrv][server][~s:~s] dispatching timeout with state: ~p", [NS, ID, St0]),
     Result = dispatch_signal(timeout, St0),
     case apply_result(Result, St0) of
@@ -219,22 +224,22 @@ code_change(_OldVsn, St, _Extra) ->
 
 %%
 
-apply_range(Range, St = #{machine := M}) ->
+apply_range(Range, #{machine := M} = St) ->
     St#{machine := apply_range(Range, M)};
-apply_range(Range, M = #{history := H}) ->
+apply_range(Range, #{history := H} = M) ->
     M#{history := select_range(Range, H)}.
 
-apply_result(R = #{action := As}, St) ->
+apply_result(#{action := As} = R, St) ->
     apply_result(
         maps:remove(action, R),
         apply_actions(As, St)
     );
-apply_result(R = #{events := Es}, St = #{machine := M}) ->
+apply_result(#{events := Es} = R, #{machine := M} = St) ->
     apply_result(
         maps:remove(events, R),
         St#{machine := apply_events(Es, M)}
     );
-apply_result(R = #{aux_state := Aux}, St = #{machine := M}) ->
+apply_result(#{aux_state := Aux} = R, #{machine := M} = St) ->
     apply_result(
         maps:remove(aux_state, R),
         St#{machine := apply_auxst(Aux, M)}
@@ -256,7 +261,7 @@ apply_action(continue, St) ->
 apply_action(remove, _St) ->
     removed.
 
-apply_events(Es, M = #{history := Hs}) ->
+apply_events(Es, #{history := Hs} = M) ->
     Ts = machinery_time:now(),
     Hl = length(Hs),
     M#{
@@ -267,7 +272,7 @@ apply_events(Es, M = #{history := Hs}) ->
             ]
     }.
 
-apply_auxst(Aux, M = #{}) ->
+apply_auxst(Aux, #{} = M) ->
     M#{aux_state := Aux}.
 
 compute_deadline({timeout, V}) ->

@@ -3,9 +3,6 @@
 %% Storage schema behaviour
 -behaviour(machinery_mg_schema).
 
--include_lib("fistful_proto/include/fistful_deposit_thrift.hrl").
--include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
-
 -export([get_version/1]).
 -export([marshal/3]).
 -export([unmarshal/3]).
@@ -92,9 +89,9 @@ unmarshal_event(undefined = Version, EncodedChange, Context0) ->
     {{ev, Timestamp, maybe_migrate(Change, Context1)}, Context1}.
 
 -spec maybe_migrate(any(), context()) -> ff_deposit:event().
-maybe_migrate(Ev = {status_changed, {failed, #{code := _}}}, _MigrateParams) ->
+maybe_migrate({status_changed, {failed, #{code := _}}} = Ev, _MigrateParams) ->
     Ev;
-maybe_migrate(Ev = {limit_check, {wallet_receiver, _Details}}, _MigrateParams) ->
+maybe_migrate({limit_check, {wallet_receiver, _Details}} = Ev, _MigrateParams) ->
     Ev;
 maybe_migrate({p_transfer, PEvent}, _MigrateParams) ->
     {p_transfer, ff_postings_transfer:maybe_migrate(PEvent, deposit)};

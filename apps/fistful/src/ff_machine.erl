@@ -179,13 +179,13 @@ merge_event(Mod, {_ID, _Ts, TsEvent}, St0) ->
     Model1 = Mod:apply_event(Ev, maps:get(model, St1, undefined)),
     St1#{model => Model1}.
 
-merge_timestamped_event({ev, Ts, Body}, St = #{times := {Created, _Updated}}) ->
+merge_timestamped_event({ev, Ts, Body}, #{times := {Created, _Updated}} = St) ->
     {Body, St#{times => {Created, Ts}}};
-merge_timestamped_event({ev, Ts, Body}, St = #{}) ->
+merge_timestamped_event({ev, Ts, Body}, #{} = St) ->
     {Body, St#{times => {Ts, Ts}}}.
 
 -spec migrate_machine(module(), machine()) -> machine().
-migrate_machine(Mod, Machine = #{history := History}) ->
+migrate_machine(Mod, #{history := History} = Machine) ->
     MigrateParams = #{
         ctx => maps:get(ctx, maps:get(aux_state, Machine, #{}), undefined),
         id => maps:get(id, Machine, undefined)

@@ -3,7 +3,6 @@
 -include_lib("damsel/include/dmsl_wthd_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_wthd_provider_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
--include_lib("damsel/include/dmsl_base_thrift.hrl").
 -include_lib("damsel/include/dmsl_msgpack_thrift.hrl").
 
 -export([marshal/2]).
@@ -243,7 +242,7 @@ marshal(
         account_name = maps:get(account_name, Wallet, undefined),
         account_identity_number = maps:get(account_identity_number, Wallet, undefined)
     }};
-marshal(resource, Resource = {generic, _}) ->
+marshal(resource, {generic, _} = Resource) ->
     ff_dmsl_codec:marshal(payment_tool, Resource);
 marshal(
     withdrawal,

@@ -288,7 +288,7 @@ term_set_hierarchy(Ref) ->
 term_set_hierarchy(Ref, TermSets) ->
     term_set_hierarchy(Ref, undefined, TermSets).
 
--spec term_set_hierarchy(Ref, ff_maybe:maybe(Ref), [?DTP('TimedTermSet')]) -> object() when
+-spec term_set_hierarchy(Ref, ff_maybe:'maybe'(Ref), [?DTP('TimedTermSet')]) -> object() when
     Ref :: ?DTP('TermSetHierarchyRef').
 term_set_hierarchy(Ref, ParentRef, TermSets) ->
     {term_set_hierarchy, #domain_TermSetHierarchyObject{

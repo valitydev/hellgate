@@ -121,12 +121,10 @@ process_timeout(Machine, _, _Opts) ->
 
 process_timeout(authorize, St) ->
     D0 = destination(St),
-    case ff_destination:authorize(D0) of
-        {ok, Events} ->
-            #{
-                events => ff_machine:emit_events(Events)
-            }
-    end.
+    {ok, Events} = ff_destination:authorize(D0),
+    #{
+        events => ff_machine:emit_events(Events)
+    }.
 
 deduce_activity(#{status := unauthorized}) ->
     authorize;

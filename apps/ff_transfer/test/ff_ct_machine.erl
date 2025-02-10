@@ -25,11 +25,11 @@ unload_per_suite() ->
 -type hook() :: fun((machinery:machine(_, _), module(), _Args) -> _).
 
 -spec set_hook(timeout, hook()) -> ok.
-set_hook(On = timeout, Fun) when is_function(Fun, 3) ->
+set_hook(timeout = On, Fun) when is_function(Fun, 3) ->
     persistent_term:put({?MODULE, hook, On}, Fun).
 
 -spec clear_hook(timeout) -> ok.
-clear_hook(On = timeout) ->
+clear_hook(timeout = On) ->
     _ = persistent_term:erase({?MODULE, hook, On}),
     ok.
 

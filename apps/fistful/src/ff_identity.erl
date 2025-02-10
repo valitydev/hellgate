@@ -186,7 +186,7 @@ set_blocking(Identity) ->
 -spec create(params()) ->
     {ok, [event()]}
     | {error, create_error()}.
-create(Params = #{id := ID, name := Name, party := Party, provider := ProviderID}) ->
+create(#{id := ID, name := Name, party := Party, provider := ProviderID} = Params) ->
     do(fun() ->
         Provider = unwrap(check_identity_creation(#{party => Party, provider => ProviderID})),
         Contract = unwrap(
@@ -257,7 +257,7 @@ get_terms(Identity, Params) ->
 
 %%
 
--spec apply_event(event(), ff_maybe:maybe(identity_state())) -> identity_state().
+-spec apply_event(event(), ff_maybe:'maybe'(identity_state())) -> identity_state().
 apply_event({created, Identity}, undefined) ->
     Identity;
 apply_event({level_changed, _L}, Identity) ->

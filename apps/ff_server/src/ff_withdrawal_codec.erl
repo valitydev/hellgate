@@ -259,7 +259,7 @@ unmarshal(validation_result, {personal, Validation}) ->
     }};
 unmarshal(validation_status, V) when V =:= valid; V =:= invalid ->
     V;
-unmarshal(withdrawal, Withdrawal = #wthd_Withdrawal{}) ->
+unmarshal(withdrawal, #wthd_Withdrawal{} = Withdrawal) ->
     ff_withdrawal:gen(#{
         id => unmarshal(id, Withdrawal#wthd_Withdrawal.id),
         body => unmarshal(cash, Withdrawal#wthd_Withdrawal.body),

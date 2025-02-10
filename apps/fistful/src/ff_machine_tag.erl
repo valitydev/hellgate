@@ -27,10 +27,8 @@ create_binding(NS, Tag, EntityID) ->
 
 create_binding_(NS, Tag, EntityID, Context) ->
     WoodyContext = ff_context:get_woody_context(ff_context:load()),
-    case bender_client:gen_constant(tag_to_external_id(NS, Tag), EntityID, WoodyContext, Context) of
-        {ok, EntityID} ->
-            ok
-    end.
+    {ok, EntityID} = bender_client:gen_constant(tag_to_external_id(NS, Tag), EntityID, WoodyContext, Context),
+    ok.
 
 tag_to_external_id(NS, Tag) ->
     BinNS = atom_to_binary(NS, utf8),

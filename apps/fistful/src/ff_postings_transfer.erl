@@ -124,7 +124,7 @@ validate_identities([A0 | Accounts]) ->
 -spec prepare(transfer()) ->
     {ok, [event()]}
     | {error, {status, committed | cancelled}}.
-prepare(Transfer = #{status := created}) ->
+prepare(#{status := created} = Transfer) ->
     ID = id(Transfer),
     CashFlow = final_cash_flow(Transfer),
     do(fun() ->
@@ -145,7 +145,7 @@ prepare(#{status := Status}) ->
 -spec commit(transfer()) ->
     {ok, [event()]}
     | {error, {status, created | cancelled}}.
-commit(Transfer = #{status := prepared}) ->
+commit(#{status := prepared} = Transfer) ->
     ID = id(Transfer),
     CashFlow = final_cash_flow(Transfer),
     do(fun() ->
@@ -162,7 +162,7 @@ commit(#{status := Status}) ->
 -spec cancel(transfer()) ->
     {ok, [event()]}
     | {error, {status, created | committed}}.
-cancel(Transfer = #{status := prepared}) ->
+cancel(#{status := prepared} = Transfer) ->
     ID = id(Transfer),
     CashFlow = final_cash_flow(Transfer),
     do(fun() ->
@@ -176,7 +176,7 @@ cancel(#{status := Status}) ->
 
 %%
 
--spec apply_event(event(), ff_maybe:maybe(transfer())) -> transfer().
+-spec apply_event(event(), ff_maybe:'maybe'(transfer())) -> transfer().
 apply_event({created, Transfer}, undefined) ->
     Transfer;
 apply_event({status_changed, S}, Transfer) ->
@@ -287,7 +287,7 @@ maybe_migrate_account({destination, DestinationID}) ->
 maybe_migrate_account(Account) when is_map(Account) ->
     Account.
 
-maybe_migrate_final_account(Account = #{type := _Type}, _, _) ->
+maybe_migrate_final_account(#{type := _Type} = Account, _, _) ->
     Account;
 maybe_migrate_final_account(Account, receiver, withdrawal) ->
     Account#{type => {wallet, receiver_destination}};

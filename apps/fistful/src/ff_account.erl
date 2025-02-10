@@ -142,6 +142,6 @@ get_identity(Account) ->
 
 %% State
 
--spec apply_event(event(), ff_maybe:maybe(account())) -> account().
+-spec apply_event(event(), ff_maybe:'maybe'(account())) -> account().
 apply_event({created, Account}, undefined) ->
     Account.

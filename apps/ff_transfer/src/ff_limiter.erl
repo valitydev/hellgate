@@ -55,7 +55,7 @@ check_limits(TurnoverLimits, Withdrawal, Route, Iter) ->
             {error, {overflow, ErrorList}}
     end.
 
-make_operation_segments(Withdrawal, _Route = #{terminal_id := TerminalID, provider_id := ProviderID}, Iter) ->
+make_operation_segments(Withdrawal, #{terminal_id := TerminalID, provider_id := ProviderID} = _Route, Iter) ->
     [
         genlib:to_binary(ProviderID),
         genlib:to_binary(TerminalID),
@@ -93,7 +93,7 @@ get_batch_limit_values(_Context, [], _OperationIdSegments) ->
 get_batch_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
     {LimitRequest, TurnoverLimitsMap} = prepare_limit_request(TurnoverLimits, OperationIdSegments),
     lists:map(
-        fun(Limit = #limiter_Limit{id = LimitID}) ->
+        fun(#limiter_Limit{id = LimitID} = Limit) ->
             #domain_TurnoverLimit{upper_boundary = UpperBoundary} = maps:get(LimitID, TurnoverLimitsMap),
             #{
                 id => LimitID,
@@ -177,8 +177,8 @@ split_turnover_limits_by_available_limiter_api(TurnoverLimits) ->
 prepare_limit_request(TurnoverLimits, IdSegments) ->
     {TurnoverLimitsIdList, LimitChanges} = lists:unzip(
         lists:map(
-            fun(TurnoverLimit = #domain_TurnoverLimit{id = Id, domain_revision = DomainRevision}) ->
-                {{Id, TurnoverLimit}, #limiter_LimitChange{id = Id, version = DomainRevision}}
+            fun(#domain_TurnoverLimit{id = ID, domain_revision = DomainRevision} = TurnoverLimit) ->
+                {{ID, TurnoverLimit}, #limiter_LimitChange{id = ID, version = DomainRevision}}
             end,
             TurnoverLimits
         )

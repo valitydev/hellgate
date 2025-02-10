@@ -14,7 +14,7 @@
 %%
 -spec handle_function(woody:func(), woody:args(), woody:options()) -> {ok, woody:result()} | no_return().
 handle_function(Func, Args, Opts) ->
-    IdentityID = element(1, Args),
+    IdentityID = get_identity_id(Func, Args),
     scoper:scope(
         identity,
         #{identity_id => IdentityID},
@@ -85,3 +85,10 @@ handle_function_('GetEvents', {IdentityID, EventRange}, _Opts) ->
         {error, notfound} ->
             woody_error:raise(business, #fistful_IdentityNotFound{})
     end.
+
+%% First argument of 'Create' is not a string, but a struct.
+%% See fistful-proto/proto/identity.thrift
+get_identity_id('Create', {#identity_IdentityParams{id = IdentityID}, _}) ->
+    IdentityID;
+get_identity_id(_Func, Args) ->
+    element(1, Args).

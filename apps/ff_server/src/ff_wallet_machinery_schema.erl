@@ -3,9 +3,6 @@
 %% Storage schema behaviour
 -behaviour(machinery_mg_schema).
 
--include_lib("fistful_proto/include/fistful_wallet_thrift.hrl").
--include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
-
 -export([get_version/1]).
 -export([marshal/3]).
 -export([unmarshal/3]).
@@ -90,7 +87,7 @@ unmarshal_event(undefined = Version, EncodedChange, Context0) ->
     {{ev, Timestamp, maybe_migrate(Change, Context1)}, Context1}.
 
 -spec maybe_migrate(any(), context()) -> ff_wallet:event().
-maybe_migrate(Event = {created, #{version := 2}}, _MigrateContext) ->
+maybe_migrate({created, #{version := 2}} = Event, _MigrateContext) ->
     Event;
 maybe_migrate({created, Wallet = #{version := 1}}, MigrateContext) ->
     Context =

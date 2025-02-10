@@ -3,10 +3,10 @@
 
 -module(ff_range).
 
--type range(T) :: {maybe(bound(T)), maybe(bound(T))}.
+-type range(T) :: {'maybe'(bound(T)), 'maybe'(bound(T))}.
 -type bound(T) :: {exclusive | inclusive, ord(T)}.
 
--type maybe(T) :: infinity | T.
+-type 'maybe'(T) :: infinity | T.
 % totally ordered
 -type ord(T) :: T.
 

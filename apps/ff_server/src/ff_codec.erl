@@ -3,7 +3,6 @@
 -include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_repairer_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_account_thrift.hrl").
--include_lib("fistful_proto/include/fistful_msgp_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_fistful_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_evsink_thrift.hrl").
 
@@ -79,10 +78,10 @@ marshal(withdrawal_method, #{id := {bank_card, #{payment_system := PaymentSystem
     }};
 marshal(
     transaction_info,
-    TransactionInfo = #{
+    #{
         id := TransactionID,
         extra := Extra
-    }
+    } = TransactionInfo
 ) ->
     Timestamp = maps:get(timestamp, TransactionInfo, undefined),
     AddInfo = maps:get(additional_info, TransactionInfo, undefined),
@@ -92,7 +91,7 @@ marshal(
         extra = Extra,
         additional_info = marshal(additional_transaction_info, AddInfo)
     };
-marshal(additional_transaction_info, AddInfo = #{}) ->
+marshal(additional_transaction_info, #{} = AddInfo) ->
     #'fistful_base_AdditionalTransactionInfo'{
         rrn = marshal(string, maps:get(rrn, AddInfo, undefined)),
         approval_code = marshal(string, maps:get(approval_code, AddInfo, undefined)),
@@ -152,7 +151,7 @@ marshal(resource_descriptor, {bank_card, BinDataID}) ->
     {bank_card, #'fistful_base_ResourceDescriptorBankCard'{
         bin_data_id = marshal(msgpack, BinDataID)
     }};
-marshal(bank_card, BankCard = #{token := Token}) ->
+marshal(bank_card, #{token := Token} = BankCard) ->
     Bin = maps:get(bin, BankCard, undefined),
     PaymentSystem = ff_resource:payment_system(BankCard),
     MaskedPan = ff_resource:masked_pan(BankCard),
@@ -178,13 +177,13 @@ marshal(bank_card_auth_data, {session, #{session_id := ID}}) ->
     {session_data, #'fistful_base_SessionAuthData'{
         id = marshal(string, ID)
     }};
-marshal(crypto_wallet, CryptoWallet = #{id := ID, currency := Currency}) ->
+marshal(crypto_wallet, #{id := ID, currency := Currency} = CryptoWallet) ->
     #'fistful_base_CryptoWallet'{
         id = marshal(string, ID),
         currency = marshal(crypto_currency, Currency),
         tag = maybe_marshal(string, maps:get(tag, CryptoWallet, undefined))
     };
-marshal(digital_wallet, Wallet = #{id := ID, payment_service := PaymentService}) ->
+marshal(digital_wallet, #{id := ID, payment_service := PaymentService} = Wallet) ->
     #'fistful_base_DigitalWallet'{
         id = marshal(string, ID),
         token = maybe_marshal(string, maps:get(token, Wallet, undefined)),
@@ -192,7 +191,7 @@ marshal(digital_wallet, Wallet = #{id := ID, payment_service := PaymentService})
         account_name = maybe_marshal(string, maps:get(account_name, Wallet, undefined)),
         account_identity_number = maybe_marshal(string, maps:get(account_identity_number, Wallet, undefined))
     };
-marshal(generic_resource, Generic = #{provider := PaymentService}) ->
+marshal(generic_resource, #{provider := PaymentService} = Generic) ->
     #'fistful_base_ResourceGenericData'{
         provider = marshal(payment_service, PaymentService),
         data = maybe_marshal(content, maps:get(data, Generic, undefined))

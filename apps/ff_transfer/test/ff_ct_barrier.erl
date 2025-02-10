@@ -43,10 +43,10 @@ init(_Args) ->
 -spec handle_call(enter | release, caller(), st()) ->
     {noreply, st()}
     | {reply, ok, st()}.
-handle_call(enter, From = {ClientPid, _}, St = #{blocked := Blocked}) ->
+handle_call(enter, {ClientPid, _} = From, #{blocked := Blocked} = St) ->
     false = lists:any(fun({Pid, _}) -> Pid == ClientPid end, Blocked),
     {noreply, St#{blocked => [From | Blocked]}};
-handle_call(release, _From, St = #{blocked := Blocked}) ->
+handle_call(release, _From, #{blocked := Blocked} = St) ->
     ok = lists:foreach(fun(Caller) -> gen_server:reply(Caller, ok) end, Blocked),
     {reply, ok, St#{blocked => []}};
 handle_call(Call, _From, _St) ->

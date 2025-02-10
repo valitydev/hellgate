@@ -22,6 +22,7 @@
 -export([call/5]).
 -export([repair/5]).
 -export([notify/5]).
+-export([remove/3]).
 
 -export([init/4]).
 -export([process_timeout/3]).
@@ -65,12 +66,16 @@ repair(NS, ID, Range, Args, Backend) ->
 notify(NS, ID, Range, Args, Backend) ->
     machinery:notify(NS, ID, Range, Args, set_backend_context(Backend)).
 
+-spec remove(namespace(), id(), machinery:backend(_)) -> ok | {error, notfound}.
+remove(NS, ID, Backend) ->
+    machinery:remove(NS, ID, set_backend_context(Backend)).
+
 %%
 
 -type handler_opts() :: _.
 
 -spec init(args(_), machine(E, A), options(), handler_opts()) -> result(E, A).
-init(Args, Machine, Options = #{handler := Handler}, MachineryOptions) ->
+init(Args, Machine, #{handler := Handler} = Options, MachineryOptions) ->
     _ = scope(Machine, #{activity => init}, fun() ->
         ok = ff_context:save(create_context(Options, MachineryOptions)),
         try
@@ -81,7 +86,7 @@ init(Args, Machine, Options = #{handler := Handler}, MachineryOptions) ->
     end).
 
 -spec process_timeout(machine(E, A), options(), handler_opts()) -> result(E, A).
-process_timeout(Machine, Options = #{handler := Handler}, MachineryOptions) ->
+process_timeout(Machine, #{handler := Handler} = Options, MachineryOptions) ->
     _ = scope(Machine, #{activity => timeout}, fun() ->
         ok = ff_context:save(create_context(Options, MachineryOptions)),
         try
@@ -92,7 +97,7 @@ process_timeout(Machine, Options = #{handler := Handler}, MachineryOptions) ->
     end).
 
 -spec process_call(args(_), machine(E, A), options(), handler_opts()) -> {response(_), result(E, A)}.
-process_call(Args, Machine, Options = #{handler := Handler}, MachineryOptions) ->
+process_call(Args, Machine, #{handler := Handler} = Options, MachineryOptions) ->
     _ = scope(Machine, #{activity => call}, fun() ->
         ok = ff_context:save(create_context(Options, MachineryOptions)),
         try
@@ -104,7 +109,7 @@ process_call(Args, Machine, Options = #{handler := Handler}, MachineryOptions) -
 
 -spec process_repair(args(_), machine(E, A), options(), handler_opts()) ->
     {ok, {response(_), result(E, A)}} | {error, machinery:error(_)}.
-process_repair(Args, Machine, Options = #{handler := Handler}, MachineryOptions) ->
+process_repair(Args, Machine, #{handler := Handler} = Options, MachineryOptions) ->
     _ = scope(Machine, #{activity => repair}, fun() ->
         ok = ff_context:save(create_context(Options, MachineryOptions)),
         try
@@ -115,7 +120,7 @@ process_repair(Args, Machine, Options = #{handler := Handler}, MachineryOptions)
     end).
 
 -spec process_notification(args(_), machine(E, A), options(), handler_opts()) -> result(E, A).
-process_notification(Args, Machine, Options = #{handler := Handler}, MachineryOptions) ->
+process_notification(Args, Machine, #{handler := Handler} = Options, MachineryOptions) ->
     _ = scope(Machine, #{activity => notification}, fun() ->
         ok = ff_context:save(create_context(Options, MachineryOptions)),
         try

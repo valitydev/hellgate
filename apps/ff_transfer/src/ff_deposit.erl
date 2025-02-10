@@ -462,7 +462,7 @@ apply_event_({revert, _Ev} = Event, T) ->
 apply_event_({adjustment, _Ev} = Event, T) ->
     apply_adjustment_event(Event, T).
 
-apply_negative_body(T = #{body := {Amount, Currency}}) when Amount < 0 ->
+apply_negative_body(#{body := {Amount, Currency}} = T) when Amount < 0 ->
     T#{body => {-1 * Amount, Currency}, is_negative => true};
 apply_negative_body(T) ->
     T.

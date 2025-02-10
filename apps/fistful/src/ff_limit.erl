@@ -264,19 +264,19 @@ head(#{head := Head}) ->
 lookup_trx(TrxID, #{trxs := Trxs}) ->
     maps:find(TrxID, Trxs).
 
-record_trx(Trx, St = #{head := Head, trxs := Trxs}) ->
+record_trx(Trx, #{head := Head, trxs := Trxs} = St) ->
     St#{
         head := ff_indef:account(get_trx_dv(Trx), Head),
         trxs := maps:put(get_trx_id(Trx), Trx, Trxs)
     }.
 
-confirm_trx(Trx, St = #{head := Head, trxs := Trxs}) ->
+confirm_trx(Trx, #{head := Head, trxs := Trxs} = St) ->
     St#{
         head := ff_indef:confirm(get_trx_dv(Trx), Head),
         trxs := maps:remove(get_trx_id(Trx), Trxs)
     }.
 
-reject_trx(Trx, St = #{head := Head, trxs := Trxs}) ->
+reject_trx(Trx, #{head := Head, trxs := Trxs} = St) ->
     St#{
         head := ff_indef:reject(get_trx_dv(Trx), Head),
         trxs := maps:remove(get_trx_id(Trx), Trxs)

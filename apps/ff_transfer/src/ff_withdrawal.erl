@@ -1258,7 +1258,7 @@ construct_payment_tool({bank_card, #{bank_card := ResourceBankCard}}) ->
     }};
 construct_payment_tool({crypto_wallet, #{crypto_wallet := #{currency := Currency}}}) ->
     {crypto_currency, ff_dmsl_codec:marshal(crypto_currency, Currency)};
-construct_payment_tool(Resource = {generic, _}) ->
+construct_payment_tool({generic, _} = Resource) ->
     ff_dmsl_codec:marshal(payment_tool, Resource);
 construct_payment_tool(
     {digital_wallet, #{
@@ -1281,7 +1281,7 @@ construct_payment_tool(
 
 -spec get_quote(quote_params()) ->
     {ok, quote()} | {error, create_error() | {route, ff_withdrawal_routing:route_not_found()}}.
-get_quote(Params = #{destination_id := DestinationID, body := Body, wallet_id := WalletID}) ->
+get_quote(#{destination_id := DestinationID, body := Body, wallet_id := WalletID} = Params) ->
     do(fun() ->
         Destination = unwrap(destination, get_destination(DestinationID)),
         Wallet = unwrap(wallet, get_wallet(WalletID)),
@@ -1698,7 +1698,7 @@ validate_change_same_domain_revision(DomainRevision, DomainRevision) ->
     | {error, {unavailable_status, status()}}.
 validate_current_status(succeeded) ->
     {ok, valid};
-validate_current_status(Status = {failed, _Failure}) ->
+validate_current_status({failed, _Failure} = Status) ->
     {error, {unavailable_status, Status}};
 validate_current_status(Status) ->
     {error, {unavailable_status, Status}}.
@@ -1917,17 +1917,14 @@ update_adjusment_index(Updater, Value, Withdrawal) ->
 
 -spec build_failure(fail_type(), withdrawal_state()) -> failure().
 build_failure(limit_check, Withdrawal) ->
-    {failed, Details} = limit_check_status(Withdrawal),
-    case Details of
-        {wallet_sender, _WalletLimitDetails} ->
-            #{
-                code => <<"account_limit_exceeded">>,
-                reason => genlib:format(Details),
-                sub => #{
-                    code => <<"amount">>
-                }
-            }
-    end;
+    {failed, {wallet_sender, _WalletLimitDetails} = Details} = limit_check_status(Withdrawal),
+    #{
+        code => <<"account_limit_exceeded">>,
+        reason => genlib:format(Details),
+        sub => #{
+            code => <<"amount">>
+        }
+    };
 build_failure({route_not_found, []}, _Withdrawal) ->
     #{
         code => <<"no_route_found">>
@@ -1964,13 +1961,13 @@ get_quote_field(terminal_id, #{route := Route}) ->
 
 %%
 
--spec apply_event(event() | legacy_event(), ff_maybe:maybe(withdrawal_state())) -> withdrawal_state().
+-spec apply_event(event() | legacy_event(), ff_maybe:'maybe'(withdrawal_state())) -> withdrawal_state().
 apply_event(Ev, T0) ->
     T1 = apply_event_(Ev, T0),
     T2 = save_adjustable_info(Ev, T1),
     T2.
 
--spec apply_event_(event(), ff_maybe:maybe(withdrawal_state())) -> withdrawal_state().
+-spec apply_event_(event(), ff_maybe:'maybe'(withdrawal_state())) -> withdrawal_state().
 apply_event_({created, T}, undefined) ->
     make_state(T);
 apply_event_({status_changed, Status}, T) ->

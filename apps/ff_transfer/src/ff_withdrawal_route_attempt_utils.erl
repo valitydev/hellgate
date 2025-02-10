@@ -143,7 +143,7 @@ update_current_session(Session, Attempts) ->
     update_current(Updated, Attempts).
 
 -spec update_current_p_transfer(p_transfer(), attempts()) -> attempts().
-update_current_p_transfer(PTransfer, Attempts = #{index := Index}) ->
+update_current_p_transfer(PTransfer, #{index := Index} = Attempts) ->
     Attempt = current(Attempts),
     Updated = Attempt#{
         p_transfer => PTransfer

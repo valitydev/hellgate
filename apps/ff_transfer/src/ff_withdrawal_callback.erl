@@ -103,13 +103,11 @@ create(#{tag := Tag}) ->
 
 -spec process_response(response(), callback()) -> process_result().
 process_response(Response, Callback) ->
-    case status(Callback) of
-        pending ->
-            [
-                {finished, Response},
-                {status_changed, succeeded}
-            ]
-    end.
+    pending = status(Callback),
+    [
+        {finished, Response},
+        {status_changed, succeeded}
+    ].
 
 %% Utils
 

@@ -146,7 +146,7 @@ metadata(Wallet) ->
 -spec create(params()) ->
     {ok, [event()]}
     | {error, create_error()}.
-create(Params = #{id := ID, name := Name}) ->
+create(#{id := ID, name := Name} = Params) ->
     do(fun() ->
         {Identity, Currency} = unwrap(check_creation(maps:with([identity, currency], Params))),
         Wallet = genlib_map:compact(#{

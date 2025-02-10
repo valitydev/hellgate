@@ -65,20 +65,20 @@ expmin(#{expected_min := V}) ->
 expmax(#{expected_max := V}) ->
     V.
 
-account(Delta, Indef = #{expected_min := ExpMin, expected_max := ExpMax}) ->
+account(Delta, #{expected_min := ExpMin, expected_max := ExpMax} = Indef) ->
     Indef#{
         expected_min := erlang:min(ExpMin + Delta, ExpMin),
         expected_max := erlang:max(ExpMax + Delta, ExpMax)
     }.
 
-confirm(Delta, Indef = #{current := Current, expected_min := ExpMin, expected_max := ExpMax}) ->
+confirm(Delta, #{current := Current, expected_min := ExpMin, expected_max := ExpMax} = Indef) ->
     Indef#{
         current := Current + Delta,
         expected_min := erlang:max(ExpMin + Delta, ExpMin),
         expected_max := erlang:min(ExpMax + Delta, ExpMax)
     }.
 
-reject(Delta, Indef = #{expected_min := ExpMin, expected_max := ExpMax}) ->
+reject(Delta, #{expected_min := ExpMin, expected_max := ExpMax} = Indef) ->
     Indef#{
         expected_min := erlang:max(ExpMin - Delta, ExpMin),
         expected_max := erlang:min(ExpMax - Delta, ExpMax)

@@ -66,7 +66,7 @@
     | {error,
         ff_identity:create_error()
         | exists}.
-create(Params = #{id := ID}, Ctx) ->
+create(#{id := ID} = Params, Ctx) ->
     do(fun() ->
         Events = unwrap(ff_identity:create(Params)),
         unwrap(machinery:start(?NS, ID, {Events, Ctx}, backend()))

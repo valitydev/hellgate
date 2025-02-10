@@ -73,10 +73,10 @@ marshal(change, {status_changed, StatusChange}) ->
     {status, marshal(status_change, StatusChange)};
 marshal(
     create_change,
-    Destination = #{
+    #{
         name := Name,
         resource := Resource
-    }
+    } = Destination
 ) ->
     #destination_Destination{
         name = Name,
