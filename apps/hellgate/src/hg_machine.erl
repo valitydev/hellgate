@@ -36,6 +36,11 @@
     auxst => auxst()
 }.
 
+-type backend() ::
+    machinegun
+    | progressor
+    | hybrid.
+
 -callback namespace() -> ns().
 
 -callback init(args(), machine()) -> result().
@@ -84,6 +89,8 @@
 -export([get_history/4]).
 -export([get_history/5]).
 -export([get_machine/5]).
+
+-export([call_automaton/3]).
 
 %% Dispatch
 
@@ -222,6 +229,7 @@ do_call(Ns, Id, Args, After, Limit, Direction) ->
 call_automaton(Function, Args) ->
     call_automaton(Function, Args, application:get_env(hellgate, backend, machinegun)).
 
+-spec call_automaton(woody:func(), woody:args(), backend()) -> term().
 call_automaton(Function, Args, machinegun) ->
     case hg_woody_wrapper:call(automaton, Function, Args) of
         {ok, _} = Result ->
@@ -238,7 +246,9 @@ call_automaton(Function, Args, machinegun) ->
             {error, {repair, {failed, Reason}}}
     end;
 call_automaton(Function, Args, progressor) ->
-    hg_progressor:call_automaton(Function, Args).
+    hg_progressor:call_automaton(Function, Args);
+call_automaton(Function, Args, hybrid) ->
+    hg_hybrid:call_automaton(Function, Args).
 
 %%
 
