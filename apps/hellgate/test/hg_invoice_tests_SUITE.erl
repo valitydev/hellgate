@@ -208,6 +208,8 @@
 -export([payment_cascade_fail_provider_error/1]).
 -export([payment_cascade_fail_ui/1]).
 
+-export([payment_tool_contact_info_passed_to_provider/1]).
+
 -export([route_not_found_provider_unavailable/1]).
 -export([payment_success_ruleset_provider_available/1]).
 -export([route_found_provider_lacking_conversion/1]).
@@ -301,7 +303,9 @@ groups() ->
 
             {group, allocation},
 
-            {group, route_cascading}
+            {group, route_cascading},
+
+            {group, proxy_provider_protocol}
         ]},
 
         {base_payments, [], [
@@ -503,6 +507,9 @@ groups() ->
             payment_cascade_deadline_failures,
             payment_cascade_fail_provider_error,
             payment_cascade_fail_ui
+        ]},
+        {proxy_provider_protocol, [parallel], [
+            payment_tool_contact_info_passed_to_provider
         ]}
     ].
 
@@ -3332,7 +3339,9 @@ registered_payment_adjustment_success(C) ->
                     payment_session_id = Session,
                     client_info = #domain_ClientInfo{}
                 },
-                contact_info = ?contact_info(String, String, String, String, String, String, String, String, String)
+                contact_info = ?contact_info(
+                    String, String, String, String, String, String, String, String, String, String, String
+                )
             }},
         route = Route,
         transaction_info = ?trx_info(<<"1">>, #{})
@@ -7875,6 +7884,45 @@ payment_cascade_deadline_failures(C) ->
     ?assertMatch(#domain_InvoicePayment{status = {failed, _}}, Payment),
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
 
+%%=============================================================================
+%% proxy_provider_protocol group
+
+-spec payment_tool_contact_info_passed_to_provider(config()) -> test_return().
+payment_tool_contact_info_passed_to_provider(C) ->
+    PartyID = cfg(party_id_big_merch, C),
+    RootUrl = cfg(root_url, C),
+    PartyClient = cfg(party_client, C),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+    PaymentID = process_payment(
+        InvoiceID, make_payment_params_with_contact_info_assertion(?pmt_sys(<<"visa-ref">>)), Client
+    ),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(Payment)]
+    ) = hg_client_invoicing:get(InvoiceID, Client),
+    ?payment_w_status(PaymentID, ?captured()) = Payment.
+
+make_payment_params_with_contact_info_assertion(PmtSys) ->
+    String = <<"STRING">>,
+    ContactInfo = ?contact_info(String, String, String, String, String, String, String, String, String, String, String),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool({assert_contact_info, ContactInfo}, PmtSys),
+    #payproc_InvoicePaymentParams{
+        payer =
+            {payment_resource, #payproc_PaymentResourcePayerParams{
+                resource = #domain_DisposablePaymentResource{
+                    payment_tool = PaymentTool,
+                    payment_session_id = Session,
+                    client_info = #domain_ClientInfo{}
+                },
+                contact_info = ContactInfo
+            }},
+        flow = {instant, #payproc_InvoicePaymentParamsFlowInstant{}}
+    }.
 %%
 
 await_cascade_triggering(InvoiceID, PaymentID, Client) ->

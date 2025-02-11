@@ -85,10 +85,14 @@
 ).
 
 -define(contact_info(EMail, Phone),
-    ?contact_info(EMail, Phone, undefined, undefined, undefined, undefined, undefined, undefined, undefined)
+    ?contact_info(
+        EMail, Phone, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined
+    )
 ).
 
--define(contact_info(EMail, Phone, FirstName, LastName, Country, State, City, Address, PostalCode),
+-define(contact_info(
+    EMail, Phone, FirstName, LastName, Country, State, City, Address, PostalCode, DateOfBirth, DocumentId
+),
     #domain_ContactInfo{
         email = EMail,
         phone_number = Phone,
@@ -98,7 +102,9 @@
         state = State,
         city = City,
         address = Address,
-        postal_code = PostalCode
+        postal_code = PostalCode,
+        date_of_birth = DateOfBirth,
+        document_id = DocumentId
     }
 ).
 

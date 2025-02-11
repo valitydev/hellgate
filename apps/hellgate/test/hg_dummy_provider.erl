@@ -267,6 +267,15 @@ token_respond(Response, CallbackResult) ->
 %
 process_payment(?processed(), undefined, PaymentInfo, CtxOpts, _) ->
     case get_payment_info_scenario(PaymentInfo) of
+        {assert_contact_info, ContactInfo} ->
+            ProvidedContactInfo =
+                PaymentInfo#proxy_provider_PaymentInfo.payment#proxy_provider_InvoicePayment.contact_info,
+            case ContactInfo of
+                ProvidedContactInfo ->
+                    maybe_fail(PaymentInfo, CtxOpts, result(?sleep(0), <<"sleeping">>));
+                _ ->
+                    error({contact_info_mismatch, ContactInfo, ProvidedContactInfo})
+            end;
         {preauth_3ds, Timeout} ->
             Tag = generate_tag(<<"payment">>),
             Uri = get_callback_url(),
@@ -684,6 +693,8 @@ get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"unexpected_f
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"scenario_", BinScenario/binary>>}}) ->
     Scenario = decode_failure_scenario(BinScenario),
     {temporary_unavailability, Scenario};
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"assert_contact_info/", ContactInfoBin/binary>>}}) ->
+    {assert_contact_info, binary_to_term(ContactInfoBin)};
 get_payment_tool_scenario(
     {'payment_terminal', #domain_PaymentTerminal{payment_service = #domain_PaymentServiceRef{id = <<"euroset-ref">>}}}
 ) ->
@@ -733,7 +744,8 @@ get_payment_tool_scenario(
     | empty_cvv
     | {scenario, failure_scenario()}
     | {preauth_3ds, integer()}
-    | {preauth_3ds_sleep, integer()}.
+    | {preauth_3ds_sleep, integer()}
+    | {assert_contact_info, dmsl_domain_thrift:'ContactInfo'()}.
 
 -type tag() :: dmsl_proxy_provider_thrift:'CallbackTag'().
 -type session_change() :: dmsl_proxy_provider_thrift:'PaymentSessionChange'().
@@ -753,6 +765,8 @@ make_payment_tool(Code, PSys) when
         Code =:= unexpected_failure_no_trx
 ->
     ?SESSION42(make_bank_card_payment_tool(atom_to_binary(Code, utf8), PSys));
+make_payment_tool({assert_contact_info, ContactInfo}, PSys) ->
+    ?SESSION42(make_bank_card_payment_tool(<<"assert_contact_info/", (term_to_binary(ContactInfo))/binary>>, PSys));
 make_payment_tool(inspector_fail_first, PSys) ->
     ?SESSION42(make_bank_card_payment_tool(<<"inspector_fail_first">>, PSys));
 make_payment_tool(inspector_fail_all, PSys) ->
