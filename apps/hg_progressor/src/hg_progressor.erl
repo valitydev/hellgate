@@ -64,7 +64,7 @@ call_automaton('GetMachine', {MachineDesc}) ->
     Req = #{
         ns => erlang:binary_to_atom(NS),
         id => ID,
-        args => unmarshal(range, Range)
+        range => unmarshal(range, Range)
     },
     case progressor:get(Req) of
         {ok, Process} ->
@@ -383,11 +383,11 @@ unmarshal(remove_action, #mg_stateproc_RemoveAction{}) ->
     true;
 unmarshal(range, undefined) ->
     #{};
-%% TODO backward direction
-unmarshal(range, #mg_stateproc_HistoryRange{'after' = Offset, limit = Limit}) ->
+unmarshal(range, #mg_stateproc_HistoryRange{'after' = Offset, limit = Limit, direction = Direction}) ->
     genlib_map:compact(#{
         offset => Offset,
-        limit => Limit
+        limit => Limit,
+        direction => Direction
     }).
 
 format_version(#{<<"format_version">> := Version}) ->
