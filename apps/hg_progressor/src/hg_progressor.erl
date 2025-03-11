@@ -37,13 +37,15 @@ call_automaton('Start', {NS, ID, Args}) ->
 call_automaton('Call', {MachineDesc, Args}) ->
     #mg_stateproc_MachineDescriptor{
         ns = NS,
-        ref = {id, ID}
+        ref = {id, ID},
+        range = HistoryRange
     } = MachineDesc,
     Req = #{
         ns => erlang:binary_to_atom(NS),
         id => ID,
         args => maybe_unmarshal(term, Args),
-        context => get_context()
+        context => get_context(),
+        range => unmarshal(history_range, HistoryRange)
     },
     case progressor:call(Req) of
         {ok, _Response} = Ok ->
@@ -59,17 +61,17 @@ call_automaton('GetMachine', {MachineDesc}) ->
     #mg_stateproc_MachineDescriptor{
         ns = NS,
         ref = {id, ID},
-        range = Range
+        range = HistoryRange
     } = MachineDesc,
     Req = #{
         ns => erlang:binary_to_atom(NS),
         id => ID,
-        range => unmarshal(range, Range)
+        range => unmarshal(history_range, HistoryRange)
     },
     case progressor:get(Req) of
         {ok, Process} ->
             Machine = marshal(process, Process#{ns => NS}),
-            {ok, Machine#mg_stateproc_Machine{history_range = Range}};
+            {ok, Machine};
         {error, <<"process not found">>} ->
             {error, notfound};
         {error, {exception, _, _} = Exception} ->
@@ -116,10 +118,10 @@ cleanup() ->
 %% Processor
 
 -spec process({task_t(), encoded_args(), process()}, map(), encoded_ctx()) -> process_result().
-process({CallType, BinArgs, #{history := History} = Process}, #{ns := NS} = Options, Ctx) ->
+process({CallType, BinArgs, Process}, #{ns := NS} = Options, Ctx) ->
     _ = set_context(Ctx),
-    {_, LastEventId} = Range = get_range(History),
-    Machine = marshal(process, Process#{ns => NS, history_range => Range}),
+    #{last_event_id := LastEventId} = Process,
+    Machine = marshal(process, Process#{ns => NS}),
     Func = marshal(function, CallType),
     Args = marshal(args, {CallType, BinArgs, Machine}),
     handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventId).
@@ -138,7 +140,7 @@ handle_result(
 ) ->
     {ok,
         genlib_map:compact(#{
-            events => unmarshal(events, {Events, undef_to_zero(LastEventId)}),
+            events => unmarshal(events, {Events, LastEventId}),
             aux_state => maybe_unmarshal(term, AuxState),
             action => maybe_unmarshal(action, Action)
         })};
@@ -156,7 +158,7 @@ handle_result(
     {ok,
         genlib_map:compact(#{
             response => Response,
-            events => unmarshal(events, {Events, undef_to_zero(LastEventId)}),
+            events => unmarshal(events, {Events, LastEventId}),
             aux_state => maybe_unmarshal(term, AuxState),
             action => maybe_unmarshal(action, Action)
         })};
@@ -174,7 +176,7 @@ handle_result(
     {ok,
         genlib_map:compact(#{
             response => Response,
-            events => unmarshal(events, {Events, undef_to_zero(LastEventId)}),
+            events => unmarshal(events, {Events, LastEventId}),
             aux_state => maybe_unmarshal(term, AuxState),
             action => maybe_unmarshal(action, Action)
         })};
@@ -199,27 +201,6 @@ set_context(<<>>) ->
 set_context(BinContext) ->
     hg_context:save(marshal(term, BinContext)).
 
-get_range([]) ->
-    {undefined, undefined};
-get_range(History) ->
-    lists:foldl(
-        fun(#{event_id := Id}, {Min, Max}) ->
-            {erlang:min(Id, Min), erlang:max(Id, Max)}
-        end,
-        {infinity, 0},
-        History
-    ).
-
-zero_to_undef(0) ->
-    undefined;
-zero_to_undef(Value) ->
-    Value.
-
-undef_to_zero(undefined) ->
-    0;
-undef_to_zero(Value) ->
-    Value.
-
 %% Marshalling
 
 maybe_marshal(_, undefined) ->
@@ -236,20 +217,14 @@ marshal(
         history := History
     } = Process
 ) ->
-    Range = maps:get(history_range, Process, undefined),
+    Range = maps:get(range, Process, #{}),
     AuxState = maps:get(aux_state, Process, term_to_binary(?EMPTY_CONTENT)),
     Detail = maps:get(detail, Process, undefined),
     MarshalledEvents = lists:map(fun(Ev) -> marshal(event, Ev) end, History),
-    SortedEvents = lists:sort(
-        fun(#mg_stateproc_Event{id = Id1}, #mg_stateproc_Event{id = Id2}) ->
-            Id1 < Id2
-        end,
-        MarshalledEvents
-    ),
     #mg_stateproc_Machine{
         ns = NS,
         id = ID,
-        history = SortedEvents,
+        history = MarshalledEvents,
         history_range = marshal(history_range, Range),
         status = marshal(status, {Status, Detail}),
         aux_state = maybe_marshal(term, AuxState)
@@ -269,17 +244,11 @@ marshal(
         format_version = format_version(Meta),
         data = marshal(term, Payload)
     };
-marshal(history_range, {undefined, undefined}) ->
-    #mg_stateproc_HistoryRange{direction = forward};
-marshal(history_range, undefined) ->
-    #mg_stateproc_HistoryRange{direction = forward};
-marshal(history_range, {Min, Max}) ->
-    Offset = Min - 1,
-    Count = Max - Offset,
+marshal(history_range, Range) ->
     #mg_stateproc_HistoryRange{
-        'after' = zero_to_undef(Offset),
-        limit = Count,
-        direction = forward
+        'after' = maps:get(offset, Range, undefined),
+        limit = maps:get(limit, Range, undefined),
+        direction = maps:get(direction, Range, forward)
     };
 marshal(status, {<<"running">>, _Detail}) ->
     {'working', #mg_stateproc_MachineStatusWorking{}};
@@ -329,15 +298,13 @@ unmarshal(events, {[], _}) ->
     [];
 unmarshal(events, {Events, LastEventId}) ->
     Ts = erlang:system_time(second),
-    [#mg_stateproc_Content{format_version = Format, data = Data} | Rest] = Events,
-    ConvertedFirst = genlib_map:compact(#{
-        event_id => LastEventId + 1,
-        timestamp => Ts,
-        metadata => #{<<"format_version">> => Format},
-        payload => unmarshal(term, Data)
-    }),
     lists:foldl(
-        fun(#mg_stateproc_Content{format_version = Ver, data = Payload}, [#{event_id := PrevId} | _] = Acc) ->
+        fun(#mg_stateproc_Content{format_version = Ver, data = Payload}, Acc) ->
+            PrevId =
+                case Acc of
+                    [] -> LastEventId;
+                    [#{event_id := Id} | _] -> Id
+                end,
             [
                 genlib_map:compact(#{
                     event_id => PrevId + 1,
@@ -348,8 +315,8 @@ unmarshal(events, {Events, LastEventId}) ->
                 | Acc
             ]
         end,
-        [ConvertedFirst],
-        Rest
+        [],
+        Events
     );
 unmarshal(action, #mg_stateproc_ComplexAction{
     timer = {set_timer, #mg_stateproc_SetTimerAction{timer = Timer}},
@@ -381,9 +348,9 @@ unmarshal(term, Term) ->
     erlang:term_to_binary(Term);
 unmarshal(remove_action, #mg_stateproc_RemoveAction{}) ->
     true;
-unmarshal(range, undefined) ->
+unmarshal(history_range, undefined) ->
     #{};
-unmarshal(range, #mg_stateproc_HistoryRange{'after' = Offset, limit = Limit, direction = Direction}) ->
+unmarshal(history_range, #mg_stateproc_HistoryRange{'after' = Offset, limit = Limit, direction = Direction}) ->
     genlib_map:compact(#{
         offset => Offset,
         limit => Limit,
