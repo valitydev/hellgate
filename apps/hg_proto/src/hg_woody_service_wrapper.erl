@@ -12,6 +12,7 @@
 
 -type handler_opts() :: #{
     handler := module(),
+    ns => binary(),
     party_client => party_client:client(),
     default_handling_timeout => timeout()
 }.
