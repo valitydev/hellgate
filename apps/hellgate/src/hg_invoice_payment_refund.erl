@@ -77,10 +77,10 @@
 
 %% Internal types
 
--type party() :: dmsl_domain_thrift:'Party'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
--type shop() :: dmsl_domain_thrift:'Shop'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type domain_refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
@@ -272,9 +272,10 @@ process_refund_cashflow(Refund) ->
     Action = hg_machine_action:set_timeout(0, hg_machine_action:new()),
     Party = get_injected_party(Refund),
     Shop = get_injected_shop(Refund),
+    #domain_InvoicePayment{cost = #domain_Cash{currency = Currency}} = get_injected_payment(Refund),
     hold_refund_limits(Refund),
 
-    #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Party, Shop, #{}),
+    #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Currency, Party, Shop, #{}),
     _ = prepare_refund_cashflow(Refund),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
     #{min_available_amount := AvailableAmount} = hg_accounting:get_balance(SettlementID),
@@ -370,7 +371,7 @@ get_limits(Refund) ->
 get_provider_terms(Revision, Payment, Invoice, Party, Refund) ->
     Route = route(Refund),
     #domain_Invoice{shop_id = ShopID} = Invoice,
-    Shop = hg_party:get_shop(ShopID, Party),
+    Shop = hg_party:get_shop(ShopID, Party, Revision),
     VS0 = construct_payment_flow(Payment),
     VS1 = collect_validation_varset(Party, Shop, Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
@@ -389,20 +390,24 @@ reconstruct_payment_flow(?invoice_payment_flow_hold(_OnHoldExpiration, HeldUntil
     #{flow => {hold, ?hold_lifetime(Seconds)}}.
 
 collect_validation_varset(Party, Shop, Payment, VS) ->
-    #domain_Party{id = PartyID} = Party,
-    #domain_Shop{
+    #domain_PartyConfig{id = PartyID} = Party,
+    #domain_ShopConfig{
         id = ShopID,
-        category = Category,
-        account = #domain_ShopAccount{currency = Currency}
+        category = Category
     } = Shop,
-    #domain_InvoicePayment{cost = Cost, payer = Payer} = Payment,
+    #domain_InvoicePayment{
+        cost = #domain_Cash{currency = Currency} = Cost,
+        payer = Payer,
+        domain_revision = Revision
+    } = Payment,
     VS#{
         party_id => PartyID,
         shop_id => ShopID,
         category => Category,
         currency => Currency,
         cost => Cost,
-        payment_tool => get_payer_payment_tool(Payer)
+        payment_tool => get_payer_payment_tool(Payer),
+        revision => Revision
     }.
 
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
@@ -488,9 +493,9 @@ inject_context(Options, Refund) ->
     Invoice = maps:get(invoice, Options),
     Payment = maps:get(payment, Options),
     #domain_Invoice{id = InvoiceID, shop_id = ShopID} = Invoice,
-    #domain_InvoicePayment{id = PaymentID} = Payment,
+    #domain_InvoicePayment{id = PaymentID, domain_revision = Revision} = Payment,
     Party = maps:get(party, Options),
-    Shop = hg_party:get_shop(ShopID, Party),
+    Shop = hg_party:get_shop(ShopID, Party, Revision),
     Context = genlib_map:compact(#{
         party => Party,
         invoice => Invoice,

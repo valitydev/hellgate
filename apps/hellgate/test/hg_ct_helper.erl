@@ -349,7 +349,7 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type invoice_template_id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
 -type party_id() :: dmsl_domain_thrift:'PartyID'().
--type party() :: dmsl_domain_thrift:'Party'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type contract_id() :: dmsl_domain_thrift:'ContractID'().
 -type contract_tpl() :: dmsl_domain_thrift:'ContractTemplateRef'().
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
@@ -378,7 +378,7 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 create_party(PartyID, {Client, Context}) ->
     case party_client_thrift:create(PartyID, make_party_params(), Client, Context) of
         Result when Result =:= ok orelse Result =:= {error, #payproc_PartyExists{}} ->
-            {ok, #domain_Party{id = PartyID} = Party} = party_client_thrift:get(PartyID, Client, Context),
+            {ok, #domain_PartyConfig{id = PartyID} = Party} = party_client_thrift:get(PartyID, Client, Context),
             Party
     end.
 
@@ -446,7 +446,7 @@ create_shop_(
 
     ok = CreateShopFun(PartyID, Changeset, Client, Context),
 
-    {ok, #domain_Shop{id = ShopID}} = party_client_thrift:get_shop(PartyID, ShopID, Client, Context),
+    {ok, #domain_ShopConfig{id = ShopID}} = party_client_thrift:get_shop(PartyID, ShopID, Client, Context),
     ShopID.
 
 -spec create_party_and_shop(
@@ -461,13 +461,12 @@ create_party_and_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, 
     _ = create_party(PartyID, Client),
     create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, Client).
 
-make_shop_params(Category, ContractID, PayoutToolID) ->
+make_shop_params(Category, ContractID, _PayoutToolID) ->
     #payproc_ShopParams{
         category = Category,
         location = {url, <<>>},
         details = #domain_ShopDetails{name = <<"Battle Ready Shop">>},
-        contract_id = ContractID,
-        payout_tool_id = PayoutToolID
+        contract_id = ContractID
     }.
 
 make_party_params() ->

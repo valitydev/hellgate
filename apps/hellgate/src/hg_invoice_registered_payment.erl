@@ -46,14 +46,14 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     CreatedAt1 = genlib:define(OccurredAt, CreatedAt0),
     Revision = hg_domain:head(),
     Party = get_party(Opts),
-    Shop = get_shop(Opts),
+    Shop = get_shop(Opts, Revision),
     Invoice = get_invoice(Opts),
     %% NOTE even if payment cost < invoice cost, invoice will gain status 'paid'
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
     {ok, Payer, _} = hg_invoice_payment:construct_payer(PayerParams, Shop),
     PaymentTool = get_payer_payment_tool(Payer),
-    VS = collect_validation_varset(Party, Shop, Cost1, PaymentTool, RiskScore),
-    PaymentInstitutionRef = get_payment_institution_ref(Opts),
+    VS = collect_validation_varset(Party, Shop, Cost1, PaymentTool, RiskScore, Revision),
+    PaymentInstitutionRef = get_payment_institution_ref(Opts, Revision),
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
 
     Payment = construct_payment(
@@ -70,7 +70,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     ),
     RiskScoreEventList = maybe_risk_score_event_list(RiskScore),
 
-    MerchantTerms = get_merchant_payment_terms(Party, Shop, Revision, CreatedAt1, VS),
+    MerchantTerms = get_merchant_payment_terms(Party, Shop, VS),
     ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS, Revision),
     CashflowContext = #{
         provision_terms => ProviderTerms,
@@ -181,8 +181,8 @@ maybe_risk_score_event_list(undefined) ->
 maybe_risk_score_event_list(RiskScore) ->
     [?risk_score_changed(RiskScore)].
 
-get_merchant_payment_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
-    TermSet = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS),
+get_merchant_payment_terms(Party, Shop, VS) ->
+    TermSet = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
     TermSet#domain_TermSet.payments.
 
 hold_payment_limits(Invoice, Payment, St) ->
@@ -194,8 +194,9 @@ hold_payment_limits(Invoice, Payment, St) ->
 get_turnover_limits(Payment, Route, St) ->
     Route = hg_invoice_payment:get_route(St),
     Opts = hg_invoice_payment:get_opts(St),
+    Revision = hg_invoice_payment:get_payment_revision(St),
     Party = get_party(Opts),
-    Shop = get_shop(Opts),
+    Shop = get_shop(Opts, Revision),
     #domain_InvoicePayment{
         cost = Cost,
         payer = Payer,
@@ -203,7 +204,7 @@ get_turnover_limits(Payment, Route, St) ->
     } = Payment = hg_invoice_payment:get_payment(St),
     PaymentTool = get_payer_payment_tool(Payer),
     RiskScore = hg_invoice_payment:get_risk_score(St),
-    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore),
+    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore, Revision),
     ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).
@@ -223,10 +224,9 @@ construct_payment(
     #domain_InvoicePayment{
         id = PaymentID,
         created_at = CreatedAt,
-        owner_id = Party#domain_Party.id,
-        shop_id = Shop#domain_Shop.id,
+        owner_id = Party#domain_PartyConfig.id,
+        shop_id = Shop#domain_ShopConfig.id,
         domain_revision = Revision,
-        party_revision = Party#domain_Party.revision,
         status = ?pending(),
         cost = Cost,
         payer = Payer,
@@ -238,12 +238,11 @@ construct_payment(
         registration_origin = ?invoice_payment_provider_reg_origin()
     }.
 
-collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore) ->
-    #domain_Party{id = PartyID} = Party,
-    #domain_Shop{
+collect_validation_varset(Party, Shop, #domain_Cash{currency = Currency} = Cost, PaymentTool, RiskScore, Revision) ->
+    #domain_PartyConfig{id = PartyID} = Party,
+    #domain_ShopConfig{
         id = ShopID,
-        category = Category,
-        account = #domain_ShopAccount{currency = Currency}
+        category = Category
     } = Shop,
     #{
         party_id => PartyID,
@@ -253,7 +252,8 @@ collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore) ->
         cost => Cost,
         payment_tool => PaymentTool,
         risk_score => RiskScore,
-        flow => instant
+        flow => instant,
+        revision => Revision
     }.
 
 %%
@@ -261,16 +261,11 @@ collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore) ->
 get_party(#{party := Party}) ->
     Party.
 
-get_shop(#{party := Party, invoice := Invoice}) ->
-    hg_party:get_shop(get_invoice_shop_id(Invoice), Party).
-
-get_contract(#{party := Party, invoice := Invoice}) ->
-    Shop = hg_party:get_shop(get_invoice_shop_id(Invoice), Party),
-    hg_party:get_contract(Shop#domain_Shop.contract_id, Party).
-
-get_payment_institution_ref(Opts) ->
-    Contract = get_contract(Opts),
-    Contract#domain_Contract.payment_institution.
+get_shop(#{party := Party, invoice := Invoice}, Revision) ->
+    hg_party:get_shop(get_invoice_shop_id(Invoice), Party, Revision).
+get_payment_institution_ref(Opts, Revision) ->
+    Shop = get_shop(Opts, Revision),
+    Shop#domain_ShopConfig.payment_institution.
 
 get_invoice(#{invoice := Invoice}) ->
     Invoice.

@@ -12,7 +12,7 @@
 -export([create_account/1]).
 -export([create_account/2]).
 -export([collect_account_map/1]).
--export([collect_merchant_account_map/3]).
+-export([collect_merchant_account_map/4]).
 -export([collect_provider_account_map/4]).
 -export([collect_system_account_map/4]).
 -export([collect_external_account_map/4]).
@@ -27,6 +27,7 @@
 -include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 
 -type amount() :: dmsl_domain_thrift:'Amount'().
+-type currency() :: dmsl_domain_thrift:'CurrencyRef'().
 -type currency_code() :: dmsl_domain_thrift:'CurrencySymbolicCode'().
 -type account_id() :: dmsl_accounter_thrift:'AccountID'().
 -type plan_id() :: dmsl_accounter_thrift:'PlanID'().
@@ -37,8 +38,8 @@
 -type thrift_account() :: dmsl_accounter_thrift:'Account'().
 
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
--type party() :: dmsl_domain_thrift:'Party'().
--type shop() :: dmsl_domain_thrift:'Shop'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type route() :: hg_route:payment_route().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
 -type provider() :: dmsl_domain_thrift:'Provider'().
@@ -99,7 +100,7 @@ create_account(CurrencyCode, Description) ->
 
 -spec collect_account_map(collect_account_context()) -> map().
 collect_account_map(#{
-    payment := Payment,
+    payment := #domain_InvoicePayment{cost = #domain_Cash{currency = Currency}} = Payment,
     party := Party,
     shop := Shop,
     route := Route,
@@ -108,17 +109,18 @@ collect_account_map(#{
     varset := VS,
     revision := Revision
 }) ->
-    Map0 = collect_merchant_account_map(Party, Shop, #{}),
+    Map0 = collect_merchant_account_map(Currency, Party, Shop, #{}),
     Map1 = collect_provider_account_map(Payment, Provider, Route, Map0),
     Map2 = collect_system_account_map(Payment, PaymentInstitution, Revision, Map1),
     collect_external_account_map(Payment, VS, Revision, Map2).
 
--spec collect_merchant_account_map(party(), shop(), map()) -> map().
-collect_merchant_account_map(#domain_Party{id = PartyID}, #domain_Shop{id = ShopID, account = MerchantAccount}, Acc) ->
+-spec collect_merchant_account_map(currency(), party(), shop(), map()) -> map().
+collect_merchant_account_map(Currency, #domain_PartyConfig{id = PartyID}, #domain_ShopConfig{id = ShopID, currency_configs = Configs}, Acc) ->
+    #{Currency := Config} = Configs,
     Acc#{
         merchant => {PartyID, ShopID},
-        {merchant, settlement} => MerchantAccount#domain_ShopAccount.settlement,
-        {merchant, guarantee} => MerchantAccount#domain_ShopAccount.guarantee
+        {merchant, settlement} => Config#domain_ShopCurrencyConfig.settlement,
+        {merchant, guarantee} => Config#domain_ShopCurrencyConfig.guarantee
     }.
 
 -spec collect_provider_account_map(payment(), provider(), route(), map()) -> map().

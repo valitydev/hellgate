@@ -44,8 +44,7 @@
     process_payment/3,
     get_payment_cost/3,
     make_cash/1,
-    make_cash/2,
-    make_customer_w_rec_tool/4
+    make_cash/2
 ]).
 
 cfg(Key, C) ->
@@ -421,43 +420,3 @@ await_payment_process_finish(InvoiceID, PaymentID, Client) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
-
--spec make_customer_w_rec_tool(_, _, _, _) -> _.
-make_customer_w_rec_tool(PartyID, ShopID, Client, PmtSys) ->
-    CustomerParams = hg_ct_helper:make_customer_params(PartyID, ShopID, <<"InvoicingTests">>),
-    #payproc_Customer{id = CustomerID} =
-        hg_client_customer:create(CustomerParams, Client),
-    #payproc_CustomerBinding{id = BindingID} =
-        hg_client_customer:start_binding(
-            CustomerID,
-            hg_ct_helper:make_customer_binding_params(hg_dummy_provider:make_payment_tool(no_preauth, PmtSys)),
-            Client
-        ),
-    ok = wait_for_binding_success(CustomerID, BindingID, Client),
-    CustomerID.
-
-wait_for_binding_success(CustomerID, BindingID, Client) ->
-    wait_for_binding_success(CustomerID, BindingID, 20000, Client).
-
-wait_for_binding_success(CustomerID, BindingID, TimeLeft, Client) when TimeLeft > 0 ->
-    Target = ?customer_binding_changed(BindingID, ?customer_binding_status_changed(?customer_binding_succeeded())),
-    Started = genlib_time:ticks(),
-    Event = hg_client_customer:pull_event(CustomerID, Client),
-    R =
-        case Event of
-            {ok, ?customer_event(Changes)} ->
-                lists:member(Target, Changes);
-            _ ->
-                false
-        end,
-    case R of
-        true ->
-            ok;
-        false ->
-            timer:sleep(200),
-            Now = genlib_time:ticks(),
-            TimeLeftNext = TimeLeft - (Now - Started) div 1000,
-            wait_for_binding_success(CustomerID, BindingID, TimeLeftNext, Client)
-    end;
-wait_for_binding_success(_, _, _, _) ->
-    timeout.

@@ -28,8 +28,8 @@
 -export([collect_cashflow/1]).
 -export([collect_cashflow/2]).
 
--type party() :: dmsl_domain_thrift:'Party'().
--type shop() :: dmsl_domain_thrift:'Shop'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
@@ -71,10 +71,10 @@ collect_allocation_cash_flow(
         fun(?allocation_trx(_ID, Target, Amount), Acc) ->
             ?allocation_trx_target_shop(PartyID, ShopID) = Target,
             TargetParty = hg_party:get_party(PartyID),
-            TargetShop = hg_party:get_shop(ShopID, TargetParty),
+            TargetShop = hg_party:get_shop(ShopID, TargetParty, Revision),
             VS1 = VS0#{
-                party_id => Party#domain_Party.id,
-                shop_id => Shop#domain_Shop.id,
+                party_id => Party#domain_PartyConfig.id,
+                shop_id => Shop#domain_ShopConfig.id,
                 cost => Amount
             },
             AllocationPaymentInstitution =
@@ -96,15 +96,13 @@ construct_transaction_cashflow(
         operation := OpType,
         party := Party,
         shop := Shop,
-        varset := VS,
-        revision := Revision,
-        timestamp := Timestamp
+        varset := VS
     }
 ) ->
     MerchantPaymentsTerms1 =
         case maps:get(merchant_terms, Context, undefined) of
             undefined ->
-                TermSet = hg_invoice_utils:get_merchant_terms(Party, Shop, Revision, Timestamp, VS),
+                TermSet = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
                 TermSet#domain_TermSet.payments;
             MerchantPaymentsTerms0 ->
                 MerchantPaymentsTerms0
@@ -123,9 +121,7 @@ construct_provider_cashflow(PaymentInstitution, Context = #{provision_terms := P
 construct_final_cashflow(Cashflow, Context, AccountMap) ->
     hg_cashflow:finalize(Cashflow, Context, AccountMap).
 
-get_cashflow_payment_institution(Party, Shop, VS, Revision) ->
-    Contract = hg_party:get_contract(Shop#domain_Shop.contract_id, Party),
-    PaymentInstitutionRef = Contract#domain_Contract.payment_institution,
+get_cashflow_payment_institution(_Party, #domain_ShopConfig{payment_institution = PaymentInstitutionRef}, VS, Revision) ->
     hg_payment_institution:compute_payment_institution(
         PaymentInstitutionRef,
         VS,

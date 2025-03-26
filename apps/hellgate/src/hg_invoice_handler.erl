@@ -38,19 +38,20 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     PartyID = InvoiceParams#payproc_InvoiceParams.party_id,
     ShopID = InvoiceParams#payproc_InvoiceParams.shop_id,
     Party = hg_party:get_party(PartyID),
-    Shop = assert_shop_exists(hg_party:get_shop(ShopID, Party)),
+    Shop = hg_party:get_shop(ShopID, Party, DomainRevision),
     _ = assert_party_shop_operable(Shop, Party),
     ok = validate_invoice_mutations(InvoiceParams),
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
         cost => Cost,
-        shop_id => Shop#domain_Shop.id
+        shop_id => Shop#domain_ShopConfig.id,
+        revision => DomainRevision
     },
-    MerchantTerms = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, hg_datetime:format_now(), VS),
+    MerchantTerms = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
     Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
-    ok = ensure_started(InvoiceID, undefined, Party#domain_Party.revision, InvoiceParams, Allocation, Mutations),
+    ok = ensure_started(InvoiceID, undefined, InvoiceParams, Allocation, Mutations),
     get_invoice_state(get_state(InvoiceID));
 handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     DomainRevision = hg_domain:head(),
@@ -62,13 +63,14 @@ handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
         cost => Cost,
-        shop_id => Shop#domain_Shop.id
+        shop_id => Shop#domain_ShopConfig.id,
+        revision => DomainRevision
     },
-    MerchantTerms = hg_invoice_utils:get_merchant_terms(Party, Shop, DomainRevision, hg_datetime:format_now(), VS),
+    MerchantTerms = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
     Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
-    ok = ensure_started(InvoiceID, TplID, Party#domain_Party.revision, InvoiceParams, Allocation, Mutations),
+    ok = ensure_started(InvoiceID, TplID, InvoiceParams, Allocation, Mutations),
     get_invoice_state(get_state(InvoiceID));
 handle_function_('CapturePaymentNew', Args, Opts) ->
     handle_function_('CapturePayment', Args, Opts);
@@ -100,18 +102,15 @@ handle_function_('GetPaymentAdjustment', {InvoiceID, PaymentID, ID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
     hg_invoice_payment:get_adjustment(ID, get_payment_session(PaymentID, St));
-handle_function_('ComputeTerms', {InvoiceID, PartyRevision0}, _Opts) ->
+handle_function_('ComputeTerms', {InvoiceID, _PartyRevision0}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
     St = get_state(InvoiceID),
-    Timestamp = get_created_at(St),
-    VS = hg_varset:prepare_shop_terms_varset(#{
+    VS = hg_varset:prepare_varset(#{
         cost => get_cost(St)
     }),
     hg_invoice_utils:compute_shop_terms(
         get_party_id(St),
         get_shop_id(St),
-        Timestamp,
-        hg_maybe:get_defined(PartyRevision0, {timestamp, Timestamp}),
         VS
     );
 handle_function_(Fun, Args, _Opts) when
@@ -148,8 +147,8 @@ handle_function_('ExplainRoute', {InvoiceID, PaymentID}, _Opts) ->
     St = get_state(InvoiceID),
     hg_routing_explanation:get_explanation(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)).
 
-ensure_started(ID, TemplateID, PartyRevision, Params, Allocation, Mutations) ->
-    Invoice = hg_invoice:create(ID, TemplateID, PartyRevision, Params, Allocation, Mutations),
+ensure_started(ID, TemplateID, Params, Allocation, Mutations) ->
+    Invoice = hg_invoice:create(ID, TemplateID, Params, Allocation, Mutations),
     case hg_machine:start(hg_invoice:namespace(), ID, hg_invoice:marshal_invoice(Invoice)) of
         {ok, _} -> ok;
         {error, exists} -> ok;
@@ -300,9 +299,6 @@ get_party_id(#st{invoice = #domain_Invoice{owner_id = PartyID}}) ->
 get_shop_id(#st{invoice = #domain_Invoice{shop_id = ShopID}}) ->
     ShopID.
 
-get_created_at(#st{invoice = #domain_Invoice{created_at = CreatedAt}}) ->
-    CreatedAt.
-
 get_cost(#st{invoice = #domain_Invoice{cost = Cash}}) ->
     Cash.
 
@@ -342,8 +338,9 @@ make_invoice_params(Params) ->
         context = TplContext,
         mutations = MutationsParams
     } = hg_invoice_template:get(TplID),
+    DomainRevision = hg_domain:head(),
     Party = hg_party:get_party(PartyID),
-    Shop = assert_shop_exists(hg_party:get_shop(ShopID, Party)),
+    Shop = assert_shop_exists(hg_party:get_shop(ShopID, Party, DomainRevision)),
     _ = assert_party_shop_operable(Shop, Party),
     Cart = make_invoice_cart(Cost, TplDetails, Shop),
     InvoiceDetails = #domain_InvoiceDetails{

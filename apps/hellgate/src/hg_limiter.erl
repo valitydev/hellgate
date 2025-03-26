@@ -17,7 +17,7 @@
 -type handling_flag() :: ignore_business_error | ignore_not_found.
 -type turnover_limit_value() :: dmsl_payproc_thrift:'TurnoverLimitValue'().
 -type party() :: hg_party:party().
--type shop() :: dmsl_domain_thrift:'Shop'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 
 -type change_queue() :: [hg_limiter_client:limit_change()].
 
@@ -42,11 +42,11 @@
     terminal = TerminalRef
 }).
 
--define(party(PartyID), #domain_Party{
+-define(party(PartyID), #domain_PartyConfig{
     id = PartyID
 }).
 
--define(shop(ShopID), #domain_Shop{
+-define(shop(ShopID), #domain_ShopConfig{
     id = ShopID
 }).
 

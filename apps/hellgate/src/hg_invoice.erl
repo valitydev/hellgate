@@ -37,7 +37,7 @@
 -export([get/1]).
 -export([get_payment/2]).
 -export([get_payment_opts/1]).
--export([create/6]).
+-export([create/5]).
 -export([marshal_invoice/1]).
 -export([unmarshal_history/1]).
 -export([collapse_history/1]).
@@ -75,7 +75,7 @@
 -type invoice_params() :: dmsl_payproc_thrift:'InvoiceParams'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type allocation() :: dmsl_domain_thrift:'Allocation'().
--type party() :: dmsl_domain_thrift:'Party'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
 
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_st() :: hg_invoice_payment:st().
@@ -118,11 +118,11 @@ get_payment_opts(#st{invoice = Invoice, party = Party}) ->
         timestamp => hg_datetime:format_now()
     }.
 
--spec get_payment_opts(hg_party:party_revision(), hg_datetime:timestamp(), st()) ->
+-spec get_payment_opts(hg_party:party_revision(), st()) ->
     hg_invoice_payment:opts().
-get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
+get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
     #{
-        party => hg_party:checkout(get_party_id(St), {revision, Revision}),
+        party => hg_party:checkout(get_party_id(St), Revision),
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     }.
@@ -130,13 +130,12 @@ get_payment_opts(Revision, _, St = #st{invoice = Invoice}) ->
 -spec create(
     hg_machine:id(),
     undefined | hg_machine:id(),
-    hg_party:party_revision(),
     invoice_params(),
     allocation(),
     [hg_invoice_mutation:mutation()]
 ) ->
     invoice().
-create(ID, InvoiceTplID, PartyRevision, V = #payproc_InvoiceParams{}, Allocation, Mutations) ->
+create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, Allocation, Mutations) ->
     OwnerID = V#payproc_InvoiceParams.party_id,
     ShopID = V#payproc_InvoiceParams.shop_id,
     Cost = V#payproc_InvoiceParams.cost,
@@ -144,7 +143,6 @@ create(ID, InvoiceTplID, PartyRevision, V = #payproc_InvoiceParams{}, Allocation
         id = ID,
         shop_id = ShopID,
         owner_id = OwnerID,
-        party_revision = PartyRevision,
         created_at = hg_datetime:format_now(),
         status = ?invoice_unpaid(),
         cost = Cost,
@@ -162,13 +160,13 @@ assert_invoice(Checks, #st{} = St) when is_list(Checks) ->
     lists:foldl(fun assert_invoice/2, St, Checks);
 assert_invoice(operable, #st{party = Party} = St) when Party =/= undefined ->
     assert_party_shop_operable(
-        hg_party:get_shop(get_shop_id(St), Party),
+        hg_party:get_shop(get_shop_id(St), Party, hg_party:get_party_revision()),
         Party
     ),
     St;
 assert_invoice(unblocked, #st{party = Party} = St) when Party =/= undefined ->
     assert_party_shop_unblocked(
-        hg_party:get_shop(get_shop_id(St), Party),
+        hg_party:get_shop(get_shop_id(St), Party, hg_party:get_party_revision()),
         Party
     ),
     St;
@@ -569,8 +567,8 @@ do_start_payment(PaymentID, PaymentParams, St) ->
     }.
 
 process_payment_signal(Signal, PaymentID, PaymentSession, St) ->
-    {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
-    Opts = get_payment_opts(Revision, Timestamp, St),
+    Revision = hg_invoice_payment:get_payment_revision(PaymentSession),
+    Opts = get_payment_opts(Revision, St),
     PaymentResult = process_invoice_payment_signal(Signal, PaymentSession, Opts),
     handle_payment_result(PaymentResult, PaymentID, PaymentSession, St, Opts).
 
@@ -585,8 +583,8 @@ process_invoice_payment_signal(Signal, PaymentSession, Opts) ->
     end.
 
 process_payment_call(Call, PaymentID, PaymentSession, St) ->
-    {Revision, Timestamp} = hg_invoice_payment:get_party_revision(PaymentSession),
-    Opts = get_payment_opts(Revision, Timestamp, St),
+    Revision = hg_invoice_payment:get_payment_revision(PaymentSession),
+    Opts = get_payment_opts(Revision, St),
     {Response, PaymentResult0} = hg_invoice_payment:process_call(Call, PaymentSession, Opts),
     PaymentResult1 = handle_payment_result(PaymentResult0, PaymentID, PaymentSession, St, Opts),
     PaymentResult1#{response => Response}.
@@ -1020,7 +1018,6 @@ create_dummy_refund_with_id(ID) ->
             id = genlib:to_binary(ID),
             created_at = hg_datetime:format_now(),
             domain_revision = 42,
-            party_revision = 42,
             status = ?refund_pending(),
             reason = <<"No reason">>,
             cash = ?cash(1000, <<"RUB">>),

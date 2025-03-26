@@ -3,8 +3,6 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -export([prepare_varset/1]).
--export([prepare_contract_terms_varset/1]).
--export([prepare_shop_terms_varset/1]).
 
 -export_type([varset/0]).
 
@@ -18,7 +16,8 @@
     risk_score => hg_inspector:risk_score(),
     flow => instant | {hold, dmsl_domain_thrift:'HoldLifetime'()},
     wallet_id => dmsl_domain_thrift:'WalletID'(),
-    identification_level => dmsl_domain_thrift:'ContractorIdentificationLevel'()
+    identification_level => dmsl_domain_thrift:'ContractorIdentificationLevel'(),
+    revision => dmsl_domain_thrift:'DataRevision'()
 }.
 
 -spec prepare_varset(varset()) -> dmsl_payproc_thrift:'Varset'().
@@ -31,22 +30,6 @@ prepare_varset(Varset) ->
         payment_tool = genlib_map:get(payment_tool, Varset),
         identification_level = genlib_map:get(identification_level, Varset),
         party_id = genlib_map:get(party_id, Varset),
-        shop_id = genlib_map:get(shop_id, Varset)
-    }.
-
--spec prepare_contract_terms_varset(varset()) -> dmsl_payproc_thrift:'ComputeContractTermsVarset'().
-prepare_contract_terms_varset(Varset) ->
-    #payproc_ComputeContractTermsVarset{
-        amount = genlib_map:get(cost, Varset),
         shop_id = genlib_map:get(shop_id, Varset),
-        payment_tool = genlib_map:get(payment_tool, Varset),
-        wallet_id = genlib_map:get(wallet_id, Varset),
-        bin_data = genlib_map:get(bin_data, Varset)
-    }.
-
--spec prepare_shop_terms_varset(varset()) -> dmsl_payproc_thrift:'ComputeShopTermsVarset'().
-prepare_shop_terms_varset(Varset) ->
-    #payproc_ComputeShopTermsVarset{
-        amount = genlib_map:get(cost, Varset),
-        payment_tool = genlib_map:get(payment_tool, Varset)
+        revision = genlib_map:get(revision, Varset)
     }.

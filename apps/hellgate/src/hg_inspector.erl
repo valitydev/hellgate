@@ -11,7 +11,7 @@
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_inspector_thrift.hrl").
 
--type shop() :: dmsl_domain_thrift:'Shop'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type inspector() :: dmsl_domain_thrift:'Inspector'().
@@ -100,7 +100,7 @@ inspect(
     RiskScore.
 
 get_payment_info(
-    #domain_Shop{
+    #domain_ShopConfig{
         id = ShopID,
         category = CategoryRef,
         details = ShopDetails,

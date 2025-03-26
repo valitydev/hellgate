@@ -81,7 +81,7 @@ handle_function_('Delete' = Fun, {TplID} = Args, _Opts) ->
     _ = get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party),
     _ = set_meta(TplID),
     call(TplID, Fun, Args);
-handle_function_('ComputeTerms', {TplID, Timestamp, PartyRevision0}, _Opts) ->
+handle_function_('ComputeTerms', {TplID, _Timestamp, _PartyRevision0}, _Opts) ->
     _ = set_meta(TplID),
     Tpl = get_invoice_template(TplID),
     Cost =
@@ -94,12 +94,10 @@ handle_function_('ComputeTerms', {TplID, Timestamp, PartyRevision0}, _Opts) ->
     VS0 = #{
         cost => Cost
     },
-    VS = hg_varset:prepare_shop_terms_varset(VS0),
+    VS = hg_varset:prepare_varset(VS0),
     hg_invoice_utils:compute_shop_terms(
         Tpl#domain_InvoiceTemplate.owner_id,
         Tpl#domain_InvoiceTemplate.shop_id,
-        Timestamp,
-        hg_maybe:get_defined(PartyRevision0, {timestamp, Timestamp}),
         VS
     ).
 
@@ -109,7 +107,7 @@ get_party(PartyID) ->
     Party.
 
 get_shop(ShopID, Party) ->
-    Shop = hg_invoice_utils:assert_shop_exists(hg_party:get_shop(ShopID, Party)),
+    Shop = hg_invoice_utils:assert_shop_exists(hg_party:get_shop(ShopID, Party, hg_party:get_party_revision())),
     _ = hg_invoice_utils:assert_shop_operable(Shop),
     Shop.
 
