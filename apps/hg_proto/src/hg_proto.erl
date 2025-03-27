@@ -22,12 +22,6 @@ get_service(invoicing) ->
     {dmsl_payproc_thrift, 'Invoicing'};
 get_service(invoice_templating) ->
     {dmsl_payproc_thrift, 'InvoiceTemplating'};
-get_service(customer_management) ->
-    {dmsl_payproc_thrift, 'CustomerManagement'};
-get_service(recurrent_paytool) ->
-    {dmsl_payproc_thrift, 'RecurrentPaymentTools'};
-get_service(recurrent_paytool_eventsink) ->
-    {dmsl_payproc_thrift, 'RecurrentPaymentToolEventSink'};
 get_service(proxy_provider) ->
     {dmsl_proxy_provider_thrift, 'ProviderProxy'};
 get_service(proxy_inspector) ->
@@ -56,12 +50,6 @@ get_service_spec(Name = invoicing, #{}) ->
     {?VERSION_PREFIX ++ "/processing/invoicing", get_service(Name)};
 get_service_spec(Name = invoice_templating, #{}) ->
     {?VERSION_PREFIX ++ "/processing/invoice_templating", get_service(Name)};
-get_service_spec(Name = customer_management, #{}) ->
-    {?VERSION_PREFIX ++ "/processing/customer_management", get_service(Name)};
-get_service_spec(Name = recurrent_paytool, #{}) ->
-    {?VERSION_PREFIX ++ "/processing/recpaytool", get_service(Name)};
-get_service_spec(Name = recurrent_paytool_eventsink, #{}) ->
-    {?VERSION_PREFIX ++ "/processing/recpaytool/eventsink", get_service(Name)};
 get_service_spec(Name = processor, #{namespace := Ns}) when is_binary(Ns) ->
     {?VERSION_PREFIX ++ "/stateproc/" ++ binary_to_list(Ns), get_service(Name)};
 get_service_spec(Name = proxy_host_provider, #{}) ->

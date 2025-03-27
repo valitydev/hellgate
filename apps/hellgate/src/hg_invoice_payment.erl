@@ -489,41 +489,7 @@ construct_payer(
         end,
     #domain_InvoicePayment{payer = ParentPayer} = get_payment(ParentPayment),
     ParentPaymentTool = get_payer_payment_tool(ParentPayer),
-    {ok, ?recurrent_payer(ParentPaymentTool, Parent, ContactInfo), #{parent_payment => ParentPayment}};
-construct_payer({customer, #payproc_CustomerPayerParams{customer_id = CustomerID}}, Shop) ->
-    Customer = get_customer(CustomerID),
-    ok = validate_customer_shop(Customer, Shop),
-    ActiveBinding = get_active_binding(Customer),
-    % by keynfawkes
-    % TODO Should we bake recurrent token right in too?
-    %      Expect to have some issues related to access control while trying
-    %      to fetch this token during deeper payment flow stages
-    % by antibi0tic
-    % we dont need it for refund, so I think - no
-    Payer = ?customer_payer(
-        CustomerID,
-        ActiveBinding#payproc_CustomerBinding.id,
-        ActiveBinding#payproc_CustomerBinding.rec_payment_tool_id,
-        get_resource_payment_tool(ActiveBinding#payproc_CustomerBinding.payment_resource),
-        get_customer_contact_info(Customer)
-    ),
-    {ok, Payer, #{}}.
-
-validate_customer_shop(#payproc_Customer{shop_id = ShopID}, #domain_ShopConfig{id = ShopID}) ->
-    ok;
-validate_customer_shop(_, _) ->
-    throw_invalid_request(<<"Invalid customer">>).
-
-get_active_binding(#payproc_Customer{bindings = Bindings, active_binding_id = BindingID}) ->
-    case lists:keysearch(BindingID, #payproc_CustomerBinding.id, Bindings) of
-        {value, ActiveBinding} ->
-            ActiveBinding;
-        false ->
-            throw_invalid_request(<<"Specified customer is not ready">>)
-    end.
-
-get_customer_contact_info(#payproc_Customer{contact_info = ContactInfo}) ->
-    ContactInfo.
+    {ok, ?recurrent_payer(ParentPaymentTool, Parent, ContactInfo), #{parent_payment => ParentPayment}}.
 
 construct_payment(
     PaymentID,
@@ -600,21 +566,7 @@ reconstruct_payment_flow(?invoice_payment_flow_hold(_OnHoldExpiration, HeldUntil
 get_predefined_route(?payment_resource_payer()) ->
     undefined;
 get_predefined_route(?recurrent_payer() = Payer) ->
-    get_predefined_recurrent_route(Payer);
-get_predefined_route(?customer_payer() = Payer) ->
-    get_predefined_customer_route(Payer).
-
--spec get_predefined_customer_route(payer()) -> {ok, route()} | undefined.
-get_predefined_customer_route(?customer_payer(_, _, RecPaymentToolID, _, _) = Payer) ->
-    case get_rec_payment_tool(RecPaymentToolID) of
-        {ok, #payproc_RecurrentPaymentTool{
-            route = Route
-        }} when Route =/= undefined ->
-            {ok, Route};
-        _ ->
-            % TODO more elegant error
-            error({'Can\'t get route for customer payer', Payer})
-    end.
+    get_predefined_recurrent_route(Payer).
 
 -spec get_predefined_recurrent_route(payer()) -> {ok, route()}.
 get_predefined_recurrent_route(?recurrent_payer(_, ?recurrent_parent(InvoiceID, PaymentID), _)) ->
@@ -2903,29 +2855,11 @@ construct_payment_resource(?recurrent_payer(PaymentTool, ?recurrent_parent(Invoi
     {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
         payment_tool = PaymentTool,
         rec_token = RecToken
-    }};
-construct_payment_resource(?customer_payer(_, _, RecPaymentToolID, _, _) = Payer) ->
-    case get_rec_payment_tool(RecPaymentToolID) of
-        {ok, #payproc_RecurrentPaymentTool{
-            payment_resource = #domain_DisposablePaymentResource{
-                payment_tool = PaymentTool
-            },
-            rec_token = RecToken
-        }} when RecToken =/= undefined ->
-            {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
-                payment_tool = PaymentTool,
-                rec_token = RecToken
-            }};
-        _ ->
-            % TODO more elegant error
-            error({'Can\'t get rec_token for customer payer', Payer})
-    end.
+    }}.
 
 get_contact_info(?payment_resource_payer(_, ContactInfo)) ->
     ContactInfo;
 get_contact_info(?recurrent_payer(_, _, ContactInfo)) ->
-    ContactInfo;
-get_contact_info(?customer_payer(_, _, _, _, ContactInfo)) ->
     ContactInfo.
 
 construct_proxy_invoice(
@@ -3023,8 +2957,6 @@ get_payment_created_at(#domain_InvoicePayment{created_at = CreatedAt}) ->
 -spec get_payer_payment_tool(payer()) -> payment_tool().
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
     get_resource_payment_tool(PaymentResource);
-get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
-    PaymentTool;
 get_payer_payment_tool(?recurrent_payer(PaymentTool, _, _)) ->
     PaymentTool.
 
@@ -3035,8 +2967,6 @@ get_payer_card_token(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
         _ ->
             undefined
     end;
-get_payer_card_token(?customer_payer(_, _, _, _, _)) ->
-    undefined;
 get_payer_card_token(?recurrent_payer(_, _, _)) ->
     undefined.
 
@@ -3759,19 +3689,6 @@ collapse_changes(Changes, St, Opts) ->
 
 %%
 
-get_rec_payment_tool(RecPaymentToolID) ->
-    hg_woody_wrapper:call(recurrent_paytool, 'Get', {RecPaymentToolID}).
-
-get_customer(CustomerID) ->
-    case issue_customer_call('Get', {CustomerID, #payproc_EventRange{}}) of
-        {ok, Customer} ->
-            Customer;
-        {exception, #payproc_CustomerNotFound{}} ->
-            throw_invalid_request(<<"Customer not found">>);
-        {exception, Error} ->
-            error({<<"Can't get customer">>, Error})
-    end.
-
 get_route_provider_ref(#domain_PaymentRoute{provider = ProviderRef}) ->
     ProviderRef.
 
@@ -3800,9 +3717,6 @@ get_st_meta(#st{payment = #domain_InvoicePayment{id = ID}}) ->
     };
 get_st_meta(_) ->
     #{}.
-
-issue_customer_call(Func, Args) ->
-    hg_woody_wrapper:call(customer_management, Func, Args).
 
 %% Timings
 

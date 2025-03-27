@@ -277,9 +277,7 @@ get_invoice_shop_id(#domain_Invoice{shop_id = ShopID}) ->
     ShopID.
 
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
-    get_resource_payment_tool(PaymentResource);
-get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
-    PaymentTool.
+    get_resource_payment_tool(PaymentResource).
 
 get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = PaymentTool}) ->
     PaymentTool.

@@ -758,8 +758,6 @@ get_payment_tool(#domain_InvoicePayment{payer = Payer}) ->
 
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
     get_resource_payment_tool(PaymentResource);
-get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
-    PaymentTool;
 get_payer_payment_tool(?recurrent_payer(PaymentTool, _, _)) ->
     PaymentTool.
 

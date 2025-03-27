@@ -51,6 +51,14 @@
     {payment_resource, #domain_PaymentResourcePayer{}}
 ).
 
+-define(recurrent_payer(PaymentTool, Parent, ContactInfo),
+    {recurrent, #domain_RecurrentPayer{
+        payment_tool = PaymentTool,
+        recurrent_parent = Parent,
+        contact_info = ContactInfo
+    }}
+).
+
 -define(recurrent_payer(), {recurrent, #domain_RecurrentPayer{}}).
 
 -define(recurrent_parent(InvoiceID, PaymentID), #domain_RecurrentParentPayment{

@@ -104,7 +104,6 @@ init_per_suite(C) ->
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
     PartyClient = {party_client:create_client(), party_client:create_context()},
-    CustomerClient = hg_client_customer:start(hg_ct_helper:create_client(RootUrl)),
     _ = hg_ct_helper:create_party(PartyID, PartyClient),
     Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
     Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
@@ -113,7 +112,6 @@ init_per_suite(C) ->
     C1 = [
         {apps, Apps},
         {root_url, RootUrl},
-        {customer_client, CustomerClient},
         {party_id, PartyID},
         {shop_id, Shop1ID},
         {another_shop_id, Shop2ID},

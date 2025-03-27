@@ -45,10 +45,6 @@
 -export([make_invoice_details/2]).
 
 -export([make_disposable_payment_resource/1]).
--export([make_customer_params/3]).
--export([make_customer_binding_params/1]).
--export([make_customer_binding_params/2]).
--export([make_customer_binding_params/3]).
 
 -export([make_meta_ns/0]).
 -export([make_meta_data/0]).
@@ -122,13 +118,6 @@ start_app(hg_proto = AppName) ->
             {services, #{
                 accounter => <<"http://shumway:8022/accounter">>,
                 automaton => <<"http://machinegun:8022/v1/automaton">>,
-                customer_management => #{
-                    url => <<"http://hellgate:8022/v1/processing/customer_management">>,
-                    transport_opts => #{
-                        pool => customer_management,
-                        max_connections => 300
-                    }
-                },
                 eventsink => <<"http://machinegun:8022/v1/event_sink">>,
                 fault_detector => <<"http://127.0.0.1:20001/">>,
                 invoice_templating => #{
@@ -152,24 +141,10 @@ start_app(hg_proto = AppName) ->
                         max_connections => 300
                     }
                 },
-                recurrent_paytool => #{
-                    url => <<"http://hellgate:8022/v1/processing/recpaytool">>,
-                    transport_opts => #{
-                        pool => recurrent_paytool,
-                        max_connections => 300
-                    }
-                },
                 proxy_host_provider => #{
                     url => <<"http://hellgate:8022/v1/proxyhost/provider">>,
                     transport_opts => #{
                         pool => proxy_host_provider,
-                        max_connections => 300
-                    }
-                },
-                recurrent_paytool_eventsink => #{
-                    url => <<"http://hellgate:8022/v1/processing/recpaytool/eventsink">>,
-                    transport_opts => #{
-                        pool => recurrent_paytool_eventsink,
                         max_connections => 300
                     }
                 },
@@ -766,42 +741,6 @@ make_meta_data(NS) ->
 -spec get_hellgate_url() -> string().
 get_hellgate_url() ->
     "http://" ++ ?HELLGATE_HOST ++ ":" ++ integer_to_list(?HELLGATE_PORT).
-
--spec make_customer_params(party_id(), shop_id(), binary()) -> dmsl_payproc_thrift:'CustomerParams'().
-make_customer_params(PartyID, ShopID, EMail) ->
-    #payproc_CustomerParams{
-        customer_id = hg_utils:unique_id(),
-        party_id = PartyID,
-        shop_id = ShopID,
-        contact_info = ?contact_info(EMail),
-        metadata = ?null()
-    }.
-
--spec make_customer_binding_params(hg_dummy_provider:payment_tool()) ->
-    dmsl_payproc_thrift:'CustomerBindingParams'().
-make_customer_binding_params(PaymentToolSession) ->
-    RecPaymentToolID = hg_utils:unique_id(),
-    make_customer_binding_params(RecPaymentToolID, PaymentToolSession).
-
--spec make_customer_binding_params(
-    dmsl_domain_thrift:'RecurrentPaymentToolID'(),
-    hg_dummy_provider:payment_tool()
-) -> dmsl_payproc_thrift:'CustomerBindingParams'().
-make_customer_binding_params(RecPayToolId, PaymentToolSession) ->
-    CustomerBindingID = hg_utils:unique_id(),
-    make_customer_binding_params(CustomerBindingID, RecPayToolId, PaymentToolSession).
-
--spec make_customer_binding_params(
-    dmsl_domain_thrift:'CustomerBindingID'(),
-    dmsl_domain_thrift:'RecurrentPaymentToolID'(),
-    hg_dummy_provider:payment_tool()
-) -> dmsl_payproc_thrift:'CustomerBindingParams'().
-make_customer_binding_params(CustomerBindingId, RecPayToolId, PaymentToolSession) ->
-    #payproc_CustomerBindingParams{
-        customer_binding_id = CustomerBindingId,
-        rec_payment_tool_id = RecPayToolId,
-        payment_resource = make_disposable_payment_resource(PaymentToolSession)
-    }.
 
 %%
 

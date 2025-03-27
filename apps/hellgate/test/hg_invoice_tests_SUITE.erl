@@ -58,10 +58,6 @@
 -export([processing_deadline_reached_test/1]).
 -export([payment_w_terminal_w_payment_service_success/1]).
 -export([payment_bank_card_category_condition/1]).
--export([payment_w_customer_success/1]).
--export([payment_w_another_shop_customer/1]).
--export([payment_w_another_party_customer/1]).
--export([payment_w_deleted_customer/1]).
 -export([payments_w_bank_card_issuer_conditions/1]).
 -export([payments_w_bank_conditions/1]).
 -export([payment_success_on_second_try/1]).
@@ -72,7 +68,6 @@
 -export([payment_fail_after_silent_callback/1]).
 -export([payment_session_changed_to_fail/1]).
 -export([invoice_success_on_third_payment/1]).
--export([payment_customer_risk_score_check/1]).
 -export([payment_risk_score_check/1]).
 -export([payment_risk_score_check_fail/1]).
 -export([payment_risk_score_check_timeout/1]).
@@ -279,8 +274,6 @@ groups() ->
             % {group, operation_limits_legacy},
             {group, operation_limits},
 
-            payment_w_customer_success,
-            payment_customer_risk_score_check,
             payment_risk_score_check,
             payment_risk_score_check_fail,
             payment_risk_score_check_timeout,
@@ -325,10 +318,6 @@ groups() ->
             processing_deadline_reached_test,
             payment_bank_card_category_condition,
             payment_w_terminal_w_payment_service_success,
-            payment_w_customer_success,
-            payment_w_another_shop_customer,
-            payment_w_another_party_customer,
-            payment_w_deleted_customer,
             payment_success_on_second_try,
             payment_success_with_increased_cost,
             refund_payment_with_increased_cost,
@@ -539,11 +528,9 @@ init_per_suite(C) ->
 
     PartyID = hg_utils:unique_id(),
     PartyClient = {party_client:create_client(), party_client:create_context()},
-    CustomerClient = hg_client_customer:start(hg_ct_helper:create_client(RootUrl)),
 
     Party2ID = hg_utils:unique_id(),
     PartyClient2 = {party_client:create_client(), party_client:create_context()},
-    CustomerClient2 = hg_client_customer:start(hg_ct_helper:create_client(RootUrl)),
 
     Party3ID = <<"bIg merch">>,
     _ = hg_ct_helper:create_party(Party3ID, PartyClient),
@@ -561,10 +548,8 @@ init_per_suite(C) ->
         {party_client, PartyClient},
         {party_id_big_merch, Party3ID},
         {shop_id, ShopID},
-        {customer_client, CustomerClient},
         {another_party_id, Party2ID},
         {another_shop_id, Shop2ID},
-        {another_customer_client, CustomerClient2},
         {root_url, RootUrl},
         {apps, Apps},
         {test_sup, SupPid},
@@ -2085,64 +2070,6 @@ payment_bank_card_category_condition(C) ->
     {CF, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
     CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
     ?cash(200, <<"RUB">>) = get_cashflow_volume({merchant, settlement}, {system, settlement}, CF, CFContext).
-
--spec payment_w_customer_success(config()) -> test_return().
-payment_w_customer_success(C) ->
-    Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(60), 42000, C),
-    CustomerID = make_customer_w_rec_tool(PartyID, ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = make_customer_payment_params(CustomerID),
-    PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
-    ?invoice_state(
-        ?invoice_w_status(?invoice_paid()),
-        [?payment_state(?payment_w_status(PaymentID, ?captured()))]
-    ) = hg_client_invoicing:get(InvoiceID, Client).
-
--spec payment_w_another_shop_customer(config()) -> test_return().
-payment_w_another_shop_customer(C) ->
-    Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
-    PartyClient = cfg(party_client, C),
-    AnotherShopID = hg_ct_helper:create_battle_ready_shop(
-        PartyID,
-        ?cat(2),
-        <<"RUB">>,
-        ?tmpl(2),
-        ?pinst(2),
-        PartyClient
-    ),
-    InvoiceID = start_invoice(AnotherShopID, <<"rubberduck">>, make_due_date(60), 42000, C),
-    CustomerID = make_customer_w_rec_tool(PartyID, ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = make_customer_payment_params(CustomerID),
-    {exception, #base_InvalidRequest{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
-
--spec payment_w_another_party_customer(config()) -> test_return().
-payment_w_another_party_customer(C) ->
-    Client = cfg(client, C),
-    AnotherPartyID = cfg(another_party_id, C),
-    ShopID = cfg(shop_id, C),
-    AnotherShopID = cfg(another_shop_id, C),
-    CustomerID = make_customer_w_rec_tool(
-        AnotherPartyID, AnotherShopID, cfg(another_customer_client, C), ?pmt_sys(<<"visa-ref">>)
-    ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(60), 42000, C),
-    PaymentParams = make_customer_payment_params(CustomerID),
-    {exception, #base_InvalidRequest{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
-
--spec payment_w_deleted_customer(config()) -> test_return().
-payment_w_deleted_customer(C) ->
-    Client = cfg(client, C),
-    CustomerClient = cfg(customer_client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(60), 42000, C),
-    CustomerID = make_customer_w_rec_tool(PartyID, ShopID, CustomerClient, ?pmt_sys(<<"visa-ref">>)),
-    ok = hg_client_customer:delete(CustomerID, CustomerClient),
-    PaymentParams = make_customer_payment_params(CustomerID),
-    {exception, #base_InvalidRequest{}} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client).
 
 -spec payment_success_on_second_try(config()) -> test_return().
 payment_success_on_second_try(C) ->
@@ -7974,15 +7901,6 @@ make_tds_payment_params(FlowType, PmtSys) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(preauth_3ds, PmtSys),
     make_payment_params(PaymentTool, Session, FlowType).
 
-make_customer_payment_params(CustomerID) ->
-    #payproc_InvoicePaymentParams{
-        payer =
-            {customer, #payproc_CustomerPayerParams{
-                customer_id = CustomerID
-            }},
-        flow = {instant, #payproc_InvoicePaymentParamsFlowInstant{}}
-    }.
-
 make_scenario_payment_params(Scenario, PmtSys) ->
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool({scenario, Scenario}, PmtSys),
     make_payment_params(PaymentTool, Session, instant).
@@ -8398,9 +8316,6 @@ get_post_request(?payterm_receipt(SPID)) ->
     URL = hg_dummy_provider:get_callback_url(),
     {URL, #{<<"tag">> => SPID}}.
 
-make_customer_w_rec_tool(PartyID, ShopID, Client, PmtSys) ->
-    hg_invoice_helper:make_customer_w_rec_tool(PartyID, ShopID, Client, PmtSys).
-
 % invoice_create_and_get_revision(PartyID, Client, ShopID) ->
 %     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"somePlace">>, make_due_date(10), make_cash(5000)),
 %     InvoiceID = create_invoice(InvoiceParams, Client),
@@ -8543,37 +8458,6 @@ payment_risk_score_check(Cat, C, PmtSys) ->
         next_change(InvoiceID1, Client),
     PaymentID1 = await_payment_process_finish(InvoiceID1, PaymentID1, Client),
     PaymentID1 = await_payment_capture(InvoiceID1, PaymentID1, Client).
-
--spec payment_customer_risk_score_check(config()) -> test_return().
-payment_customer_risk_score_check(C) ->
-    Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
-        ?cat(1),
-        <<"RUB">>,
-        ?tmpl(1),
-        ?pinst(1),
-        PartyClient
-    ),
-    InvoiceID1 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 100000001, C),
-    CustomerID = make_customer_w_rec_tool(PartyID, ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = make_customer_payment_params(CustomerID),
-    ?payment_state(?payment(PaymentID1)) = hg_client_invoicing:start_payment(InvoiceID1, PaymentParams, Client),
-    [
-        ?payment_ev(PaymentID1, ?payment_started(?payment_w_status(?pending()))),
-        ?payment_ev(PaymentID, ?shop_limit_initiated()),
-        ?payment_ev(PaymentID, ?shop_limit_applied()),
-        ?payment_ev(PaymentID1, ?risk_score_changed(fatal)),
-        ?payment_ev(PaymentID1, ?payment_status_changed(?failed(Failure)))
-    ] = next_changes(InvoiceID1, 5, Client),
-    {failure, #domain_Failure{
-        code = <<"no_route_found">>,
-        sub = #domain_SubFailure{code = <<"risk_score_is_too_high">>}
-    }} = Failure.
-
-%
 
 get_payment_cashflow_mapped(InvoiceID, PaymentID, Client) ->
     #payproc_InvoicePayment{
