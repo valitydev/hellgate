@@ -52,7 +52,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     Cost1 = genlib:define(Cost0, get_invoice_cost(Invoice)),
     {ok, Payer, _} = hg_invoice_payment:construct_payer(PayerParams, Shop),
     PaymentTool = get_payer_payment_tool(Payer),
-    VS = collect_validation_varset(Party, Shop, Cost1, PaymentTool, RiskScore, Revision),
+    VS = collect_validation_varset(Party, Shop, Cost1, PaymentTool, RiskScore),
     PaymentInstitutionRef = get_payment_institution_ref(Opts, Revision),
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
 
@@ -70,7 +70,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     ),
     RiskScoreEventList = maybe_risk_score_event_list(RiskScore),
 
-    MerchantTerms = get_merchant_payment_terms(Party, Shop, VS),
+    MerchantTerms = get_merchant_payment_terms(Revision, Shop, VS),
     ProviderTerms = hg_invoice_payment:get_provider_terminal_terms(Route, VS, Revision),
     CashflowContext = #{
         provision_terms => ProviderTerms,
@@ -181,8 +181,8 @@ maybe_risk_score_event_list(undefined) ->
 maybe_risk_score_event_list(RiskScore) ->
     [?risk_score_changed(RiskScore)].
 
-get_merchant_payment_terms(Party, Shop, VS) ->
-    TermSet = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
+get_merchant_payment_terms(Revision, Shop, VS) ->
+    TermSet = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS),
     TermSet#domain_TermSet.payments.
 
 hold_payment_limits(Invoice, Payment, St) ->
@@ -204,7 +204,7 @@ get_turnover_limits(Payment, Route, St) ->
     } = Payment = hg_invoice_payment:get_payment(St),
     PaymentTool = get_payer_payment_tool(Payer),
     RiskScore = hg_invoice_payment:get_risk_score(St),
-    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore, Revision),
+    VS = collect_validation_varset(Party, Shop, Cost, PaymentTool, RiskScore),
     ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
     hg_limiter:get_turnover_limits(TurnoverLimitSelector).
@@ -238,7 +238,7 @@ construct_payment(
         registration_origin = ?invoice_payment_provider_reg_origin()
     }.
 
-collect_validation_varset(Party, Shop, #domain_Cash{currency = Currency} = Cost, PaymentTool, RiskScore, Revision) ->
+collect_validation_varset(Party, Shop, #domain_Cash{currency = Currency} = Cost, PaymentTool, RiskScore) ->
     #domain_PartyConfig{id = PartyID} = Party,
     #domain_ShopConfig{
         id = ShopID,
@@ -252,8 +252,7 @@ collect_validation_varset(Party, Shop, #domain_Cash{currency = Currency} = Cost,
         cost => Cost,
         payment_tool => PaymentTool,
         risk_score => RiskScore,
-        flow => instant,
-        revision => Revision
+        flow => instant
     }.
 
 %%

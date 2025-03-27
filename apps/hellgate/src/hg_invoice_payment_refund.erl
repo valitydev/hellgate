@@ -397,8 +397,7 @@ collect_validation_varset(Party, Shop, Payment, VS) ->
     } = Shop,
     #domain_InvoicePayment{
         cost = #domain_Cash{currency = Currency} = Cost,
-        payer = Payer,
-        domain_revision = Revision
+        payer = Payer
     } = Payment,
     VS#{
         party_id => PartyID,
@@ -406,8 +405,7 @@ collect_validation_varset(Party, Shop, Payment, VS) ->
         category => Category,
         currency => Currency,
         cost => Cost,
-        payment_tool => get_payer_payment_tool(Payer),
-        revision => Revision
+        payment_tool => get_payer_payment_tool(Payer)
     }.
 
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->

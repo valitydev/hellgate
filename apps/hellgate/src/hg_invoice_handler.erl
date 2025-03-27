@@ -44,10 +44,9 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
         cost => Cost,
-        shop_id => Shop#domain_ShopConfig.id,
-        revision => DomainRevision
+        shop_id => Shop#domain_ShopConfig.id
     },
-    MerchantTerms = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
+    MerchantTerms = hg_invoice_utils:compute_shop_terms(DomainRevision, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
     Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
@@ -63,10 +62,9 @@ handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
         cost => Cost,
-        shop_id => Shop#domain_ShopConfig.id,
-        revision => DomainRevision
+        shop_id => Shop#domain_ShopConfig.id
     },
-    MerchantTerms = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
+    MerchantTerms = hg_invoice_utils:compute_shop_terms(DomainRevision, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
     Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
@@ -105,12 +103,15 @@ handle_function_('GetPaymentAdjustment', {InvoiceID, PaymentID, ID}, _Opts) ->
 handle_function_('ComputeTerms', {InvoiceID, _PartyRevision0}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID),
     St = get_state(InvoiceID),
+    Revision = hg_invoice_payment:get_payment_revision(St),
     VS = hg_varset:prepare_varset(#{
         cost => get_cost(St)
     }),
+    Party = hg_party:checkout(get_party_id(St), Revision),
+    Shop = hg_party:get_shop(get_shop_id(St), Party, Revision),
     hg_invoice_utils:compute_shop_terms(
-        get_party_id(St),
-        get_shop_id(St),
+        Revision,
+        Shop,
         VS
     );
 handle_function_(Fun, Args, _Opts) when

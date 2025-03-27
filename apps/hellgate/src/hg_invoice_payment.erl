@@ -418,7 +418,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     Invoice = get_invoice(Opts),
     Cost = #domain_Cash{currency = Currency} = get_invoice_cost(Invoice),
     {ok, Payer, VS0} = construct_payer(PayerParams, Shop),
-    VS1 = collect_validation_varset(Party, Shop, Currency, Revision, VS0),
+    VS1 = collect_validation_varset_(Party, Shop, Currency, VS0),
     Payment1 = construct_payment(
         PaymentID,
         CreatedAt,
@@ -441,9 +441,8 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
     {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
 
 get_merchant_payments_terms(Opts, Revision, _Timestamp, VS) ->
-    Party = get_party(Opts),
     Shop = get_shop(Opts, Revision),
-    TermSet = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
+    TermSet = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS),
     TermSet#domain_TermSet.payments.
 
 -spec get_provider_terminal_terms(route(), hg_varset:varset(), hg_domain:revision()) ->
@@ -506,10 +505,9 @@ construct_payment(
     PaymentTool = get_payer_payment_tool(Payer),
     VS1 = VS0#{
         payment_tool => PaymentTool,
-        cost => Cost,
-        revision => Revision
+        cost => Cost
     },
-    Terms = hg_invoice_utils:compute_shop_terms(Party, Shop, VS1),
+    Terms = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS1),
     #domain_TermSet{payments = PaymentTerms, recurrent_paytools = RecurrentTerms} = Terms,
     ok = validate_payment_tool(
         PaymentTool,
@@ -818,7 +816,15 @@ collect_validation_varset(St, Opts) ->
     Revision = get_payment_revision(get_payment(St)),
     collect_validation_varset(get_party(Opts), get_shop(Opts, Revision), get_payment(St), #{}).
 
-collect_validation_varset(Party, Shop, Currency, Revision, VS) ->
+collect_validation_varset(Party, Shop, Payment, VS) ->
+    Cost = #domain_Cash{currency = Currency} = get_payment_cost(Payment),
+    VS0 = collect_validation_varset_(Party, Shop, Currency, VS),
+    VS0#{
+        cost => Cost,
+        payment_tool => get_payment_tool(Payment)
+    }.
+
+collect_validation_varset_(Party, Shop, Currency, VS) ->
     #domain_Party{id = PartyID} = Party,
     #domain_Shop{
         id = ShopID,
@@ -828,17 +834,7 @@ collect_validation_varset(Party, Shop, Currency, Revision, VS) ->
         party_id => PartyID,
         shop_id => ShopID,
         category => Category,
-        currency => Currency,
-        revision => Revision
-    }.
-
-collect_validation_varset(Party, Shop, Payment, VS) ->
-    Cost = #domain_Cash{currency = Currency} = get_payment_cost(Payment),
-    Revision = get_payment_revision(Payment),
-    VS0 = collect_validation_varset(Party, Shop, Currency, Revision, VS),
-    VS0#{
-        cost => Cost,
-        payment_tool => get_payment_tool(Payment)
+        currency => Currency
     }.
 
 %%
@@ -3390,7 +3386,7 @@ get_routing_attempt_limit(
     Party = hg_party:checkout(PartyID, Revision),
     Shop = hg_party:get_shop(ShopID, Party, Revision),
     VS = collect_validation_varset(Party, Shop, get_payment(St), #{}),
-    Terms = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
+    Terms = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS),
     #domain_TermSet{payments = PaymentTerms} = Terms,
     log_cascade_attempt_context(PaymentTerms, St),
     get_routing_attempt_limit_value(PaymentTerms#domain_PaymentsServiceTerms.attempt_limit).

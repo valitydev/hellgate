@@ -30,11 +30,10 @@
 -type cash_range() :: dmsl_domain_thrift:'CashRange'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
--type shop_id() :: dmsl_domain_thrift:'ShopID'().
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type payment_service_terms() :: dmsl_domain_thrift:'PaymentsServiceTerms'().
--type varset() :: dmsl_payproc_thrift:'ComputeShopTermsVarset'().
+-type varset() :: dmsl_payproc_thrift:'Varset'().
+-type revision() :: dmsl_domain_thrift:'DataRevision'().
 
 -spec validate_cost(cash(), shop()) -> ok.
 validate_cost(#domain_Cash{currency = Currency, amount = Amount}, Shop) ->
@@ -104,16 +103,16 @@ any_limit_matches(Cash, {decisions, Decisions}) ->
         Decisions
     ).
 
--spec compute_shop_terms
-    (party(), shop(), varset()) -> term_set();
-    (party_id(), shop_id(), varset()) -> term_set().
-compute_shop_terms(#domain_PartyConfig{id = PartyID}, #domain_ShopConfig{id = ShopID}, Varset) ->
-    compute_shop_terms(PartyID, ShopID, Varset);
-compute_shop_terms(PartyID, ShopID, Varset) ->
-    {Client, Context} = get_party_client(),
-    {ok, TermSet} =
-        party_client_thrift:compute_shop_terms(PartyID, ShopID, Varset, Client, Context),
-    TermSet.
+-spec compute_shop_terms(revision(), shop(), varset()) -> term_set().
+compute_shop_terms(Revision, #domain_ShopConfig{terms = Ref}, Varset) ->
+    Args = {Ref, Revision, Varset},
+    Opts = hg_woody_wrapper:get_service_options(party_config),
+    case hg_woody_wrapper:call(party_config, 'ComputeTerms', Args, Opts) of
+        {ok, Terms} ->
+            Terms;
+        {exception, Exception} ->
+            error(Exception)
+    end.
 
 validate_currency_(Currency, Currency) ->
     ok;
@@ -121,13 +120,13 @@ validate_currency_(_, _) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid currency">>]}).
 
 -spec get_shop_currency(shop()) -> currency().
-get_shop_currency(#domain_ShopConfig{currency_configs = Configs}) when length(Configs) > 0 ->
+get_shop_currency(#domain_ShopConfig{currency_configs = Configs}) when is_map(Configs) ->
     %% TODO: fix it when add multi currency support
     [Currency | _] = maps:keys(Configs),
     Currency.
 
 -spec get_shop_account(shop()) -> {account_id(), account_id()}.
-get_shop_account(#domain_ShopConfig{currency_configs = Configs}) when length(Configs) > 0 ->
+get_shop_account(#domain_ShopConfig{currency_configs = Configs}) when is_map(Configs) ->
     %% TODO: fix it when add multi currency support
     [{_Currency, #domain_ShopCurrencyConfig{settlement = SettlementID, guarantee = GuaranteeID}} | _] = maps:to_list(Configs),
     {SettlementID, GuaranteeID}.
@@ -174,9 +173,3 @@ check_deadline(Deadline) ->
         _ ->
             {error, deadline_reached}
     end.
-
-get_party_client() ->
-    HgContext = hg_context:load(),
-    Client = hg_context:get_party_client(HgContext),
-    Context = hg_context:get_party_client_context(HgContext),
-    {Client, Context}.

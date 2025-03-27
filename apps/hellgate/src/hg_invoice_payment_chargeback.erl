@@ -436,8 +436,7 @@ build_chargeback_final_cash_flow(State, Opts) ->
         route => Route,
         payment_institution => PaymentInst,
         provider => Provider,
-        varset => VS,
-        revision => Revision
+        varset => VS
     },
     AccountMap = hg_accounting:collect_account_map(CollectAccountContext),
     ServiceContext = build_service_cash_flow_context(State),
@@ -479,20 +478,13 @@ collect_chargeback_provider_fees(#domain_PaymentChargebackProvisionTerms{fees = 
 collect_chargeback_provider_fees(#domain_PaymentChargebackProvisionTerms{fees = {value, Fees}}) ->
     Fees#domain_Fees.fees.
 
-get_merchant_chargeback_terms(#domain_PartyConfig{id = PartyId}, Shop, VS, _Revision, _Timestamp) ->
-    {Client, Context} = get_party_client(),
-    {ok, #domain_TermSet{payments = PaymentsTerms}} = party_client_thrift:compute_shop_terms(
-        PartyId,
-        Shop#domain_ShopConfig.id,
-        hg_varset:prepare_varset(VS),
-        Client,
-        Context
+get_merchant_chargeback_terms(_Party, Shop, VS, Revision, _Timestamp) ->
+    #domain_TermSet{payments = PaymentsTerms} = hg_invoice_utils:compute_shop_terms(
+        Revision,
+        Shop,
+        hg_varset:prepare_varset(VS)
     ),
     PaymentsTerms#domain_PaymentsServiceTerms.chargebacks.
-
-get_party_client() ->
-    Ctx = hg_context:load(),
-    {hg_context:get_party_client(Ctx), hg_context:get_party_client_context(Ctx)}.
 
 get_provider_chargeback_terms(#domain_PaymentsProvisionTerms{chargebacks = Terms}, _Payment) ->
     Terms.

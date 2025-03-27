@@ -93,8 +93,8 @@ construct_transaction_cashflow(
     Amount,
     PaymentInstitution,
     Context = #{
+        revision := Revision,
         operation := OpType,
-        party := Party,
         shop := Shop,
         varset := VS
     }
@@ -102,7 +102,7 @@ construct_transaction_cashflow(
     MerchantPaymentsTerms1 =
         case maps:get(merchant_terms, Context, undefined) of
             undefined ->
-                TermSet = hg_invoice_utils:compute_shop_terms(Party, Shop, VS),
+                TermSet = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS),
                 TermSet#domain_TermSet.payments;
             MerchantPaymentsTerms0 ->
                 MerchantPaymentsTerms0

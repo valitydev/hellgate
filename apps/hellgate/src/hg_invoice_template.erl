@@ -95,9 +95,12 @@ handle_function_('ComputeTerms', {TplID, _Timestamp, _PartyRevision0}, _Opts) ->
         cost => Cost
     },
     VS = hg_varset:prepare_varset(VS0),
+    Revision = hg_party:get_party_revision(),
+    Party = hg_party:checkout(Tpl#domain_InvoiceTemplate.owner_id, Revision),
+    Shop = hg_party:get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party, Revision),
     hg_invoice_utils:compute_shop_terms(
-        Tpl#domain_InvoiceTemplate.owner_id,
-        Tpl#domain_InvoiceTemplate.shop_id,
+        Revision,
+        Shop,
         VS
     ).
 

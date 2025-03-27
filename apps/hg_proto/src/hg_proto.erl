@@ -39,7 +39,9 @@ get_service(eventsink) ->
 get_service(fault_detector) ->
     {fd_proto_fault_detector_thrift, 'FaultDetector'};
 get_service(limiter) ->
-    {limproto_limiter_thrift, 'Limiter'}.
+    {limproto_limiter_thrift, 'Limiter'};
+get_service(party_config) ->
+    {dmsl_payproc_thrift, 'PartyConfigManagement'}.
 
 -spec get_service_spec(Name :: atom()) -> service_spec().
 get_service_spec(Name) ->
