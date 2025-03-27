@@ -133,7 +133,10 @@ get_payment_info(
     ProxyShop = #proxy_inspector_Shop{
         id = ShopID,
         category = ShopCategory,
-        details = ShopDetails,
+        details = #domain_ShopDetails{
+            name = ShopDetails#domain_Details.name,
+            description = ShopDetails#domain_Details.description
+        },
         location = Location
     },
     ProxyInvoice = #proxy_inspector_Invoice{

@@ -62,7 +62,7 @@
 
 %% Business logic
 
--export([capture/6]).
+-export([capture/5]).
 -export([cancel/2]).
 -export([refund/3]).
 
@@ -813,7 +813,7 @@ collect_partial_refund_varset(undefined) ->
     #{}.
 
 collect_validation_varset(St, Opts) ->
-    Revision = get_payment_revision(get_payment(St)),
+    Revision = get_payment_revision(St),
     collect_validation_varset(get_party(Opts), get_shop(Opts, Revision), get_payment(St), #{}).
 
 collect_validation_varset(Party, Shop, Payment, VS) ->
@@ -825,8 +825,8 @@ collect_validation_varset(Party, Shop, Payment, VS) ->
     }.
 
 collect_validation_varset_(Party, Shop, Currency, VS) ->
-    #domain_Party{id = PartyID} = Party,
-    #domain_Shop{
+    #domain_PartyConfig{id = PartyID} = Party,
+    #domain_ShopConfig{
         id = ShopID,
         category = Category
     } = Shop,
@@ -885,9 +885,9 @@ start_partial_capture(Reason, Cost, Cart, FinalCashflow, Allocation) ->
         ?cash_flow_changed(FinalCashflow)
     ].
 
--spec capture(st(), binary(), cash() | undefined, cart() | undefined, hg_allocation:allocation_prototype(), opts()) ->
+-spec capture(st(), binary(), cash() | undefined, cart() | undefined, opts()) ->
     {ok, result()}.
-capture(St, Reason, Cost, Cart, AllocationPrototype, Opts) ->
+capture(St, Reason, Cost, Cart, Opts) ->
     Payment = get_payment(St),
     _ = assert_capture_cost_currency(Cost, Payment),
     _ = assert_capture_cart(Cost, Cart),
@@ -897,14 +897,11 @@ capture(St, Reason, Cost, Cart, AllocationPrototype, Opts) ->
     Timestamp = get_payment_created_at(Payment),
     VS = collect_validation_varset(St, Opts),
     MerchantTerms = get_merchant_payments_terms(Opts, Revision, Timestamp, VS),
-    CaptureCost = genlib:define(Cost, get_payment_cost(Payment)),
-    #domain_Invoice{allocation = Allocation0} = get_invoice(Opts),
-    Allocation1 = genlib:define(maybe_allocation(AllocationPrototype, CaptureCost, MerchantTerms, Revision, Opts), Allocation0),
     case check_equal_capture_cost_amount(Cost, Payment) of
         true ->
-            total_capture(St, Reason, Cart, Allocation1);
+            total_capture(St, Reason, Cart, undefined);
         false ->
-            partial_capture(St, Reason, Cost, Cart, Opts, MerchantTerms, Timestamp, Allocation1)
+            partial_capture(St, Reason, Cost, Cart, Opts, MerchantTerms, Timestamp, undefined)
     end.
 
 maybe_allocation(undefined, _Cost, _MerchantTerms, _Revision, _Opts) ->
@@ -924,34 +921,9 @@ maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Revision, Opts) ->
             AllocationSelector
         )
     of
-        {ok, A} ->
-            A;
         {error, allocation_not_allowed} ->
-            throw(#payproc_AllocationNotAllowed{});
-        {error, amount_exceeded} ->
-            throw(#payproc_AllocationExceededPaymentAmount{});
-        {error, {invalid_transaction, Transaction, Details}} ->
-            throw(#payproc_AllocationInvalidTransaction{
-                transaction = marshal_transaction(Transaction),
-                reason = marshal_allocation_details(Details)
-            })
+            throw(#payproc_AllocationNotAllowed{})
     end.
-
-marshal_transaction(#domain_AllocationTransaction{} = T) ->
-    {transaction, T};
-marshal_transaction(#domain_AllocationTransactionPrototype{} = TP) ->
-    {transaction_prototype, TP}.
-
-marshal_allocation_details(negative_amount) ->
-    <<"Transaction amount is negative">>;
-marshal_allocation_details(zero_amount) ->
-    <<"Transaction amount is zero">>;
-marshal_allocation_details(target_conflict) ->
-    <<"Transaction with similar target">>;
-marshal_allocation_details(currency_mismatch) ->
-    <<"Transaction currency mismatch">>;
-marshal_allocation_details(payment_institutions_mismatch) ->
-    <<"Transaction target shop Payment Institution mismatch">>.
 
 total_capture(St, Reason, Cart, Allocation) ->
     Payment = get_payment(St),
@@ -1174,31 +1146,7 @@ make_refund(Params, Payment, Revision, CreatedAt, St, Opts) ->
     Refund.
 
 validate_allocation_refund(undefined, _St) ->
-    ok;
-validate_allocation_refund(SubAllocation, St) ->
-    Allocation =
-        case get_allocation(St) of
-            undefined ->
-                throw(#payproc_AllocationNotFound{});
-            A ->
-                A
-        end,
-    case hg_allocation:sub(Allocation, SubAllocation) of
-        {ok, _} ->
-            ok;
-        {error, {invalid_transaction, Transaction, Details}} ->
-            throw(#payproc_AllocationInvalidTransaction{
-                transaction = marshal_transaction(Transaction),
-                reason = marshal_allocation_sub_details(Details)
-            })
-    end.
-
-marshal_allocation_sub_details(negative_amount) ->
-    <<"Transaction amount is negative">>;
-marshal_allocation_sub_details(currency_mismatch) ->
-    <<"Transaction currency mismatch">>;
-marshal_allocation_sub_details(no_transaction_to_sub) ->
-    <<"No transaction to refund">>.
+    ok.
 
 make_refund_cashflow(Refund, Payment, Revision, St, Opts, MerchantTerms, VS, Timestamp) ->
     Route = get_route(St),
@@ -2563,7 +2511,7 @@ get_limit_overflow_routes(Routes, VS, Iter, St) ->
 
 hold_shop_limits(Opts, St) ->
     Payment = get_payment(St),
-    Revision = get_payment_revision(Payment),
+    Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
     Party = get_party(Opts),
     Shop = get_shop(Opts, Revision),
@@ -2572,7 +2520,7 @@ hold_shop_limits(Opts, St) ->
 
 commit_shop_limits(Opts, St) ->
     Payment = get_payment(St),
-    Revision = get_payment_revision(Payment),
+    Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
     Party = get_party(Opts),
     Shop = get_shop(Opts, Revision),
@@ -2581,7 +2529,7 @@ commit_shop_limits(Opts, St) ->
 
 check_shop_limits(Opts, St) ->
     Payment = get_payment(St),
-    Revision = get_payment_revision(Payment),
+    Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
     Party = get_party(Opts),
     Shop = get_shop(Opts, Revision),
@@ -2590,7 +2538,7 @@ check_shop_limits(Opts, St) ->
 
 rollback_shop_limits(Opts, St, Flags) ->
     Payment = get_payment(St),
-    Revision = get_payment_revision(Payment),
+    Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
     Party = get_party(Opts),
     Shop = get_shop(Opts, Revision),
@@ -2787,7 +2735,7 @@ set_repair_scenario(Scenario, St) ->
 -spec construct_payment_info(st(), opts()) -> payment_info().
 construct_payment_info(St, Opts) ->
     Payment = get_payment(St),
-    Revision = get_payment_revision(Payment),
+    Revision = get_payment_revision(St),
     construct_payment_info(
         get_activity(St),
         get_target(St),
@@ -2887,7 +2835,10 @@ construct_proxy_shop(
     #proxy_provider_Shop{
         id = ShopID,
         category = ShopCategory,
-        details = ShopDetails,
+        details = #domain_ShopDetails{
+            name = ShopDetails#domain_Details.name,
+            description = ShopDetails#domain_Details.description
+        },
         location = Location
     }.
 
@@ -2986,7 +2937,7 @@ get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = Payme
 get_varset(St, InitialValue) ->
     Opts = get_opts(St),
     Payment = get_payment(St),
-    Revision = get_payment_revision(Payment),
+    Revision = get_payment_revision(St),
     VS0 = reconstruct_payment_flow(Payment, InitialValue),
     VS1 = collect_validation_varset(get_party(Opts), get_shop(Opts, Revision), Payment, VS0),
     VS1.

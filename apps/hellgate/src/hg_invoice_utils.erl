@@ -103,8 +103,8 @@ any_limit_matches(Cash, {decisions, Decisions}) ->
         Decisions
     ).
 
--spec compute_shop_terms(revision(), shop(), varset()) -> term_set().
-compute_shop_terms(Revision, #domain_ShopConfig{terms = Ref}, Varset) ->
+-spec compute_shop_terms(revision(), shop(), varset() | hg_varset:varset()) -> term_set().
+compute_shop_terms(Revision, #domain_ShopConfig{terms = Ref}, #payproc_Varset{} = Varset) ->
     Args = {Ref, Revision, Varset},
     Opts = hg_woody_wrapper:get_service_options(party_config),
     case hg_woody_wrapper:call(party_config, 'ComputeTerms', Args, Opts) of
@@ -112,7 +112,9 @@ compute_shop_terms(Revision, #domain_ShopConfig{terms = Ref}, Varset) ->
             Terms;
         {exception, Exception} ->
             error(Exception)
-    end.
+    end;
+compute_shop_terms(Revision, Shop, Varset0) ->
+    compute_shop_terms(Revision, Shop, hg_varset:prepare_varset(Varset0)).
 
 validate_currency_(Currency, Currency) ->
     ok;
@@ -128,7 +130,9 @@ get_shop_currency(#domain_ShopConfig{currency_configs = Configs}) when is_map(Co
 -spec get_shop_account(shop()) -> {account_id(), account_id()}.
 get_shop_account(#domain_ShopConfig{currency_configs = Configs}) when is_map(Configs) ->
     %% TODO: fix it when add multi currency support
-    [{_Currency, #domain_ShopCurrencyConfig{settlement = SettlementID, guarantee = GuaranteeID}} | _] = maps:to_list(Configs),
+    [{_Currency, #domain_ShopCurrencyConfig{settlement = SettlementID, guarantee = GuaranteeID}} | _] = maps:to_list(
+        Configs
+    ),
     {SettlementID, GuaranteeID}.
 
 -spec assert_party_unblocked(party()) -> true | no_return().

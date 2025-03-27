@@ -115,7 +115,9 @@ collect_account_map(#{
     collect_external_account_map(Payment, VS, Revision, Map2).
 
 -spec collect_merchant_account_map(currency(), party(), shop(), map()) -> map().
-collect_merchant_account_map(Currency, #domain_PartyConfig{id = PartyID}, #domain_ShopConfig{id = ShopID, currency_configs = Configs}, Acc) ->
+collect_merchant_account_map(
+    Currency, #domain_PartyConfig{id = PartyID}, #domain_ShopConfig{id = ShopID, currency_configs = Configs}, Acc
+) ->
     #{Currency := Config} = Configs,
     Acc#{
         merchant => {PartyID, ShopID},

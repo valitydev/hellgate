@@ -118,7 +118,7 @@ get_payment_opts(#st{invoice = Invoice, party = Party}) ->
         timestamp => hg_datetime:format_now()
     }.
 
--spec get_payment_opts(hg_party:party_revision(), st()) ->
+-spec get_payment_opts(hg_domain:revision(), st()) ->
     hg_invoice_payment:opts().
 get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
     #{
@@ -131,11 +131,11 @@ get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
     hg_machine:id(),
     undefined | hg_machine:id(),
     invoice_params(),
-    allocation(),
+    undefined | allocation(),
     [hg_invoice_mutation:mutation()]
 ) ->
     invoice().
-create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, Allocation, Mutations) ->
+create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, _Allocation, Mutations) ->
     OwnerID = V#payproc_InvoiceParams.party_id,
     ShopID = V#payproc_InvoiceParams.shop_id,
     Cost = V#payproc_InvoiceParams.cost,
@@ -151,8 +151,7 @@ create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, Allocation, Mutations) ->
         context = V#payproc_InvoiceParams.context,
         template_id = InvoiceTplID,
         external_id = V#payproc_InvoiceParams.external_id,
-        client_info = V#payproc_InvoiceParams.client_info,
-        allocation = Allocation
+        client_info = V#payproc_InvoiceParams.client_info
     }).
 
 %%----------------- invoice asserts
@@ -392,12 +391,11 @@ handle_call({{'Invoicing', 'CapturePayment'}, {_InvoiceID, PaymentID, Params}}, 
     #payproc_InvoicePaymentCaptureParams{
         reason = Reason,
         cash = Cash,
-        cart = Cart,
-        allocation = AllocationPrototype
+        cart = Cart
     } = Params,
     PaymentSession = get_payment_session(PaymentID, St),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
-    {ok, {Changes, Action}} = capture_payment(PaymentSession, Reason, Cash, Cart, AllocationPrototype, Opts),
+    {ok, {Changes, Action}} = capture_payment(PaymentSession, Reason, Cash, Cart, Opts),
     #{
         response => ok,
         changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
@@ -504,11 +502,11 @@ set_invoice_timer(?invoice_unpaid(), Action, #st{invoice = #domain_Invoice{due =
 set_invoice_timer(_Status, Action, _St) ->
     Action.
 
-capture_payment(PaymentSession, Reason, undefined, Cart, AllocationPrototype, Opts) when Cart =/= undefined ->
+capture_payment(PaymentSession, Reason, undefined, Cart, Opts) when Cart =/= undefined ->
     Cash = hg_invoice_utils:get_cart_amount(Cart),
-    capture_payment(PaymentSession, Reason, Cash, Cart, AllocationPrototype, Opts);
-capture_payment(PaymentSession, Reason, Cash, Cart, AllocationPrototype, Opts) ->
-    hg_invoice_payment:capture(PaymentSession, Reason, Cash, Cart, AllocationPrototype, Opts).
+    capture_payment(PaymentSession, Reason, Cash, Cart, Opts);
+capture_payment(PaymentSession, Reason, Cash, Cart, Opts) ->
+    hg_invoice_payment:capture(PaymentSession, Reason, Cash, Cart, Opts).
 
 %%
 

@@ -52,17 +52,17 @@
         | currency_mismatch}.
 
 -spec calculate(allocation_prototype(), party(), shop(), cash(), allocation_terms()) ->
-    {ok, allocation()} | {error, calculate_errors()}.
+    {error, calculate_errors()}.
 calculate(AllocationPrototype, Party, Shop, Cost, PaymentAllocationServiceTerms) ->
     case assert_allocatable(AllocationPrototype, PaymentAllocationServiceTerms, Party, Shop, Cost) of
-        ok ->
-            try calculate(AllocationPrototype, Party#domain_PartyConfig.id, Shop#domain_ShopConfig.id, Cost) of
-                Result ->
-                    {ok, Result}
-            catch
-                throw:Error ->
-                    {error, Error}
-            end;
+        % ok ->
+        %     try calculate(AllocationPrototype, Party#domain_PartyConfig.id, Shop#domain_ShopConfig.id, Cost) of
+        %         Result ->
+        %             {ok, Result}
+        %     catch
+        %         throw:Error ->
+        %             {error, Error}
+        %     end;
         {error, Error} ->
             {error, Error}
     end.

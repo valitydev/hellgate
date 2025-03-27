@@ -48,16 +48,14 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     },
     MerchantTerms = hg_invoice_utils:compute_shop_terms(DomainRevision, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
-    AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
-    Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
-    ok = ensure_started(InvoiceID, undefined, InvoiceParams, Allocation, Mutations),
+    ok = ensure_started(InvoiceID, undefined, InvoiceParams, undefined, Mutations),
     get_invoice_state(get_state(InvoiceID));
 handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     DomainRevision = hg_domain:head(),
     InvoiceID = Params#payproc_InvoiceWithTemplateParams.id,
     _ = set_invoicing_meta(InvoiceID),
     TplID = Params#payproc_InvoiceWithTemplateParams.template_id,
-    {Party, Shop, InvoiceParams} = make_invoice_params(Params),
+    {_Party, Shop, InvoiceParams} = make_invoice_params(Params),
     ok = validate_invoice_mutations(InvoiceParams),
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
@@ -66,9 +64,7 @@ handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     },
     MerchantTerms = hg_invoice_utils:compute_shop_terms(DomainRevision, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
-    AllocationPrototype = InvoiceParams#payproc_InvoiceParams.allocation,
-    Allocation = maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop),
-    ok = ensure_started(InvoiceID, TplID, InvoiceParams, Allocation, Mutations),
+    ok = ensure_started(InvoiceID, TplID, InvoiceParams, undefined, Mutations),
     get_invoice_state(get_state(InvoiceID));
 handle_function_('CapturePaymentNew', Args, Opts) ->
     handle_function_('CapturePayment', Args, Opts);
@@ -100,20 +96,6 @@ handle_function_('GetPaymentAdjustment', {InvoiceID, PaymentID, ID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
     hg_invoice_payment:get_adjustment(ID, get_payment_session(PaymentID, St));
-handle_function_('ComputeTerms', {InvoiceID, _PartyRevision0}, _Opts) ->
-    _ = set_invoicing_meta(InvoiceID),
-    St = get_state(InvoiceID),
-    Revision = hg_invoice_payment:get_payment_revision(St),
-    VS = hg_varset:prepare_varset(#{
-        cost => get_cost(St)
-    }),
-    Party = hg_party:checkout(get_party_id(St), Revision),
-    Shop = hg_party:get_shop(get_shop_id(St), Party, Revision),
-    hg_invoice_utils:compute_shop_terms(
-        Revision,
-        Shop,
-        VS
-    );
 handle_function_(Fun, Args, _Opts) when
     Fun =:= 'StartPayment' orelse
         Fun =:= 'RegisterPayment' orelse
@@ -172,49 +154,6 @@ repair(ID, Args) ->
         {error, working} -> erlang:throw(#base_InvalidRequest{errors = [<<"No need to repair">>]});
         {error, Reason} -> erlang:error(Reason)
     end.
-
-maybe_allocation(undefined, _Cost, _MerchantTerms, _Party, _Shop) ->
-    undefined;
-maybe_allocation(AllocationPrototype, Cost, MerchantTerms, Party, Shop) ->
-    PaymentTerms = MerchantTerms#domain_TermSet.payments,
-    AllocationSelector = PaymentTerms#domain_PaymentsServiceTerms.allocations,
-    case
-        hg_allocation:calculate(
-            AllocationPrototype,
-            Party,
-            Shop,
-            Cost,
-            AllocationSelector
-        )
-    of
-        {ok, A} ->
-            A;
-        {error, allocation_not_allowed} ->
-            throw(#payproc_AllocationNotAllowed{});
-        {error, amount_exceeded} ->
-            throw(#payproc_AllocationExceededPaymentAmount{});
-        {error, {invalid_transaction, Transaction, Details}} ->
-            throw(#payproc_AllocationInvalidTransaction{
-                transaction = marshal_transaction(Transaction),
-                reason = marshal_allocation_details(Details)
-            })
-    end.
-
-marshal_transaction(#domain_AllocationTransaction{} = T) ->
-    {transaction, T};
-marshal_transaction(#domain_AllocationTransactionPrototype{} = TP) ->
-    {transaction_prototype, TP}.
-
-marshal_allocation_details(negative_amount) ->
-    <<"Transaction amount is negative">>;
-marshal_allocation_details(zero_amount) ->
-    <<"Transaction amount is zero">>;
-marshal_allocation_details(target_conflict) ->
-    <<"Transaction with similar target">>;
-marshal_allocation_details(currency_mismatch) ->
-    <<"Transaction currency mismatch">>;
-marshal_allocation_details(payment_institutions_mismatch) ->
-    <<"Transaction target shop Payment Institution mismatch">>.
 
 %%----------------- invoice asserts
 
@@ -293,15 +232,6 @@ map_history_error({error, notfound}) ->
     throw(#payproc_InvoiceNotFound{}).
 
 %%
-
-get_party_id(#st{invoice = #domain_Invoice{owner_id = PartyID}}) ->
-    PartyID.
-
-get_shop_id(#st{invoice = #domain_Invoice{shop_id = ShopID}}) ->
-    ShopID.
-
-get_cost(#st{invoice = #domain_Invoice{cost = Cash}}) ->
-    Cash.
 
 get_payment_session(PaymentID, St) ->
     case try_get_payment_session(PaymentID, St) of

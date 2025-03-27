@@ -436,7 +436,8 @@ build_chargeback_final_cash_flow(State, Opts) ->
         route => Route,
         payment_institution => PaymentInst,
         provider => Provider,
-        varset => VS
+        varset => VS,
+        revision => Revision
     },
     AccountMap = hg_accounting:collect_account_map(CollectAccountContext),
     ServiceContext = build_service_cash_flow_context(State),

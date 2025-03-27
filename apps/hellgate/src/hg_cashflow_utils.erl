@@ -121,7 +121,12 @@ construct_provider_cashflow(PaymentInstitution, Context = #{provision_terms := P
 construct_final_cashflow(Cashflow, Context, AccountMap) ->
     hg_cashflow:finalize(Cashflow, Context, AccountMap).
 
-get_cashflow_payment_institution(_Party, #domain_ShopConfig{payment_institution = PaymentInstitutionRef}, VS, Revision) ->
+get_cashflow_payment_institution(
+    _Party,
+    #domain_ShopConfig{payment_institution = PaymentInstitutionRef},
+    VS,
+    Revision
+) ->
     hg_payment_institution:compute_payment_institution(
         PaymentInstitutionRef,
         VS,
