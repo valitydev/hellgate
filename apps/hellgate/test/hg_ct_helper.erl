@@ -141,6 +141,13 @@ start_app(hg_proto = AppName) ->
                         max_connections => 300
                     }
                 },
+                party_config => #{
+                    url => <<"http://party-management:8022/v1/processing/partycfg">>,
+                    transport_opts => #{
+                        pool => party_config,
+                        max_connections => 300
+                    }
+                },
                 proxy_host_provider => #{
                     url => <<"http://hellgate:8022/v1/proxyhost/provider">>,
                     transport_opts => #{
@@ -327,6 +334,7 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type contract_id() :: dmsl_domain_thrift:'ContractID'().
 -type contract_tpl() :: dmsl_domain_thrift:'ContractTemplateRef'().
+-type termset_ref() :: dmsl_domain_thrift:'TermSetHierarchyRef'().
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 -type turnover_limits() :: ordsets:ordset(turnover_limit()).
 -type shop_id() :: dmsl_domain_thrift:'ShopID'().
@@ -350,120 +358,270 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type allocation_prototype() :: dmsl_domain_thrift:'AllocationPrototype'().
 
 -spec create_party(party_id(), party_client()) -> party().
-create_party(PartyID, {Client, Context}) ->
-    case party_client_thrift:create(PartyID, make_party_params(), Client, Context) of
-        Result when Result =:= ok orelse Result =:= {error, #payproc_PartyExists{}} ->
-            {ok, #domain_PartyConfig{id = PartyID} = Party} = party_client_thrift:get(PartyID, Client, Context),
-            Party
-    end.
+create_party(PartyID, _Client) ->
+    % Создаем Party как объект конфигурации
+    PartyConfig = #domain_PartyConfig{
+        id = PartyID,
+        contact_info = #domain_PartyContactInfo{
+            registration_email = <<"test@test.ru">>
+        },
+        created_at = hg_datetime:format_now(),
+        blocking = {unblocked, #domain_Unblocked{
+            reason = <<"">>,
+            since = hg_datetime:format_now()
+        }},
+        suspension = {active, #domain_Active{
+            since = hg_datetime:format_now()
+        }},
+        shops = [],
+        wallets = []
+    },
+    
+    % Вставляем Party в домен
+    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
+        ref = #domain_PartyConfigRef{id = PartyID},
+        data = PartyConfig
+    }}),
+    
+    PartyConfig.
 
 -spec create_shop(
     party_id(),
     category(),
     currency(),
-    contract_tpl(),
-    payment_inst_ref(),
-    party_client()
-) -> shop_id().
-create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, PartyClient) ->
-    Fun = fun(_, Changeset, Client, Context) ->
-        {ok, _Claim} = party_client_thrift:create_claim(PartyID, Changeset, Client, Context),
-        ok
-    end,
-    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, undefined, PartyClient, Fun).
-
--spec create_shop(
-    party_id(),
-    category(),
-    currency(),
-    contract_tpl(),
+    termset_ref(),
     payment_inst_ref(),
     turnover_limits(),
     party_client()
 ) -> shop_id().
-create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, TurnoverLimits, PartyClient) ->
-    Fun = fun(_, Changeset, Client, Context) ->
-        {ok, _Claim} = party_client_thrift:create_claim(PartyID, Changeset, Client, Context),
-        ok
-    end,
-    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, TurnoverLimits, PartyClient, Fun).
-
-create_shop_(
-    PartyID,
-    Category,
-    Currency,
-    TemplateRef,
-    PaymentInstRef,
-    TurnoverLimits0,
-    {Client, Context},
-    CreateShopFun
-) ->
+create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimits, _Client) ->
     ShopID = hg_utils:unique_id(),
-    ContractID = hg_utils:unique_id(),
-    PayoutToolID = hg_utils:unique_id(),
-
-    ShopParams = make_shop_params(Category, ContractID, PayoutToolID),
-    ShopAccountParams = #payproc_ShopAccountParams{currency = ?cur(Currency)},
-
-    ContractParams = make_contract_params(TemplateRef, PaymentInstRef),
-
-    TurnoverLimits1 = genlib:define(TurnoverLimits0, ordsets:new()),
-
-    Changeset = [
-        {contract_modification, #payproc_ContractModificationUnit{
-            id = ContractID,
-            modification = {creation, ContractParams}
+    
+    % Создаем счета с правильным контекстом
+    ok = hg_context:save(hg_context:create()),
+    SettlementID = hg_accounting:create_account(Currency),
+    GuaranteeID = hg_accounting:create_account(Currency),
+    ok = hg_context:cleanup(),
+    
+    % Получаем текущую конфигурацию Party
+    {ok, #domain_PartyConfigObject{data = PartyConfig}} = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+    
+    % Создаем Shop как объект конфигурации
+    ShopConfig = #domain_ShopConfig{
+        id = ShopID,
+        created_at = hg_datetime:format_now(),
+        blocking = {unblocked, #domain_Unblocked{
+            reason = <<"">>,
+            since = hg_datetime:format_now()
         }},
-        ?shop_modification(ShopID, {creation, ShopParams}),
-        ?shop_modification(ShopID, {shop_account_creation, ShopAccountParams}),
-        ?shop_modification(ShopID, {turnover_limits_modification, TurnoverLimits1})
-    ],
-
-    ok = CreateShopFun(PartyID, Changeset, Client, Context),
-
-    {ok, #domain_ShopConfig{id = ShopID}} = party_client_thrift:get_shop(PartyID, ShopID, Client, Context),
+        suspension = {active, #domain_Active{
+            since = hg_datetime:format_now()
+        }},
+        details = #domain_Details{
+            name = <<"Test Shop">>,
+            description = <<"Test description">>
+        },
+        location = {url, <<"www.url.ru">>},
+        category = Category,
+        currency_configs = #{
+            #domain_CurrencyRef{symbolic_code = Currency} => #domain_ShopCurrencyConfig{
+                currency = #domain_CurrencyRef{symbolic_code = Currency},
+                settlement = SettlementID,
+                guarantee = GuaranteeID
+            }
+        },
+        payment_institution = PaymentInstRef,
+        terms = TermsRef,
+        party_id = PartyID,
+        turnover_limits = TurnoverLimits
+    },
+    
+    % Вставляем Shop в домен
+    _ = hg_domain:upsert({shop_config, #domain_ShopConfigObject{
+        ref = #domain_ShopConfigRef{id = ShopID},
+        data = ShopConfig
+    }}),
+    
+    % Обновляем Party, добавляя ссылку на Shop
+    UpdatedPartyConfig = PartyConfig#domain_PartyConfig{
+        shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
+    },
+    
+    % Обновляем Party в домене
+    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
+        ref = #domain_PartyConfigRef{id = PartyID},
+        data = UpdatedPartyConfig
+    }}),
+    
     ShopID.
 
 -spec create_party_and_shop(
     party_id(),
     category(),
     currency(),
-    contract_tpl(),
+    termset_ref(),
     payment_inst_ref(),
     party_client()
 ) -> shop_id().
-create_party_and_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, Client) ->
-    _ = create_party(PartyID, Client),
-    create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, Client).
-
-make_shop_params(Category, ContractID, _PayoutToolID) ->
-    #payproc_ShopParams{
-        category = Category,
-        location = {url, <<>>},
-        details = #domain_ShopDetails{name = <<"Battle Ready Shop">>},
-        contract_id = ContractID
-    }.
-
-make_party_params() ->
-    #payproc_PartyParams{
+create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Client) ->
+    ShopID = hg_utils:unique_id(),
+    
+    % Создаем Party как объект конфигурации
+    PartyConfig = #domain_PartyConfig{
+        id = PartyID,
         contact_info = #domain_PartyContactInfo{
-            registration_email = <<?MODULE_STRING>>
-        }
-    }.
+            registration_email = <<"test@test.ru">>
+        },
+        created_at = hg_datetime:format_now(),
+        blocking = {unblocked, #domain_Unblocked{
+            reason = <<"">>,
+            since = hg_datetime:format_now()
+        }},
+        suspension = {active, #domain_Active{
+            since = hg_datetime:format_now()
+        }},
+        shops = [],
+        wallets = []
+    },
+    
+    % Вставляем Party в домен
+    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
+        ref = #domain_PartyConfigRef{id = PartyID},
+        data = PartyConfig
+    }}),
+    
+    % Создаем счета с правильным контекстом
+    ok = hg_context:save(hg_context:create()),
+    SettlementID = hg_accounting:create_account(Currency),
+    GuaranteeID = hg_accounting:create_account(Currency),
+    ok = hg_context:cleanup(),
+    
+    % Создаем Shop как объект конфигурации
+    ShopConfig = #domain_ShopConfig{
+        id = ShopID,
+        created_at = hg_datetime:format_now(),
+        blocking = {unblocked, #domain_Unblocked{
+            reason = <<"">>,
+            since = hg_datetime:format_now()
+        }},
+        suspension = {active, #domain_Active{
+            since = hg_datetime:format_now()
+        }},
+        details = #domain_Details{
+            name = <<"Test Shop">>,
+            description = <<"Test description">>
+        },
+        location = {url, <<"www.url.ru">>},
+        category = Category,
+        currency_configs = #{
+            #domain_CurrencyRef{symbolic_code = Currency} => #domain_ShopCurrencyConfig{
+                currency = #domain_CurrencyRef{symbolic_code = Currency},
+                settlement = SettlementID,
+                guarantee = GuaranteeID
+            }
+        },
+        terms = TermsRef,
+        payment_institution = PaymentInstRef,
+        party_id = PartyID
+    },
+    
+    % Вставляем Shop в домен
+    _ = hg_domain:upsert({shop_config, #domain_ShopConfigObject{
+        ref = #domain_ShopConfigRef{id = ShopID},
+        data = ShopConfig
+    }}),
+    
+    % Обновляем Party, добавляя ссылку на Shop
+    UpdatedPartyConfig = PartyConfig#domain_PartyConfig{
+        shops = [#domain_ShopConfigRef{id = ShopID}]
+    },
+    
+    % Обновляем Party в домене
+    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
+        ref = #domain_PartyConfigRef{id = PartyID},
+        data = UpdatedPartyConfig
+    }}),
+    
+    ShopID.
+
+-spec create_shop(
+    party_id(),
+    category(),
+    currency(),
+    termset_ref(),
+    payment_inst_ref(),
+    party_client()
+) -> shop_id().
+create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, Client) ->
+    create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, undefined, Client).
 
 -spec create_battle_ready_shop(
     party_id(),
     category(),
     currency(),
-    contract_tpl(),
+    termset_ref(),
     payment_inst_ref(),
     party_client()
 ) -> shop_id().
-create_battle_ready_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, PartyPair) ->
-    Fun = fun(_, Changeset, _, _) ->
-        create_claim(PartyID, Changeset, PartyPair)
-    end,
-    create_shop_(PartyID, Category, Currency, TemplateRef, PaymentInstRef, undefined, PartyPair, Fun).
+create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _PartyPair) ->
+    ShopID = hg_utils:unique_id(),
+    
+    % Получаем текущую конфигурацию Party
+    {ok, #domain_PartyConfigObject{data = PartyConfig}} = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+    
+    % Создаем счета с правильным контекстом
+    ok = hg_context:save(hg_context:create()),
+    SettlementID = hg_accounting:create_account(Currency),
+    GuaranteeID = hg_accounting:create_account(Currency),
+    ok = hg_context:cleanup(),
+    
+    % Создаем Shop как объект конфигурации с дополнительными настройками для боевой среды
+    ShopConfig = #domain_ShopConfig{
+        id = ShopID,
+        created_at = hg_datetime:format_now(),
+        blocking = {unblocked, #domain_Unblocked{
+            reason = <<"">>,
+            since = hg_datetime:format_now()
+        }},
+        suspension = {active, #domain_Active{
+            since = hg_datetime:format_now()
+        }},
+        details = #domain_Details{
+            name = <<"Battle Ready Shop">>,
+            description = <<"Battle Ready Description">>
+        },
+        location = {url, <<"www.battle-ready.ru">>},
+        category = Category,
+        currency_configs = #{
+            #domain_CurrencyRef{symbolic_code = Currency} => #domain_ShopCurrencyConfig{
+                currency = #domain_CurrencyRef{symbolic_code = Currency},
+                settlement = SettlementID,
+                guarantee = GuaranteeID
+            }
+        },
+        payment_institution = PaymentInstRef,
+        terms = TermsRef,
+        party_id = PartyID
+    },
+    
+    % Вставляем Shop в домен
+    _ = hg_domain:upsert({shop_config, #domain_ShopConfigObject{
+        ref = #domain_ShopConfigRef{id = ShopID},
+        data = ShopConfig
+    }}),
+    
+    % Обновляем Party, добавляя ссылку на Shop
+    UpdatedPartyConfig = PartyConfig#domain_PartyConfig{
+        shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
+    },
+    
+    % Обновляем Party в домене
+    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
+        ref = #domain_PartyConfigRef{id = PartyID},
+        data = UpdatedPartyConfig
+    }}),
+    
+    ShopID.
 
 -spec adjust_contract(party_id(), contract_id(), contract_tpl(), party_client()) -> ok.
 adjust_contract(PartyID, ContractID, TemplateRef, Client) ->
@@ -491,38 +649,6 @@ create_claim(PartyID, Changeset, {Client, Context}) ->
         #payproc_Claim{id = ID, revision = Rev} ->
             party_client_thrift:accept_claim(PartyID, ID, Rev, Client, Context)
     end.
-
--spec make_contract_params(
-    contract_tpl() | undefined,
-    payment_inst_ref()
-) -> dmsl_payproc_thrift:'ContractParams'().
-make_contract_params(TemplateRef, PaymentInstitutionRef) ->
-    #payproc_ContractParams{
-        contractor = make_contractor(),
-        template = TemplateRef,
-        payment_institution = PaymentInstitutionRef
-    }.
-
--spec make_contractor() -> dmsl_domain_thrift:'Contractor'().
-make_contractor() ->
-    BankAccount = #domain_RussianBankAccount{
-        account = <<"4276300010908312893">>,
-        bank_name = <<"SomeBank">>,
-        bank_post_account = <<"123129876">>,
-        bank_bik = <<"66642666">>
-    },
-    {legal_entity,
-        {russian_legal_entity, #domain_RussianLegalEntity{
-            registered_name = <<"Hoofs & Horns OJSC">>,
-            registered_number = <<"1234509876">>,
-            inn = <<"1213456789012">>,
-            actual_address = <<"Nezahualcoyotl 109 Piso 8, Centro, 06082, MEXICO">>,
-            post_address = <<"NaN">>,
-            representative_position = <<"Director">>,
-            representative_full_name = <<"Someone">>,
-            representative_document = <<"100$ banknote">>,
-            russian_bank_account = BankAccount
-        }}}.
 
 -spec make_invoice_params(party_id(), shop_id(), binary(), cash()) -> invoice_params().
 make_invoice_params(PartyID, ShopID, Product, Cost) ->

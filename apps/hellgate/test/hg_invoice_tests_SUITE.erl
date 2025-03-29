@@ -536,8 +536,8 @@ init_per_suite(C) ->
     _ = hg_ct_helper:create_party(Party3ID, PartyClient),
     _ = hg_ct_helper:create_party(?PARTYID_EXTERNAL, PartyClient),
 
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
-    Shop2ID = hg_ct_helper:create_party_and_shop(Party2ID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient2),
+    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    Shop2ID = hg_ct_helper:create_party_and_shop(Party2ID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient2),
 
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
@@ -1180,7 +1180,7 @@ payment_limit_success(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
@@ -1200,7 +1200,7 @@ payment_shop_limit_success(C) ->
             domain_revision = dmt_client:get_last_version()
         }
     ],
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
@@ -1221,7 +1221,7 @@ payment_shop_limit_overflow(C) ->
             domain_revision = dmt_client:get_last_version()
         }
     ]),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY + 1,
@@ -1244,7 +1244,7 @@ payment_shop_limit_more_overflow(C) ->
             domain_revision = dmt_client:get_last_version()
         }
     ]),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
@@ -1265,7 +1265,7 @@ payment_routes_limit_values(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     #payproc_Invoice{
@@ -1289,7 +1289,7 @@ register_payment_limit_success(C0) ->
     Client = cfg(client, C0),
     PartyClient = cfg(party_client, C0),
     #{party_id := PartyID} = cfg(limits, C0),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     C1 = [{party_id, PartyID}, {shop_id, ShopID} | C0],
     Route = ?route(?prv(5), ?trm(12)),
     {InvoiceID, PaymentID} = register_invoice_payment(Route, ShopID, Client, C1),
@@ -1304,8 +1304,8 @@ payment_limit_other_shop_success(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID1 = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
-    ShopID2 = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID1 = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopID2 = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
 
@@ -1325,7 +1325,7 @@ payment_limit_overflow(C) ->
     RootUrl = cfg(root_url, C),
     #{party_id := PartyID} = cfg(limits, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
     ?invoice_state(
@@ -1371,7 +1371,7 @@ payment_route_not_found(PaymentTool, Session, C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     Cash = make_cash(10000, <<"RUB">>),
@@ -1394,7 +1394,7 @@ switch_provider_after_limit_overflow(C) ->
     PartyClient = cfg(party_client, C),
     #{party_id_w_several_limits := PartyID} = cfg(limits, C),
     PaymentAmount = 69999,
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
@@ -1426,7 +1426,7 @@ limit_not_found(C) ->
     PartyClient = cfg(party_client, C),
     #{party_id_w_several_limits := PartyID} = cfg(limits, C),
     PaymentAmount = 69999,
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
@@ -1442,7 +1442,7 @@ refund_limit_success(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
@@ -1484,7 +1484,7 @@ payment_partial_capture_limit_success(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(100), make_cash(InitialCost)),
@@ -1550,7 +1550,7 @@ payment_success_ruleset(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
@@ -1839,7 +1839,7 @@ payment_partial_capture_success(C) ->
     Client = cfg(client, C),
     % PartyID = cfg(party_id, C),
     % Shop = hg_party:get_shop(PartyID, cfg(shop_id, C), hg_party:get_party_revision()),
-    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(1), PartyPair),
+    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(100), InitialCost, C),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}),
     % start payment
@@ -1869,7 +1869,7 @@ payment_error_in_cancel_session_does_not_cause_payment_failure(_C) ->
 % Client = cfg(client, C),
 % PartyID = cfg(party_id, C),
 % {PartyClient, Context} = PartyPair = cfg(party_client, C),
-% ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyPair),
+% ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
 % Party = hg_party:get_party(PartyID),
 % #domain_ShopConfig{account = Account} = maps:get(ShopID, Party#domain_PartyConfig.shops),
 % SettlementID = Account#domain_ShopAccount.settlement,
@@ -1895,7 +1895,7 @@ payment_error_in_capture_session_does_not_cause_payment_failure(_C) ->
 % Client = cfg(client, C),
 % PartyID = cfg(party_id, C),
 % {PartyClient, Context} = PartyPair = cfg(party_client, C),
-% ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyPair),
+% ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
 % Amount = 42000,
 % Cost = ?cash(Amount, <<"RUB">>),
 % Party = hg_party:get_party(PartyID),
@@ -1948,7 +1948,7 @@ payment_success_ruleset_provider_available(C) ->
             RootUrl = cfg(root_url, C),
             PartyClient = cfg(party_client, C),
             Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
             InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
             InvoiceID = create_invoice(InvoiceParams, Client),
             ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
@@ -1981,7 +1981,7 @@ route_found_provider_lacking_conversion(C) ->
             RootUrl = cfg(root_url, C),
             PartyClient = cfg(party_client, C),
             Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
             InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
 
             InvoiceID = create_invoice(InvoiceParams, Client),
@@ -2001,7 +2001,7 @@ failed_payment_wo_cascade(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
 
     InvoiceID = create_invoice(InvoiceParams, Client),
@@ -2321,7 +2321,7 @@ payments_w_bank_card_issuer_conditions(C) ->
         cfg(party_id, C),
         ?cat(1),
         <<"RUB">>,
-        ?tmpl(4),
+        ?trms(4),
         ?pinst(1),
         PartyClient
     ),
@@ -2369,7 +2369,7 @@ payments_w_bank_conditions(C) ->
         cfg(party_id, C),
         ?cat(1),
         <<"RUB">>,
-        ?tmpl(4),
+        ?trms(4),
         ?pinst(1),
         PartyClient
     ),
@@ -2658,7 +2658,7 @@ payment_adjustment_w_amount_success(C) ->
 payment_adjustment_refunded_success(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_shop(cfg(party_id, C), ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(cfg(party_id, C), ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 10000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     CashFlow = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
@@ -2696,8 +2696,8 @@ payment_adjustment_chargeback_success(C) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     PartyPair = cfg(party_client, C),
-    % % Контракт на основе шаблона ?tmpl(1)
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyPair),
+    % % Контракт на основе шаблона ?trms(1)
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyPair),
     % Shop = hg_party:get_shop(PartyID, ShopID, PartyClient, , hg_party:get_party_revision()),
     % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(3), PartyPair),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 10000, C),
@@ -2742,7 +2742,7 @@ payment_adjustment_captured_partial(_C) ->
 % PartyID = cfg(party_id, C),
 % PartyPair = cfg(party_client, C),
 % Shop = hg_party:get_shop(PartyID, cfg(shop_id, C), hg_party:get_party_revision()),
-% % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(1), PartyPair),
+% % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
 % InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), InitialCost, C),
 % PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}),
 % % start payment
@@ -2797,7 +2797,7 @@ payment_adjustment_captured_from_failed(_C) ->
 % % PartyID = cfg(party_id, C),
 % % {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
 % Shop = hg_party:get_shop(PartyID, cfg(shop_id, C), hg_party:get_party_revision()),
-% % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(1), PartyPair),
+% % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
 % Amount = 42000,
 % InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(3), Amount, C),
 % PaymentParams = make_scenario_payment_params([temp, temp, temp, temp], ?pmt_sys(<<"visa-ref">>)),
@@ -2871,7 +2871,7 @@ payment_adjustment_failed_from_captured(_C) ->
 % PartyID = cfg(party_id, C),
 % {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
 % Shop = hg_party:get_shop(PartyID, cfg(shop_id, C), hg_party:get_party_revision()),
-% ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(1), PartyPair),
+% ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
 % Amount = 100000,
 % InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
 % %% start payment
@@ -2937,7 +2937,7 @@ payment_adjustment_change_amount_and_captured(C) ->
     % reinit terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
     % reinit merchant fees
-    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(1), PartyPair),
+    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
 
     OriginalAmount = 100000,
     NewAmount = 200000,
@@ -3083,7 +3083,7 @@ payment_adjustment_change_amount_and_refund_all(C) ->
     % Shop = hg_party:get_shop(PartyID, ShopID, hg_party:get_party_revision()),
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
     % reinit merchant fees
-    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(1), PartyPair),
+    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
 
     OriginalAmount = 100000,
     NewAmount = 200000,
@@ -3186,7 +3186,7 @@ status_adjustment_of_partial_refunded_payment(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -3369,7 +3369,7 @@ invalid_payment_w_deprived_party(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     InvoicingClient = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
     InvoiceID = create_invoice(InvoiceParams, InvoicingClient),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, InvoicingClient),
@@ -3384,7 +3384,7 @@ external_account_posting(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     InvoicingClient = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyClient),
+    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubbermoss">>, make_due_date(10), make_cash(42000)),
     InvoiceID = create_invoice(InvoiceParams, InvoicingClient),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, InvoicingClient),
@@ -3421,7 +3421,7 @@ terminal_cashflow_overrides_provider(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     InvoicingClient = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(4), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyClient),
+    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(4), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubbermoss">>, make_due_date(10), make_cash(42000)),
     InvoiceID = create_invoice(InvoiceParams, InvoicingClient),
     _ = next_change(InvoiceID, InvoicingClient),
@@ -3462,7 +3462,7 @@ create_chargeback_not_allowed(C) ->
         cfg(party_id, C),
         ?cat(1),
         <<"RUB">>,
-        ?tmpl(1),
+        ?trms(1),
         ?pinst(1),
         PartyClient
     ),
@@ -3482,7 +3482,7 @@ create_chargeback_provision_terms_not_allowed(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4463,7 +4463,7 @@ start_chargeback(C, Cost, CBParams, PaymentParams) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
     PartyPair = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyPair),
+    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
     Party = hg_party:get_party(PartyID),
     Shop = hg_party:get_shop(ShopID, Party),
     {SettlementID, _} = hg_invoice_utils:get_shop_account(Shop),
@@ -4483,7 +4483,7 @@ start_chargeback_partial_capture(C, Cost, Partial, CBParams, PmtSys) ->
     PartyID = cfg(party_id, C),
     Cash = ?cash(Partial, <<"RUB">>),
     PartyPair = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?tmpl(2), ?pinst(2), PartyPair),
+    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
     Party = hg_party:get_party(PartyID),
     Shop = hg_party:get_shop(ShopID, Party),
     {SettlementID, _} = hg_invoice_utils:get_shop_account(Shop),
@@ -4597,7 +4597,7 @@ payment_refund_success(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4641,7 +4641,7 @@ payment_refund_failure(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4692,7 +4692,7 @@ payment_refund_success_after_callback(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4748,7 +4748,7 @@ deadline_doesnt_affect_payment_refund(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4795,7 +4795,7 @@ payment_manual_refund(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4846,7 +4846,7 @@ payment_partial_refunds_success(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4930,7 +4930,7 @@ invalid_currency_payment_partial_refund(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -4949,7 +4949,7 @@ invalid_amount_payment_partial_refund(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -5008,7 +5008,7 @@ cant_start_simultaneous_partial_refunds(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -5048,7 +5048,7 @@ ineligible_payment_partial_refund(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(100),
+        ?trms(100),
         ?pinst(2),
         PartyClient
     ),
@@ -5066,7 +5066,7 @@ retry_temporary_unavailability_refund(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -5103,7 +5103,7 @@ payment_refund_id_types(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),
@@ -5152,7 +5152,7 @@ registered_payment_manual_refund_success(C) ->
         cfg(party_id, C),
         ?cat(2),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         cfg(party_client, C)
     ),
@@ -5337,7 +5337,7 @@ invalid_permit_partial_capture_in_service(C) ->
         cfg(party_id, C),
         ?cat(1),
         <<"RUB">>,
-        ?tmpl(6),
+        ?trms(5),
         ?pinst(1),
         PartyClient
     ),
@@ -5622,7 +5622,7 @@ repair_fail_routing_succeeded(C) ->
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
 
     %% Invoice
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
@@ -5680,7 +5680,7 @@ repair_fail_cash_flow_building_succeeded(C) ->
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PartyClient = cfg(party_client, C),
     #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
 
     %% Invoice
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
@@ -5935,9 +5935,9 @@ construct_authorization_failure() ->
 init_allocation_group(C) ->
     PartyID = cfg(party_id, C),
     PartyClient = cfg(party_client, C),
-    ShopID1 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
-    ShopID2 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
-    ShopID3 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID1 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopID2 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopID3 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     [
         {shop_id_1, ShopID1},
         {shop_id_2, ShopID2},
@@ -6408,7 +6408,7 @@ init_route_cascading_group(C1) ->
     C2 = [
         {
             {shop_id, ?PAYMENT_CASCADE_SUCCESS_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient)
+            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
         },
         {
             {shop_id, ?PAYMENT_BIG_CASCADE_SUCCESS_ID},
@@ -6434,7 +6434,7 @@ init_route_cascading_group(C1) ->
         },
         {
             {shop_id, ?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient)
+            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
         },
         {
             {shop_id, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID},
@@ -6449,11 +6449,11 @@ init_route_cascading_group(C1) ->
         },
         {
             {shop_id, ?PAYMENT_CASCADE_FAILURES_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient)
+            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
         },
         {
             {shop_id, ?PAYMENT_CASCADE_DEADLINE_FAILURES_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient)
+            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
         },
         {
             {shop_id, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID},
@@ -7781,7 +7781,7 @@ payment_tool_contact_info_passed_to_provider(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
@@ -8442,7 +8442,7 @@ payment_risk_score_check(Cat, C, PmtSys) ->
         cfg(party_id, C),
         ?cat(Cat),
         <<"RUB">>,
-        ?tmpl(2),
+        ?trms(2),
         ?pinst(2),
         PartyClient
     ),

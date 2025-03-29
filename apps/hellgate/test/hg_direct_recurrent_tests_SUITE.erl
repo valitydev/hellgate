@@ -105,8 +105,8 @@ init_per_suite(C) ->
     PartyID = hg_utils:unique_id(),
     PartyClient = {party_client:create_client(), party_client:create_context()},
     _ = hg_ct_helper:create_party(PartyID, PartyClient),
-    Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
-    Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     C1 = [

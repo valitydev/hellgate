@@ -140,6 +140,12 @@ start_invoice(ShopID, Product, Due, Amount, C) ->
 
 -spec start_invoice(_, _, _, _, _, _) -> _.
 start_invoice(PartyID, ShopID, Product, Due, Amount, Client) ->
+    % Проверяем, что Party и Shop существуют как объекты конфигурации
+    #domain_PartyConfig{} =
+        hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+    #domain_ShopConfig{} =
+        hg_domain:get({shop_config, #domain_ShopConfigRef{id = ShopID}}),
+    % Создаем параметры инвойса с помощью существующих функций
     InvoiceParams = make_invoice_params(PartyID, ShopID, Product, Due, make_cash(Amount)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),

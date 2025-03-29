@@ -85,7 +85,7 @@ init_per_suite(C) ->
     _ = hg_domain:insert(construct_domain_fixture()),
     PartyID = hg_utils:unique_id(),
     PartyClient = {party_client:create_client(), party_client:create_context()},
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     ok = hg_invoice_helper:start_kv_store(SupPid),
