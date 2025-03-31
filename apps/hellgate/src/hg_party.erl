@@ -23,7 +23,7 @@
 
 %% Interface
 
--spec get_party(party_id()) -> party() | no_return().
+-spec get_party(party_id()) -> party() | hg_domain:get_error().
 get_party(PartyID) ->
     checkout(PartyID, get_party_revision()).
 
@@ -31,16 +31,25 @@ get_party(PartyID) ->
 get_party_revision() ->
     hg_domain:head().
 
--spec checkout(party_id(), hg_domain:revision()) -> party() | no_return().
+-spec checkout(party_id(), hg_domain:revision()) -> party() | hg_domain:get_error().
 checkout(PartyID, Revision) ->
-    hg_domain:get(Revision, {party_config, #domain_PartyConfigRef{id = PartyID}}).
+    case hg_domain:get(Revision, {party_config, #domain_PartyConfigRef{id = PartyID}}) of
+        {object_not_found, _Ref} = Error ->
+            Error;
+        Party ->
+            Party
+    end.
 
--spec get_shop(shop_id(), party()) -> shop().
+-spec get_shop(shop_id(), party()) -> shop() | undefined.
 get_shop(ID, Party) ->
     get_shop(ID, Party, get_party_revision()).
 
--spec get_shop(shop_id(), party(), hg_domain:revision()) -> shop().
+-spec get_shop(shop_id(), party(), hg_domain:revision()) -> shop() | undefined.
 get_shop(ID, #domain_PartyConfig{shops = Shops}, Revision) ->
     Ref = #domain_ShopConfigRef{id = ID},
-    true = lists:member(Ref, Shops),
-    hg_domain:get(Revision, {shop_config, Ref}).
+    case lists:member(Ref, Shops) of
+        true ->
+            hg_domain:get(Revision, {shop_config, Ref});
+        false ->
+            undefined
+    end.

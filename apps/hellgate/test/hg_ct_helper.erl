@@ -11,8 +11,16 @@
 
 -export([create_party_and_shop/6]).
 -export([create_party/2]).
+-export([suspend_party/1]).
+-export([activate_party/1]).
+-export([block_party/1]).
+-export([unblock_party/1]).
 -export([create_shop/6]).
 -export([create_shop/7]).
+-export([suspend_shop/1]).
+-export([activate_shop/1]).
+-export([block_shop/1]).
+-export([unblock_shop/1]).
 -export([create_battle_ready_shop/6]).
 -export([adjust_contract/4]).
 
@@ -366,24 +374,85 @@ create_party(PartyID, _Client) ->
             registration_email = <<"test@test.ru">>
         },
         created_at = hg_datetime:format_now(),
-        blocking = {unblocked, #domain_Unblocked{
-            reason = <<"">>,
-            since = hg_datetime:format_now()
-        }},
-        suspension = {active, #domain_Active{
-            since = hg_datetime:format_now()
-        }},
+        blocking =
+            {unblocked, #domain_Unblocked{
+                reason = <<"">>,
+                since = hg_datetime:format_now()
+            }},
+        suspension =
+            {active, #domain_Active{
+                since = hg_datetime:format_now()
+            }},
         shops = [],
         wallets = []
     },
-    
+
     % Вставляем Party в домен
-    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
-        ref = #domain_PartyConfigRef{id = PartyID},
-        data = PartyConfig
-    }}),
-    
+    _ = hg_domain:upsert(
+        {party_config, #domain_PartyConfigObject{
+            ref = #domain_PartyConfigRef{id = PartyID},
+            data = PartyConfig
+        }}
+    ),
+
     PartyConfig.
+
+-spec suspend_party(party_id()) -> ok.
+suspend_party(PartyID) ->
+    change_party(PartyID, fun(PartyConfig) ->
+        PartyConfig#domain_PartyConfig{
+            suspension =
+                {suspended, #domain_Suspended{
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+-spec activate_party(party_id()) -> ok.
+activate_party(PartyID) ->
+    change_party(PartyID, fun(PartyConfig) ->
+        PartyConfig#domain_PartyConfig{
+            suspension =
+                {active, #domain_Active{
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+-spec block_party(party_id()) -> ok.
+block_party(PartyID) ->
+    change_party(PartyID, fun(PartyConfig) ->
+        PartyConfig#domain_PartyConfig{
+            blocking =
+                {blocked, #domain_Blocked{
+                    reason = <<"test">>,
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+-spec unblock_party(party_id()) -> ok.
+unblock_party(PartyID) ->
+    change_party(PartyID, fun(PartyConfig) ->
+        PartyConfig#domain_PartyConfig{
+            blocking =
+                {unblocked, #domain_Unblocked{
+                    reason = <<"test">>,
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+change_party(PartyID, Fun) ->
+    PartyConfig0 = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+    PartyConfig1 = Fun(PartyConfig0),
+    _ = hg_domain:upsert(
+        {party_config, #domain_PartyConfigObject{
+            ref = #domain_PartyConfigRef{id = PartyID},
+            data = PartyConfig1
+        }}
+    ),
+    ok.
 
 -spec create_shop(
     party_id(),
@@ -391,32 +460,31 @@ create_party(PartyID, _Client) ->
     currency(),
     termset_ref(),
     payment_inst_ref(),
-    turnover_limits(),
+    undefined | turnover_limits(),
     party_client()
 ) -> shop_id().
 create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimits, _Client) ->
     ShopID = hg_utils:unique_id(),
-    
+
     % Создаем счета с правильным контекстом
     ok = hg_context:save(hg_context:create()),
     SettlementID = hg_accounting:create_account(Currency),
     GuaranteeID = hg_accounting:create_account(Currency),
     ok = hg_context:cleanup(),
-    
-    % Получаем текущую конфигурацию Party
-    {ok, #domain_PartyConfigObject{data = PartyConfig}} = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
-    
+
     % Создаем Shop как объект конфигурации
     ShopConfig = #domain_ShopConfig{
         id = ShopID,
         created_at = hg_datetime:format_now(),
-        blocking = {unblocked, #domain_Unblocked{
-            reason = <<"">>,
-            since = hg_datetime:format_now()
-        }},
-        suspension = {active, #domain_Active{
-            since = hg_datetime:format_now()
-        }},
+        blocking =
+            {unblocked, #domain_Unblocked{
+                reason = <<"">>,
+                since = hg_datetime:format_now()
+            }},
+        suspension =
+            {active, #domain_Active{
+                since = hg_datetime:format_now()
+            }},
         details = #domain_Details{
             name = <<"Test Shop">>,
             description = <<"Test description">>
@@ -435,25 +503,79 @@ create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimit
         party_id = PartyID,
         turnover_limits = TurnoverLimits
     },
-    
+
     % Вставляем Shop в домен
-    _ = hg_domain:upsert({shop_config, #domain_ShopConfigObject{
-        ref = #domain_ShopConfigRef{id = ShopID},
-        data = ShopConfig
-    }}),
-    
-    % Обновляем Party, добавляя ссылку на Shop
-    UpdatedPartyConfig = PartyConfig#domain_PartyConfig{
-        shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
-    },
-    
-    % Обновляем Party в домене
-    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
-        ref = #domain_PartyConfigRef{id = PartyID},
-        data = UpdatedPartyConfig
-    }}),
-    
+    _ = hg_domain:upsert(
+        {shop_config, #domain_ShopConfigObject{
+            ref = #domain_ShopConfigRef{id = ShopID},
+            data = ShopConfig
+        }}
+    ),
+
+    change_party(PartyID, fun(PartyConfig) ->
+        PartyConfig#domain_PartyConfig{
+            shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
+        }
+    end),
+
     ShopID.
+
+-spec suspend_shop(shop_id()) -> ok.
+suspend_shop(ShopID) ->
+    change_shop(ShopID, fun(ShopConfig) ->
+        ShopConfig#domain_ShopConfig{
+            suspension =
+                {suspended, #domain_Suspended{
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+-spec activate_shop(shop_id()) -> ok.
+activate_shop(ShopID) ->
+    change_shop(ShopID, fun(ShopConfig) ->
+        ShopConfig#domain_ShopConfig{
+            suspension =
+                {active, #domain_Active{
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+-spec block_shop(party_id()) -> ok.
+block_shop(ShopID) ->
+    change_shop(ShopID, fun(ShopConfig) ->
+        ShopConfig#domain_ShopConfig{
+            blocking =
+                {blocked, #domain_Blocked{
+                    reason = <<"test">>,
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+-spec unblock_shop(party_id()) -> ok.
+unblock_shop(ShopID) ->
+    change_shop(ShopID, fun(ShopConfig) ->
+        ShopConfig#domain_ShopConfig{
+            blocking =
+                {unblocked, #domain_Unblocked{
+                    reason = <<"test">>,
+                    since = hg_datetime:format_now()
+                }}
+        }
+    end).
+
+change_shop(ShopID, Fun) ->
+    ShopConfig0 = hg_domain:get({shop_config, #domain_ShopConfigRef{id = ShopID}}),
+    ShopConfig1 = Fun(ShopConfig0),
+    _ = hg_domain:upsert(
+        {shop_config, #domain_ShopConfigObject{
+            ref = #domain_ShopConfigRef{id = ShopID},
+            data = ShopConfig1
+        }}
+    ),
+    ok.
 
 -spec create_party_and_shop(
     party_id(),
@@ -465,7 +587,7 @@ create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimit
 ) -> shop_id().
 create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Client) ->
     ShopID = hg_utils:unique_id(),
-    
+
     % Создаем Party как объект конфигурации
     PartyConfig = #domain_PartyConfig{
         id = PartyID,
@@ -473,40 +595,46 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
             registration_email = <<"test@test.ru">>
         },
         created_at = hg_datetime:format_now(),
-        blocking = {unblocked, #domain_Unblocked{
-            reason = <<"">>,
-            since = hg_datetime:format_now()
-        }},
-        suspension = {active, #domain_Active{
-            since = hg_datetime:format_now()
-        }},
+        blocking =
+            {unblocked, #domain_Unblocked{
+                reason = <<"">>,
+                since = hg_datetime:format_now()
+            }},
+        suspension =
+            {active, #domain_Active{
+                since = hg_datetime:format_now()
+            }},
         shops = [],
         wallets = []
     },
-    
+
     % Вставляем Party в домен
-    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
-        ref = #domain_PartyConfigRef{id = PartyID},
-        data = PartyConfig
-    }}),
-    
+    _ = hg_domain:upsert(
+        {party_config, #domain_PartyConfigObject{
+            ref = #domain_PartyConfigRef{id = PartyID},
+            data = PartyConfig
+        }}
+    ),
+
     % Создаем счета с правильным контекстом
     ok = hg_context:save(hg_context:create()),
     SettlementID = hg_accounting:create_account(Currency),
     GuaranteeID = hg_accounting:create_account(Currency),
     ok = hg_context:cleanup(),
-    
+
     % Создаем Shop как объект конфигурации
     ShopConfig = #domain_ShopConfig{
         id = ShopID,
         created_at = hg_datetime:format_now(),
-        blocking = {unblocked, #domain_Unblocked{
-            reason = <<"">>,
-            since = hg_datetime:format_now()
-        }},
-        suspension = {active, #domain_Active{
-            since = hg_datetime:format_now()
-        }},
+        blocking =
+            {unblocked, #domain_Unblocked{
+                reason = <<"">>,
+                since = hg_datetime:format_now()
+            }},
+        suspension =
+            {active, #domain_Active{
+                since = hg_datetime:format_now()
+            }},
         details = #domain_Details{
             name = <<"Test Shop">>,
             description = <<"Test description">>
@@ -524,24 +652,21 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
         payment_institution = PaymentInstRef,
         party_id = PartyID
     },
-    
+
     % Вставляем Shop в домен
-    _ = hg_domain:upsert({shop_config, #domain_ShopConfigObject{
-        ref = #domain_ShopConfigRef{id = ShopID},
-        data = ShopConfig
-    }}),
-    
-    % Обновляем Party, добавляя ссылку на Shop
-    UpdatedPartyConfig = PartyConfig#domain_PartyConfig{
-        shops = [#domain_ShopConfigRef{id = ShopID}]
-    },
-    
-    % Обновляем Party в домене
-    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
-        ref = #domain_PartyConfigRef{id = PartyID},
-        data = UpdatedPartyConfig
-    }}),
-    
+    _ = hg_domain:upsert(
+        {shop_config, #domain_ShopConfigObject{
+            ref = #domain_ShopConfigRef{id = ShopID},
+            data = ShopConfig
+        }}
+    ),
+
+    change_party(PartyID, fun(PartyConfig0) ->
+        PartyConfig0#domain_PartyConfig{
+            shops = [#domain_ShopConfigRef{id = ShopID}]
+        }
+    end),
+
     ShopID.
 
 -spec create_shop(
@@ -565,27 +690,27 @@ create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, Client) ->
 ) -> shop_id().
 create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _PartyPair) ->
     ShopID = hg_utils:unique_id(),
-    
-    % Получаем текущую конфигурацию Party
-    {ok, #domain_PartyConfigObject{data = PartyConfig}} = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
-    
+    PartyConfig = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+
     % Создаем счета с правильным контекстом
     ok = hg_context:save(hg_context:create()),
     SettlementID = hg_accounting:create_account(Currency),
     GuaranteeID = hg_accounting:create_account(Currency),
     ok = hg_context:cleanup(),
-    
+
     % Создаем Shop как объект конфигурации с дополнительными настройками для боевой среды
     ShopConfig = #domain_ShopConfig{
         id = ShopID,
         created_at = hg_datetime:format_now(),
-        blocking = {unblocked, #domain_Unblocked{
-            reason = <<"">>,
-            since = hg_datetime:format_now()
-        }},
-        suspension = {active, #domain_Active{
-            since = hg_datetime:format_now()
-        }},
+        blocking =
+            {unblocked, #domain_Unblocked{
+                reason = <<"">>,
+                since = hg_datetime:format_now()
+            }},
+        suspension =
+            {active, #domain_Active{
+                since = hg_datetime:format_now()
+            }},
         details = #domain_Details{
             name = <<"Battle Ready Shop">>,
             description = <<"Battle Ready Description">>
@@ -603,24 +728,21 @@ create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, 
         terms = TermsRef,
         party_id = PartyID
     },
-    
+
     % Вставляем Shop в домен
-    _ = hg_domain:upsert({shop_config, #domain_ShopConfigObject{
-        ref = #domain_ShopConfigRef{id = ShopID},
-        data = ShopConfig
-    }}),
-    
-    % Обновляем Party, добавляя ссылку на Shop
-    UpdatedPartyConfig = PartyConfig#domain_PartyConfig{
-        shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
-    },
-    
-    % Обновляем Party в домене
-    _ = hg_domain:upsert({party_config, #domain_PartyConfigObject{
-        ref = #domain_PartyConfigRef{id = PartyID},
-        data = UpdatedPartyConfig
-    }}),
-    
+    _ = hg_domain:upsert(
+        {shop_config, #domain_ShopConfigObject{
+            ref = #domain_ShopConfigRef{id = ShopID},
+            data = ShopConfig
+        }}
+    ),
+
+    change_party(PartyID, fun(PartyConfig0) ->
+        PartyConfig0#domain_PartyConfig{
+            shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
+        }
+    end),
+
     ShopID.
 
 -spec adjust_contract(party_id(), contract_id(), contract_tpl(), party_client()) -> ok.

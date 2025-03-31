@@ -65,12 +65,18 @@ validate_cash_range(_) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid cost range">>]}).
 
 -spec assert_party_operable(party()) -> party().
+assert_party_operable({object_not_found, _}) ->
+    throw(#payproc_PartyNotFound{});
 assert_party_operable(V) ->
     _ = assert_party_unblocked(V),
     _ = assert_party_active(V),
     V.
 
 -spec assert_shop_operable(shop()) -> shop().
+assert_shop_operable({object_not_found, _}) ->
+    throw(#payproc_ShopNotFound{});
+assert_shop_operable(undefined) ->
+    throw(#payproc_ShopNotFound{});
 assert_shop_operable(V) ->
     _ = assert_shop_unblocked(V),
     _ = assert_shop_active(V),
