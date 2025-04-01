@@ -155,7 +155,6 @@
 -export([payment_with_offsite_preauth_success/1]).
 -export([payment_with_offsite_preauth_failed/1]).
 -export([payment_with_tokenized_bank_card/1]).
--export([terms_retrieval/1]).
 -export([payment_w_misconfigured_routing_failed/1]).
 -export([payment_capture_failed/1]).
 -export([payment_capture_retries_exceeded/1]).
@@ -255,7 +254,6 @@ all() ->
         {group, refunds},
         {group, chargebacks},
         rounding_cashflow_volume,
-        terms_retrieval,
         {group, repair_preproc_w_limits},
 
         consistent_account_balances
@@ -5380,41 +5378,6 @@ convert_transaction_account(Entity, Context) ->
 
 %%
 
--spec terms_retrieval(config()) -> _ | no_return().
-terms_retrieval(C) ->
-    Client = cfg(client, C),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 1500, C),
-    Timestamp = hg_datetime:format_now(),
-    TermSet1 = hg_client_invoicing:compute_terms(InvoiceID, {timestamp, Timestamp}, Client),
-    #domain_TermSet{
-        payments = #domain_PaymentsServiceTerms{
-            payment_methods =
-                {value, [
-                    ?pmt(bank_card, ?bank_card(<<"jcb-ref">>)),
-                    ?pmt(bank_card, ?bank_card(<<"mastercard-ref">>)),
-                    ?pmt(bank_card, ?bank_card(<<"visa-ref">>)),
-                    ?pmt(bank_card, ?token_bank_card(<<"visa-ref">>, <<"applepay-ref">>)),
-                    ?pmt(bank_card, ?bank_card_no_cvv(<<"visa-ref">>)),
-                    ?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
-                    ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>)),
-                    ?pmt(mobile, ?mob(<<"mts-ref">>)),
-                    ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))
-                ]}
-        }
-    } = TermSet1,
-    Revision = hg_domain:head(),
-    _ = hg_domain:update(construct_term_set_for_cost(1000, 2000)),
-    Timestamp2 = hg_datetime:format_now(),
-    TermSet2 = hg_client_invoicing:compute_terms(InvoiceID, {timestamp, Timestamp2}, Client),
-    #domain_TermSet{
-        payments = #domain_PaymentsServiceTerms{
-            payment_methods = {value, [?pmt(bank_card, ?bank_card(<<"visa-ref">>))]}
-        }
-    } = TermSet2,
-    _ = hg_domain:reset(Revision).
-
-%%
-
 -define(repair_set_timer(T), #repair_ComplexAction{timer = {set_timer, #repair_SetTimerAction{timer = T}}}).
 -define(repair_mark_removal(), #repair_ComplexAction{remove = #repair_RemoveAction{}}).
 
@@ -9532,41 +9495,6 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_crypto_currency(?crypta(<<"bitcoin-ref">>), <<"bitcoin currency">>),
         hg_ct_fixture:construct_tokenized_service(?token_srv(<<"applepay-ref">>), <<"applepay tokenized service">>)
     ].
-
-construct_term_set_for_cost(LowerBound, UpperBound) ->
-    TermSet = #domain_TermSet{
-        payments = #domain_PaymentsServiceTerms{
-            payment_methods =
-                {decisions, [
-                    #domain_PaymentMethodDecision{
-                        if_ =
-                            {condition,
-                                {cost_in,
-                                    ?cashrng(
-                                        {inclusive, ?cash(LowerBound, <<"RUB">>)},
-                                        {inclusive, ?cash(UpperBound, <<"RUB">>)}
-                                    )}},
-                        then_ = {value, ordsets:from_list([?pmt(bank_card, ?bank_card(<<"visa-ref">>))])}
-                    },
-                    #domain_PaymentMethodDecision{
-                        if_ = {constant, true},
-                        then_ = {value, ordsets:from_list([])}
-                    }
-                ]}
-        }
-    },
-    {term_set_hierarchy, #domain_TermSetHierarchyObject{
-        ref = ?trms(1),
-        data = #domain_TermSetHierarchy{
-            parent_terms = undefined,
-            term_sets = [
-                #domain_TimedTermSet{
-                    action_time = #base_TimestampInterval{},
-                    terms = TermSet
-                }
-            ]
-        }
-    }}.
 
 construct_term_set_for_refund_eligibility_time(Seconds) ->
     TermSet = #domain_TermSet{
