@@ -228,7 +228,7 @@
     varset := hg_varset:varset(),
     revision := hg_domain:revision(),
     merchant_terms => dmsl_domain_thrift:'PaymentsServiceTerms'(),
-    allocation => hg_allocation:allocation()
+    allocation => hg_allocation:allocation() | undefined
 }.
 
 %%

@@ -466,11 +466,9 @@ change_party(PartyID, Fun) ->
 create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimits, _Client) ->
     ShopID = hg_utils:unique_id(),
 
-    % Создаем счета с правильным контекстом
-    ok = hg_context:save(hg_context:create()),
+    % Создаем счета
     SettlementID = hg_accounting:create_account(Currency),
     GuaranteeID = hg_accounting:create_account(Currency),
-    ok = hg_context:cleanup(),
 
     % Создаем Shop как объект конфигурации
     ShopConfig = #domain_ShopConfig{
@@ -616,11 +614,9 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
         }}
     ),
 
-    % Создаем счета с правильным контекстом
-    ok = hg_context:save(hg_context:create()),
+    % Создаем счета
     SettlementID = hg_accounting:create_account(Currency),
     GuaranteeID = hg_accounting:create_account(Currency),
-    ok = hg_context:cleanup(),
 
     % Создаем Shop как объект конфигурации
     ShopConfig = #domain_ShopConfig{
@@ -692,11 +688,9 @@ create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, 
     ShopID = hg_utils:unique_id(),
     PartyConfig = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
 
-    % Создаем счета с правильным контекстом
-    ok = hg_context:save(hg_context:create()),
+    % Создаем счета
     SettlementID = hg_accounting:create_account(Currency),
     GuaranteeID = hg_accounting:create_account(Currency),
-    ok = hg_context:cleanup(),
 
     % Создаем Shop как объект конфигурации с дополнительными настройками для боевой среды
     ShopConfig = #domain_ShopConfig{

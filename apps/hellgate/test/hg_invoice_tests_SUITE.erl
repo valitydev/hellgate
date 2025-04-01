@@ -8,7 +8,6 @@
 -include("hg_ct_invoice.hrl").
 -include_lib("damsel/include/dmsl_repair_thrift.hrl").
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
--include_lib("hellgate/include/allocation.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 
 -include_lib("stdlib/include/assert.hrl").
@@ -187,10 +186,6 @@
 
 -export([consistent_account_balances/1]).
 
--export([allocation_create_invoice/1]).
--export([allocation_capture_payment/1]).
--export([allocation_refund_payment/1]).
-
 -export([payment_cascade_success/1]).
 -export([payment_cascade_fail_wo_route_candidates/1]).
 -export([payment_cascade_success_w_refund/1]).
@@ -291,8 +286,6 @@ groups() ->
             {group, adhoc_repairs},
 
             {group, repair_scenarios},
-
-            {group, allocation},
 
             {group, route_cascading},
 
@@ -478,11 +471,6 @@ groups() ->
             repair_fail_routing_succeeded,
             repair_fail_cash_flow_building_succeeded
         ]},
-        {allocation, [parallel], [
-            allocation_create_invoice,
-            allocation_capture_payment,
-            allocation_refund_payment
-        ]},
         {route_cascading, [parallel], [
             payment_cascade_success,
             payment_cascade_fail_wo_route_candidates,
@@ -536,8 +524,10 @@ init_per_suite(C) ->
     _ = hg_ct_helper:create_party(Party3ID, PartyClient),
     _ = hg_ct_helper:create_party(?PARTYID_EXTERNAL, PartyClient),
 
+    ok = hg_context:save(hg_context:create()),
     ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
     Shop2ID = hg_ct_helper:create_party_and_shop(Party2ID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient2),
+    ok = hg_context:cleanup(),
 
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
@@ -654,8 +644,6 @@ init_per_group(operation_limits, C) ->
     init_operation_limits_group(C);
 init_per_group(repair_preproc_w_limits, C) ->
     init_operation_limits_group(C);
-init_per_group(allocation, C) ->
-    init_allocation_group(C);
 init_per_group(_, C) ->
     C.
 
@@ -841,7 +829,6 @@ invalid_invoice_currency(C) ->
 
 -spec invalid_party_status(config()) -> test_return().
 invalid_party_status(C) ->
-    {PartyClient, Context} = cfg(party_client, C),
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
@@ -849,27 +836,26 @@ invalid_party_status(C) ->
     TplID = create_invoice_tpl(C),
     InvoiceParamsWithTpl = hg_ct_helper:make_invoice_params_tpl(TplID),
 
-    ok = party_client_thrift:suspend(PartyID, PartyClient, Context),
+    ok = hg_ct_helper:suspend_party(PartyID),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = party_client_thrift:activate(PartyID, PartyClient, Context),
+    ok = hg_ct_helper:activate_party(PartyID),
 
-    ok = party_client_thrift:block(PartyID, <<"BLOOOOCK">>, PartyClient, Context),
+    ok = hg_ct_helper:block_party(PartyID),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = party_client_thrift:unblock(PartyID, <<"UNBLOOOCK">>, PartyClient, Context).
+    ok = hg_ct_helper:unblock_party(PartyID).
 
 -spec invalid_shop_status(config()) -> test_return().
 invalid_shop_status(C) ->
-    {PartyClient, Context} = cfg(party_client, C),
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
     PartyID = cfg(party_id, C),
@@ -877,23 +863,23 @@ invalid_shop_status(C) ->
     TplID = create_invoice_tpl(C),
     InvoiceParamsWithTpl = hg_ct_helper:make_invoice_params_tpl(TplID),
 
-    ok = party_client_thrift:suspend_shop(PartyID, ShopID, PartyClient, Context),
+    ok = hg_ct_helper:suspend_shop(ShopID),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = party_client_thrift:activate_shop(PartyID, ShopID, PartyClient, Context),
+    ok = hg_ct_helper:activate_shop(ShopID),
 
-    ok = party_client_thrift:block_shop(PartyID, ShopID, <<"BLOOOOCK">>, PartyClient, Context),
+    ok = hg_ct_helper:block_shop(ShopID),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = party_client_thrift:unblock_shop(PartyID, ShopID, <<"UNBLOOOCK">>, PartyClient, Context).
+    ok = hg_ct_helper:unblock_shop(ShopID).
 
 -spec invalid_invoice_template_cost(config()) -> _ | no_return().
 invalid_invoice_template_cost(C) ->
@@ -4515,38 +4501,35 @@ start_chargeback_partial_capture(C, Cost, Partial, CBParams, PmtSys) ->
 invalid_refund_party_status(C) ->
     Client = cfg(client, C),
     PartyID = cfg(party_id, C),
-    {PartyClient, Context} = cfg(party_client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    ok = party_client_thrift:suspend(PartyID, PartyClient, Context),
+    ok = hg_ct_helper:suspend_party(PartyID),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = party_client_thrift:activate(PartyID, PartyClient, Context),
-    ok = party_client_thrift:block(PartyID, <<"BLOOOOCK">>, PartyClient, Context),
+    ok = hg_ct_helper:activate_party(PartyID),
+    ok = hg_ct_helper:block_party(PartyID),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = party_client_thrift:unblock(PartyID, <<"UNBLOOOCK">>, PartyClient, Context).
+    ok = hg_ct_helper:unblock_party(PartyID).
 
 -spec invalid_refund_shop_status(config()) -> _ | no_return().
 invalid_refund_shop_status(C) ->
     Client = cfg(client, C),
     ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    {PartyClient, Context} = cfg(party_client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    ok = party_client_thrift:suspend_shop(PartyID, ShopID, PartyClient, Context),
+    ok = hg_ct_helper:suspend_shop(ShopID),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = party_client_thrift:activate_shop(PartyID, ShopID, PartyClient, Context),
-    ok = party_client_thrift:block_shop(PartyID, ShopID, <<"BLOOOOCK">>, PartyClient, Context),
+    ok = hg_ct_helper:activate_shop(ShopID),
+    ok = hg_ct_helper:block_shop(ShopID),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = party_client_thrift:unblock_shop(PartyID, ShopID, <<"UNBLOOOCK">>, PartyClient, Context).
+    ok = hg_ct_helper:unblock_shop(ShopID).
 
 -spec payment_refund_idempotency(config()) -> _ | no_return().
 payment_refund_idempotency(C) ->
@@ -5932,362 +5915,6 @@ construct_authorization_failure() ->
 
 %%
 
-init_allocation_group(C) ->
-    PartyID = cfg(party_id, C),
-    PartyClient = cfg(party_client, C),
-    ShopID1 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    ShopID2 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    ShopID3 = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    [
-        {shop_id_1, ShopID1},
-        {shop_id_2, ShopID2},
-        {shop_id_3, ShopID3}
-        | C
-    ].
-
--spec allocation_create_invoice(config()) -> _ | no_return().
-allocation_create_invoice(C) ->
-    Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID0 = cfg(shop_id, C),
-    ShopID1 = cfg(shop_id_1, C),
-    ShopID2 = cfg(shop_id_2, C),
-    ShopID3 = cfg(shop_id_3, C),
-    InvoiceID = hg_utils:unique_id(),
-    Cart = ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(30, <<"RUB">>))]),
-    AllocationPrototype = ?allocation_prototype([
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID1),
-            ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>)),
-            ?allocation_trx_details(Cart)
-        ),
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID2),
-            ?allocation_trx_prototype_body_total(
-                ?cash(30, <<"RUB">>),
-                ?allocation_trx_prototype_fee_fixed(?cash(10, <<"RUB">>))
-            ),
-            ?allocation_trx_details(Cart)
-        ),
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID3),
-            ?allocation_trx_prototype_body_total(
-                ?cash(30, <<"RUB">>),
-                ?allocation_trx_prototype_fee_share(15, 100)
-            ),
-            ?allocation_trx_details(Cart)
-        )
-    ]),
-    InvoiceParams0 = make_invoice_params(
-        PartyID,
-        ShopID0,
-        <<"rubberduck">>,
-        make_due_date(10),
-        make_cash(90, <<"RUB">>),
-        AllocationPrototype
-    ),
-    InvoiceParams1 = InvoiceParams0#payproc_InvoiceParams{
-        id = InvoiceID
-    },
-    Invoice1 = hg_client_invoicing:create(InvoiceParams1, Client),
-    #payproc_Invoice{invoice = DomainInvoice} = Invoice1,
-    #domain_Invoice{
-        id = InvoiceID,
-        allocation = ?allocation(AllocationTrxs)
-    } = DomainInvoice,
-    [
-        ?allocation_trx(
-            <<"1">>,
-            ?allocation_trx_target_shop(PartyID, ShopID1),
-            ?cash(30, <<"RUB">>),
-            ?allocation_trx_details(Cart)
-        ),
-        ?allocation_trx(
-            <<"2">>,
-            ?allocation_trx_target_shop(PartyID, ShopID2),
-            ?cash(20, <<"RUB">>),
-            ?allocation_trx_details(Cart),
-            ?allocation_trx_body_total(
-                ?allocation_trx_target_shop(PartyID, ShopID0),
-                ?cash(30, <<"RUB">>),
-                ?cash(10, <<"RUB">>)
-            )
-        ),
-        ?allocation_trx(
-            <<"3">>,
-            ?allocation_trx_target_shop(PartyID, ShopID3),
-            ?cash(25, <<"RUB">>),
-            ?allocation_trx_details(Cart),
-            ?allocation_trx_body_total(
-                ?allocation_trx_target_shop(PartyID, ShopID0),
-                ?cash(30, <<"RUB">>),
-                ?cash(5, <<"RUB">>),
-                ?allocation_trx_fee_share(15, 100)
-            )
-        ),
-        ?allocation_trx(
-            <<"4">>,
-            ?allocation_trx_target_shop(PartyID, ShopID0),
-            ?cash(15, <<"RUB">>)
-        )
-    ] = lists:sort(AllocationTrxs).
-
--spec allocation_capture_payment(config()) -> _ | no_return().
-allocation_capture_payment(C) ->
-    Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID0 = cfg(shop_id, C),
-    ShopID1 = cfg(shop_id_1, C),
-    ShopID2 = cfg(shop_id_2, C),
-    ShopID3 = cfg(shop_id_3, C),
-    InvoiceID = hg_utils:unique_id(),
-    Cart = ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(30, <<"RUB">>))]),
-    AllocationPrototype = ?allocation_prototype([
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID1),
-            ?allocation_trx_prototype_body_amount(?cash(3000, <<"RUB">>)),
-            ?allocation_trx_details(Cart)
-        ),
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID2),
-            ?allocation_trx_prototype_body_total(
-                ?cash(3000, <<"RUB">>),
-                ?allocation_trx_prototype_fee_fixed(?cash(1000, <<"RUB">>))
-            ),
-            ?allocation_trx_details(Cart)
-        ),
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID3),
-            ?allocation_trx_prototype_body_total(
-                ?cash(3000, <<"RUB">>),
-                ?allocation_trx_prototype_fee_share(15, 100)
-            ),
-            ?allocation_trx_details(Cart)
-        )
-    ]),
-    InvoiceParams0 = make_invoice_params(
-        PartyID,
-        ShopID0,
-        <<"rubberduck">>,
-        make_due_date(10),
-        make_cash(9000, <<"RUB">>),
-        AllocationPrototype
-    ),
-    InvoiceParams1 = InvoiceParams0#payproc_InvoiceParams{
-        id = InvoiceID
-    },
-    InvoiceID = create_invoice(InvoiceParams1, Client),
-    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client),
-    ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, <<"ok">>, Client),
-    #payproc_InvoicePayment{
-        allocation = ?allocation(FinalAllocationTrxs)
-    } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
-    ?assertMatch(
-        [
-            ?allocation_trx(
-                <<"1">>,
-                ?allocation_trx_target_shop(PartyID, ShopID1),
-                ?cash(3000, <<"RUB">>),
-                ?allocation_trx_details(Cart)
-            ),
-            ?allocation_trx(
-                <<"2">>,
-                ?allocation_trx_target_shop(PartyID, ShopID2),
-                ?cash(2000, <<"RUB">>),
-                ?allocation_trx_details(Cart),
-                ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(PartyID, ShopID0),
-                    ?cash(3000, <<"RUB">>),
-                    ?cash(1000, <<"RUB">>)
-                )
-            ),
-            ?allocation_trx(
-                <<"3">>,
-                ?allocation_trx_target_shop(PartyID, ShopID3),
-                ?cash(2550, <<"RUB">>),
-                ?allocation_trx_details(Cart),
-                ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(PartyID, ShopID0),
-                    ?cash(3000, <<"RUB">>),
-                    ?cash(450, <<"RUB">>),
-                    ?allocation_trx_fee_share(15, 100)
-                )
-            ),
-            ?allocation_trx(
-                <<"4">>,
-                ?allocation_trx_target_shop(PartyID, ShopID0),
-                ?cash(1450, <<"RUB">>)
-            )
-        ],
-        lists:sort(FinalAllocationTrxs)
-    ).
-
--spec allocation_refund_payment(config()) -> _ | no_return().
-allocation_refund_payment(C) ->
-    Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID0 = cfg(shop_id, C),
-    ShopID1 = cfg(shop_id_1, C),
-    ShopID2 = cfg(shop_id_2, C),
-    ShopID3 = cfg(shop_id_3, C),
-    InvoiceID = hg_utils:unique_id(),
-    Cart = ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(30, <<"RUB">>))]),
-    AllocationPrototype = ?allocation_prototype([
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID1),
-            ?allocation_trx_prototype_body_amount(?cash(3000, <<"RUB">>)),
-            ?allocation_trx_details(Cart)
-        ),
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID2),
-            ?allocation_trx_prototype_body_total(
-                ?cash(3000, <<"RUB">>),
-                ?allocation_trx_prototype_fee_fixed(?cash(1000, <<"RUB">>))
-            ),
-            ?allocation_trx_details(Cart)
-        ),
-        ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(PartyID, ShopID3),
-            ?allocation_trx_prototype_body_total(
-                ?cash(3000, <<"RUB">>),
-                ?allocation_trx_prototype_fee_share(15, 100)
-            ),
-            ?allocation_trx_details(Cart)
-        )
-    ]),
-    InvoiceParams0 = make_invoice_params(
-        PartyID,
-        ShopID0,
-        <<"rubberduck">>,
-        make_due_date(10),
-        make_cash(9000, <<"RUB">>),
-        AllocationPrototype
-    ),
-    InvoiceParams1 = InvoiceParams0#payproc_InvoiceParams{
-        id = InvoiceID
-    },
-    InvoiceID = create_invoice(InvoiceParams1, Client),
-    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client),
-    ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, <<"ok">>, Client),
-    #payproc_InvoicePayment{
-        allocation = ?allocation(CapturedAllocationTrxs)
-    } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
-    ?assertMatch(
-        [
-            ?allocation_trx(
-                <<"1">>,
-                ?allocation_trx_target_shop(PartyID, ShopID1),
-                ?cash(3000, <<"RUB">>),
-                ?allocation_trx_details(Cart)
-            ),
-            ?allocation_trx(
-                <<"2">>,
-                ?allocation_trx_target_shop(PartyID, ShopID2),
-                ?cash(2000, <<"RUB">>),
-                ?allocation_trx_details(Cart),
-                ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(PartyID, ShopID0),
-                    ?cash(3000, <<"RUB">>),
-                    ?cash(1000, <<"RUB">>)
-                )
-            ),
-            ?allocation_trx(
-                <<"3">>,
-                ?allocation_trx_target_shop(PartyID, ShopID3),
-                ?cash(2550, <<"RUB">>),
-                ?allocation_trx_details(Cart),
-                ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(PartyID, ShopID0),
-                    ?cash(3000, <<"RUB">>),
-                    ?cash(450, <<"RUB">>),
-                    ?allocation_trx_fee_share(15, 100)
-                )
-            ),
-            ?allocation_trx(
-                <<"4">>,
-                ?allocation_trx_target_shop(PartyID, ShopID0),
-                ?cash(1450, <<"RUB">>)
-            )
-        ],
-        lists:sort(CapturedAllocationTrxs)
-    ),
-
-    RefundAllocationPrototype =
-        ?allocation_prototype([
-            ?allocation_trx_prototype(
-                ?allocation_trx_target_shop(PartyID, ShopID1),
-                ?allocation_trx_prototype_body_amount(?cash(3000, <<"RUB">>))
-            )
-        ]),
-    RefundParams0 = make_refund_params(
-        3000,
-        <<"RUB">>,
-        undefined,
-        RefundAllocationPrototype
-    ),
-    RefundID = <<"1">>,
-    RefundParams1 = RefundParams0#payproc_InvoicePaymentRefundParams{
-        id = RefundID
-    },
-    Refund0 =
-        ?refund_id(RefundID) =
-        hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
-
-    PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID, Client),
-    PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID, Client),
-    PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
-    % check refund completed
-    Refund1 = Refund0#domain_InvoicePaymentRefund{status = ?refund_succeeded()},
-    Refund1 = hg_client_invoicing:get_payment_refund(InvoiceID, PaymentID, RefundID, Client),
-    #domain_InvoicePaymentRefund{
-        allocation = ?allocation([
-            ?allocation_trx(
-                <<"1">>,
-                ?allocation_trx_target_shop(PartyID, ShopID1),
-                ?cash(3000, <<"RUB">>)
-            )
-        ])
-    } = Refund1,
-    #payproc_InvoicePayment{
-        allocation = ?allocation(FinalAllocationTrxs)
-    } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
-    [
-        ?allocation_trx(
-            <<"2">>,
-            ?allocation_trx_target_shop(PartyID, ShopID2),
-            ?cash(2000, <<"RUB">>),
-            ?allocation_trx_details(Cart),
-            ?allocation_trx_body_total(
-                ?allocation_trx_target_shop(PartyID, ShopID0),
-                ?cash(3000, <<"RUB">>),
-                ?cash(1000, <<"RUB">>)
-            )
-        ),
-        ?allocation_trx(
-            <<"3">>,
-            ?allocation_trx_target_shop(PartyID, ShopID3),
-            ?cash(2550, <<"RUB">>),
-            ?allocation_trx_details(Cart),
-            ?allocation_trx_body_total(
-                ?allocation_trx_target_shop(PartyID, ShopID0),
-                ?cash(3000, <<"RUB">>),
-                ?cash(450, <<"RUB">>),
-                ?allocation_trx_fee_share(15, 100)
-            )
-        ),
-        ?allocation_trx(
-            <<"4">>,
-            ?allocation_trx_target_shop(PartyID, ShopID0),
-            ?cash(1450, <<"RUB">>)
-        )
-    ] = lists:sort(FinalAllocationTrxs).
-
-%%
-
 -spec consistent_account_balances(config()) -> test_return().
 consistent_account_balances(C) ->
     Fun = fun(AccountID, Comment) ->
@@ -6329,7 +5956,18 @@ consistent_account_balances(C) ->
 -define(PAYMENT_CASCADE_LIMIT_OVERFLOW_ID, 1000).
 
 cascade_fixture_pre_shop_create(Revision, C) ->
-    payment_big_cascade_success_fixture_pre(Revision, C) ++
+    [
+        {bank, #domain_BankObject{
+            ref = ?bank(1),
+            data = #domain_Bank{
+                name = <<"TEST BANK">>,
+                description = <<"TEST BANK">>,
+                bins = ordsets:from_list([<<"42424242">>]),
+                binbase_id_patterns = ordsets:from_list([<<"TEST*BANK">>])
+            }
+        }}
+    ] ++
+        payment_big_cascade_success_fixture_pre(Revision, C) ++
         payment_cascade_limit_overflow_fixture_pre(Revision, C) ++
         payment_cascade_fail_ui_fixture_pre(Revision, C) ++
         payment_cascade_fail_wo_route_candidates_fixture_pre(Revision, C) ++
@@ -6416,7 +6054,7 @@ init_route_cascading_group(C1) ->
                 PartyID,
                 ?cat(1),
                 <<"RUB">>,
-                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID)),
+                ?trms(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID)),
                 ?pinst(1),
                 PartyClient
             )
@@ -6427,7 +6065,7 @@ init_route_cascading_group(C1) ->
                 PartyID,
                 ?cat(1),
                 <<"RUB">>,
-                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID)),
+                ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID)),
                 ?pinst(1),
                 PartyClient
             )
@@ -6442,7 +6080,7 @@ init_route_cascading_group(C1) ->
                 PartyID,
                 ?cat(1),
                 <<"RUB">>,
-                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID)),
+                ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID)),
                 ?pinst(1),
                 PartyClient
             )
@@ -6461,7 +6099,7 @@ init_route_cascading_group(C1) ->
                 PartyID,
                 ?cat(1),
                 <<"RUB">>,
-                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID)),
+                ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID)),
                 ?pinst(1),
                 PartyClient
             )
@@ -6472,7 +6110,7 @@ init_route_cascading_group(C1) ->
                 PartyID,
                 ?cat(1),
                 <<"RUB">>,
-                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
+                ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
                 ?pinst(1),
                 PartyClient
             )
@@ -6483,7 +6121,7 @@ init_route_cascading_group(C1) ->
                 PartyID,
                 ?cat(1),
                 <<"RUB">>,
-                ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
+                ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
                 ?pinst(1),
                 PartyClient
             )
@@ -7852,10 +7490,6 @@ make_invoice_params(PartyID, ShopID, Product, Cost) ->
 make_invoice_params(PartyID, ShopID, Product, Due, Cost) ->
     hg_ct_helper:make_invoice_params(PartyID, ShopID, Product, Due, Cost).
 
-make_invoice_params(PartyID, ShopID, Product, Due, Cost, AllocationPrototype) ->
-    InvoiceID = hg_utils:unique_id(),
-    hg_ct_helper:make_invoice_params(InvoiceID, PartyID, ShopID, Product, Due, Cost, AllocationPrototype).
-
 make_cash(Amount) ->
     hg_invoice_helper:make_cash(Amount).
 
@@ -8000,14 +7634,6 @@ make_refund_params(Amount, Currency, Cart) ->
         reason = <<"ZANOZED">>,
         cash = make_cash(Amount, Currency),
         cart = Cart
-    }.
-
-make_refund_params(Amount, Currency, Cart, Allocation) ->
-    #payproc_InvoicePaymentRefundParams{
-        reason = <<"ZANOZED">>,
-        cash = make_cash(Amount, Currency),
-        cart = Cart,
-        allocation = Allocation
     }.
 
 make_adjustment_params() ->
