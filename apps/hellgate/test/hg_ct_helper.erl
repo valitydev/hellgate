@@ -17,6 +17,7 @@
 -export([unblock_party/1]).
 -export([create_shop/6]).
 -export([create_shop/7]).
+-export([shop_set_terms/2]).
 -export([suspend_shop/1]).
 -export([activate_shop/1]).
 -export([block_shop/1]).
@@ -517,6 +518,14 @@ create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimit
     end),
 
     ShopID.
+
+-spec shop_set_terms(shop_id(), _) -> ok.
+shop_set_terms(ShopID, TermsRef) ->
+    change_shop(ShopID, fun(ShopConfig) ->
+        ShopConfig#domain_ShopConfig{
+            terms = TermsRef
+        }
+    end).
 
 -spec suspend_shop(shop_id()) -> ok.
 suspend_shop(ShopID) ->
