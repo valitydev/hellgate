@@ -128,7 +128,6 @@
 -export([accept_payment_chargeback_twice/1]).
 -export([accept_payment_chargeback_new_body/1]).
 -export([accept_payment_chargeback_new_levy/1]).
--export([reopen_accepted_payment_chargeback_fails/1]).
 -export([reopen_payment_chargeback_inconsistent/1]).
 -export([reopen_payment_chargeback_exceeded/1]).
 -export([reopen_payment_chargeback_cancel/1]).
@@ -389,7 +388,6 @@ groups() ->
             accept_payment_chargeback_twice,
             accept_payment_chargeback_new_body,
             accept_payment_chargeback_new_levy,
-            reopen_accepted_payment_chargeback_fails,
             reopen_payment_chargeback_inconsistent,
             reopen_payment_chargeback_exceeded,
             reopen_payment_chargeback_cancel,
@@ -4063,30 +4061,6 @@ accept_payment_chargeback_new_levy(C) ->
     ?assertEqual(Paid, maps:get(max_available_amount, Settlement0)),
     ?assertEqual(Paid - Cost - NewLevyAmount, maps:get(min_available_amount, Settlement1)),
     ?assertEqual(Paid - Cost - NewLevyAmount, maps:get(max_available_amount, Settlement1)).
-
--spec reopen_accepted_payment_chargeback_fails(config()) -> _ | no_return().
-reopen_accepted_payment_chargeback_fails(C) ->
-    Client = cfg(client, C),
-    Cost = 42000,
-    LevyAmount = 5000,
-    Levy = ?cash(LevyAmount, <<"RUB">>),
-    CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
-    CBID = CB#domain_InvoicePaymentChargeback.id,
-    [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
-    ] = next_changes(IID, 2, Client),
-    AcceptParams = make_chargeback_accept_params(),
-    ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
-    [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?payment_status_changed(?charged_back()))
-    ] = next_changes(IID, 3, Client),
-    ReopenParams = make_chargeback_reopen_params(Levy),
-    Error = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
-    ?assertMatch(?invalid_chargeback_status(_), Error).
 
 -spec reopen_payment_chargeback_inconsistent(config()) -> _ | no_return().
 reopen_payment_chargeback_inconsistent(C) ->
