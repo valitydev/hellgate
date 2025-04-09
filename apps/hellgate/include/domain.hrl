@@ -51,18 +51,6 @@
     {payment_resource, #domain_PaymentResourcePayer{}}
 ).
 
--define(customer_payer(CustomerID, CustomerBindingID, RecurrentPaytoolID, PaymentTool, ContactInfo),
-    {customer, #domain_CustomerPayer{
-        customer_id = CustomerID,
-        customer_binding_id = CustomerBindingID,
-        rec_payment_tool_id = RecurrentPaytoolID,
-        payment_tool = PaymentTool,
-        contact_info = ContactInfo
-    }}
-).
-
--define(customer_payer(), {customer, #domain_CustomerPayer{}}).
-
 -define(recurrent_payer(PaymentTool, Parent, ContactInfo),
     {recurrent, #domain_RecurrentPayer{
         payment_tool = PaymentTool,

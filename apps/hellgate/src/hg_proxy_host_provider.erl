@@ -28,8 +28,6 @@
     term() | no_return().
 handle_function('ProcessPaymentCallback', {Tag, Callback}, _) ->
     handle_callback_result(hg_invoice:process_callback(Tag, {provider, Callback}));
-handle_function('ProcessRecurrentTokenCallback', {Tag, Callback}, _) ->
-    handle_callback_result(hg_recurrent_paytool:process_callback(Tag, {provider, Callback}));
 handle_function('GetPayment', {Tag}, _) ->
     case hg_machine_tag:get_binding(hg_invoice:namespace(), Tag) of
         {ok, PaymentID, InvoiceID} ->

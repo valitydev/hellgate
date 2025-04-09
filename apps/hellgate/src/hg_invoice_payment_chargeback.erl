@@ -80,7 +80,7 @@
     hg_invoice_payment:st().
 
 -type party() ::
-    dmsl_domain_thrift:'Party'().
+    dmsl_domain_thrift:'PartyConfig'().
 
 -type invoice() ::
     dmsl_domain_thrift:'Invoice'().
@@ -283,7 +283,7 @@ do_create(Opts, CreateParams = ?chargeback_params(Levy, Body, _Reason)) ->
     Route = get_opts_route(Opts),
     Payment = get_opts_payment(Opts),
     ShopID = get_invoice_shop_id(Invoice),
-    Shop = hg_party:get_shop(ShopID, Party),
+    Shop = hg_party:get_shop(ShopID, Party, Revision),
     VS = collect_validation_varset(Party, Shop, Payment, Body),
     PaymentsTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     ProviderTerms = get_provider_chargeback_terms(PaymentsTerms, Payment),
@@ -291,7 +291,6 @@ do_create(Opts, CreateParams = ?chargeback_params(Levy, Body, _Reason)) ->
     _ = validate_currency(Body, Payment),
     _ = validate_currency(Levy, Payment),
     _ = validate_body_amount(Body, get_opts_payment_state(Opts)),
-    _ = validate_contract_active(get_contract(Party, Shop)),
     _ = validate_service_terms(ServiceTerms),
     _ = validate_eligibility_time(ServiceTerms),
     _ = validate_provider_terms(ProviderTerms),
@@ -359,7 +358,6 @@ finalise(State = #chargeback_st{target_status = Status}, Action, Opts) when
 -spec build_chargeback(opts(), create_params(), revision(), timestamp()) -> chargeback() | no_return().
 build_chargeback(Opts, Params = ?chargeback_params(Levy, Body, Reason), Revision, CreatedAt) ->
     Revision = hg_domain:head(),
-    PartyRevision = get_opts_party_revision(Opts),
     #domain_InvoicePaymentChargeback{
         id = Params#payproc_InvoicePaymentChargebackParams.id,
         levy = Levy,
@@ -368,7 +366,6 @@ build_chargeback(Opts, Params = ?chargeback_params(Levy, Body, Reason), Revision
         stage = ?chargeback_stage_chargeback(),
         status = ?chargeback_status_pending(),
         domain_revision = Revision,
-        party_revision = PartyRevision,
         reason = Reason
     }.
 
@@ -420,7 +417,7 @@ build_chargeback_final_cash_flow(State, Opts) ->
     Route = get_opts_route(Opts),
     Party = get_opts_party(Opts),
     ShopID = get_invoice_shop_id(Invoice),
-    Shop = hg_party:get_shop(ShopID, Party),
+    Shop = hg_party:get_shop(ShopID, Party, Revision),
     VS = collect_validation_varset(Party, Shop, Payment, Body),
     ServiceTerms = get_merchant_chargeback_terms(Party, Shop, VS, Revision, CreatedAt),
     PaymentsTerms = hg_routing:get_payment_terms(Route, VS, Revision),
@@ -428,7 +425,7 @@ build_chargeback_final_cash_flow(State, Opts) ->
     ServiceCashFlow = get_chargeback_service_cash_flow(ServiceTerms),
     ProviderCashFlow = get_chargeback_provider_cash_flow(ProviderTerms),
     ProviderFees = collect_chargeback_provider_fees(ProviderTerms),
-    PaymentInstitutionRef = get_payment_institution_ref(get_contract(Party, Shop)),
+    PaymentInstitutionRef = Shop#domain_ShopConfig.payment_institution,
     PaymentInst = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
     Provider = get_route_provider(Route, Revision),
     CollectAccountContext = #{
@@ -481,26 +478,13 @@ collect_chargeback_provider_fees(#domain_PaymentChargebackProvisionTerms{fees = 
 collect_chargeback_provider_fees(#domain_PaymentChargebackProvisionTerms{fees = {value, Fees}}) ->
     Fees#domain_Fees.fees.
 
-get_merchant_chargeback_terms(#domain_Party{id = PartyId, revision = PartyRevision}, Shop, VS, Revision, Timestamp) ->
-    {Client, Context} = get_party_client(),
-    {ok, #domain_TermSet{payments = PaymentsTerms}} = party_client_thrift:compute_contract_terms(
-        PartyId,
-        Shop#domain_Shop.contract_id,
-        Timestamp,
-        {revision, PartyRevision},
+get_merchant_chargeback_terms(_Party, Shop, VS, Revision, _Timestamp) ->
+    #domain_TermSet{payments = PaymentsTerms} = hg_invoice_utils:compute_shop_terms(
         Revision,
-        hg_varset:prepare_contract_terms_varset(VS),
-        Client,
-        Context
+        Shop,
+        hg_varset:prepare_varset(VS)
     ),
     PaymentsTerms#domain_PaymentsServiceTerms.chargebacks.
-
-get_contract(Party, #domain_Shop{contract_id = ContractID}) ->
-    hg_party:get_contract(ContractID, Party).
-
-get_party_client() ->
-    Ctx = hg_context:load(),
-    {hg_context:get_party_client(Ctx), hg_context:get_party_client_context(Ctx)}.
 
 get_provider_chargeback_terms(#domain_PaymentsProvisionTerms{chargebacks = Terms}, _Payment) ->
     Terms.
@@ -529,11 +513,11 @@ construct_chargeback_plan_id(State, Opts) ->
     ]).
 
 collect_validation_varset(Party, Shop, Payment, Body) ->
-    #domain_Party{id = PartyID} = Party,
-    #domain_Shop{
+    #domain_InvoicePayment{cost = #domain_Cash{currency = Currency}} = Payment,
+    #domain_PartyConfig{id = PartyID} = Party,
+    #domain_ShopConfig{
         id = ShopID,
-        category = Category,
-        account = #domain_ShopAccount{currency = Currency}
+        category = Category
     } = Shop,
     #{
         party_id => PartyID,
@@ -564,11 +548,6 @@ validate_service_terms(undefined) ->
 validate_provider_terms(ProviderTerms) ->
     _ = get_chargeback_provider_cash_flow(ProviderTerms),
     ok.
-
-validate_contract_active(#domain_Contract{status = {active, _}}) ->
-    ok;
-validate_contract_active(#domain_Contract{status = Status}) ->
-    throw(#payproc_InvalidContractStatus{status = Status}).
 
 validate_body_amount(undefined, _PaymentState) ->
     ok;
@@ -734,16 +713,8 @@ get_route_provider(#domain_PaymentRoute{provider = ProviderRef}, Revision) ->
 
 %%
 
-get_payment_institution_ref(Contract) ->
-    Contract#domain_Contract.payment_institution.
-
-%%
-
 get_opts_party(#{party := Party}) ->
     Party.
-
-get_opts_party_revision(#{party := Party}) ->
-    Party#domain_Party.revision.
 
 get_opts_invoice(#{invoice := Invoice}) ->
     Invoice.
@@ -772,8 +743,6 @@ get_payment_tool(#domain_InvoicePayment{payer = Payer}) ->
 
 get_payer_payment_tool(?payment_resource_payer(PaymentResource, _ContactInfo)) ->
     get_resource_payment_tool(PaymentResource);
-get_payer_payment_tool(?customer_payer(_CustomerID, _, _, PaymentTool, _)) ->
-    PaymentTool;
 get_payer_payment_tool(?recurrent_payer(PaymentTool, _, _)) ->
     PaymentTool.
 

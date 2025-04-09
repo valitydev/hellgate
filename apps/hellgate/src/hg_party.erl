@@ -1,12 +1,3 @@
-%% References:
-%%  * https://github.com/rbkmoney/coredocs/blob/529bc03/docs/domain/entities/party.md
-%%  * https://github.com/rbkmoney/coredocs/blob/529bc03/docs/domain/entities/merchant.md
-%%  * https://github.com/rbkmoney/coredocs/blob/529bc03/docs/domain/entities/contract.md
-
-%% @TODO
-%% * Deal with default shop services (will need to change thrift-protocol as well)
-%% * Access check before shop creation is weird (think about adding context)
-
 -module(hg_party).
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
@@ -14,68 +5,51 @@
 %% Party support functions
 
 -export([get_party/1]).
--export([get_party_revision/1]).
+-export([get_party_revision/0]).
 -export([checkout/2]).
-
--export([get_contract/2]).
 -export([get_shop/2]).
--export([get_shop_contract/2]).
+-export([get_shop/3]).
 
 -export_type([party/0]).
--export_type([party_revision/0]).
 -export_type([party_status/0]).
 
 %%
 
--type party() :: dmsl_domain_thrift:'Party'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type party_id() :: dmsl_domain_thrift:'PartyID'().
--type party_revision() :: dmsl_domain_thrift:'PartyRevision'().
 -type party_status() :: dmsl_domain_thrift:'PartyStatus'().
--type contract() :: dmsl_domain_thrift:'Contract'().
--type contract_id() :: dmsl_domain_thrift:'ContractID'().
--type shop() :: dmsl_domain_thrift:'Shop'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type shop_id() :: dmsl_domain_thrift:'ShopID'().
--type shop_contract() :: dmsl_payproc_thrift:'ShopContract'().
 
 %% Interface
 
--spec get_party(party_id()) -> party() | no_return().
+-spec get_party(party_id()) -> party() | hg_domain:get_error().
 get_party(PartyID) ->
-    Revision = get_party_revision(PartyID),
-    checkout(PartyID, {revision, Revision}).
+    checkout(PartyID, get_party_revision()).
 
--spec get_party_revision(party_id()) -> party_revision() | no_return().
-get_party_revision(PartyID) ->
-    {Client, Context} = get_party_client(),
-    unwrap_party_result(party_client_thrift:get_revision(PartyID, Client, Context)).
+-spec get_party_revision() -> hg_domain:revision() | no_return().
+get_party_revision() ->
+    hg_domain:head().
 
--spec checkout(party_id(), party_client_thrift:party_revision_param()) -> party() | no_return().
-checkout(PartyID, RevisionParam) ->
-    {Client, Context} = get_party_client(),
-    unwrap_party_result(party_client_thrift:checkout(PartyID, RevisionParam, Client, Context)).
-
--spec get_contract(contract_id(), party()) -> contract() | undefined.
-get_contract(ID, #domain_Party{contracts = Contracts}) ->
-    maps:get(ID, Contracts, undefined).
+-spec checkout(party_id(), hg_domain:revision()) -> party() | hg_domain:get_error().
+checkout(PartyID, Revision) ->
+    case hg_domain:get(Revision, {party_config, #domain_PartyConfigRef{id = PartyID}}) of
+        {object_not_found, _Ref} = Error ->
+            Error;
+        Party ->
+            Party
+    end.
 
 -spec get_shop(shop_id(), party()) -> shop() | undefined.
-get_shop(ID, #domain_Party{shops = Shops}) ->
-    maps:get(ID, Shops, undefined).
+get_shop(ID, Party) ->
+    get_shop(ID, Party, get_party_revision()).
 
--spec get_shop_contract(party_id(), shop_id()) -> shop_contract() | no_return().
-get_shop_contract(PartyId, ShopId) ->
-    {Client, Context} = get_party_client(),
-    unwrap_party_result(party_client_thrift:get_shop_contract(PartyId, ShopId, Client, Context)).
-
-%% Internals
-
-get_party_client() ->
-    HgContext = hg_context:load(),
-    Client = hg_context:get_party_client(HgContext),
-    Context = hg_context:get_party_client_context(HgContext),
-    {Client, Context}.
-
-unwrap_party_result({ok, Result}) ->
-    Result;
-unwrap_party_result({error, Error}) ->
-    erlang:throw(Error).
+-spec get_shop(shop_id(), party(), hg_domain:revision()) -> shop() | undefined.
+get_shop(ID, #domain_PartyConfig{shops = Shops}, Revision) ->
+    Ref = #domain_ShopConfigRef{id = ID},
+    case lists:member(Ref, Shops) of
+        true ->
+            hg_domain:get(Revision, {shop_config, Ref});
+        false ->
+            undefined
+    end.
