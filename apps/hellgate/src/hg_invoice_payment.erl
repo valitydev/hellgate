@@ -2218,8 +2218,18 @@ process_chargeback(Type = finalising_accounter, ID, Action0, St) ->
 process_chargeback(Type, ID, Action0, St) ->
     ChargebackState = get_chargeback_state(ID, St),
     ChargebackOpts = get_chargeback_opts(St),
-    {Changes, Action1} = hg_invoice_payment_chargeback:process_timeout(Type, ChargebackState, Action0, ChargebackOpts),
-    {done, {[?chargeback_ev(ID, C) || C <- Changes], Action1}}.
+    {Changes0, Action1} = hg_invoice_payment_chargeback:process_timeout(Type, ChargebackState, Action0, ChargebackOpts),
+    Changes1 = [?chargeback_ev(ID, C) || C <- Changes0],
+    case Type of
+        %% NOTE In case if payment is already charged back and we want
+        %% to reopen and change it, this will ensure machine to
+        %% continue processing activities following cashflow update
+        %% event.
+        updating_cash_flow ->
+            {next, {Changes1, Action1}};
+        _ ->
+            {done, {Changes1, Action1}}
+    end.
 
 maybe_set_charged_back_status(?chargeback_status_accepted(), ChargebackBody, St) ->
     InterimPaymentAmount = get_remaining_payment_balance(St),
