@@ -2247,8 +2247,6 @@ maybe_set_charged_back_status(
         status_log = [_ActualStatus, PrevStatus | _]
     }
 ) ->
-    %% NOTE Mind warning (or constraint) of `invalid_transition` from
-    %% 'idle' activity.
     [?payment_status_changed(PrevStatus)];
 maybe_set_charged_back_status(_ChargebackStatus, _ChargebackBody, _St) ->
     [].
