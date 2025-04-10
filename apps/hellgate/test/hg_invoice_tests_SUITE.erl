@@ -4097,10 +4097,9 @@ reopen_accepted_payment_chargeback_and_cancel_ok(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed([]))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
-    ] = next_changes(IID, 3, Client),
-    %% TODO Implement status reversal and assert payment status is
-    %% prior the chargeback acceptance.
+        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(PID, ?payment_status_changed(?captured()))
+    ] = next_changes(IID, 4, Client),
     ok.
 
 -spec reopen_payment_chargeback_inconsistent(config()) -> _ | no_return().
