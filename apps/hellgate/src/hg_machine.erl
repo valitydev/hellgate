@@ -36,6 +36,11 @@
     auxst => auxst()
 }.
 
+-type backend() ::
+    machinegun
+    | progressor
+    | hybrid.
+
 -callback namespace() -> ns().
 
 -callback init(args(), machine()) -> result().
@@ -84,6 +89,8 @@
 -export([get_history/4]).
 -export([get_history/5]).
 -export([get_machine/5]).
+
+-export([call_automaton/3]).
 
 %% Dispatch
 
@@ -220,6 +227,10 @@ do_call(Ns, Id, Args, After, Limit, Direction) ->
     end.
 
 call_automaton(Function, Args) ->
+    call_automaton(Function, Args, application:get_env(hellgate, backend, machinegun)).
+
+-spec call_automaton(woody:func(), woody:args(), backend()) -> term().
+call_automaton(Function, Args, machinegun) ->
     case hg_woody_wrapper:call(automaton, Function, Args) of
         {ok, _} = Result ->
             Result;
@@ -233,7 +244,11 @@ call_automaton(Function, Args) ->
             {error, working};
         {exception, #mg_stateproc_RepairFailed{reason = Reason}} ->
             {error, {repair, {failed, Reason}}}
-    end.
+    end;
+call_automaton(Function, Args, progressor) ->
+    hg_progressor:call_automaton(Function, Args);
+call_automaton(Function, Args, hybrid) ->
+    hg_hybrid:call_automaton(Function, Args).
 
 %%
 
@@ -400,7 +415,7 @@ start_link(MachineHandlers) ->
 
 -spec init([module()]) -> {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
 init(MachineHandlers) ->
-    _ = ets:new(?TABLE, [protected, named_table, {read_concurrency, true}]),
+    _ = ets:new(?TABLE, [named_table, {read_concurrency, true}]),
     true = ets:insert_new(?TABLE, [{MH:namespace(), MH} || MH <- MachineHandlers]),
     {ok, {#{}, []}}.
 

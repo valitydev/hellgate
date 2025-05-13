@@ -217,7 +217,8 @@ start_app(hellgate = AppName) ->
                     operation_time_limit => 1200000,
                     pre_aggregation_size => 2
                 }
-            }}
+            }},
+            {backend, progressor}
         ]),
         #{
             hellgate_root_url => get_hellgate_url()
@@ -268,6 +269,106 @@ start_app(snowflake = AppName) ->
     {
         start_app(AppName, [
             {max_backward_clock_moving, 1000}
+        ]),
+        #{}
+    };
+start_app(epg_connector = AppName) ->
+    {
+        start_app(AppName, [
+            {databases, #{
+                default_db => #{
+                    host => "postgres",
+                    port => 5432,
+                    database => "progressor_db",
+                    username => "progressor",
+                    password => "progressor"
+                }
+            }},
+            {pools, #{
+                default_pool => #{
+                    database => default_db,
+                    size => 200
+                },
+                default_front_pool => #{
+                    database => default_db,
+                    size => 50
+                },
+                default_scan_pool => #{
+                    database => default_db,
+                    size => 8
+                }
+            }}
+        ]),
+        #{}
+    };
+start_app(progressor = AppName) ->
+    {
+        start_app(AppName, [
+            {call_wait_timeout, 20},
+            {defaults, #{
+                storage => #{
+                    client => prg_pg_backend,
+                    options => #{
+                        pool => default_pool,
+                        front_pool => default_front_pool,
+                        scan_pool => default_scan_pool
+                    }
+                },
+                retry_policy => #{
+                    initial_timeout => 5,
+                    backoff_coefficient => 1.0,
+                    %% seconds
+                    max_timeout => 180,
+                    max_attempts => 3,
+                    non_retryable_errors => []
+                },
+                task_scan_timeout => 1,
+                worker_pool_size => 30,
+                process_step_timeout => 30
+            }},
+            {namespaces, #{
+                invoice => #{
+                    processor => #{
+                        client => hg_progressor,
+                        options => #{
+                            party_client => #{},
+                            ns => <<"invoice">>,
+                            handler => hg_machine
+                        }
+                    },
+                    worker_pool_size => 150
+                },
+                invoice_template => #{
+                    processor => #{
+                        client => hg_progressor,
+                        options => #{
+                            party_client => #{},
+                            ns => <<"invoice_template">>,
+                            handler => hg_machine
+                        }
+                    }
+                },
+                customer => #{
+                    processor => #{
+                        client => hg_progressor,
+                        options => #{
+                            party_client => #{},
+                            ns => <<"customer">>,
+                            handler => hg_machine
+                        }
+                    }
+                },
+                recurrent_paytools => #{
+                    processor => #{
+                        client => hg_progressor,
+                        options => #{
+                            party_client => #{},
+                            ns => <<"recurrent_paytools">>,
+                            handler => hg_machine
+                        }
+                    }
+                }
+            }}
         ]),
         #{}
     };

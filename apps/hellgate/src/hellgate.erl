@@ -51,6 +51,8 @@ init([]) ->
         {
             #{strategy => one_for_all, intensity => 6, period => 30},
             [
+                %% for debugging only
+                %% hg_profiler:get_child_spec(),
                 party_client:child_spec(party_client, PartyClient),
                 hg_machine:get_child_spec(MachineHandlers),
                 get_api_child_spec(MachineHandlers, Opts)
