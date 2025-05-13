@@ -22,7 +22,7 @@ services:
   testrunner:
     environment:
       <<: *otlp_enabled
-      OTEL_SERVICE_NAME: hellgate_testrunner
+      OTEL_SERVICE_NAME: fistful_testrunner
       OTEL_TRACES_SAMPLER: parentbased_always_on
     depends_on:
       jaeger:

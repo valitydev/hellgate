@@ -144,10 +144,18 @@ create_context(Options, MachineryOptions) ->
 
 -spec set_backend_context(machinery:backend(_)) -> machinery:backend(_).
 set_backend_context(Backend) ->
-    {Mod, Opts} = machinery_utils:get_backend(Backend),
-    {Mod, Opts#{
-        woody_ctx => ff_context:get_woody_context(ff_context:load())
-    }}.
+    %% Ensure woody context is set accordingly for composite backend.
+    case machinery_utils:get_backend(Backend) of
+        {machinery_hybrid_backend = Mod, #{primary_backend := Primary, fallback_backend := Fallback} = Opts} ->
+            {Mod, Opts#{
+                primary_backend := set_backend_context(Primary),
+                fallback_backend := set_backend_context(Fallback)
+            }};
+        {Mod, Opts} ->
+            {Mod, Opts#{
+                woody_ctx => ff_context:get_woody_context(ff_context:load())
+            }}
+    end.
 
 scope(Machine, Extra, Fun) ->
     scoper:scope(

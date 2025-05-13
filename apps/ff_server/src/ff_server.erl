@@ -67,18 +67,14 @@ init([]) ->
     EventHandlerOpts = genlib_app:env(?MODULE, scoper_event_handler_options, #{}),
     RouteOpts = RouteOptsEnv#{event_handler => {ff_woody_event_handler, EventHandlerOpts}},
 
-    % TODO
-    %  - Make it palatable
-    {Backends, MachineHandlers, ModernizerHandlers} = lists:unzip3([
-        contruct_backend_childspec('ff/identity', ff_identity_machine, PartyClient),
-        contruct_backend_childspec('ff/wallet_v2', ff_wallet_machine, PartyClient),
-        contruct_backend_childspec('ff/source_v1', ff_source_machine, PartyClient),
-        contruct_backend_childspec('ff/destination_v2', ff_destination_machine, PartyClient),
-        contruct_backend_childspec('ff/deposit_v1', ff_deposit_machine, PartyClient),
-        contruct_backend_childspec('ff/withdrawal_v2', ff_withdrawal_machine, PartyClient),
-        contruct_backend_childspec('ff/withdrawal/session_v2', ff_withdrawal_session_machine, PartyClient),
-        contruct_backend_childspec('ff/w2w_transfer_v1', w2w_transfer_machine, PartyClient)
-    ]),
+    %% NOTE See 'sys.config'
+    %% TODO Refactor after namespaces params moved from progressor'
+    %% application env.
+    {Backends, MachineHandlers, ModernizerHandlers} =
+        lists:unzip3([
+            contruct_backend_childspec(B, N, H, S, PartyClient)
+         || {B, N, H, S} <- get_namespaces_params(genlib_app:env(fistful, machinery_backend))
+        ]),
     ok = application:set_env(fistful, backends, maps:from_list(Backends)),
 
     Services =
@@ -138,20 +134,80 @@ get_handler(Service, Handler, WrapperOpts) ->
     {Path, ServiceSpec} = ff_services:get_service_spec(Service),
     {Path, {ServiceSpec, wrap_handler(Handler, WrapperOpts)}}.
 
-contruct_backend_childspec(NS, Handler, PartyClient) ->
-    Schema = get_namespace_schema(NS),
+-define(PROCESSOR_OPT_PATTERN(NS, Handler, Schema), #{
+    processor := #{
+        client := machinery_prg_backend,
+        options := #{
+            namespace := NS,
+            handler := {fistful, #{handler := Handler, party_client := _}},
+            schema := Schema
+        }
+    }
+}).
+
+-spec get_namespaces_params(BackendMode) ->
+    [{BackendMode, machinery:namespace(), MachineryImpl :: module(), Schema :: module()}]
+when
+    BackendMode :: machinegun | progressor | hybrid.
+get_namespaces_params(machinegun = BackendMode) ->
+    [
+        {BackendMode, 'ff/identity', ff_identity_machine, ff_identity_machinery_schema},
+        {BackendMode, 'ff/wallet_v2', ff_wallet_machine, ff_wallet_machinery_schema},
+        {BackendMode, 'ff/source_v1', ff_source_machine, ff_source_machinery_schema},
+        {BackendMode, 'ff/destination_v2', ff_destination_machine, ff_destination_machinery_schema},
+        {BackendMode, 'ff/deposit_v1', ff_deposit_machine, ff_deposit_machinery_schema},
+        {BackendMode, 'ff/withdrawal_v2', ff_withdrawal_machine, ff_withdrawal_machinery_schema},
+        {BackendMode, 'ff/withdrawal/session_v2', ff_withdrawal_session_machine,
+            ff_withdrawal_session_machinery_schema},
+        {BackendMode, 'ff/w2w_transfer_v1', w2w_transfer_machine, ff_w2w_transfer_machinery_schema}
+    ];
+get_namespaces_params(BackendMode) when BackendMode == progressor orelse BackendMode == hybrid ->
+    {ok, Namespaces} = application:get_env(progressor, namespaces),
+    lists:map(
+        fun({_, ?PROCESSOR_OPT_PATTERN(NS, Handler, Schema)}) ->
+            {BackendMode, NS, Handler, Schema}
+        end,
+        maps:to_list(Namespaces)
+    );
+get_namespaces_params(UnknownBackendMode) ->
+    erlang:error({unknown_backend_mode, UnknownBackendMode}).
+
+contruct_backend_childspec(BackendMode, NS, Handler, Schema, PartyClient) ->
     {
-        construct_machinery_backend_spec(NS, Schema),
+        construct_machinery_backend_spec(BackendMode, NS, Handler, Schema, PartyClient),
         construct_machinery_handler_spec(NS, Handler, Schema, PartyClient),
         construct_machinery_modernizer_spec(NS, Schema)
     }.
 
-construct_machinery_backend_spec(NS, Schema) ->
+construct_machinery_backend_spec(hybrid, NS, Handler, Schema, PartyClient) ->
+    {_, Primary} = construct_machinery_backend_spec(progressor, NS, Handler, Schema, PartyClient),
+    {_, Fallback} = construct_machinery_backend_spec(machinegun, NS, Handler, Schema, PartyClient),
+    {NS,
+        {machinery_hybrid_backend, #{
+            primary_backend => Primary,
+            fallback_backend => Fallback
+        }}};
+construct_machinery_backend_spec(progressor, NS, Handler, Schema, PartyClient) ->
+    {NS,
+        {machinery_prg_backend, #{
+            namespace => NS,
+            handler => {fistful, #{handler => Handler, party_client => PartyClient}},
+            schema => Schema
+        }}};
+construct_machinery_backend_spec(machinegun, NS, _Handler, Schema, _PartyClient) ->
     {NS,
         {machinery_mg_backend, #{
             schema => Schema,
             client => get_service_client(automaton)
         }}}.
+
+get_service_client(ServiceID) ->
+    case genlib_app:env(fistful, services, #{}) of
+        #{ServiceID := V} ->
+            ff_woody_client:new(V);
+        #{} ->
+            erlang:error({unknown_service, ServiceID})
+    end.
 
 construct_machinery_handler_spec(NS, Handler, Schema, PartyClient) ->
     {{fistful, #{handler => Handler, party_client => PartyClient}}, #{
@@ -164,31 +220,6 @@ construct_machinery_modernizer_spec(NS, Schema) ->
         path => ff_string:join(["/v1/modernizer/", NS]),
         backend_config => #{schema => Schema}
     }.
-
-get_service_client(ServiceID) ->
-    case genlib_app:env(fistful, services, #{}) of
-        #{ServiceID := V} ->
-            ff_woody_client:new(V);
-        #{} ->
-            error({unknown_service, ServiceID})
-    end.
-
-get_namespace_schema('ff/identity') ->
-    ff_identity_machinery_schema;
-get_namespace_schema('ff/wallet_v2') ->
-    ff_wallet_machinery_schema;
-get_namespace_schema('ff/source_v1') ->
-    ff_source_machinery_schema;
-get_namespace_schema('ff/destination_v2') ->
-    ff_destination_machinery_schema;
-get_namespace_schema('ff/deposit_v1') ->
-    ff_deposit_machinery_schema;
-get_namespace_schema('ff/withdrawal_v2') ->
-    ff_withdrawal_machinery_schema;
-get_namespace_schema('ff/withdrawal/session_v2') ->
-    ff_withdrawal_session_machinery_schema;
-get_namespace_schema('ff/w2w_transfer_v1') ->
-    ff_w2w_transfer_machinery_schema.
 
 wrap_handler(Handler, WrapperOpts) ->
     FullOpts = maps:merge(#{handler => Handler}, WrapperOpts),

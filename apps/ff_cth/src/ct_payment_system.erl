@@ -69,11 +69,21 @@ do_setup(Options0, C0) ->
 
 start_processing_apps(Options) ->
     {StartedApps, _StartupCtx} = ct_helper:start_apps([
+        {epg_connector, [
+            {databases, epg_databases()},
+            {pools, epg_pools()}
+        ]},
+        {progressor, [
+            {call_wait_timeout, 20},
+            {defaults, progressor_defaults()},
+            {namespaces, progressor_namespaces()}
+        ]},
         scoper,
         woody,
         dmt_client,
         party_client,
         {fistful, [
+            {machinery_backend, hybrid},
             {services, services(Options)},
             {providers, identity_provider_config(Options)}
         ]},
@@ -245,6 +255,138 @@ services(Options) ->
         limiter => "http://limiter:8022/v1/limiter"
     },
     maps:get(services, Options, Default).
+
+epg_databases() ->
+    #{
+        default_db => #{
+            host => "postgres",
+            port => 5432,
+            database => "progressor_db",
+            username => "progressor",
+            password => "progressor"
+        }
+    }.
+
+epg_pools() ->
+    #{
+        default_pool => #{
+            database => default_db,
+            size => 30
+        }
+    }.
+
+progressor_defaults() ->
+    #{
+        storage => #{
+            client => prg_pg_backend,
+            options => #{
+                pool => default_pool
+            }
+        },
+        retry_policy => #{
+            initial_timeout => 5,
+            backoff_coefficient => 1.0,
+            %% seconds
+            max_timeout => 180,
+            max_attempts => 3,
+            non_retryable_errors => []
+        },
+        task_scan_timeout => 1,
+        worker_pool_size => 100,
+        process_step_timeout => 30
+    }.
+
+progressor_namespaces() ->
+    #{
+        'ff/identity' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/identity',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => ff_identity_machine, party_client => #{}}},
+                    schema => ff_identity_machinery_schema
+                }
+            }
+        },
+        'ff/wallet_v2' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/wallet_v2',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => ff_wallet_machine, party_client => #{}}},
+                    schema => ff_wallet_machinery_schema
+                }
+            }
+        },
+        'ff/source_v1' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/source_v1',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => ff_source_machine, party_client => #{}}},
+                    schema => ff_source_machinery_schema
+                }
+            }
+        },
+        'ff/destination_v2' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/destination_v2',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => ff_destination_machine, party_client => #{}}},
+                    schema => ff_destination_machinery_schema
+                }
+            }
+        },
+        'ff/deposit_v1' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/deposit_v1',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => ff_deposit_machine, party_client => #{}}},
+                    schema => ff_deposit_machinery_schema
+                }
+            }
+        },
+        'ff/withdrawal_v2' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/withdrawal_v2',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => ff_withdrawal_machine, party_client => #{}}},
+                    schema => ff_withdrawal_machinery_schema
+                }
+            }
+        },
+        'ff/withdrawal/session_v2' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/withdrawal/session_v2',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => ff_withdrawal_session_machine, party_client => #{}}},
+                    schema => ff_withdrawal_session_machinery_schema
+                }
+            }
+        },
+        'ff/w2w_transfer_v1' => #{
+            processor => #{
+                client => machinery_prg_backend,
+                options => #{
+                    namespace => 'ff/w2w_transfer_v1',
+                    %% TODO Party client create
+                    handler => {fistful, #{handler => w2w_transfer_machine, party_client => #{}}},
+                    schema => ff_w2w_transfer_machinery_schema
+                }
+            }
+        }
+    }.
 
 %%
 

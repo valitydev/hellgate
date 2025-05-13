@@ -132,7 +132,7 @@ do_init_per_testcase(Name, C0) ->
         _ ->
             ok
     end,
-    C2.
+    ct_helper:trace_testcase(?MODULE, Name, C2).
 
 -spec end_per_testcase(test_case_name(), config()) -> _.
 end_per_testcase(Name, C) when
@@ -147,6 +147,7 @@ end_per_testcase(Name, C) ->
     do_end_per_testcase(Name, C).
 
 do_end_per_testcase(Name, C) ->
+    ok = ct_helper:end_trace(C),
     case Name of
         Name when
             Name =:= provider_retry orelse

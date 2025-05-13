@@ -10,6 +10,7 @@
         prometheus_cowboy,
         ff_core,
         snowflake,
+        progressor,
         machinery,
         machinery_extra,
         woody,

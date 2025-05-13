@@ -26,6 +26,9 @@
 
 -export([create_account/1]).
 
+-export([trace_testcase/3]).
+-export([end_trace/1]).
+
 -type test_case_name() :: atom().
 -type group_name() :: atom().
 -type config() :: [{atom(), term()}].
@@ -262,3 +265,21 @@ await(Expect, Compute, Retry0) ->
 create_account(CurrencyCode) ->
     Description = <<"ff_test">>,
     ff_accounting:create_account(CurrencyCode, Description).
+
+-spec trace_testcase(module(), atom(), config()) -> config().
+trace_testcase(Mod, Name, C) ->
+    SpanName = iolist_to_binary([atom_to_binary(Mod), ":", atom_to_binary(Name), "/1"]),
+    SpanCtx = otel_tracer:start_span(opentelemetry:get_application_tracer(Mod), SpanName, #{kind => internal}),
+    %% NOTE This also puts otel context to process dictionary
+    _ = otel_tracer:set_current_span(SpanCtx),
+    [{span_ctx, SpanCtx} | C].
+
+-spec end_trace(config()) -> ok.
+end_trace(C) ->
+    case lists:keyfind(span_ctx, 1, C) of
+        {span_ctx, SpanCtx} ->
+            _ = otel_span:end_span(SpanCtx),
+            ok;
+        _ ->
+            ok
+    end.
