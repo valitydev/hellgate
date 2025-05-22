@@ -110,9 +110,9 @@ start_app(dmt_client = AppName) ->
                 }}
             ]},
             {service_urls, #{
-                'AuthorManagement' => <<"http://dmt:8022/v1/domain/author">>,
-                'Repository' => <<"http://dmt:8022/v1/domain/repository">>,
-                'RepositoryClient' => <<"http://dmt:8022/v1/domain/repository_client">>
+                'AuthorManagement' => <<"http://dominant:8022/v1/domain/author">>,
+                'Repository' => <<"http://dominant:8022/v1/domain/repository">>,
+                'RepositoryClient' => <<"http://dominant:8022/v1/domain/repository_client">>
             }}
         ]),
         #{}

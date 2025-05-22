@@ -13,7 +13,7 @@ services:
     depends_on:
       machinegun:
         condition: service_healthy
-      dmt:
+      dominant:
         condition: service_healthy
       party-management:
         condition: service_healthy
@@ -28,7 +28,7 @@ services:
     working_dir: $PWD
     command: /sbin/init
 
-  dmt:
+  dominant:
     image: ghcr.io/valitydev/dominant-v2:sha-d939dec-epic-fixes_for_client
     command: /opt/dmt/bin/dmt foreground
     healthcheck:
@@ -45,12 +45,12 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: dmt
     depends_on:
-      dmt-db:
+      dominant-db:
         condition: service_healthy
     volumes:
       - ./test/dominant/sys.config:/opt/dmt/releases/0.1/sys.config
 
-  dmt-db:
+  dominant-db:
     image: postgres
     environment:
       POSTGRES_USER: postgres
@@ -164,7 +164,7 @@ services:
     depends_on:
       machinegun:
         condition: service_healthy
-      dmt:
+      dominant:
         condition: service_started
       shumway:
         condition: service_started

@@ -1,6 +1,6 @@
 services:
 
-  dmt:
+  dominant:
     environment: &otlp_enabled
       OTEL_TRACES_EXPORTER: otlp
       OTEL_TRACES_SAMPLER: parentbased_always_off
