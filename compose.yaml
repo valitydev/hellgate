@@ -11,7 +11,7 @@ services:
       - .:$PWD
     hostname: hellgate
     depends_on:
-      machinegun:
+      db:
         condition: service_healthy
       dmt:
         condition: service_healthy
@@ -22,8 +22,6 @@ services:
       shumway:
         condition: service_started
       bender:
-        condition: service_healthy
-      hellgate-db:
         condition: service_healthy
     working_dir: $PWD
     command: /sbin/init
@@ -36,28 +34,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
-    environment:
-      POSTGRES_HOST: dmt-db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: dmt
     depends_on:
-      dmt-db:
+      db:
         condition: service_healthy
     volumes:
       - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
-
-  dmt-db:
-    image: postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: dmt
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   machinegun:
     image: ghcr.io/valitydev/mg2:sha-436f723
@@ -103,14 +84,15 @@ services:
     image: ghcr.io/valitydev/shumway:sha-658587c
     restart: unless-stopped
     depends_on:
-      - shumway-db
+      db:
+        condition: service_healthy
     entrypoint:
       - java
       - -Xmx512m
       - -jar
       - /opt/shumway/shumway.jar
-      - --spring.datasource.url=jdbc:postgresql://shumway-db:5432/shumway
-      - --spring.datasource.username=postgres
+      - --spring.datasource.url=jdbc:postgresql://db:5432/shumway
+      - --spring.datasource.username=shumway
       - --spring.datasource.password=postgres
       - --management.endpoint.metrics.enabled=false
       - --management.endpoint.prometheus.enabled=false
@@ -118,22 +100,19 @@ services:
       disable: true
 
   liminator:
-    image: ghcr.io/valitydev/liminator:sha-fc6546f
+    image: ghcr.io/valitydev/liminator:sha-63b164d
     restart: unless-stopped
     entrypoint:
       - java
       - -Xmx512m
       - -jar
       - /opt/liminator/liminator.jar
-      - --spring.datasource.url=jdbc:postgresql://liminator-db:5432/liminator
-      - --spring.datasource.username=vality
+      - --spring.datasource.url=jdbc:postgresql://db:5432/liminator
+      - --spring.datasource.username=liminator
       - --spring.datasource.password=postgres
-      - --spring.flyway.url=jdbc:postgresql://liminator-db:5432/liminator
-      - --spring.flyway.username=vality
-      - --spring.flyway.password=postgres
       - --service.skipExistedHoldOps=false
     depends_on:
-      liminator-db:
+      db:
         condition: service_healthy
     healthcheck:
       test: "curl http://localhost:8022/actuator/health"
@@ -141,23 +120,11 @@ services:
       timeout: 1s
       retries: 20
 
-  liminator-db:
-    image: docker.io/library/postgres:13.10
-    environment:
-      - POSTGRES_DB=liminator
-      - POSTGRES_USER=vality
-      - POSTGRES_PASSWORD=postgres
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vality -d liminator"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   party-management:
     image: ghcr.io/valitydev/party-management:sha-cbd2ce1-epic-dmt-client-v2
     command: /opt/party-management/bin/party-management foreground
     depends_on:
-      party-management-db:
+      db:
         condition: service_healthy
       dmt:
         condition: service_started
@@ -171,58 +138,18 @@ services:
     volumes:
       - ./test/party-management/sys.config:/opt/party-management/releases/0.1/sys.config
 
-  shumway-db:
-    image: docker.io/library/postgres:13.10
-    environment:
-      - POSTGRES_DB=shumway
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-
-  party-management-db:
+  db:
     image: postgres:15-bookworm
     command: -c 'max_connections=300'
     environment:
-      POSTGRES_DB: "progressor_db"
-      POSTGRES_USER: "progressor"
-      POSTGRES_PASSWORD: "progressor"
-      PGDATA: "/tmp/postgresql/data/pgdata"
+      POSTGRES_MULTIPLE_DATABASES: "hellgate,dmt,party_management,shumway,liminator"
+      POSTGRES_PASSWORD: "postgres"
     volumes:
-      - progressor-data:/tmp/postgresql/data
+      - ./test/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U progressor -d progressor_db"]
+      test: ["CMD-SHELL", "pg_isready -U hellgate"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-
-  hellgate-db:
-    image: postgres:15-bookworm
-    command: -c 'max_connections=300'
-    environment:
-      POSTGRES_DB: "progressor_db"
-      POSTGRES_USER: "progressor"
-      POSTGRES_PASSWORD: "progressor"
-      PGDATA: "/tmp/postgresql/data/pgdata"
-    volumes:
-      - progressor-data:/tmp/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U progressor -d progressor_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-
-volumes:
-  progressor-data:

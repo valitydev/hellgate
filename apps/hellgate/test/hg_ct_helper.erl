@@ -278,11 +278,11 @@ start_app(epg_connector = AppName) ->
         start_app(AppName, [
             {databases, #{
                 default_db => #{
-                    host => "hellgate-db",
+                    host => "db",
                     port => 5432,
-                    database => "progressor_db",
-                    username => "progressor",
-                    password => "progressor"
+                    database => "hellgate",
+                    username => "hellgate",
+                    password => "postgres"
                 }
             }},
             {pools, #{
