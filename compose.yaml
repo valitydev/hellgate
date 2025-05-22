@@ -13,7 +13,7 @@ services:
     depends_on:
       machinegun:
         condition: service_healthy
-      dominant:
+      dmt:
         condition: service_healthy
       party-management:
         condition: service_healthy
@@ -28,17 +28,39 @@ services:
     working_dir: $PWD
     command: /sbin/init
 
-  dominant:
-    image: ghcr.io/valitydev/dominant:sha-fae8726
-    command: /opt/dominant/bin/dominant foreground
-    depends_on:
-      machinegun:
-        condition: service_healthy
+  dmt:
+    image: ghcr.io/valitydev/dominant-v2:sha-d939dec-epic-fixes_for_client
+    command: /opt/dmt/bin/dmt foreground
     healthcheck:
-      test: "/opt/dominant/bin/dominant ping"
-      interval: 10s
+      test: "/opt/dmt/bin/dmt ping"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - 8022:8022
+    hostname: dmt
+    environment:
+      POSTGRES_HOST: dmt-db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: dmt
+    depends_on:
+      dmt-db:
+        condition: service_healthy
+    volumes:
+      - ./test/dominant/sys.config:/opt/dmt/releases/0.1/sys.config
+
+  dmt-db:
+    image: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: dmt
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 5
 
   machinegun:
     image: ghcr.io/valitydev/mg2:sha-436f723
@@ -116,7 +138,8 @@ services:
       - --spring.flyway.password=postgres
       - --service.skipExistedHoldOps=false
     depends_on:
-      - liminator-db
+      liminator-db:
+        condition: service_healthy
     healthcheck:
       test: "curl http://localhost:8022/actuator/health"
       interval: 5s
@@ -129,6 +152,11 @@ services:
       - POSTGRES_DB=liminator
       - POSTGRES_USER=vality
       - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vality -d liminator"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   party-management:
     image: ghcr.io/valitydev/party-management:sha-b78d0f5
@@ -136,7 +164,7 @@ services:
     depends_on:
       machinegun:
         condition: service_healthy
-      dominant:
+      dmt:
         condition: service_started
       shumway:
         condition: service_started
@@ -163,8 +191,6 @@ services:
       PGDATA: "/tmp/postgresql/data/pgdata"
     volumes:
       - progressor-data:/tmp/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U progressor -d progressor_db"]
       interval: 10s

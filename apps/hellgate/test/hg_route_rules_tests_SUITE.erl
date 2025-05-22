@@ -4,7 +4,7 @@
 -include("hg_ct_domain.hrl").
 
 -include_lib("common_test/include/ct.hrl").
--include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_v2_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -149,24 +149,34 @@ mock_dominant(SupPid) ->
     Domain = construct_domain_fixture(),
     RoutingWithFailRateDomain = routing_with_risk_score_fixture(Domain, false),
     RoutingWithRiskCoverageSetDomain = routing_with_risk_score_fixture(Domain, true),
+    Getter = fun(Version, Ref, Objects) ->
+        case maps:get(Ref, Objects, undefined) of
+            undefined ->
+                woody_error:raise(business, #domain_conf_v2_ObjectNotFound{});
+            Object ->
+                {ok, #domain_conf_v2_VersionedObject{
+                    object = Object,
+                    info = #domain_conf_v2_VersionedObjectInfo{
+                        version = Version,
+                        changed_at = hg_datetime:format_now(),
+                        changed_by = #domain_conf_v2_Author{
+                            id = ~b"42",
+                            name = ~b"Whoever",
+                            email = ~b"whoever@whereever"
+                        }
+                    }
+                }}
+        end
+    end,
     _ = hg_mock_helper:mock_dominant(
         [
-            {'Repository', fun
-                ('Checkout', {{version, ?routing_with_fail_rate_domain_revision}}) ->
-                    {ok, #'domain_conf_Snapshot'{
-                        version = ?routing_with_fail_rate_domain_revision,
-                        domain = RoutingWithFailRateDomain
-                    }};
-                ('Checkout', {{version, ?routing_with_risk_coverage_set_domain_revision}}) ->
-                    {ok, #'domain_conf_Snapshot'{
-                        version = ?routing_with_risk_coverage_set_domain_revision,
-                        domain = RoutingWithRiskCoverageSetDomain
-                    }};
-                ('Checkout', {{version, Version}}) ->
-                    {ok, #'domain_conf_Snapshot'{
-                        version = Version,
-                        domain = Domain
-                    }}
+            {'RepositoryClient', fun
+                ('CheckoutObject', {{version, ?routing_with_fail_rate_domain_revision = Version}, ObjectRef}) ->
+                    Getter(Version, ObjectRef, RoutingWithFailRateDomain);
+                ('CheckoutObject', {{version, ?routing_with_risk_coverage_set_domain_revision = Version}, ObjectRef}) ->
+                    Getter(Version, ObjectRef, RoutingWithRiskCoverageSetDomain);
+                ('CheckoutObject', {{version, Version}, ObjectRef}) ->
+                    Getter(Version, ObjectRef, Domain)
             end}
         ],
         SupPid

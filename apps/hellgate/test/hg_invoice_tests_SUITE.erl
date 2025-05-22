@@ -1218,7 +1218,7 @@ payment_shop_limit_success(C) ->
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-            domain_revision = dmt_client:get_last_version()
+            domain_revision = dmt_client:get_latest_version()
         }
     ],
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
@@ -1239,7 +1239,7 @@ payment_shop_limit_overflow(C) ->
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-            domain_revision = dmt_client:get_last_version()
+            domain_revision = dmt_client:get_latest_version()
         }
     ]),
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
@@ -1262,7 +1262,7 @@ payment_shop_limit_more_overflow(C) ->
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-            domain_revision = dmt_client:get_last_version()
+            domain_revision = dmt_client:get_latest_version()
         }
     ]),
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
@@ -9960,7 +9960,7 @@ construct_domain_fixture() ->
                                 #domain_TurnoverLimit{
                                     id = ?LIMIT_ID,
                                     upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                    domain_revision = dmt_client:get_last_version()
+                                    domain_revision = dmt_client:get_latest_version()
                                 }
                             ]}
                     }
@@ -10013,7 +10013,7 @@ construct_domain_fixture() ->
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID2,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                domain_revision = dmt_client:get_last_version()
+                                domain_revision = dmt_client:get_latest_version()
                             }
                         ]}
                 }
@@ -10058,7 +10058,7 @@ construct_domain_fixture() ->
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID3,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                domain_revision = dmt_client:get_last_version()
+                                domain_revision = dmt_client:get_latest_version()
                             }
                         ]}
                 }
