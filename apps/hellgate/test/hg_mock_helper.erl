@@ -59,10 +59,12 @@ mock_services(Services, SupPid) ->
 mock_dominant(Services0, SupPid) ->
     Services1 = lists:map(
         fun
+            ({'AuthorManagement', Fun}) ->
+                {'AuthorManagement', {dmsl_domain_conf_v2_thrift, 'AuthorManagement'}, Fun};
             ({'Repository', Fun}) ->
-                {'Repository', {dmsl_domain_conf_thrift, 'Repository'}, Fun};
+                {'Repository', {dmsl_domain_conf_v2_thrift, 'Repository'}, Fun};
             ({'RepositoryClient', Fun}) ->
-                {'RepositoryClient', {dmsl_domain_conf_thrift, 'RepositoryClient'}, Fun}
+                {'RepositoryClient', {dmsl_domain_conf_v2_thrift, 'RepositoryClient'}, Fun}
         end,
         Services0
     ),

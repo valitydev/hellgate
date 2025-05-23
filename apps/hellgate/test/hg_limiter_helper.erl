@@ -29,13 +29,18 @@
 
 -spec init_per_suite(config()) -> dmt_client:vsn().
 init_per_suite(_Config) ->
-    dmt_client:upsert([
-        {limit_config, mk_config_object(?LIMIT_ID)},
-        {limit_config, mk_config_object(?LIMIT_ID2)},
-        {limit_config, mk_config_object(?LIMIT_ID3)},
-        {limit_config, mk_config_object(?LIMIT_ID4)},
-        {limit_config, mk_config_object(?SHOPLIMIT_ID)}
-    ]).
+    dmt_client:upsert(
+        latest,
+        [
+            {limit_config, mk_config_object(?LIMIT_ID)},
+            {limit_config, mk_config_object(?LIMIT_ID2)},
+            {limit_config, mk_config_object(?LIMIT_ID3)},
+            {limit_config, mk_config_object(?LIMIT_ID4)},
+            {limit_config, mk_config_object(?SHOPLIMIT_ID)}
+        ],
+        dmt_client:create_author(genlib:unique(), genlib:unique()),
+        #{}
+    ).
 
 -spec get_amount(_) -> pos_integer().
 get_amount(#limiter_Limit{amount = Amount}) ->
