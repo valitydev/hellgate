@@ -64,6 +64,16 @@ wdeps-%: dev-image
 	$(DOCKERCOMPOSE_W_ENV) down; \
 	exit $$res
 
+# Database tasks
+
+ifeq (db,$(firstword $(MAKECMDGOALS)))
+  DATABASE_NAME := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(eval $(DATABASE_NAME):;@:)
+endif
+
+db:
+	$(DOCKERCOMPOSE_W_ENV) exec db bash -c "PGPASSWORD=postgres psql -U $(DATABASE_NAME) -d $(DATABASE_NAME)"
+
 # Rebar tasks
 
 rebar-shell:
