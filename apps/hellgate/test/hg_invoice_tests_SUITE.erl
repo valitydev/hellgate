@@ -6132,7 +6132,7 @@ init_per_cascade_case(_Name, C) ->
 
 payment_cascade_success_fixture(Revision, _C) ->
     Brovider =
-        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -6157,6 +6157,7 @@ payment_cascade_success_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -6164,7 +6165,6 @@ payment_cascade_success_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms1
             }
@@ -6293,7 +6293,7 @@ payment_cascade_success(C) ->
 
 payment_cascade_success_w_refund_fixture(Revision, _C) ->
     Brovider =
-        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -6318,6 +6318,7 @@ payment_cascade_success_w_refund_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -6325,7 +6326,6 @@ payment_cascade_success_w_refund_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms1
             }
@@ -6385,7 +6385,7 @@ payment_big_cascade_success_fixture_pre(Revision, _C) ->
 
 payment_big_cascade_success_fixture(Revision, _C) ->
     Brovider =
-        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -6407,7 +6407,7 @@ payment_big_cascade_success_fixture(Revision, _C) ->
             additional = #{}
         },
         description = <<"No rubber ducks for you!">>,
-        abs_account = AbsAccount,
+        realm = test,
         accounts = Accounts,
         terms = Terms1
     },
@@ -6523,7 +6523,7 @@ payment_cascade_limit_overflow_fixture_pre(Revision, _C) ->
 
 payment_cascade_limit_overflow_fixture(Revision, _C) ->
     Brovider =
-        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -6548,6 +6548,7 @@ payment_cascade_limit_overflow_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -6555,7 +6556,6 @@ payment_cascade_limit_overflow_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 %% No limit boundaries configured
                 terms = Terms
@@ -6754,7 +6754,7 @@ payment_cascade_fail_provider_error_fixture_pre(Revision, _C) ->
     ]).
 
 payment_cascade_fail_provider_error_fixture(Revision, _C) ->
-    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+    #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -6776,7 +6776,7 @@ payment_cascade_fail_provider_error_fixture(Revision, _C) ->
             additional = #{}
         },
         description = <<"No rubber ducks for you!">>,
-        abs_account = AbsAccount,
+        realm = test,
         accounts = Accounts,
         terms = Terms1,
         cascade_behaviour = #domain_CascadeBehaviour{
@@ -6875,7 +6875,7 @@ payment_cascade_fail_ui_fixture_pre(Revision, _C) ->
 
 payment_cascade_fail_ui_fixture(Revision, _C) ->
     Brovider =
-        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     lists:flatten([
         {provider, #domain_ProviderObject{
@@ -6887,6 +6887,7 @@ payment_cascade_fail_ui_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Rubber GUI">>,
                 description = <<"( ͡° ͜ʖ ͡° )">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -6895,7 +6896,6 @@ payment_cascade_fail_ui_fixture(Revision, _C) ->
                         <<"override">> => <<"rubber_gui">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms
             }
@@ -6905,6 +6905,7 @@ payment_cascade_fail_ui_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -6912,7 +6913,6 @@ payment_cascade_fail_ui_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms
             }
@@ -6999,7 +6999,7 @@ payment_cascade_fail_wo_route_candidates_fixture_pre(Revision, _C) ->
 -spec payment_cascade_fail_wo_route_candidates_fixture(_Revision, config()) -> list().
 payment_cascade_fail_wo_route_candidates_fixture(Revision, _C) ->
     Brovider =
-        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -7021,7 +7021,7 @@ payment_cascade_fail_wo_route_candidates_fixture(Revision, _C) ->
             additional = #{}
         },
         description = <<"No rubber ducks for you!">>,
-        abs_account = AbsAccount,
+        realm = test,
         accounts = Accounts,
         terms = Terms1
     },
@@ -7082,7 +7082,7 @@ payment_cascade_fail_wo_available_attempt_limit_fixture_pre(Revision, _C) ->
 
 payment_cascade_fail_wo_available_attempt_limit_fixture(Revision, _C) ->
     Brovider =
-        #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+        #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -7107,6 +7107,7 @@ payment_cascade_fail_wo_available_attempt_limit_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7114,7 +7115,6 @@ payment_cascade_fail_wo_available_attempt_limit_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms1
             }
@@ -7175,7 +7175,7 @@ payment_cascade_fail_wo_available_attempt_limit(C) ->
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
 
 payment_cascade_failures_fixture(Revision, _C) ->
-    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+    #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     [
         {provider, #domain_ProviderObject{
@@ -7183,6 +7183,7 @@ payment_cascade_failures_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7191,7 +7192,6 @@ payment_cascade_failures_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms
             }
@@ -7201,6 +7201,7 @@ payment_cascade_failures_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker Younger">>,
                 description = <<"No rubber ducks for you! Even smaller">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7208,7 +7209,6 @@ payment_cascade_failures_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker_younger">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms
             }
@@ -7269,7 +7269,7 @@ payment_cascade_failures(C) ->
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client).
 
 payment_cascade_deadline_failures_fixture(Revision, _C) ->
-    #domain_Provider{abs_account = AbsAccount, accounts = Accounts, terms = Terms} =
+    #domain_Provider{accounts = Accounts, terms = Terms} =
         hg_domain:get(Revision, {provider, ?prv(1)}),
     [
         {provider, #domain_ProviderObject{
@@ -7277,6 +7277,7 @@ payment_cascade_deadline_failures_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker">>,
                 description = <<"No rubber ducks for you!">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7285,7 +7286,6 @@ payment_cascade_deadline_failures_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms
             }
@@ -7295,6 +7295,7 @@ payment_cascade_deadline_failures_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Duck Blocker Younger">>,
                 description = <<"No rubber ducks for you! Even smaller">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
@@ -7302,7 +7303,6 @@ payment_cascade_deadline_failures_fixture(Revision, _C) ->
                         <<"override">> => <<"duckblocker_younger">>
                     }
                 },
-                abs_account = AbsAccount,
                 accounts = Accounts,
                 terms = Terms
             }
@@ -8686,13 +8686,13 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Brovider">>,
                 description = <<"A provider but bro">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
                         <<"override">> => <<"brovider">>
                     }
                 },
-                abs_account = <<"1234567890">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{
@@ -8940,13 +8940,13 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Drovider">>,
                 description = <<"I'm out of ideas of what to write here">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
                         <<"override">> => <<"drovider">>
                     }
                 },
-                abs_account = <<"1234567890">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{
@@ -9148,13 +9148,13 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Crovider">>,
                 description = <<"Payment terminal provider">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
                         <<"override">> => <<"crovider">>
                     }
                 },
-                abs_account = <<"0987654321">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{
@@ -9211,13 +9211,13 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"UnionTelecom">>,
                 description = <<"Mobile commerce terminal provider">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
                         <<"override">> => <<"Union Telecom">>
                     }
                 },
-                abs_account = <<"0987654321">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{
@@ -9276,13 +9276,13 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"UnionTelecom">>,
                 description = <<"Mobile commerce terminal provider">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
                         <<"override">> => <<"Union Telecom">>
                     }
                 },
-                abs_account = <<"0987654321">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{
@@ -9563,7 +9563,7 @@ get_payment_adjustment_fixture(Revision) ->
             data = #domain_Provider{
                 name = <<"Adjustable">>,
                 description = <<>>,
-                abs_account = <<>>,
+                realm = test,
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
@@ -9719,7 +9719,7 @@ get_cashflow_rounding_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Rounding">>,
                 description = <<>>,
-                abs_account = <<>>,
+                realm = test,
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
@@ -9820,7 +9820,7 @@ payments_w_bank_card_issuer_conditions_fixture(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"VTB21">>,
                 description = <<>>,
-                abs_account = <<>>,
+                realm = test,
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
@@ -10099,13 +10099,13 @@ construct_term_set_for_partial_capture_provider_permit(Revision, _C) ->
             data = #domain_Provider{
                 name = <<"Brovider">>,
                 description = <<"A provider but bro">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
                         <<"override">> => <<"brovider">>
                     }
                 },
-                abs_account = <<"1234567890">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{
