@@ -1531,12 +1531,15 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         status = Status,
         domain_revision = DomainRevision,
         party_revision = PartyRevision
-    } = get_payment(St),
+    } = Payment = get_payment(St),
     ok = assert_adjustment_payment_status(Status),
     ok = assert_no_refunds(St),
     ok = assert_adjustment_payment_statuses(TargetStatus, Status),
     OldCashFlow = get_cash_flow_for_status(Status, St),
     NewCashFlow = get_cash_flow_for_target_status(TargetStatus, St, Opts),
+    AdditionalEvents = maybe_inject_new_capture_cost_amount(
+        Payment, Params#payproc_InvoicePaymentAdjustmentParams.scenario
+    ),
     AdjState =
         {status_change, #domain_InvoicePaymentAdjustmentStatusChangeState{
             scenario = Change
@@ -1549,9 +1552,23 @@ create_status_adjustment(Timestamp, Params, Change, St, Opts) ->
         OldCashFlow,
         NewCashFlow,
         AdjState,
-        [],
+        AdditionalEvents,
         St
     ).
+
+maybe_inject_new_capture_cost_amount(
+    Payment,
+    {'status_change', #domain_InvoicePaymentAdjustmentStatusChange{
+        target_status =
+            {captured, #domain_InvoicePaymentCaptured{
+                cost = NewCost
+            }}
+    }}
+) when NewCost =/= undefined ->
+    OldCost = get_payment_cost(Payment),
+    [?cash_changed(OldCost, NewCost)];
+maybe_inject_new_capture_cost_amount(_Payment, _AdjustmentScenario) ->
+    [].
 
 -spec maybe_get_domain_revision(undefined | hg_domain:revision()) -> hg_domain:revision().
 maybe_get_domain_revision(undefined) ->
