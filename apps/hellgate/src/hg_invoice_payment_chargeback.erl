@@ -328,7 +328,6 @@ do_accept(State, PaymentState, AcceptParams = ?accept_params(Levy, Body)) ->
 
 -spec do_reopen(state(), payment_state(), reopen_params()) -> {ok, result()} | no_return().
 do_reopen(State, PaymentState, ReopenParams = ?reopen_params(Levy, Body)) ->
-    _ = validate_chargeback_is_rejected(State),
     _ = validate_not_arbitration(State),
     _ = validate_currency(Body, hg_invoice_payment:get_payment(PaymentState)),
     _ = validate_currency(Levy, hg_invoice_payment:get_payment(PaymentState)),
@@ -575,13 +574,6 @@ validate_not_arbitration(#domain_InvoicePaymentChargeback{stage = ?chargeback_st
     throw(#payproc_InvoicePaymentChargebackCannotReopenAfterArbitration{});
 validate_not_arbitration(#domain_InvoicePaymentChargeback{}) ->
     ok.
-
-validate_chargeback_is_rejected(#chargeback_st{chargeback = Chargeback}) ->
-    validate_chargeback_is_rejected(Chargeback);
-validate_chargeback_is_rejected(#domain_InvoicePaymentChargeback{status = ?chargeback_status_rejected()}) ->
-    ok;
-validate_chargeback_is_rejected(#domain_InvoicePaymentChargeback{status = Status}) ->
-    throw(#payproc_InvoicePaymentChargebackInvalidStatus{status = Status}).
 
 validate_chargeback_is_pending(#chargeback_st{chargeback = Chargeback}) ->
     validate_chargeback_is_pending(Chargeback);

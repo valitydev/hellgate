@@ -2089,8 +2089,18 @@ process_chargeback(Type = finalising_accounter, ID, Action0, St) ->
 process_chargeback(Type, ID, Action0, St) ->
     ChargebackState = get_chargeback_state(ID, St),
     ChargebackOpts = get_chargeback_opts(St),
-    {Changes, Action1} = hg_invoice_payment_chargeback:process_timeout(Type, ChargebackState, Action0, ChargebackOpts),
-    {done, {[?chargeback_ev(ID, C) || C <- Changes], Action1}}.
+    {Changes0, Action1} = hg_invoice_payment_chargeback:process_timeout(Type, ChargebackState, Action0, ChargebackOpts),
+    Changes1 = [?chargeback_ev(ID, C) || C <- Changes0],
+    case Type of
+        %% NOTE In case if payment is already charged back and we want
+        %% to reopen and change it, this will ensure machine to
+        %% continue processing activities following cashflow update
+        %% event.
+        updating_cash_flow ->
+            {next, {Changes1, Action1}};
+        _ ->
+            {done, {Changes1, Action1}}
+    end.
 
 maybe_set_charged_back_status(?chargeback_status_accepted(), ChargebackBody, St) ->
     InterimPaymentAmount = get_remaining_payment_balance(St),
@@ -2100,6 +2110,15 @@ maybe_set_charged_back_status(?chargeback_status_accepted(), ChargebackBody, St)
         ?cash(Amount, _) when Amount > 0 ->
             []
     end;
+maybe_set_charged_back_status(
+    ?chargeback_status_cancelled(),
+    _ChargebackBody,
+    #st{
+        payment = #domain_InvoicePayment{status = ?charged_back()},
+        status_log = [_ActualStatus, PrevStatus | _]
+    }
+) ->
+    [?payment_status_changed(PrevStatus)];
 maybe_set_charged_back_status(_ChargebackStatus, _ChargebackBody, _St) ->
     [].
 
@@ -3114,7 +3133,7 @@ merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment
         St,
         Opts
     ),
-    St#st{
+    (record_status_change(Change, St))#st{
         payment = Payment#domain_InvoicePayment{status = Status},
         activity = idle,
         failure = undefined,
@@ -3122,14 +3141,14 @@ merge_change(Change = ?payment_status_changed({failed, _} = Status), #st{payment
     };
 merge_change(Change = ?payment_status_changed({cancelled, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
-    St#st{
+    (record_status_change(Change, St))#st{
         payment = Payment#domain_InvoicePayment{status = Status},
         activity = idle,
         timings = accrue_status_timing(cancelled, Opts, St)
     };
 merge_change(Change = ?payment_status_changed({captured, Captured} = Status), #st{payment = Payment} = St, Opts) ->
-    _ = validate_transition({payment, finalizing_accounter}, Change, St, Opts),
-    St#st{
+    _ = validate_transition([idle, {payment, finalizing_accounter}], Change, St, Opts),
+    (record_status_change(Change, St))#st{
         payment = Payment#domain_InvoicePayment{
             status = Status,
             cost = get_captured_cost(Captured, Payment)
@@ -3140,19 +3159,19 @@ merge_change(Change = ?payment_status_changed({captured, Captured} = Status), #s
     };
 merge_change(Change = ?payment_status_changed({processed, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition({payment, processing_accounter}, Change, St, Opts),
-    St#st{
+    (record_status_change(Change, St))#st{
         payment = Payment#domain_InvoicePayment{status = Status},
         activity = {payment, flow_waiting},
         timings = accrue_status_timing(processed, Opts, St)
     };
 merge_change(Change = ?payment_status_changed({refunded, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition(idle, Change, St, Opts),
-    St#st{
+    (record_status_change(Change, St))#st{
         payment = Payment#domain_InvoicePayment{status = Status}
     };
 merge_change(Change = ?payment_status_changed({charged_back, _} = Status), #st{payment = Payment} = St, Opts) ->
     _ = validate_transition(idle, Change, St, Opts),
-    St#st{
+    (record_status_change(Change, St))#st{
         payment = Payment#domain_InvoicePayment{status = Status}
     };
 merge_change(Change = ?chargeback_ev(ID, Event), St, Opts) ->
@@ -3318,6 +3337,9 @@ merge_change(Change = ?session_ev(Target, Event), St = #st{activity = Activity},
         _ ->
             St2
     end.
+
+record_status_change(?payment_status_changed(Status), St) ->
+    St#st{status_log = [Status | St#st.status_log]}.
 
 latest_adjustment_id(#st{adjustments = []}) ->
     undefined;

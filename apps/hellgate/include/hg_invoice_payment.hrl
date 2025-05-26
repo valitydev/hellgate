@@ -3,6 +3,7 @@
 
 -record(st, {
     activity :: hg_invoice_payment:activity(),
+    status_log = [] :: [dmsl_domain_thrift:'InvoicePaymentStatus'()],
     payment :: undefined | hg_invoice_payment:payment(),
     risk_score :: undefined | hg_inspector:risk_score(),
     routes = [] :: [hg_route:payment_route()],

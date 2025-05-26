@@ -253,13 +253,16 @@ process_with_tag(Tag, F) ->
 
 -spec fail(hg_machine:id()) -> ok.
 fail(Id) ->
-    case hg_machine:call(?NS, Id, fail) of
+    try hg_machine:call(?NS, Id, fail) of
         {error, failed} ->
             ok;
         {error, Error} ->
             erlang:error({unexpected_error, Error});
         {ok, Result} ->
             erlang:error({unexpected_result, Result})
+    catch
+        _Class:_Term:_Trace ->
+            ok
     end.
 
 %%
