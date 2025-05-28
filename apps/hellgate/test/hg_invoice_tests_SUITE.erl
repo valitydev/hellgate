@@ -6618,7 +6618,7 @@ init_route_cascading_group(C1) ->
         | C1
     ],
     _ = hg_domain:upsert(cascade_fixture(Revision, C2)),
-    [{base_limits_domain_revision, Revision}|C2].
+    [{base_limits_domain_revision, Revision} | C2].
 
 init_per_cascade_case(payment_cascade_success, C) ->
     ShopID = cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_ID}, C),
