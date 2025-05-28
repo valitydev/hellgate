@@ -1218,7 +1218,7 @@ payment_shop_limit_success(C) ->
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-            domain_revision = dmt_client:get_latest_version()
+            domain_revision = hg_domain:head()
         }
     ],
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
@@ -1239,7 +1239,7 @@ payment_shop_limit_overflow(C) ->
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-            domain_revision = dmt_client:get_latest_version()
+            domain_revision = hg_domain:head()
         }
     ]),
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
@@ -1262,7 +1262,7 @@ payment_shop_limit_more_overflow(C) ->
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-            domain_revision = dmt_client:get_latest_version()
+            domain_revision = hg_domain:head()
         }
     ]),
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), TurnoverLimits, PartyClient),
@@ -6530,7 +6530,8 @@ cascade_fixture(Revision, C) ->
 init_route_cascading_group(C1) ->
     PartyID = cfg(party_id, C1),
     PartyClient = cfg(party_client, C1),
-    _ = override_domain_fixture(fun cascade_fixture_pre_shop_create/2, undefined, C1),
+    Revision = hg_domain:head(),
+    _ = hg_domain:upsert(cascade_fixture_pre_shop_create(Revision, C1)),
     C2 = [
         {
             {shop_id, ?PAYMENT_CASCADE_SUCCESS_ID},
@@ -6616,7 +6617,8 @@ init_route_cascading_group(C1) ->
         }
         | C1
     ],
-    override_domain_fixture(fun cascade_fixture/2, undefined, C2).
+    _ = hg_domain:upsert(cascade_fixture(Revision, C2)),
+    [{base_limits_domain_revision, Revision}|C2].
 
 init_per_cascade_case(payment_cascade_success, C) ->
     ShopID = cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_ID}, C),
@@ -9960,7 +9962,7 @@ construct_domain_fixture() ->
                                 #domain_TurnoverLimit{
                                     id = ?LIMIT_ID,
                                     upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                    domain_revision = dmt_client:get_latest_version()
+                                    domain_revision = hg_domain:head()
                                 }
                             ]}
                     }
@@ -10013,7 +10015,7 @@ construct_domain_fixture() ->
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID2,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                domain_revision = dmt_client:get_latest_version()
+                                domain_revision = hg_domain:head()
                             }
                         ]}
                 }
@@ -10058,7 +10060,7 @@ construct_domain_fixture() ->
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID3,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                domain_revision = dmt_client:get_latest_version()
+                                domain_revision = hg_domain:head()
                             }
                         ]}
                 }
