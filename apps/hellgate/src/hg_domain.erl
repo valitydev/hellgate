@@ -69,7 +69,11 @@ update(NewObjectOrMany) ->
 
 -spec upsert(object() | [object()]) -> revision() | no_return().
 upsert(NewObjectOrMany) ->
-    dmt_client:upsert(NewObjectOrMany, ensure_stub_author()).
+    %% NOTE Checkout all objects from target version to ensure it all
+    %% cached before operations preparation.
+    Version = dmt_client:get_latest_version(),
+    _ = dmt_client:checkout_all(Version),
+    dmt_client:upsert(Version, NewObjectOrMany, ensure_stub_author()).
 
 -spec remove(object() | [object()]) -> revision() | no_return().
 remove(ObjectOrMany) ->
