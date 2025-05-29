@@ -9,7 +9,7 @@
 
 -type id() :: dmsl_accounter_thrift:'PlanID'().
 -type account() :: ff_account:account().
--type account_id() :: ff_account:accounter_account_id().
+-type account_id() :: ff_account:account_id().
 -type currency_code() :: dmsl_domain_thrift:'CurrencySymbolicCode'().
 -type amount() :: dmsl_domain_thrift:'Amount'().
 -type body() :: ff_cash:cash().
@@ -23,6 +23,7 @@
 -export_type([posting/0]).
 
 -export([balance/1]).
+-export([balance/2]).
 -export([create_account/2]).
 
 -export([prepare_trx/2]).
@@ -33,8 +34,13 @@
 
 -spec balance(account()) -> {ok, balance()}.
 balance(Account) ->
-    AccountID = ff_account:accounter_account_id(Account),
+    AccountID = ff_account:account_id(Account),
     Currency = ff_account:currency(Account),
+    {ok, ThriftAccount} = get_account_by_id(AccountID),
+    {ok, build_account_balance(ThriftAccount, Currency)}.
+
+-spec balance(account_id(), currency_code()) -> {ok, balance()}.
+balance(AccountID, Currency) ->
     {ok, ThriftAccount} = get_account_by_id(AccountID),
     {ok, build_account_balance(ThriftAccount, Currency)}.
 

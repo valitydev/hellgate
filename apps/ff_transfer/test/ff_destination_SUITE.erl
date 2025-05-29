@@ -16,7 +16,7 @@
 
 % Tests
 -export([create_destination_ok_test/1]).
--export([create_destination_identity_notfound_fail_test/1]).
+-export([create_destination_party_notfound_fail_test/1]).
 -export([create_destination_currency_notfound_fail_test/1]).
 -export([get_destination_ok_test/1]).
 -export([get_destination_notfound_fail_test/1]).
@@ -35,9 +35,9 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {default, [parallel], [
+        {default, [], [
             create_destination_ok_test,
-            create_destination_identity_notfound_fail_test,
+            create_destination_party_notfound_fail_test,
             create_destination_currency_notfound_fail_test,
             get_destination_ok_test,
             get_destination_notfound_fail_test
@@ -83,119 +83,54 @@ end_per_testcase(_Name, _C) ->
 %% Default group test cases
 
 -spec create_destination_ok_test(config()) -> test_return().
-create_destination_ok_test(C) ->
-    Party = create_party(C),
-    IID = create_identity(Party, C),
-    BankCard = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}, C),
-    _DestinationID = create_destination(IID, BankCard),
+create_destination_ok_test(_C) ->
+    PartyID = ct_objects:create_party(),
+    _DestinationID = ct_objects:create_destination(PartyID, undefined),
     ok.
 
--spec create_destination_identity_notfound_fail_test(config()) -> test_return().
-create_destination_identity_notfound_fail_test(C) ->
-    IID = <<"BadIdentityID">>,
-    DestResource = {
-        bank_card,
-        #{
-            bank_card => ct_cardstore:bank_card(
-                <<"4150399999000900">>,
-                {12, 2025},
-                C
-            )
-        }
-    },
+-spec create_destination_party_notfound_fail_test(config()) -> test_return().
+create_destination_party_notfound_fail_test(_C) ->
+    ResourceBankCard = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}),
+    Resource = {bank_card, #{bank_card => ResourceBankCard}},
+    AuthData = #{sender => <<"SenderToken">>, receiver => <<"ReceiverToken">>},
     Params = #{
         id => genlib:unique(),
-        identity => IID,
+        party_id => <<"BadPartyID">>,
+        realm => live,
         name => <<"XDestination">>,
         currency => <<"RUB">>,
-        resource => DestResource
+        resource => Resource,
+        auth_data => AuthData
     },
     CreateResult = ff_destination_machine:create(Params, ff_entity_context:new()),
-    ?assertEqual({error, {identity, notfound}}, CreateResult).
+    ?assertEqual({error, {party, notfound}}, CreateResult).
 
 -spec create_destination_currency_notfound_fail_test(config()) -> test_return().
-create_destination_currency_notfound_fail_test(C) ->
-    Party = create_party(C),
-    IID = create_identity(Party, C),
-    DestResource = {
-        bank_card,
-        #{
-            bank_card => ct_cardstore:bank_card(
-                <<"4150399999000900">>,
-                {12, 2025},
-                C
-            )
-        }
-    },
+create_destination_currency_notfound_fail_test(_C) ->
+    PartyID = ct_objects:create_party(),
+    ResourceBankCard = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}),
+    Resource = {bank_card, #{bank_card => ResourceBankCard}},
+    AuthData = #{sender => <<"SenderToken">>, receiver => <<"ReceiverToken">>},
     Params = #{
         id => genlib:unique(),
-        identity => IID,
+        party_id => PartyID,
+        realm => live,
         name => <<"XDestination">>,
         currency => <<"BadUnknownCurrency">>,
-        resource => DestResource
+        resource => Resource,
+        auth_data => AuthData
     },
     CreateResult = ff_destination_machine:create(Params, ff_entity_context:new()),
     ?assertEqual({error, {currency, notfound}}, CreateResult).
 
 -spec get_destination_ok_test(config()) -> test_return().
-get_destination_ok_test(C) ->
-    Party = create_party(C),
-    IID = create_identity(Party, C),
-    BankCard = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}, C),
-    DestinationID = create_destination(IID, BankCard),
+get_destination_ok_test(_C) ->
+    PartyID = ct_objects:create_party(),
+    DestinationID = ct_objects:create_destination(PartyID, undefined),
     {ok, DestinationMachine} = ff_destination_machine:get(DestinationID),
-    ?assertMatch(
-        #{
-            account := #{currency := <<"RUB">>},
-            name := <<"XDestination">>,
-            resource := {bank_card, #{bank_card := BankCard}},
-            status := authorized
-        },
-        ff_destination_machine:destination(DestinationMachine)
-    ).
+    Destination = ff_destination_machine:destination(DestinationMachine),
+    ?assertMatch(#{account := #{currency := <<"RUB">>}}, Destination).
 
 -spec get_destination_notfound_fail_test(config()) -> test_return().
 get_destination_notfound_fail_test(_C) ->
     ?assertEqual({error, notfound}, ff_destination_machine:get(<<"BadID">>)).
-
-%% Common functions
-
-create_party(_C) ->
-    ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_identity(Party, C) ->
-    create_identity(Party, <<"good-one">>, C).
-
-create_identity(Party, ProviderID, C) ->
-    create_identity(Party, <<"Identity Name">>, ProviderID, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
-    ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.
-
-create_destination(IID, BankCard) ->
-    DestResource = {bank_card, #{bank_card => BankCard}},
-    DestID = create_destination(IID, <<"XDestination">>, <<"RUB">>, DestResource),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, DestM} = ff_destination_machine:get(DestID),
-            Destination = ff_destination_machine:destination(DestM),
-            ff_destination:status(Destination)
-        end
-    ),
-    DestID.
-
-create_destination(IdentityID, Name, Currency, Resource) ->
-    ID = genlib:unique(),
-    ok = ff_destination_machine:create(
-        #{id => ID, identity => IdentityID, name => Name, currency => Currency, resource => Resource},
-        ff_entity_context:new()
-    ),
-    ID.

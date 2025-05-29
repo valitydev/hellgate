@@ -79,11 +79,7 @@ init([]) ->
 
     Services =
         [
-            {fistful_admin, ff_server_admin_handler},
-            {fistful_provider, ff_provider_handler},
             {ff_withdrawal_adapter_host, ff_withdrawal_adapter_host},
-            {wallet_management, ff_wallet_handler},
-            {identity_management, ff_identity_handler},
             {destination_management, ff_destination_handler},
             {source_management, ff_source_handler},
             {withdrawal_management, ff_withdrawal_handler},
@@ -91,10 +87,7 @@ init([]) ->
             {deposit_management, ff_deposit_handler},
             {withdrawal_session_repairer, ff_withdrawal_session_repair},
             {withdrawal_repairer, ff_withdrawal_repair},
-            {deposit_repairer, ff_deposit_repair},
-            {w2w_transfer_management, ff_w2w_transfer_handler},
-            {w2w_transfer_repairer, ff_w2w_transfer_repair},
-            {ff_claim_committer, ff_claim_committer_handler}
+            {deposit_repairer, ff_deposit_repair}
         ],
     WoodyHandlers = [get_handler(Service, Handler, WrapperOpts) || {Service, Handler} <- Services],
 
@@ -151,15 +144,11 @@ when
     BackendMode :: machinegun | progressor | hybrid.
 get_namespaces_params(machinegun = BackendMode) ->
     [
-        {BackendMode, 'ff/identity', ff_identity_machine, ff_identity_machinery_schema},
-        {BackendMode, 'ff/wallet_v2', ff_wallet_machine, ff_wallet_machinery_schema},
         {BackendMode, 'ff/source_v1', ff_source_machine, ff_source_machinery_schema},
         {BackendMode, 'ff/destination_v2', ff_destination_machine, ff_destination_machinery_schema},
         {BackendMode, 'ff/deposit_v1', ff_deposit_machine, ff_deposit_machinery_schema},
         {BackendMode, 'ff/withdrawal_v2', ff_withdrawal_machine, ff_withdrawal_machinery_schema},
-        {BackendMode, 'ff/withdrawal/session_v2', ff_withdrawal_session_machine,
-            ff_withdrawal_session_machinery_schema},
-        {BackendMode, 'ff/w2w_transfer_v1', w2w_transfer_machine, ff_w2w_transfer_machinery_schema}
+        {BackendMode, 'ff/withdrawal/session_v2', ff_withdrawal_session_machine, ff_withdrawal_session_machinery_schema}
     ];
 get_namespaces_params(BackendMode) when BackendMode == progressor orelse BackendMode == hybrid ->
     {ok, Namespaces} = application:get_env(progressor, namespaces),

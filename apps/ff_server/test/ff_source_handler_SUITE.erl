@@ -32,7 +32,7 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {default, [parallel], [
+        {default, [], [
             get_source_events_ok_test,
             get_source_context_ok_test,
             create_source_ok_test,
@@ -116,47 +116,35 @@ unknown_test(_C) ->
 %%----------------------------------------------------------------------
 
 create_source_ok(Resource, C) ->
-    Party = create_party(C),
+    PartyID = create_party(C),
     Currency = <<"RUB">>,
     Name = <<"name">>,
     ID = genlib:unique(),
-    ExternalId = genlib:unique(),
-    IdentityID = create_identity(Party, C),
+    ExternalID = genlib:unique(),
     Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     Params = #source_SourceParams{
         id = ID,
-        identity_id = IdentityID,
+        realm = live,
+        party_id = PartyID,
         name = Name,
         currency = #'fistful_base_CurrencyRef'{symbolic_code = Currency},
         resource = Resource,
-        external_id = ExternalId,
+        external_id = ExternalID,
         metadata = Metadata
     },
     {ok, Src} = call_service('Create', {Params, Ctx}),
     Name = Src#source_SourceState.name,
     ID = Src#source_SourceState.id,
+    PartyID = Src#source_SourceState.party_id,
+    live = Src#source_SourceState.realm,
     Resource = Src#source_SourceState.resource,
-    ExternalId = Src#source_SourceState.external_id,
+    ExternalID = Src#source_SourceState.external_id,
     Metadata = Src#source_SourceState.metadata,
     Ctx = Src#source_SourceState.context,
 
     Account = Src#source_SourceState.account,
-    IdentityID = Account#account_Account.identity,
     #'fistful_base_CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
-
-    {unauthorized, #source_Unauthorized{}} = Src#source_SourceState.status,
-
-    {authorized, #source_Authorized{}} = ct_helper:await(
-        {authorized, #source_Authorized{}},
-        fun() ->
-            {ok, #source_SourceState{status = Status}} =
-                call_service('Get', {ID, #'fistful_base_EventRange'{}}),
-            Status
-        end,
-        genlib_retry:linear(15, 1000)
-    ),
-
     {ok, #source_SourceState{} = State} = call_service('Get', {ID, #'fistful_base_EventRange'{}}),
     State.
 
@@ -171,19 +159,5 @@ call_service(Fun, Args) ->
 
 create_party(_C) ->
     ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_identity(Party, C) ->
-    create_identity(Party, <<"good-one">>, C).
-
-create_identity(Party, ProviderID, C) ->
-    create_identity(Party, <<"Identity Name">>, ProviderID, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
-    ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
+    _ = ct_domain:create_party(ID),
     ID.

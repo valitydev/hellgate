@@ -30,7 +30,7 @@ services:
     command: /sbin/init
 
   dominant:
-    image: ghcr.io/valitydev/dominant:sha-c0ebc36
+    image: ghcr.io/valitydev/dominant:sha-4bfce76
     command: /opt/dominant/bin/dominant foreground
     depends_on:
       machinegun:
@@ -54,7 +54,7 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-2271094
+    image: ghcr.io/valitydev/limiter:sha-08cdd07
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
@@ -62,7 +62,7 @@ services:
       shumway:
         condition: service_started
       liminator:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: "/opt/limiter/bin/limiter ping"
       interval: 5s
@@ -107,20 +107,17 @@ services:
     depends_on:
       - liminator-db
     healthcheck:
-      test: "curl http://localhost:8022/actuator/health"
-      interval: 5s
-      timeout: 1s
-      retries: 20
+      disable: true
 
   liminator-db:
-    image: docker.io/library/postgres:14.3
+    image: docker.io/library/postgres:13.10
     environment:
       - POSTGRES_DB=liminator
       - POSTGRES_USER=vality
       - POSTGRES_PASSWORD=postgres
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-9af7d71
+    image: ghcr.io/valitydev/party-management:sha-435e3f2
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       machinegun:

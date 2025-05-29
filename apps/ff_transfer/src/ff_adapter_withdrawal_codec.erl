@@ -88,8 +88,6 @@ marshal(currency, #{
         numeric_code = Numcode,
         exponent = Exponent
     };
-marshal(challenge_documents, Challenge) ->
-    lists:foldl(fun try_encode_proof_document/2, [], maps:get(proofs, Challenge, []));
 marshal(exp_date, {Month, Year}) ->
     #domain_BankCardExpDate{
         month = Month,
@@ -103,21 +101,6 @@ marshal(payment_service, #{id := Ref}) when is_binary(Ref) ->
     #domain_PaymentServiceRef{
         id = Ref
     };
-marshal(identity, Identity) ->
-    % TODO: Add real contact fields
-    #wthd_domain_Identity{
-        id = maps:get(id, Identity),
-        owner_id = maps:get(owner_id, Identity, undefined),
-        documents = marshal(identity_documents, Identity),
-        contact = [{phone_number, <<"9876543210">>}]
-    };
-marshal(identity_documents, Identity) ->
-    case maps:get(effective_challenge, Identity, undefined) of
-        undefined ->
-            [];
-        Challenge ->
-            marshal(challenge_documents, Challenge)
-    end;
 marshal(intent, {finish, success}) ->
     {finish, #wthd_provider_FinishIntent{
         status = {success, #wthd_provider_Success{}}
@@ -261,8 +244,8 @@ marshal(
         session_id = SesID,
         body = marshal(body, Cash),
         destination = marshal(resource, Resource),
-        sender = maybe_marshal(identity, Sender),
-        receiver = maybe_marshal(identity, Receiver),
+        sender = Sender,
+        receiver = Receiver,
         auth_data = maybe_marshal(auth_data, DestAuthData),
         quote = maybe_marshal(quote, maps:get(quote, Withdrawal, undefined))
     };
@@ -276,11 +259,6 @@ marshal(auth_data, #{
         sender = SenderToken,
         receiver = ReceiverToken
     }}.
-
-try_encode_proof_document({rus_domestic_passport, Token}, Acc) ->
-    [{rus_domestic_passport, #wthd_domain_RUSDomesticPassport{token = Token}} | Acc];
-try_encode_proof_document(_, Acc) ->
-    Acc.
 
 %%
 
@@ -335,20 +313,11 @@ unmarshal(currency, #domain_Currency{
         numcode => Numcode,
         exponent => Exponent
     };
-unmarshal(challenge_documents, _NotImplemented) ->
-    %@TODO
-    erlang:error(not_implemented);
 unmarshal(exp_date, #domain_BankCardExpDate{
     month = Month,
     year = Year
 }) ->
     {Month, Year};
-unmarshal(identity, _NotImplemented) ->
-    %@TODO
-    erlang:error(not_implemented);
-unmarshal(identity_documents, _NotImplemented) ->
-    %@TODO
-    erlang:error(not_implemented);
 unmarshal(
     intent, {finish, #wthd_provider_FinishIntent{status = {success, #wthd_provider_Success{trx_info = undefined}}}}
 ) ->

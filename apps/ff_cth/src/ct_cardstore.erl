@@ -1,10 +1,10 @@
 -module(ct_cardstore).
 
--export([bank_card/3]).
+-export([bank_card/2]).
 
 %%
 
--spec bank_card(binary(), {1..12, 2000..9999}, ct_helper:config()) ->
+-spec bank_card(binary(), {1..12, 2000..9999}) ->
     #{
         token := binary(),
         bin => binary(),
@@ -12,7 +12,7 @@
         exp_date => {integer(), integer()},
         cardholder_name => binary()
     }.
-bank_card(PAN, ExpDate, _C) ->
+bank_card(PAN, ExpDate) ->
     #{
         token => PAN,
         bin => binary:part(PAN, {0, 6}),

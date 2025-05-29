@@ -23,7 +23,6 @@ marshal(adjustment, Adjustment) ->
         changes_plan = marshal(changes_plan, ff_adjustment:changes_plan(Adjustment)),
         created_at = marshal(timestamp_ms, ff_adjustment:created_at(Adjustment)),
         domain_revision = marshal(domain_revision, ff_adjustment:domain_revision(Adjustment)),
-        party_revision = marshal(party_revision, ff_adjustment:party_revision(Adjustment)),
         operation_timestamp = marshal(timestamp_ms, ff_adjustment:operation_timestamp(Adjustment)),
         external_id = maybe_marshal(id, ff_adjustment:external_id(Adjustment))
     };
@@ -40,7 +39,6 @@ marshal(adjustment_state, Adjustment) ->
         changes_plan = marshal(changes_plan, ff_adjustment:changes_plan(Adjustment)),
         created_at = marshal(timestamp_ms, ff_adjustment:created_at(Adjustment)),
         domain_revision = marshal(domain_revision, ff_adjustment:domain_revision(Adjustment)),
-        party_revision = marshal(party_revision, ff_adjustment:party_revision(Adjustment)),
         operation_timestamp = marshal(timestamp_ms, ff_adjustment:operation_timestamp(Adjustment)),
         external_id = maybe_marshal(id, ff_adjustment:external_id(Adjustment))
     };
@@ -94,7 +92,6 @@ unmarshal(adjustment, Adjustment) ->
         changes_plan => unmarshal(changes_plan, Adjustment#wthd_adj_Adjustment.changes_plan),
         created_at => unmarshal(timestamp_ms, Adjustment#wthd_adj_Adjustment.created_at),
         domain_revision => unmarshal(domain_revision, Adjustment#wthd_adj_Adjustment.domain_revision),
-        party_revision => unmarshal(party_revision, Adjustment#wthd_adj_Adjustment.party_revision),
         operation_timestamp => unmarshal(timestamp_ms, Adjustment#wthd_adj_Adjustment.operation_timestamp),
         external_id => maybe_unmarshal(id, Adjustment#wthd_adj_Adjustment.external_id)
     };
@@ -169,19 +166,19 @@ adjustment_codec_test() ->
             #{
                 sender => #{
                     account => #{
-                        id => genlib:unique(),
-                        identity => genlib:unique(),
+                        realm => test,
+                        party_id => genlib:unique(),
                         currency => <<"RUB">>,
-                        accounter_account_id => 123
+                        account_id => 123
                     },
                     type => sender_source
                 },
                 receiver => #{
                     account => #{
-                        id => genlib:unique(),
-                        identity => genlib:unique(),
+                        realm => test,
+                        party_id => genlib:unique(),
                         currency => <<"USD">>,
-                        accounter_account_id => 321
+                        account_id => 321
                     },
                     type => receiver_settlement
                 },
@@ -209,7 +206,6 @@ adjustment_codec_test() ->
         changes_plan => Plan,
         created_at => ff_time:now(),
         domain_revision => 123,
-        party_revision => 321,
         operation_timestamp => ff_time:now(),
         external_id => genlib:unique()
     },

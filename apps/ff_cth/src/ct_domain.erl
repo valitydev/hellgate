@@ -4,6 +4,9 @@
 
 -module(ct_domain).
 
+-export([create_party/1]).
+-export([create_wallet/5]).
+
 -export([currency/1]).
 -export([category/3]).
 -export([payment_method/1]).
@@ -36,34 +39,131 @@
 
 -define(DTP(Type), dmsl_domain_thrift:Type()).
 
--type object() ::
-    dmsl_domain_thrift:'DomainObject'().
+-type object() :: dmsl_domain_thrift:'DomainObject'().
+
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type wallet_id() :: dmsl_domain_thrift:'WalletID'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type termset_ref() :: dmsl_domain_thrift:'TermSetHierarchyRef'().
+-type payment_inst_ref() :: dmsl_domain_thrift:'PaymentInstitutionRef'().
+-type currency() :: dmsl_domain_thrift:'CurrencySymbolicCode'().
+
+-spec create_party(party_id()) -> party().
+create_party(PartyID) ->
+    PartyConfig = #domain_PartyConfig{
+        id = PartyID,
+        contact_info = #domain_PartyContactInfo{
+            registration_email = <<"test@test.ru">>
+        },
+        created_at = ff_time:rfc3339(),
+        blocking =
+            {unblocked, #domain_Unblocked{
+                reason = <<"">>,
+                since = ff_time:rfc3339()
+            }},
+        suspension =
+            {active, #domain_Active{
+                since = ff_time:rfc3339()
+            }},
+        shops = [],
+        wallets = []
+    },
+
+    % Вставляем Party в домен
+    _ = ct_domain_config:upsert(
+        {party_config, #domain_PartyConfigObject{
+            ref = #domain_PartyConfigRef{id = PartyID},
+            data = PartyConfig
+        }}
+    ),
+
+    PartyConfig.
+
+change_party(PartyID, Fun) ->
+    PartyConfig0 = ct_domain_config:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+    PartyConfig1 = Fun(PartyConfig0),
+    _ = ct_domain_config:upsert(
+        {party_config, #domain_PartyConfigObject{
+            ref = #domain_PartyConfigRef{id = PartyID},
+            data = PartyConfig1
+        }}
+    ),
+    ok.
+
+-spec create_wallet(wallet_id(), party_id(), currency(), termset_ref(), payment_inst_ref()) -> wallet_id().
+create_wallet(WalletID, PartyID, Currency, TermsRef, PaymentInstRef) ->
+    % Создаем счета
+    {ok, SettlementID} = ff_accounting:create_account(Currency, atom_to_binary(test)),
+
+    % Создаем Wallet как объект конфигурации
+    WalletConfig = #domain_WalletConfig{
+        id = WalletID,
+        created_at = ff_time:rfc3339(),
+        blocking =
+            {unblocked, #domain_Unblocked{
+                reason = <<"">>,
+                since = ff_time:rfc3339()
+            }},
+        suspension =
+            {active, #domain_Active{
+                since = ff_time:rfc3339()
+            }},
+        details = #domain_Details{
+            name = <<"Test Wallet">>,
+            description = <<"Test description">>
+        },
+        currency_configs = #{
+            #domain_CurrencyRef{symbolic_code = Currency} => #domain_WalletCurrencyConfig{
+                currency = #domain_CurrencyRef{symbolic_code = Currency},
+                settlement = SettlementID
+            }
+        },
+        payment_institution = PaymentInstRef,
+        terms = TermsRef,
+        party_id = PartyID
+    },
+
+    % Вставляем Wallet в домен
+    _ = ct_domain_config:upsert(
+        {wallet_config, #domain_WalletConfigObject{
+            ref = #domain_WalletConfigRef{id = WalletID},
+            data = WalletConfig
+        }}
+    ),
+
+    change_party(PartyID, fun(PartyConfig) ->
+        PartyConfig#domain_PartyConfig{
+            wallets = [#domain_WalletConfigRef{id = WalletID} | PartyConfig#domain_PartyConfig.wallets]
+        }
+    end),
+
+    WalletID.
 
 -spec withdrawal_provider(
     ?DTP('ProviderRef'),
     ?DTP('ProxyRef'),
-    binary(),
+    ?DTP('PaymentInstitutionRealm'),
     ?DTP('ProvisionTermSet') | undefined
 ) -> object().
-withdrawal_provider(Ref, ProxyRef, IdentityID, TermSet) ->
+withdrawal_provider(Ref, ProxyRef, Realm, TermSet) ->
     {ok, AccountID} = ct_helper:create_account(<<"RUB">>),
-    withdrawal_provider(AccountID, Ref, ProxyRef, IdentityID, TermSet).
+    withdrawal_provider(AccountID, Ref, ProxyRef, Realm, TermSet).
 
 -spec withdrawal_provider(
-    ff_account:accounter_account_id(),
+    ff_account:account_id(),
     ?DTP('ProviderRef'),
     ?DTP('ProxyRef'),
-    binary(),
+    ?DTP('PaymentInstitutionRealm'),
     ?DTP('ProvisionTermSet') | undefined
 ) -> object().
-withdrawal_provider(AccountID, ?prv(ID) = Ref, ProxyRef, IdentityID, TermSet) ->
+withdrawal_provider(AccountID, ?prv(ID) = Ref, ProxyRef, Realm, TermSet) ->
     {provider, #domain_ProviderObject{
         ref = Ref,
         data = #domain_Provider{
             name = genlib:format("Withdrawal provider #~B", [ID]),
             description = <<>>,
             proxy = #domain_Proxy{ref = ProxyRef, additional = #{}},
-            identity = IdentityID,
+            realm = Realm,
             terms = TermSet,
             accounts = #{
                 ?cur(<<"RUB">>) => #domain_ProviderAccount{settlement = AccountID}

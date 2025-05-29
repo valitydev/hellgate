@@ -8,6 +8,8 @@
 -include_lib("limiter_proto/include/limproto_base_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_withdrawal_thrift.hrl").
 -include_lib("validator_personal_data_proto/include/validator_personal_data_validator_personal_data_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_destination_thrift.hrl").
+-include_lib("fistful_proto/include/fistful_fistful_base_thrift.hrl").
 
 %% Common test API
 
@@ -168,15 +170,17 @@ limit_success(C) ->
     Cash = {800800, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     PreviousAmount = get_limit_amount(Cash, WalletID, DestinationID, ?LIMIT_TURNOVER_NUM_PAYTOOL_ID1, C),
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -205,21 +209,22 @@ sender_receiver_limit_success(C) ->
     Cash = {_Amount, Currency} = {3002000, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        identity_id := IdentityID
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
     AuthData = #{
         sender => <<"SenderToken">>,
         receiver => <<"ReceiverToken">>
     },
-    MarshaledAuthData = ff_adapter_withdrawal_codec:maybe_marshal(auth_data, AuthData),
-    DestinationID = create_destination(IdentityID, Currency, AuthData, C),
-    WithdrawalID = generate_id(),
+    MarshaledAuthData = AuthData,
+    DestinationID = create_destination(PartyID, Currency, AuthData, C),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     PreviousAmount = get_limit_amount(
         Cash, WalletID, DestinationID, ?LIMIT_TURNOVER_NUM_SENDER_ID1, MarshaledAuthData, C
@@ -240,15 +245,17 @@ limit_overflow(C) ->
     Cash = {900900, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     PreviousAmount = get_limit_amount(Cash, WalletID, DestinationID, ?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, C),
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -296,15 +303,17 @@ limit_hold_error_two_routes_failure(C) ->
     Cash = {901000, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Result = await_final_withdrawal_status(WithdrawalID),
@@ -337,15 +346,17 @@ limit_hold_error(C) ->
     Cash = {800800, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Result = await_final_withdrawal_status(WithdrawalID),
@@ -356,15 +367,17 @@ choose_provider_without_limit_overflow(C) ->
     Cash = {901000, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     PreviousAmount = get_limit_amount(Cash, WalletID, DestinationID, ?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, C),
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -386,77 +399,83 @@ provider_limits_exhaust_orderly(C) ->
     TotalCash = {3000000, Currency},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(TotalCash, C),
 
     %% First withdrawal goes to limit 1 and spents half of its amount
-    WithdrawalID1 = generate_id(),
+    WithdrawalID1 = genlib:bsuuid(),
     WithdrawalParams1 = #{
         id => WithdrawalID1,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash1,
-        external_id => WithdrawalID1
+        external_id => WithdrawalID1,
+        party_id => PartyID
     },
-    0 = get_limit_amount(Cash1, WalletID, DestinationID, ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, C),
+    PreviousAmount1 = get_limit_amount(Cash1, WalletID, DestinationID, ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, C),
     ok = ff_withdrawal_machine:create(WithdrawalParams1, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID1)),
     Withdrawal1 = get_withdrawal(WithdrawalID1),
     ?assertEqual(
-        902000,
+        PreviousAmount1 + 902000,
         ff_limiter_helper:get_limit_amount(
             ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal1, C
         )
     ),
 
     %% Second withdrawal goes to limit 2 as limit 1 doesn't have enough and spents all its amount
-    WithdrawalID2 = generate_id(),
+    WithdrawalID2 = genlib:bsuuid(),
     WithdrawalParams2 = #{
         id => WithdrawalID2,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash2,
-        external_id => WithdrawalID2
+        external_id => WithdrawalID2,
+        party_id => PartyID
     },
-    0 = get_limit_amount(Cash2, WalletID, DestinationID, ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2, C),
+    PreviousAmount2 = get_limit_amount(Cash2, WalletID, DestinationID, ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2, C),
     ok = ff_withdrawal_machine:create(WithdrawalParams2, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID2)),
     Withdrawal2 = get_withdrawal(WithdrawalID2),
     ?assertEqual(
-        903000,
+        PreviousAmount2 + 903000,
         ff_limiter_helper:get_limit_amount(
             ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2, ct_helper:cfg('$limits_domain_revision', C), Withdrawal2, C
         )
     ),
 
     %% Third withdrawal goes to limit 1 and spents all its amount
-    WithdrawalID3 = generate_id(),
+    WithdrawalID3 = genlib:bsuuid(),
     WithdrawalParams3 = #{
         id => WithdrawalID3,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash1,
-        external_id => WithdrawalID3
+        external_id => WithdrawalID3,
+        party_id => PartyID
     },
-    902000 = get_limit_amount(Cash1, WalletID, DestinationID, ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, C),
+    _ = get_limit_amount(Cash1, WalletID, DestinationID, ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, C),
     ok = ff_withdrawal_machine:create(WithdrawalParams3, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID3)),
     Withdrawal3 = get_withdrawal(WithdrawalID3),
+    ExpectedAmount3 = PreviousAmount1 + 902000 + 902000,
     ?assertEqual(
-        1804000,
+        ExpectedAmount3,
         ff_limiter_helper:get_limit_amount(
             ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal3, C
         )
     ),
 
     %% Last withdrawal can't find route cause all limits are drained
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash1,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Result = await_final_withdrawal_status(WithdrawalID),
@@ -468,15 +487,17 @@ provider_retry(C) ->
     Cash = {904000, Currency},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
-        external_id => WithdrawalID
+        external_id => WithdrawalID,
+        party_id => PartyID
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)),
@@ -501,23 +522,26 @@ await_provider_retry(FirstAmount, SecondAmount, TotalAmount, C) ->
     Currency = <<"RUB">>,
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment({TotalAmount, Currency}, C),
-    WithdrawalID1 = generate_id(),
+    WithdrawalID1 = genlib:bsuuid(),
     WithdrawalParams1 = #{
         id => WithdrawalID1,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => {FirstAmount, Currency},
-        external_id => WithdrawalID1
+        external_id => WithdrawalID1,
+        party_id => PartyID
     },
-    WithdrawalID2 = generate_id(),
+    WithdrawalID2 = genlib:bsuuid(),
     WithdrawalParams2 = #{
         id => WithdrawalID2,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => {SecondAmount, Currency},
-        external_id => WithdrawalID2
+        external_id => WithdrawalID2,
+        party_id => PartyID
     },
     Activity = {fail, session},
     {ok, Barrier} = ff_ct_barrier:start_link(),
@@ -554,21 +578,22 @@ set_retryable_errors(PartyID, ErrorList) ->
     }).
 
 get_limit_withdrawal(Cash, WalletID, DestinationID, AuthData) ->
-    {ok, WalletMachine} = ff_wallet_machine:get(WalletID),
-    Wallet = ff_wallet_machine:wallet(WalletMachine),
-    WalletAccount = ff_wallet:account(Wallet),
-    {ok, SenderSt} = ff_identity_machine:get(ff_account:identity(WalletAccount)),
-    SenderIdentity = ff_identity_machine:identity(SenderSt),
-
+    MarshaledAuthData =
+        case AuthData of
+            #{sender := _, receiver := _} ->
+                {sender_receiver, #wthd_domain_SenderReceiverAuthData{
+                    sender = maps:get(sender, AuthData),
+                    receiver = maps:get(receiver, AuthData)
+                }};
+            _ ->
+                AuthData
+        end,
     #wthd_domain_Withdrawal{
         created_at = ff_codec:marshal(timestamp_ms, ff_time:now()),
         body = ff_dmsl_codec:marshal(cash, Cash),
         destination = ff_adapter_withdrawal_codec:marshal(resource, get_destination_resource(DestinationID)),
-        sender = ff_adapter_withdrawal_codec:marshal(identity, #{
-            id => ff_identity:id(SenderIdentity),
-            owner_id => ff_identity:party(SenderIdentity)
-        }),
-        auth_data = AuthData
+        sender = WalletID,
+        auth_data = MarshaledAuthData
     }.
 
 get_limit_amount(Cash, WalletID, DestinationID, LimitID, C) ->
@@ -585,13 +610,15 @@ get_destination_resource(DestinationID) ->
 
 prepare_standard_environment({_Amount, Currency} = WithdrawalCash, C) ->
     PartyID = ct_helper:cfg('$party', C),
-    IdentityID = create_person_identity(PartyID, C),
-    WalletID = create_wallet(IdentityID, <<"My wallet">>, Currency, C),
+    WalletID = ct_objects:create_wallet(
+        PartyID, Currency, #domain_TermSetHierarchyRef{id = 1}, #domain_PaymentInstitutionRef{id = 1}
+    ),
     ok = await_wallet_balance({0, Currency}, WalletID),
-    DestinationID = create_destination(IdentityID, Currency, C),
-    ok = set_wallet_balance(WithdrawalCash, WalletID),
+    DestinationID = ct_objects:create_destination(PartyID, undefined),
+    SourceID = ct_objects:create_source(PartyID, Currency),
+    {_DepositID, _} = ct_objects:create_deposit(PartyID, WalletID, SourceID, WithdrawalCash),
+    ok = await_wallet_balance(WithdrawalCash, WalletID),
     #{
-        identity_id => IdentityID,
         party_id => PartyID,
         wallet_id => WalletID,
         destination_id => DestinationID
@@ -634,29 +661,7 @@ await_withdrawal_activity(Activity, WithdrawalID) ->
 
 create_party(_C) ->
     ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_person_identity(Party, C) ->
-    create_identity(Party, <<"good-one">>, C).
-
-create_identity(Party, ProviderID, C) ->
-    create_identity(Party, <<"Identity Name">>, ProviderID, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
-    ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.
-
-create_wallet(IdentityID, Name, Currency, _C) ->
-    ID = genlib:unique(),
-    ok = ff_wallet_machine:create(
-        #{id => ID, identity => IdentityID, name => Name, currency => Currency},
-        ff_entity_context:new()
-    ),
+    _ = ct_domain:create_party(ID),
     ID.
 
 await_wallet_balance({Amount, Currency}, ID) ->
@@ -669,50 +674,32 @@ await_wallet_balance({Amount, Currency}, ID) ->
     ok.
 
 get_wallet_balance(ID) ->
-    {ok, Machine} = ff_wallet_machine:get(ID),
-    get_account_balance(ff_wallet:account(ff_wallet_machine:wallet(Machine))).
+    ct_objects:get_wallet_balance(ID).
 
-get_account_balance(Account) ->
-    {ok, {Amounts, Currency}} = ff_accounting:balance(Account),
-    {ff_indef:current(Amounts), ff_indef:to_range(Amounts), Currency}.
-
-generate_id() ->
-    ff_id:generate_snowflake_id().
-
-create_destination(IID, Currency, C) ->
-    create_destination(IID, Currency, undefined, C).
-
-create_destination(IID, Currency, AuthData, C) ->
-    ID = generate_id(),
-    StoreSource = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}, C),
-    Resource = {bank_card, #{bank_card => StoreSource}},
+create_destination(IID, Currency, AuthData, _C) ->
+    ID = genlib:bsuuid(),
+    StoreSource = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}),
+    Resource =
+        {bank_card, #'fistful_base_ResourceBankCard'{
+            bank_card = #'fistful_base_BankCard'{
+                token = maps:get(token, StoreSource),
+                bin = maps:get(bin, StoreSource, undefined),
+                masked_pan = maps:get(masked_pan, StoreSource, undefined),
+                exp_date = #'fistful_base_BankCardExpDate'{
+                    month = 12,
+                    year = 2025
+                },
+                cardholder_name = maps:get(cardholder_name, StoreSource, undefined)
+            }
+        }},
     Params = genlib_map:compact(#{
         id => ID,
-        identity => IID,
+        party_id => IID,
         name => <<"XDesination">>,
         currency => Currency,
         resource => Resource,
-        auth_data => AuthData
+        auth_data => AuthData,
+        realm => live
     }),
     ok = ff_destination_machine:create(Params, ff_entity_context:new()),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, Machine} = ff_destination_machine:get(ID),
-            Destination = ff_destination_machine:destination(Machine),
-            ff_destination:status(Destination)
-        end
-    ),
     ID.
-
-set_wallet_balance({Amount, Currency}, ID) ->
-    TransactionID = generate_id(),
-    {ok, Machine} = ff_wallet_machine:get(ID),
-    Account = ff_wallet:account(ff_wallet_machine:wallet(Machine)),
-    AccounterID = ff_account:accounter_account_id(Account),
-    {CurrentAmount, _, Currency} = get_account_balance(Account),
-    {ok, AnotherAccounterID} = ct_helper:create_account(Currency),
-    Postings = [{AnotherAccounterID, AccounterID, {Amount - CurrentAmount, Currency}}],
-    {ok, _} = ff_accounting:prepare_trx(TransactionID, Postings),
-    {ok, _} = ff_accounting:commit_trx(TransactionID, Postings),
-    ok.

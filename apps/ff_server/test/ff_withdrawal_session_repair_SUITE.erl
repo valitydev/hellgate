@@ -29,7 +29,7 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {default, [parallel], [
+        {default, [], [
             repair_failed_session_with_success,
             repair_failed_session_with_failure
         ]}
@@ -75,10 +75,12 @@ end_per_testcase(_Name, _C) ->
 
 -spec repair_failed_session_with_success(config()) -> test_return().
 repair_failed_session_with_success(C) ->
-    PartyID = create_party(C),
-    IdentityID = create_identity(PartyID, C),
-    DestinationID = create_destination(IdentityID, C),
-    SessionID = create_failed_session(IdentityID, DestinationID, C),
+    Ctx = ct_objects:build_default_ctx(),
+    #{
+        party_id := PartyID,
+        destination_id := DestinationID
+    } = ct_objects:prepare_standard_environment(Ctx),
+    SessionID = create_failed_session(PartyID, DestinationID, C),
     ?assertEqual(active, get_session_status(SessionID)),
     timer:sleep(3000),
     ?assertEqual(active, get_session_status(SessionID)),
@@ -98,10 +100,12 @@ repair_failed_session_with_success(C) ->
 
 -spec repair_failed_session_with_failure(config()) -> test_return().
 repair_failed_session_with_failure(C) ->
-    PartyID = create_party(C),
-    IdentityID = create_identity(PartyID, C),
-    DestinationID = create_destination(IdentityID, C),
-    SessionID = create_failed_session(IdentityID, DestinationID, C),
+    Ctx = ct_objects:build_default_ctx(),
+    #{
+        party_id := PartyID,
+        destination_id := DestinationID
+    } = ct_objects:prepare_standard_environment(Ctx),
+    SessionID = create_failed_session(PartyID, DestinationID, C),
     ?assertEqual(active, get_session_status(SessionID)),
     timer:sleep(3000),
     ?assertEqual(active, get_session_status(SessionID)),
@@ -124,56 +128,21 @@ repair_failed_session_with_failure(C) ->
 
 %%  Internals
 
-create_party(_C) ->
-    ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_identity(Party, C) ->
-    create_identity(Party, <<"Owner">>, <<"good-one">>, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
+create_failed_session(PartyID, DestinationID, _C) ->
     ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.
 
-create_destination(IID, C) ->
-    DestResource = {bank_card, #{bank_card => ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}, C)}},
-    DestID = create_destination(IID, <<"XDesination">>, <<"RUB">>, DestResource),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, DestM} = ff_destination_machine:get(DestID),
-            Destination = ff_destination_machine:destination(DestM),
-            ff_destination:status(Destination)
-        end
-    ),
-    DestID.
+    {ok, DestinationMachine} = ff_destination_machine:get(DestinationID),
+    Destination = ff_destination_machine:destination(DestinationMachine),
+    {ok, DestinationResource} = ff_resource:create_resource(ff_destination:resource(Destination)),
 
-create_destination(IdentityID, Name, Currency, Resource) ->
-    ID = genlib:unique(),
-    ok = ff_destination_machine:create(
-        #{id => ID, identity => IdentityID, name => Name, currency => Currency, resource => Resource},
-        ff_entity_context:new()
-    ),
-    ID.
-
-create_failed_session(IdentityID, DestinationID, _C) ->
-    ID = genlib:unique(),
-    {ok, IdentityMachine} = ff_identity_machine:get(IdentityID),
     TransferData = #{
         id => ID,
         % invalid currency
         cash => {1000, <<"unknown_currency">>},
-        sender => ff_identity_machine:identity(IdentityMachine),
-        receiver => ff_identity_machine:identity(IdentityMachine)
+        sender => PartyID,
+        receiver => PartyID
     },
-    {ok, DestinationMachine} = ff_destination_machine:get(DestinationID),
-    Destination = ff_destination_machine:destination(DestinationMachine),
-    {ok, DestinationResource} = ff_resource:create_resource(ff_destination:resource(Destination)),
+
     SessionParams = #{
         withdrawal_id => ID,
         resource => DestinationResource,

@@ -115,21 +115,8 @@ init({Events, Ctx}, #{}, _, _Opts) ->
 %%
 
 -spec process_timeout(machine(), handler_args(), handler_opts()) -> result().
-process_timeout(Machine, _, _Opts) ->
-    St = ff_machine:collapse(ff_source, Machine),
-    process_timeout(deduce_activity(ff_machine:model(St)), St).
-
-process_timeout(authorize, St) ->
-    D0 = source(St),
-    {ok, Events} = ff_source:authorize(D0),
-    #{
-        events => ff_machine:emit_events(Events)
-    }.
-
-deduce_activity(#{status := unauthorized}) ->
-    authorize;
-deduce_activity(#{}) ->
-    undefined.
+process_timeout(_Machine, _, _Opts) ->
+    #{}.
 
 %%
 

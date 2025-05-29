@@ -84,8 +84,7 @@ start_processing_apps(Options) ->
         party_client,
         {fistful, [
             {machinery_backend, hybrid},
-            {services, services(Options)},
-            {providers, identity_provider_config(Options)}
+            {services, services(Options)}
         ]},
         ff_server,
         bender_client
@@ -162,7 +161,7 @@ setup_dominant_internal(Config, #{setup_dominant := Func}) when is_function(Func
 setup_dominant_internal(Config, _Options) ->
     Config.
 
-configure_processing_apps(Options) ->
+configure_processing_apps(_Options) ->
     ok = set_app_env(
         [ff_transfer, withdrawal, system, accounts, settlement, <<"RUB">>],
         create_company_account()
@@ -174,49 +173,13 @@ configure_processing_apps(Options) ->
     ok = set_app_env(
         [ff_transfer, withdrawal, provider, <<"mocketbank">>, accounts, <<"RUB">>],
         create_company_account()
-    ),
-    ok = create_crunch_identity(
-        payment_inst_identity_id(Options),
-        provider_identity_id(Options),
-        <<"good-one">>
-    ),
-    ok = create_crunch_identity(
-        dummy_payment_inst_identity_id(Options),
-        dummy_provider_identity_id(Options),
-        <<"good-two">>
     ).
 
-create_crunch_identity(PayInstIID, ProviderIID, ProviderID) ->
-    PartyID = create_party(),
-    PayInstIID = create_identity(PayInstIID, <<"ChurchPI">>, PartyID, ProviderID),
-    ProviderIID = create_identity(ProviderIID, <<"ChurchPR">>, PartyID, ProviderID),
-    ok.
-
 create_company_account() ->
-    PartyID = create_party(),
-    IdentityID = create_identity(PartyID, <<"good-one">>),
+    PartyID = ct_objects:create_party(),
     {ok, Currency} = ff_currency:get(<<"RUB">>),
-    {ok, IdentityMachine} = ff_identity_machine:get(IdentityID),
-    Identity = ff_identity_machine:identity(IdentityMachine),
-    {ok, [{created, Account}]} = ff_account:create(PartyID, Identity, Currency),
+    {ok, [{created, Account}]} = ff_account:create(PartyID, live, Currency),
     Account.
-
-create_party() ->
-    ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_identity(PartyID, ProviderID) ->
-    ID = genlib:unique(),
-    Name = <<"Test Identity">>,
-    create_identity(ID, Name, PartyID, ProviderID).
-
-create_identity(ID, Name, PartyID, ProviderID) ->
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => PartyID, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.
 
 set_app_env([App, Key | Path], Value) ->
     Env = genlib_app:env(App, Key, #{}),
@@ -230,20 +193,6 @@ do_set_env([Key | Path], Value, Env) ->
     Env#{Key => do_set_env(Path, Value, SubEnv)}.
 
 %% Default options
-identity_provider_config(Options) ->
-    Default = #{
-        <<"good-one">> => #{
-            payment_institution_id => 1,
-            contract_template_id => 1,
-            contractor_level => full
-        },
-        <<"good-two">> => #{
-            payment_institution_id => 2,
-            contract_template_id => 1,
-            contractor_level => full
-        }
-    },
-    maps:get(identity_provider_config, Options, Default).
 
 services(Options) ->
     Default = #{
@@ -252,7 +201,8 @@ services(Options) ->
         accounter => "http://shumway:8022/accounter",
         partymgmt => "http://party-management:8022/v1/processing/partymgmt",
         binbase => "http://localhost:8222/binbase",
-        limiter => "http://limiter:8022/v1/limiter"
+        limiter => "http://limiter:8022/v1/limiter",
+        party_config => "http://party-management:8022/v1/processing/partycfg"
     },
     maps:get(services, Options, Default).
 
@@ -298,28 +248,6 @@ progressor_defaults() ->
 
 progressor_namespaces() ->
     #{
-        'ff/identity' => #{
-            processor => #{
-                client => machinery_prg_backend,
-                options => #{
-                    namespace => 'ff/identity',
-                    %% TODO Party client create
-                    handler => {fistful, #{handler => ff_identity_machine, party_client => #{}}},
-                    schema => ff_identity_machinery_schema
-                }
-            }
-        },
-        'ff/wallet_v2' => #{
-            processor => #{
-                client => machinery_prg_backend,
-                options => #{
-                    namespace => 'ff/wallet_v2',
-                    %% TODO Party client create
-                    handler => {fistful, #{handler => ff_wallet_machine, party_client => #{}}},
-                    schema => ff_wallet_machinery_schema
-                }
-            }
-        },
         'ff/source_v1' => #{
             processor => #{
                 client => machinery_prg_backend,
@@ -374,17 +302,6 @@ progressor_namespaces() ->
                     schema => ff_withdrawal_session_machinery_schema
                 }
             }
-        },
-        'ff/w2w_transfer_v1' => #{
-            processor => #{
-                client => machinery_prg_backend,
-                options => #{
-                    namespace => 'ff/w2w_transfer_v1',
-                    %% TODO Party client create
-                    handler => {fistful, #{handler => w2w_transfer_machine, party_client => #{}}},
-                    schema => ff_w2w_transfer_machinery_schema
-                }
-            }
         }
     }.
 
@@ -400,19 +317,7 @@ progressor_namespaces() ->
 -define(PAYINST1_ROUTING_PROHIBITIONS, 200).
 -define(PAYINST2_ROUTING_POLICIES, 300).
 
-payment_inst_identity_id(Options) ->
-    maps:get(payment_inst_identity_id, Options).
-
-provider_identity_id(Options) ->
-    maps:get(provider_identity_id, Options).
-
-dummy_payment_inst_identity_id(Options) ->
-    maps:get(dummy_payment_inst_identity_id, Options).
-
-dummy_provider_identity_id(Options) ->
-    maps:get(dummy_provider_identity_id, Options).
-
-domain_config_add_version(Options) ->
+domain_config_add_version(_Options) ->
     {ok, Provider} = ff_domain_config:object({provider, ?prv(1)}),
     #domain_Provider{
         accounts = #{
@@ -452,7 +357,7 @@ domain_config_add_version(Options) ->
         }
     },
     [
-        ct_domain:withdrawal_provider(AccountID, ?prv(1), ?prx(2), provider_identity_id(Options), ProviderTermSet)
+        ct_domain:withdrawal_provider(AccountID, ?prv(1), ?prx(2), live, ProviderTermSet)
     ].
 
 domain_config(Options) ->
@@ -652,6 +557,14 @@ domain_config(Options) ->
                 ),
                 delegate(
                     {condition, {payment_tool, {crypto_currency, #domain_CryptoCurrencyCondition{}}}},
+                    ?ruleset(?PAYINST1_ROUTING_POLICIES + 15)
+                ),
+                delegate(
+                    {condition,
+                        {payment_tool,
+                            {digital_wallet, #domain_DigitalWalletCondition{
+                                definition = {payment_service_is, ?pmtsrv(<<"webmoney">>)}
+                            }}}},
                     ?ruleset(?PAYINST1_ROUTING_POLICIES + 15)
                 ),
                 delegate(
@@ -911,7 +824,6 @@ domain_config(Options) ->
                 residences = ['rus'],
                 realm = live,
                 wallet_system_account_set = {value, ?sas(1)},
-                identity = payment_inst_identity_id(Options),
                 payment_system =
                     {decisions, [
                         #domain_PaymentSystemDecision{
@@ -958,7 +870,56 @@ domain_config(Options) ->
                 residences = ['rus'],
                 realm = live,
                 wallet_system_account_set = {value, ?sas(1)},
-                identity = dummy_payment_inst_identity_id(Options),
+                withdrawal_routing_rules = #domain_RoutingRules{
+                    policies = ?ruleset(?PAYINST2_ROUTING_POLICIES),
+                    prohibitions = ?ruleset(?EMPTY_ROUTING_RULESET)
+                },
+                payment_system =
+                    {decisions, [
+                        #domain_PaymentSystemDecision{
+                            if_ =
+                                {any_of,
+                                    ordsets:from_list([
+                                        {condition,
+                                            {bin_data, #domain_BinDataCondition{
+                                                payment_system = {equals, <<"VISA">>},
+                                                bank_name = {equals, <<"uber">>}
+                                            }}},
+                                        {condition,
+                                            {bin_data, #domain_BinDataCondition{
+                                                payment_system = {equals, <<"VISA">>},
+                                                bank_name = {equals, <<"sber">>}
+                                            }}}
+                                    ])},
+                            then_ = {value, ?pmtsys(<<"VISA">>)}
+                        },
+                        #domain_PaymentSystemDecision{
+                            if_ =
+                                {any_of,
+                                    ordsets:from_list([
+                                        {condition,
+                                            {bin_data, #domain_BinDataCondition{
+                                                payment_system = {equals, <<"NSPK MIR">>},
+                                                bank_name = {equals, <<"poopa">>}
+                                            }}}
+                                    ])},
+                            then_ = {value, ?pmtsys(<<"NSPK MIR">>)}
+                        }
+                    ]}
+            }
+        }},
+
+        {payment_institution, #domain_PaymentInstitutionObject{
+            ref = ?payinst(3),
+            data = #domain_PaymentInstitution{
+                name = <<"Generic Payment Institution">>,
+                system_account_set = {value, ?sas(1)},
+                default_contract_template = {value, ?tmpl(1)},
+                providers = {value, ?ordset([])},
+                inspector = {value, ?insp(1)},
+                residences = ['rus'],
+                realm = test,
+                wallet_system_account_set = {value, ?sas(1)},
                 withdrawal_routing_rules = #domain_RoutingRules{
                     policies = ?ruleset(?PAYINST2_ROUTING_POLICIES),
                     prohibitions = ?ruleset(?EMPTY_ROUTING_RULESET)
@@ -1008,19 +969,19 @@ domain_config(Options) ->
         ct_domain:proxy(?prx(7), <<"Another down proxy">>, <<"http://localhost:8222/downbank2">>),
         ct_domain:proxy(?prx(8), <<"Sleep proxy">>, <<"http://localhost:8222/sleepybank">>),
 
-        ct_domain:withdrawal_provider(?prv(1), ?prx(2), provider_identity_id(Options), TempProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(2), ?prx(2), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(3), ?prx(3), dummy_provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(4), ?prx(6), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(5), ?prx(2), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(6), ?prx(6), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(7), ?prx(6), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(8), ?prx(2), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(9), ?prx(7), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(10), ?prx(6), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(11), ?prx(8), provider_identity_id(Options), ProviderTermSet),
-        ct_domain:withdrawal_provider(?prv(16), ?prx(2), provider_identity_id(Options), undefined),
-        ct_domain:withdrawal_provider(?prv(17), ?prx(2), provider_identity_id(Options), ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(1), ?prx(2), live, TempProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(2), ?prx(2), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(3), ?prx(3), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(4), ?prx(6), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(5), ?prx(2), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(6), ?prx(6), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(7), ?prx(6), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(8), ?prx(2), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(9), ?prx(7), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(10), ?prx(6), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(11), ?prx(8), live, ProviderTermSet),
+        ct_domain:withdrawal_provider(?prv(16), ?prx(2), live, undefined),
+        ct_domain:withdrawal_provider(?prv(17), ?prx(2), live, ProviderTermSet),
 
         ct_domain:contract_template(?tmpl(1), ?trms(1)),
         ct_domain:term_set_hierarchy(?trms(1), [ct_domain:timed_term_set(default_termset(Options))]),
@@ -1649,100 +1610,6 @@ default_termset(Options) ->
                                         ?share(10, 100, operation_amount)
                                     )
                                 ]}
-                        }
-                    ]}
-            },
-            w2w = #domain_W2WServiceTerms{
-                currencies = {value, ?ordset([?cur(<<"RUB">>), ?cur(<<"USD">>)])},
-                allow = {constant, true},
-                cash_limit =
-                    {decisions, [
-                        #domain_CashLimitDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
-                            then_ =
-                                {value,
-                                    ?cashrng(
-                                        {inclusive, ?cash(0, <<"RUB">>)},
-                                        {exclusive, ?cash(10000001, <<"RUB">>)}
-                                    )}
-                        },
-                        #domain_CashLimitDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"EUR">>)}},
-                            then_ =
-                                {value,
-                                    ?cashrng(
-                                        {inclusive, ?cash(0, <<"EUR">>)},
-                                        {exclusive, ?cash(10000001, <<"EUR">>)}
-                                    )}
-                        },
-                        #domain_CashLimitDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"USD">>)}},
-                            then_ =
-                                {value,
-                                    ?cashrng(
-                                        {inclusive, ?cash(0, <<"USD">>)},
-                                        {exclusive, ?cash(10000001, <<"USD">>)}
-                                    )}
-                        }
-                    ]},
-                cash_flow =
-                    {decisions, [
-                        #domain_CashFlowDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
-                            then_ =
-                                {value, [
-                                    ?cfpost(
-                                        {wallet, sender_settlement},
-                                        {wallet, receiver_settlement},
-                                        ?share(1, 1, operation_amount)
-                                    )
-                                ]}
-                        },
-                        #domain_CashFlowDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"USD">>)}},
-                            then_ =
-                                {value, [
-                                    ?cfpost(
-                                        {wallet, sender_settlement},
-                                        {wallet, receiver_settlement},
-                                        ?share(1, 1, operation_amount)
-                                    )
-                                ]}
-                        },
-                        #domain_CashFlowDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"EUR">>)}},
-                            then_ =
-                                {value, [
-                                    ?cfpost(
-                                        {wallet, sender_settlement},
-                                        {wallet, receiver_settlement},
-                                        ?share(1, 1, operation_amount)
-                                    )
-                                ]}
-                        }
-                    ]},
-                fees =
-                    {decisions, [
-                        #domain_FeeDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"RUB">>)}},
-                            then_ =
-                                {value, #domain_Fees{
-                                    fees = #{surplus => ?share(1, 1, operation_amount)}
-                                }}
-                        },
-                        #domain_FeeDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"USD">>)}},
-                            then_ =
-                                {value, #domain_Fees{
-                                    fees = #{surplus => ?share(1, 1, operation_amount)}
-                                }}
-                        },
-                        #domain_FeeDecision{
-                            if_ = {condition, {currency_is, ?cur(<<"EUR">>)}},
-                            then_ =
-                                {value, #domain_Fees{
-                                    fees = #{surplus => ?share(1, 1, operation_amount)}
-                                }}
                         }
                     ]}
             }

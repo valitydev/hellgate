@@ -15,10 +15,7 @@
 -type service_spec() :: {Path :: string(), service()}.
 
 -spec get_service(service_name()) -> service().
-get_service(fistful_admin) ->
-    {fistful_admin_thrift, 'FistfulAdmin'};
-get_service(fistful_provider) ->
-    {fistful_provider_thrift, 'Management'};
+
 get_service(ff_withdrawal_adapter_host) ->
     {dmsl_wthd_provider_thrift, 'AdapterHost'};
 get_service(withdrawal_session_repairer) ->
@@ -27,10 +24,6 @@ get_service(withdrawal_repairer) ->
     {fistful_wthd_thrift, 'Repairer'};
 get_service(deposit_repairer) ->
     {fistful_deposit_thrift, 'Repairer'};
-get_service(wallet_management) ->
-    {fistful_wallet_thrift, 'Management'};
-get_service(identity_management) ->
-    {fistful_identity_thrift, 'Management'};
 get_service(destination_management) ->
     {fistful_destination_thrift, 'Management'};
 get_service(source_management) ->
@@ -41,10 +34,8 @@ get_service(withdrawal_session_management) ->
     {fistful_wthd_session_thrift, 'Management'};
 get_service(deposit_management) ->
     {fistful_deposit_thrift, 'Management'};
-get_service(w2w_transfer_repairer) ->
-    {fistful_w2w_transfer_thrift, 'Repairer'};
-get_service(w2w_transfer_management) ->
-    {fistful_w2w_transfer_thrift, 'Management'};
+get_service(party_config) ->
+    {dmsl_payproc_thrift, 'PartyConfigManagement'};
 get_service(ff_claim_committer) ->
     {dmsl_claimmgmt_thrift, 'ClaimCommitter'}.
 
@@ -53,10 +44,6 @@ get_service_spec(Name) ->
     {get_service_path(Name), get_service(Name)}.
 
 -spec get_service_path(service_name()) -> string().
-get_service_path(fistful_admin) ->
-    "/v1/admin";
-get_service_path(fistful_provider) ->
-    "/v1/provider";
 get_service_path(ff_withdrawal_adapter_host) ->
     "/v1/ff_withdrawal_adapter_host";
 get_service_path(withdrawal_session_repairer) ->
@@ -65,10 +52,6 @@ get_service_path(withdrawal_repairer) ->
     "/v1/repair/withdrawal";
 get_service_path(deposit_repairer) ->
     "/v1/repair/deposit";
-get_service_path(wallet_management) ->
-    "/v1/wallet";
-get_service_path(identity_management) ->
-    "/v1/identity";
 get_service_path(destination_management) ->
     "/v1/destination";
 get_service_path(source_management) ->
@@ -78,10 +61,4 @@ get_service_path(withdrawal_management) ->
 get_service_path(withdrawal_session_management) ->
     "/v1/withdrawal_session";
 get_service_path(deposit_management) ->
-    "/v1/deposit";
-get_service_path(w2w_transfer_repairer) ->
-    "/v1/repair/w2w_transfer";
-get_service_path(w2w_transfer_management) ->
-    "/v1/w2w_transfer";
-get_service_path(ff_claim_committer) ->
-    "/v1/claim_committer".
+    "/v1/deposit".

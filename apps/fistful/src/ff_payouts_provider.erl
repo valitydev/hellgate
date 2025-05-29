@@ -4,7 +4,6 @@
 
 -type provider() :: #{
     id := id(),
-    identity => ff_identity:id(),
     terms => dmsl_domain_thrift:'ProvisionTermSet'(),
     accounts := accounts(),
     adapter := ff_adapter:adapter(),
@@ -94,8 +93,8 @@ get(ID, DomainRevision) ->
 %%
 
 decode(ID, #domain_Provider{
+    realm = Realm,
     proxy = Proxy,
-    identity = Identity,
     terms = Terms,
     accounts = Accounts
 }) ->
@@ -103,30 +102,20 @@ decode(ID, #domain_Provider{
         maps:merge(
             #{
                 id => ID,
-                identity => Identity,
                 terms => Terms,
-                accounts => decode_accounts(Identity, Accounts)
+                accounts => decode_accounts(Realm, Accounts)
             },
             decode_adapter(Proxy)
         )
     ).
 
-decode_accounts(Identity, Accounts) ->
+decode_accounts(Realm, Accounts) ->
     maps:fold(
         fun(CurrencyRef, ProviderAccount, Acc) ->
             #domain_CurrencyRef{symbolic_code = CurrencyID} = CurrencyRef,
             #domain_ProviderAccount{settlement = AccountID} = ProviderAccount,
-            maps:put(
-                CurrencyID,
-                #{
-                    % FIXME
-                    id => Identity,
-                    identity => Identity,
-                    currency => CurrencyID,
-                    accounter_account_id => AccountID
-                },
-                Acc
-            )
+            Account = ff_account:build(Realm, AccountID, CurrencyID),
+            Acc#{CurrencyID => Account}
         end,
         #{},
         Accounts

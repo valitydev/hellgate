@@ -18,7 +18,8 @@
 unmarshal_destination_params(Params) ->
     genlib_map:compact(#{
         id => unmarshal(id, Params#destination_DestinationParams.id),
-        identity => unmarshal(id, Params#destination_DestinationParams.identity),
+        realm => Params#destination_DestinationParams.realm,
+        party_id => unmarshal(id, Params#destination_DestinationParams.party_id),
         name => unmarshal(string, Params#destination_DestinationParams.name),
         currency => unmarshal(string, Params#destination_DestinationParams.currency),
         resource => unmarshal(resource, Params#destination_DestinationParams.resource),
@@ -39,11 +40,12 @@ marshal_destination_state(DestinationState, Context) ->
         end,
     #destination_DestinationState{
         id = marshal(id, ff_destination:id(DestinationState)),
+        realm = ff_destination:realm(DestinationState),
+        party_id = marshal(id, ff_destination:party_id(DestinationState)),
         name = marshal(string, ff_destination:name(DestinationState)),
         resource = maybe_marshal(resource, ff_destination:resource(DestinationState)),
         external_id = maybe_marshal(id, ff_destination:external_id(DestinationState)),
         account = maybe_marshal(account, ff_destination:account(DestinationState)),
-        status = maybe_marshal(status, ff_destination:status(DestinationState)),
         created_at = maybe_marshal(timestamp_ms, ff_destination:created_at(DestinationState)),
         blocking = Blocking,
         metadata = maybe_marshal(ctx, ff_destination:metadata(DestinationState)),
@@ -79,6 +81,9 @@ marshal(
     } = Destination
 ) ->
     #destination_Destination{
+        id = marshal(id, ff_destination:id(Destination)),
+        realm = ff_destination:realm(Destination),
+        party_id = marshal(id, ff_destination:party_id(Destination)),
         name = Name,
         resource = marshal(resource, Resource),
         created_at = maybe_marshal(timestamp_ms, maps:get(created_at, Destination, undefined)),
@@ -86,14 +91,6 @@ marshal(
         metadata = maybe_marshal(ctx, maps:get(metadata, Destination, undefined)),
         auth_data = maybe_marshal(auth_data, maps:get(auth_data, Destination, undefined))
     };
-marshal(status, authorized) ->
-    {authorized, #destination_Authorized{}};
-marshal(status, unauthorized) ->
-    {unauthorized, #destination_Unauthorized{}};
-marshal(status_change, unauthorized) ->
-    {changed, {unauthorized, #destination_Unauthorized{}}};
-marshal(status_change, authorized) ->
-    {changed, {authorized, #destination_Authorized{}}};
 marshal(ctx, Ctx) ->
     marshal(context, Ctx);
 marshal(auth_data, #{
@@ -128,7 +125,10 @@ unmarshal(change, {status, StatusChange}) ->
     {status_changed, unmarshal(status_change, StatusChange)};
 unmarshal(destination, Dest) ->
     genlib_map:compact(#{
-        version => 3,
+        version => 5,
+        id => unmarshal(id, Dest#destination_Destination.id),
+        realm => Dest#destination_Destination.realm,
+        party_id => unmarshal(id, Dest#destination_Destination.party_id),
         resource => unmarshal(resource, Dest#destination_Destination.resource),
         name => unmarshal(string, Dest#destination_Destination.name),
         created_at => maybe_unmarshal(timestamp_ms, Dest#destination_Destination.created_at),
@@ -136,14 +136,6 @@ unmarshal(destination, Dest) ->
         metadata => maybe_unmarshal(ctx, Dest#destination_Destination.metadata),
         auth_data => maybe_unmarshal(auth_data, Dest#destination_Destination.auth_data)
     });
-unmarshal(status, {authorized, #destination_Authorized{}}) ->
-    authorized;
-unmarshal(status, {unauthorized, #destination_Unauthorized{}}) ->
-    unauthorized;
-unmarshal(status_change, {changed, {unauthorized, #destination_Unauthorized{}}}) ->
-    unauthorized;
-unmarshal(status_change, {changed, {authorized, #destination_Authorized{}}}) ->
-    authorized;
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);
 unmarshal(
@@ -189,7 +181,10 @@ destination_test() ->
             }
         }},
     In = #{
-        version => 3,
+        version => 5,
+        id => <<"9e6245a7a6e15f75769a4d87183b090a">>,
+        realm => live,
+        party_id => <<"9e6245a7a6e15f75769a4d87183b090a">>,
         name => <<"Wallet">>,
         resource => Resource
     },

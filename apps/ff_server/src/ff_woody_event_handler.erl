@@ -47,8 +47,8 @@ filter(V) ->
             <<"****************">>, undefined, undefined, rus, undefined, undefined, undefined,
             {domain_BankCardExpDate, 12, 2025}, <<"ct_cardholder_name">>, undefined}},
     undefined,
-    {wthd_domain_Identity, <<"gj9Cn2gOglBQ0aso4jcsiEc38tS">>, undefined, [], [{phone_number, <<"9876543210">>}]},
-    {wthd_domain_Identity, <<"gj9Cn2gOglBQ0aso4jcsiEc38tS">>, undefined, [], [{phone_number, <<"9876543210">>}]},
+    <<"gj9Cn2gOglBQ0aso4jcsiEc38tS">>,
+    <<"gj9Cn2gOglBQ0aso4jcsiEc38tS">>,
     undefined
 }).
 

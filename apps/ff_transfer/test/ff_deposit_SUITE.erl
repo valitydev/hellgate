@@ -23,6 +23,7 @@
 -export([create_currency_validation_error_test/1]).
 -export([create_source_notfound_test/1]).
 -export([create_wallet_notfound_test/1]).
+-export([create_party_notfound_test/1]).
 -export([preserve_revisions_test/1]).
 -export([create_ok_test/1]).
 -export([unknown_test/1]).
@@ -43,13 +44,14 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {default, [parallel], [
+        {default, [], [
             limit_check_fail_test,
             create_bad_amount_test,
             create_negative_amount_test,
             create_currency_validation_error_test,
             create_source_notfound_test,
             create_wallet_notfound_test,
+            create_party_notfound_test,
             preserve_revisions_test,
             create_ok_test,
             unknown_test
@@ -98,15 +100,17 @@ end_per_testcase(_Name, _C) ->
 limit_check_fail_test(C) ->
     #{
         wallet_id := WalletID,
-        source_id := SourceID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID = generate_id(),
+        source_id := SourceID,
+        party_id := PartyID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
     DepositParams = #{
         id => DepositID,
         body => {20000000, <<"RUB">>},
         source_id => SourceID,
         wallet_id => WalletID,
-        external_id => generate_id()
+        party_id => PartyID,
+        external_id => genlib:unique()
     },
     ok = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     Result = await_final_deposit_status(DepositID),
@@ -118,22 +122,23 @@ limit_check_fail_test(C) ->
             }
         }},
         Result
-    ),
-    ok = await_wallet_balance({0, <<"RUB">>}, WalletID).
+    ).
 
 -spec create_bad_amount_test(config()) -> test_return().
 create_bad_amount_test(C) ->
     #{
         wallet_id := WalletID,
-        source_id := SourceID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID = generate_id(),
+        source_id := SourceID,
+        party_id := PartyID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
     DepositParams = #{
         id => DepositID,
         body => {0, <<"RUB">>},
         source_id => SourceID,
         wallet_id => WalletID,
-        external_id => generate_id()
+        party_id => PartyID,
+        external_id => genlib:unique()
     },
     Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     ?assertMatch({error, {bad_deposit_amount, {0, <<"RUB">>}}}, Result).
@@ -142,44 +147,38 @@ create_bad_amount_test(C) ->
 create_negative_amount_test(C) ->
     #{
         wallet_id := WalletID,
-        source_id := SourceID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID0 = generate_id(),
-    DepositCash0 = {100, <<"RUB">>},
-    DepositParams0 = #{
-        id => DepositID0,
-        body => DepositCash0,
+        source_id := SourceID,
+        party_id := PartyID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
+    DepositCash = {-100, <<"RUB">>},
+    DepositParams = #{
+        id => DepositID,
+        body => DepositCash,
         source_id => SourceID,
         wallet_id => WalletID,
-        external_id => generate_id()
+        party_id => PartyID,
+        external_id => genlib:unique()
     },
-    ok = ff_deposit_machine:create(DepositParams0, ff_entity_context:new()),
-    succeeded = await_final_deposit_status(DepositID0),
-    ok = await_wallet_balance(DepositCash0, WalletID),
-    DepositID1 = generate_id(),
-    DepositCash1 = {-100, <<"RUB">>},
-    DepositParams1 = DepositParams0#{
-        id => DepositID1,
-        body => DepositCash1,
-        external_id => generate_id()
-    },
-    ok = ff_deposit_machine:create(DepositParams1, ff_entity_context:new()),
-    succeeded = await_final_deposit_status(DepositID1),
-    ok = await_wallet_balance({0, <<"RUB">>}, WalletID).
+    ok = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
+    succeeded = await_final_deposit_status(DepositID),
+    ok = ct_objects:await_wallet_balance({0, <<"RUB">>}, WalletID).
 
 -spec create_currency_validation_error_test(config()) -> test_return().
 create_currency_validation_error_test(C) ->
     #{
         wallet_id := WalletID,
-        source_id := SourceID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID = generate_id(),
+        source_id := SourceID,
+        party_id := PartyID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
     DepositParams = #{
         id => DepositID,
         body => {5000, <<"EUR">>},
         source_id => SourceID,
         wallet_id => WalletID,
-        external_id => generate_id()
+        party_id => PartyID,
+        external_id => genlib:unique()
     },
     Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     Details = {
@@ -194,15 +193,17 @@ create_currency_validation_error_test(C) ->
 -spec create_source_notfound_test(config()) -> test_return().
 create_source_notfound_test(C) ->
     #{
+        party_id := PartyID,
         wallet_id := WalletID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID = generate_id(),
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
     DepositParams = #{
         id => DepositID,
         body => {5000, <<"RUB">>},
         source_id => <<"unknown_source">>,
         wallet_id => WalletID,
-        external_id => generate_id()
+        party_id => PartyID,
+        external_id => genlib:unique()
     },
     Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     ?assertMatch({error, {source, notfound}}, Result).
@@ -210,58 +211,82 @@ create_source_notfound_test(C) ->
 -spec create_wallet_notfound_test(config()) -> test_return().
 create_wallet_notfound_test(C) ->
     #{
-        source_id := SourceID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID = generate_id(),
+        source_id := SourceID,
+        party_id := PartyID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
     DepositParams = #{
         id => DepositID,
         body => {5000, <<"RUB">>},
         source_id => SourceID,
         wallet_id => <<"unknown_wallet">>,
-        external_id => generate_id()
+        party_id => PartyID,
+        external_id => genlib:unique()
     },
     Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     ?assertMatch({error, {wallet, notfound}}, Result).
+
+-spec create_party_notfound_test(config()) -> test_return().
+create_party_notfound_test(C) ->
+    #{
+        wallet_id := WalletID,
+        source_id := SourceID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
+    DepositParams = #{
+        id => DepositID,
+        body => {5000, <<"RUB">>},
+        source_id => SourceID,
+        wallet_id => WalletID,
+        party_id => <<"unknown_party">>,
+        external_id => genlib:unique()
+    },
+    Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
+    ?assertMatch({error, {party, notfound}}, Result).
 
 -spec preserve_revisions_test(config()) -> test_return().
 preserve_revisions_test(C) ->
     #{
         wallet_id := WalletID,
-        source_id := SourceID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID = generate_id(),
+        source_id := SourceID,
+        party_id := PartyID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
     DepositCash = {5000, <<"RUB">>},
     DepositParams = #{
         id => DepositID,
         body => DepositCash,
         source_id => SourceID,
         wallet_id => WalletID,
+        party_id => PartyID,
         external_id => DepositID
     },
     ok = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     Deposit = get_deposit(DepositID),
     ?assertNotEqual(undefined, ff_deposit:domain_revision(Deposit)),
-    ?assertNotEqual(undefined, ff_deposit:party_revision(Deposit)),
     ?assertNotEqual(undefined, ff_deposit:created_at(Deposit)).
 
 -spec create_ok_test(config()) -> test_return().
 create_ok_test(C) ->
     #{
         wallet_id := WalletID,
-        source_id := SourceID
-    } = prepare_standard_environment(<<"RUB">>, C),
-    DepositID = generate_id(),
+        source_id := SourceID,
+        party_id := PartyID
+    } = prepare_standard_environment(C),
+    DepositID = genlib:unique(),
     DepositCash = {5000, <<"RUB">>},
     DepositParams = #{
         id => DepositID,
         body => DepositCash,
         source_id => SourceID,
         wallet_id => WalletID,
+        party_id => PartyID,
         external_id => DepositID
     },
     ok = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     succeeded = await_final_deposit_status(DepositID),
-    ok = await_wallet_balance(DepositCash, WalletID),
+    %% 100 added by setup env
+    ok = ct_objects:await_wallet_balance({5000 + 100, <<"RUB">>}, WalletID),
     Deposit = get_deposit(DepositID),
     DepositCash = ff_deposit:body(Deposit),
     WalletID = ff_deposit:wallet_id(Deposit),
@@ -276,18 +301,9 @@ unknown_test(_C) ->
 
 %% Utils
 
-prepare_standard_environment(Currency, C) ->
-    Party = create_party(C),
-    IdentityID = create_identity(Party, C),
-    WalletID = create_wallet(IdentityID, <<"My wallet">>, <<"RUB">>, C),
-    ok = await_wallet_balance({0, Currency}, WalletID),
-    SourceID = create_source(IdentityID, C),
-    #{
-        identity_id => IdentityID,
-        party_id => Party,
-        wallet_id => WalletID,
-        source_id => SourceID
-    }.
+prepare_standard_environment(_C) ->
+    Ctx = ct_objects:build_default_ctx(),
+    ct_objects:prepare_standard_environment(Ctx).
 
 get_deposit(DepositID) ->
     {ok, Machine} = ff_deposit_machine:get(DepositID),
@@ -309,68 +325,6 @@ await_final_deposit_status(DepositID) ->
                     finished
             end
         end,
-        genlib_retry:linear(90, 1000)
+        genlib_retry:linear(20, 1000)
     ),
     get_deposit_status(DepositID).
-
-create_party(_C) ->
-    ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_identity(Party, C) ->
-    create_identity(Party, <<"good-one">>, C).
-
-create_identity(Party, ProviderID, C) ->
-    create_identity(Party, <<"Identity Name">>, ProviderID, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
-    ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.
-
-create_wallet(IdentityID, Name, Currency, _C) ->
-    ID = genlib:unique(),
-    ok = ff_wallet_machine:create(
-        #{id => ID, identity => IdentityID, name => Name, currency => Currency},
-        ff_entity_context:new()
-    ),
-    ID.
-
-await_wallet_balance({Amount, Currency}, ID) ->
-    Balance = {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency},
-    Balance = ct_helper:await(
-        Balance,
-        fun() -> get_wallet_balance(ID) end,
-        genlib_retry:linear(3, 500)
-    ),
-    ok.
-
-get_wallet_balance(ID) ->
-    {ok, Machine} = ff_wallet_machine:get(ID),
-    get_account_balance(ff_wallet:account(ff_wallet_machine:wallet(Machine))).
-
-get_account_balance(Account) ->
-    {ok, {Amounts, Currency}} = ff_accounting:balance(Account),
-    {ff_indef:current(Amounts), ff_indef:to_range(Amounts), Currency}.
-
-generate_id() ->
-    ff_id:generate_snowflake_id().
-
-create_source(IID, _C) ->
-    ID = generate_id(),
-    SrcResource = #{type => internal, details => <<"Infinite source of cash">>},
-    Params = #{id => ID, identity => IID, name => <<"XSource">>, currency => <<"RUB">>, resource => SrcResource},
-    ok = ff_source_machine:create(Params, ff_entity_context:new()),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, SrcM} = ff_source_machine:get(ID),
-            Source = ff_source_machine:source(SrcM),
-            ff_source:status(Source)
-        end
-    ),
-    ID.

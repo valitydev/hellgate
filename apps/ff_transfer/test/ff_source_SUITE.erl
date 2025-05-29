@@ -17,7 +17,7 @@
 % Tests
 -export([create_source_ok_test/1]).
 
--export([create_source_identity_notfound_fail_test/1]).
+-export([create_source_party_notfound_fail_test/1]).
 -export([create_source_currency_notfound_fail_test/1]).
 -export([get_source_ok_test/1]).
 -export([get_source_notfound_fail_test/1]).
@@ -36,9 +36,9 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {default, [parallel], [
+        {default, [], [
             create_source_ok_test,
-            create_source_identity_notfound_fail_test,
+            create_source_party_notfound_fail_test,
             create_source_currency_notfound_fail_test,
             get_source_ok_test,
             get_source_notfound_fail_test
@@ -84,34 +84,33 @@ end_per_testcase(_Name, _C) ->
 %% Default group test cases
 
 -spec create_source_ok_test(config()) -> test_return().
-create_source_ok_test(C) ->
-    Party = create_party(C),
-    IID = create_identity(Party, C),
-    _SourceID = create_source(IID, C),
+create_source_ok_test(_C) ->
+    PartyID = ct_objects:create_party(),
+    _SourceID = ct_objects:create_source(PartyID, <<"RUB">>),
     ok.
 
--spec create_source_identity_notfound_fail_test(config()) -> test_return().
-create_source_identity_notfound_fail_test(_C) ->
-    IID = <<"BadIdentityID">>,
+-spec create_source_party_notfound_fail_test(config()) -> test_return().
+create_source_party_notfound_fail_test(_C) ->
     SrcResource = #{type => internal, details => <<"Infinite source of cash">>},
     Params = #{
         id => genlib:unique(),
-        identity => IID,
+        party_id => <<"BadPartyID">>,
+        realm => live,
         name => <<"XSource">>,
         currency => <<"RUB">>,
         resource => SrcResource
     },
     CreateResult = ff_source_machine:create(Params, ff_entity_context:new()),
-    ?assertEqual({error, {identity, notfound}}, CreateResult).
+    ?assertEqual({error, {party, notfound}}, CreateResult).
 
 -spec create_source_currency_notfound_fail_test(config()) -> test_return().
-create_source_currency_notfound_fail_test(C) ->
-    Party = create_party(C),
-    IID = create_identity(Party, C),
+create_source_currency_notfound_fail_test(_C) ->
+    PartyID = ct_objects:create_party(),
     SrcResource = #{type => internal, details => <<"Infinite source of cash">>},
     Params = #{
         id => genlib:unique(),
-        identity => IID,
+        party_id => PartyID,
+        realm => live,
         name => <<"XSource">>,
         currency => <<"BadUnknownCurrency">>,
         resource => SrcResource
@@ -120,63 +119,21 @@ create_source_currency_notfound_fail_test(C) ->
     ?assertEqual({error, {currency, notfound}}, CreateResult).
 
 -spec get_source_ok_test(config()) -> test_return().
-get_source_ok_test(C) ->
-    Party = create_party(C),
-    IID = create_identity(Party, C),
-    SourceID = create_source(IID, C),
+get_source_ok_test(_C) ->
+    PartyID = ct_objects:create_party(),
+    SourceID = ct_objects:create_source(PartyID, <<"RUB">>),
     {ok, SourceMachine} = ff_source_machine:get(SourceID),
+    Source = ff_source_machine:source(SourceMachine),
     ?assertMatch(
         #{
             account := #{currency := <<"RUB">>},
-            name := <<"XSource">>,
-            resource := #{details := <<"Infinite source of cash">>, type := internal},
-            status := authorized
+            name := <<"name">>,
+            realm := live,
+            resource := #{type := internal, details := <<"details">>}
         },
-        ff_source_machine:source(SourceMachine)
+        Source
     ).
 
 -spec get_source_notfound_fail_test(config()) -> test_return().
 get_source_notfound_fail_test(_C) ->
     ?assertEqual({error, notfound}, ff_source_machine:get(<<"BadID">>)).
-
-%% Common functions
-
-create_party(_C) ->
-    ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_identity(Party, C) ->
-    create_identity(Party, <<"good-one">>, C).
-
-create_identity(Party, ProviderID, C) ->
-    create_identity(Party, <<"Identity Name">>, ProviderID, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
-    ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.
-
-create_source(IID, _C) ->
-    SrcResource = #{type => internal, details => <<"Infinite source of cash">>},
-    SrcID = create_source(IID, <<"XSource">>, <<"RUB">>, SrcResource),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, SrcM} = ff_source_machine:get(SrcID),
-            Source = ff_source_machine:source(SrcM),
-            ff_source:status(Source)
-        end
-    ),
-    SrcID.
-
-create_source(IdentityID, Name, Currency, Resource) ->
-    ID = genlib:unique(),
-    ok = ff_source_machine:create(
-        #{id => ID, identity => IdentityID, name => Name, currency => Currency, resource => Resource},
-        ff_entity_context:new()
-    ),
-    ID.

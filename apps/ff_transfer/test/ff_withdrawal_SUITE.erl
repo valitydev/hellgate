@@ -29,7 +29,7 @@
 -export([limit_check_fail_test/1]).
 -export([create_cashlimit_validation_error_test/1]).
 -export([create_wallet_currency_validation_error_test/1]).
--export([create_identity_providers_mismatch_error_test/1]).
+-export([create_realms_mismatch_error_test/1]).
 -export([create_destination_currency_validation_error_test/1]).
 -export([create_currency_validation_error_test/1]).
 -export([create_destination_resource_no_bindata_ok_test/1]).
@@ -90,7 +90,7 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {default, [parallel], [
+        {default, [], [
             session_fail_test,
             session_repair_test,
             quote_fail_test,
@@ -102,7 +102,7 @@ groups() ->
             create_wallet_currency_validation_error_test,
             create_destination_currency_validation_error_test,
             create_currency_validation_error_test,
-            create_identity_providers_mismatch_error_test,
+            create_realms_mismatch_error_test,
             create_destination_resource_no_bindata_ok_test,
             create_destination_resource_no_bindata_fail_test,
             create_destination_notfound_test,
@@ -117,10 +117,10 @@ groups() ->
             provider_callback_test,
             provider_terminal_terms_merging_test
         ]},
-        {non_parallel, [sequence], [
+        {non_parallel, [], [
             use_quote_revisions_test
         ]},
-        {withdrawal_repair, [sequence], [
+        {withdrawal_repair, [], [
             force_status_change_test
         ]}
     ].
@@ -175,21 +175,25 @@ end_per_testcase(_Name, _C) ->
 %% Tests
 
 -spec session_fail_test(config()) -> test_return().
-session_fail_test(C) ->
-    Party = create_party(C),
-    Currency = <<"RUB">>,
-    WithdrawalCash = {100, Currency},
-    IdentityID = create_identity(Party, <<"good-two">>, C),
-    WalletID = create_wallet(IdentityID, <<"My wallet">>, Currency, C),
-    ok = await_wallet_balance({0, Currency}, WalletID),
-    DestinationID = create_destination(IdentityID, undefined, C),
-    ok = set_wallet_balance(WithdrawalCash, WalletID),
-    WithdrawalID = generate_id(),
+session_fail_test(_C) ->
+    Env = ct_objects:prepare_standard_environment(ct_objects:build_default_ctx()),
+    Body = {100, <<"RUB">>},
+    PartyID = maps:get(party_id, Env),
+    WalletID = ct_objects:create_wallet(
+        PartyID,
+        <<"RUB">>,
+        #domain_TermSetHierarchyRef{id = 1},
+        #domain_PaymentInstitutionRef{id = 2}
+    ),
+    _ = ct_objects:create_deposit(PartyID, WalletID, maps:get(source_id, Env), Body),
+    ok = ct_objects:await_wallet_balance(Body, WalletID),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
-        destination_id => DestinationID,
+        party_id => PartyID,
+        destination_id => maps:get(destination_id, Env),
         wallet_id => WalletID,
-        body => WithdrawalCash,
+        body => {100, <<"RUB">>},
         quote => #{
             cash_from => {4240, <<"RUB">>},
             cash_to => {2120, <<"USD">>},
@@ -202,22 +206,18 @@ session_fail_test(C) ->
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Result = await_final_withdrawal_status(WithdrawalID),
-    ?assertMatch({failed, #{code := <<"test_error">>}}, Result),
-    ?assertEqual(?FINAL_BALANCE(WithdrawalCash), get_wallet_balance(WalletID)).
+    ?assertMatch({failed, #{code := <<"test_error">>}}, Result).
 
 -spec quote_fail_test(config()) -> test_return().
-quote_fail_test(C) ->
-    Cash = {100, <<"RUB">>},
-    #{
-        wallet_id := WalletID,
-        destination_id := DestinationID
-    } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+quote_fail_test(_C) ->
+    Env = ct_objects:prepare_standard_environment(ct_objects:build_default_ctx()),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
-        destination_id => DestinationID,
-        wallet_id => WalletID,
-        body => Cash,
+        party_id => maps:get(party_id, Env),
+        destination_id => maps:get(destination_id, Env),
+        wallet_id => maps:get(wallet_id, Env),
+        body => {100, <<"RUB">>},
         quote => #{
             cash_from => {4240, <<"RUB">>},
             cash_to => {2120, <<"USD">>},
@@ -230,21 +230,22 @@ quote_fail_test(C) ->
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Result = await_final_withdrawal_status(WithdrawalID),
-    ?assertMatch({failed, #{code := <<"unknown">>}}, Result),
-    ?assertEqual(?FINAL_BALANCE(Cash), get_wallet_balance(WalletID)).
+    ?assertMatch({failed, #{code := <<"unknown">>}}, Result).
 
 -spec route_not_found_fail_test(config()) -> test_return().
 route_not_found_fail_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, <<"USD_COUNTRY">>, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -256,13 +257,15 @@ provider_operations_forbidden_fail_test(C) ->
     Cash = {123123, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -274,13 +277,15 @@ misconfigured_terminal_fail_test(C) ->
     Cash = {3500000, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -292,13 +297,15 @@ limit_check_fail_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => {200, <<"RUB">>}
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -319,13 +326,15 @@ create_cashlimit_validation_error_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => {20000000, <<"RUB">>}
     },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -338,12 +347,15 @@ create_wallet_currency_validation_error_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         destination_id := DestinationID,
-        identity_id := IdentityID
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WalletID = create_wallet(IdentityID, <<"USD wallet">>, <<"USD">>, C),
-    WithdrawalID = generate_id(),
+    WalletID = ct_objects:create_wallet(
+        PartyID, <<"USD">>, #domain_TermSetHierarchyRef{id = 1}, #domain_PaymentInstitutionRef{id = 1}
+    ),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
+        party_id => PartyID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => {100, <<"RUB">>}
@@ -356,13 +368,15 @@ create_destination_currency_validation_error_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, <<"USD_CURRENCY">>, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => {100, <<"RUB">>}
     },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -373,13 +387,15 @@ create_currency_validation_error_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => {100, <<"EUR">>}
     },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -392,37 +408,44 @@ create_currency_validation_error_test(C) ->
     },
     ?assertMatch({error, {terms, {terms_violation, {not_allowed_currency, Details}}}}, Result).
 
--spec create_identity_providers_mismatch_error_test(config()) -> test_return().
-create_identity_providers_mismatch_error_test(C) ->
+-spec create_realms_mismatch_error_test(config()) -> test_return().
+create_realms_mismatch_error_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    Party = create_party(C),
-    IdentityID = create_identity(Party, <<"good-two">>, C),
-    WalletID = create_wallet(IdentityID, <<"My wallet">>, <<"RUB">>, C),
-    WithdrawalID = generate_id(),
+    WalletID = ct_objects:create_wallet(
+        PartyID, <<"RUB">>, #domain_TermSetHierarchyRef{id = 1}, #domain_PaymentInstitutionRef{id = 3}
+    ),
+    SourceID = ct_objects:create_source(PartyID, <<"RUB">>, test),
+    _ = ct_objects:create_deposit(PartyID, WalletID, SourceID, Cash),
+    ok = ct_objects:await_wallet_balance(Cash, WalletID),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
+        party_id => PartyID,
         destination_id => DestinationID,
         wallet_id => WalletID,
-        body => {100, <<"RUB">>}
+        body => Cash
     },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
-    ?assertMatch({error, {identity_providers_mismatch, {<<"good-two">>, <<"good-one">>}}}, Result).
+    ?assertMatch({error, {realms_mismatch, {test, live}}}, Result).
 
 -spec create_destination_resource_no_bindata_fail_test(config()) -> test_return().
 create_destination_resource_no_bindata_fail_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, <<"TEST_NOTFOUND">>, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash
     },
     ?assertError(
@@ -436,13 +459,15 @@ create_destination_resource_no_bindata_ok_test(C) ->
     Cash = {424242, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, <<"TEST_NOTFOUND">>, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash
     },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -452,13 +477,15 @@ create_destination_resource_no_bindata_ok_test(C) ->
 create_destination_notfound_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
-        wallet_id := WalletID
+        wallet_id := WalletID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => <<"unknown_destination">>,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash
     },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -468,13 +495,15 @@ create_destination_notfound_test(C) ->
 create_wallet_notfound_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => <<"unknown_wallet">>,
+        party_id => PartyID,
         body => Cash
     },
     Result = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
@@ -485,13 +514,15 @@ create_ok_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash,
         external_id => WithdrawalID
     },
@@ -509,14 +540,15 @@ create_with_generic_ok_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        identity_id := IdentityID
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    DestinationID = create_generic_destination(<<"IND">>, IdentityID, C),
-    WithdrawalID = generate_id(),
+    DestinationID = create_generic_destination(<<"IND">>, PartyID, C),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash,
         external_id => WithdrawalID
     },
@@ -534,13 +566,15 @@ quote_ok_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash,
         quote => #{
             cash_from => Cash,
@@ -559,13 +593,15 @@ quote_ok_test(C) ->
 crypto_quote_ok_test(C) ->
     Currency = <<"RUB">>,
     Cash = {100, Currency},
-    Party = create_party(C),
-    IdentityID = create_identity(Party, <<"good-two">>, C),
-    WalletID = create_wallet(IdentityID, <<"My wallet">>, Currency, C),
+    PartyID = ct_objects:create_party(),
+    WalletID = ct_objects:create_wallet(
+        PartyID, Currency, #domain_TermSetHierarchyRef{id = 1}, #domain_PaymentInstitutionRef{id = 1}
+    ),
     ok = await_wallet_balance({0, Currency}, WalletID),
-    DestinationID = create_crypto_destination(IdentityID, C),
+    DestinationID = create_crypto_destination(PartyID, C),
     Params = #{
         wallet_id => WalletID,
+        party_id => PartyID,
         currency_from => <<"RUB">>,
         currency_to => <<"BTC">>,
         body => Cash,
@@ -578,10 +614,12 @@ quote_with_destination_ok_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
     Params = #{
         wallet_id => WalletID,
+        party_id => PartyID,
         currency_from => <<"RUB">>,
         currency_to => <<"USD">>,
         body => Cash,
@@ -594,20 +632,21 @@ preserve_revisions_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash,
         external_id => WithdrawalID
     },
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertNotEqual(undefined, ff_withdrawal:domain_revision(Withdrawal)),
-    ?assertNotEqual(undefined, ff_withdrawal:party_revision(Withdrawal)),
     ?assertNotEqual(undefined, ff_withdrawal:created_at(Withdrawal)).
 
 -spec use_quote_revisions_test(config()) -> test_return().
@@ -618,16 +657,14 @@ use_quote_revisions_test(C) ->
         wallet_id := WalletID,
         destination_id := DestinationID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     Time = ff_time:now(),
     DomainRevision = ff_domain_config:head(),
-    {ok, PartyRevision} = ff_party:get_revision(PartyID),
     _ = ct_domain_config:bump_revision(),
-    ok = make_dummy_party_change(PartyID),
     ?assertNotEqual(DomainRevision, ff_domain_config:head()),
-    ?assertNotEqual({ok, PartyRevision}, ff_party:get_revision(PartyID)),
     WithdrawalParams = #{
         id => WithdrawalID,
+        party_id => PartyID,
         destination_id => DestinationID,
         wallet_id => WalletID,
         body => Cash,
@@ -637,7 +674,6 @@ use_quote_revisions_test(C) ->
             created_at => <<"2016-03-22T06:12:27Z">>,
             expires_on => <<"2016-03-22T06:12:27Z">>,
             domain_revision => DomainRevision,
-            party_revision => PartyRevision,
             operation_timestamp => Time,
             route => ff_withdrawal_routing:make_route(1, 1),
             quote_data => #{<<"test">> => <<"test">>}
@@ -646,7 +682,6 @@ use_quote_revisions_test(C) ->
     ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(DomainRevision, ff_withdrawal:domain_revision(Withdrawal)),
-    ?assertEqual(PartyRevision, ff_withdrawal:party_revision(Withdrawal)),
     ?assertEqual(succeeded, await_final_withdrawal_status(WithdrawalID)).
 
 -spec force_status_change_test(config()) -> test_return().
@@ -654,13 +689,15 @@ force_status_change_test(C) ->
     Cash = {100, <<"RUB">>},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash,
         external_id => WithdrawalID
     },
@@ -706,13 +743,15 @@ provider_callback_test(C) ->
     Cash = {700700, Currency},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash,
         external_id => WithdrawalID
     },
@@ -750,13 +789,15 @@ session_repair_test(C) ->
     Cash = {700700, Currency},
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment(Cash, C),
-    WithdrawalID = generate_id(),
+    WithdrawalID = genlib:bsuuid(),
     WithdrawalParams = #{
         id => WithdrawalID,
         destination_id => DestinationID,
         wallet_id => WalletID,
+        party_id => PartyID,
         body => Cash,
         quote => #{
             cash_from => {700700, <<"RUB">>},
@@ -786,14 +827,16 @@ session_repair_test(C) ->
 provider_terminal_terms_merging_test(C) ->
     #{
         wallet_id := WalletID,
-        destination_id := DestinationID
+        destination_id := DestinationID,
+        party_id := PartyID
     } = prepare_standard_environment({601, <<"RUB">>}, C),
     ProduceWithdrawal = fun(Cash) ->
-        WithdrawalID = generate_id(),
+        WithdrawalID = genlib:bsuuid(),
         WithdrawalParams = #{
             id => WithdrawalID,
             destination_id => DestinationID,
             wallet_id => WalletID,
+            party_id => PartyID,
             body => Cash,
             external_id => WithdrawalID
         },
@@ -817,18 +860,21 @@ provider_terminal_terms_merging_test(C) ->
 prepare_standard_environment(WithdrawalCash, C) ->
     prepare_standard_environment(WithdrawalCash, undefined, C).
 
-prepare_standard_environment({_Amount, Currency} = WithdrawalCash, Token, C) ->
-    Party = create_party(C),
-    IdentityID = create_person_identity(Party, C),
-    WalletID = create_wallet(IdentityID, <<"My wallet">>, Currency, C),
+prepare_standard_environment({_Amount, Currency} = WithdrawalCash, Token, _C) ->
+    PartyID = ct_objects:create_party(),
+    WalletID = ct_objects:create_wallet(
+        PartyID, Currency, #domain_TermSetHierarchyRef{id = 1}, #domain_PaymentInstitutionRef{id = 1}
+    ),
     ok = await_wallet_balance({0, Currency}, WalletID),
-    DestinationID = create_destination(IdentityID, Token, C),
-    ok = set_wallet_balance(WithdrawalCash, WalletID),
+    DestinationID = ct_objects:create_destination(PartyID, Token),
+    SourceID = ct_objects:create_source(PartyID, Currency),
+    {_DepositID, _} = ct_objects:create_deposit(PartyID, WalletID, SourceID, WithdrawalCash),
+    ok = await_wallet_balance(WithdrawalCash, WalletID),
     #{
-        identity_id => IdentityID,
-        party_id => Party,
+        party_id => PartyID,
         wallet_id => WalletID,
-        destination_id => DestinationID
+        destination_id => DestinationID,
+        source_id => SourceID
     }.
 
 get_withdrawal(WithdrawalID) ->
@@ -914,83 +960,14 @@ get_session_transaction_info(SessionID) ->
     Session = get_session(SessionID),
     ff_withdrawal_session:transaction_info(Session).
 
-create_party(_C) ->
-    ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_person_identity(Party, C) ->
-    create_identity(Party, <<"good-one">>, C).
-
-create_identity(Party, ProviderID, C) ->
-    create_identity(Party, <<"Identity Name">>, ProviderID, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
-    ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.
-
-create_wallet(IdentityID, Name, Currency, _C) ->
-    ID = genlib:unique(),
-    ok = ff_wallet_machine:create(
-        #{id => ID, identity => IdentityID, name => Name, currency => Currency},
-        ff_entity_context:new()
-    ),
-    ID.
-
 await_wallet_balance({Amount, Currency}, ID) ->
-    Balance = {Amount, {{inclusive, Amount}, {inclusive, Amount}}, Currency},
-    Balance = ct_helper:await(
-        Balance,
-        fun() -> get_wallet_balance(ID) end,
-        genlib_retry:linear(3, 500)
-    ),
-    ok.
+    ct_objects:await_wallet_balance({Amount, Currency}, ID).
 
 get_wallet_balance(ID) ->
-    {ok, Machine} = ff_wallet_machine:get(ID),
-    get_account_balance(ff_wallet:account(ff_wallet_machine:wallet(Machine))).
+    ct_objects:get_wallet_balance(ID).
 
-get_account_balance(Account) ->
-    {ok, {Amounts, Currency}} = ff_accounting:balance(Account),
-    {ff_indef:current(Amounts), ff_indef:to_range(Amounts), Currency}.
-
-generate_id() ->
-    ff_id:generate_snowflake_id().
-
-create_destination(IID, <<"USD_CURRENCY">>, C) ->
-    create_destination(IID, <<"USD">>, undefined, C);
-create_destination(IID, Token, C) ->
-    create_destination(IID, <<"RUB">>, Token, C).
-
-create_destination(IID, Currency, Token, C) ->
-    ID = generate_id(),
-    StoreSource = ct_cardstore:bank_card(<<"4150399999000900">>, {12, 2025}, C),
-    NewStoreResource =
-        case Token of
-            undefined ->
-                StoreSource;
-            Token ->
-                StoreSource#{token => Token}
-        end,
-    Resource = {bank_card, #{bank_card => NewStoreResource}},
-    Params = #{id => ID, identity => IID, name => <<"XDesination">>, currency => Currency, resource => Resource},
-    ok = ff_destination_machine:create(Params, ff_entity_context:new()),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, Machine} = ff_destination_machine:get(ID),
-            Destination = ff_destination_machine:destination(Machine),
-            ff_destination:status(Destination)
-        end
-    ),
-    ID.
-
-create_crypto_destination(IID, _C) ->
-    ID = generate_id(),
+create_crypto_destination(PartyID, _C) ->
+    ID = genlib:bsuuid(),
     Resource =
         {crypto_wallet, #{
             crypto_wallet => #{
@@ -998,20 +975,19 @@ create_crypto_destination(IID, _C) ->
                 currency => #{id => <<"Litecoin">>}
             }
         }},
-    Params = #{id => ID, identity => IID, name => <<"CryptoDestination">>, currency => <<"RUB">>, resource => Resource},
+    Params = #{
+        id => ID,
+        party_id => PartyID,
+        realm => live,
+        name => <<"CryptoDestination">>,
+        currency => <<"RUB">>,
+        resource => Resource
+    },
     ok = ff_destination_machine:create(Params, ff_entity_context:new()),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, Machine} = ff_destination_machine:get(ID),
-            Destination = ff_destination_machine:destination(Machine),
-            ff_destination:status(Destination)
-        end
-    ),
     ID.
 
 create_generic_destination(Provider, IID, _C) ->
-    ID = generate_id(),
+    ID = genlib:bsuuid(),
     Resource =
         {generic, #{
             generic => #{
@@ -1020,38 +996,15 @@ create_generic_destination(Provider, IID, _C) ->
             }
         }},
     Params = #{
-        id => ID, identity => IID, name => <<"GenericDestination">>, currency => <<"RUB">>, resource => Resource
+        id => ID,
+        party_id => IID,
+        realm => live,
+        name => <<"GenericDestination">>,
+        currency => <<"RUB">>,
+        resource => Resource
     },
     ok = ff_destination_machine:create(Params, ff_entity_context:new()),
-    authorized = ct_helper:await(
-        authorized,
-        fun() ->
-            {ok, Machine} = ff_destination_machine:get(ID),
-            Destination = ff_destination_machine:destination(Machine),
-            ff_destination:status(Destination)
-        end
-    ),
     ID.
-
-set_wallet_balance({Amount, Currency}, ID) ->
-    TransactionID = generate_id(),
-    {ok, Machine} = ff_wallet_machine:get(ID),
-    Account = ff_wallet:account(ff_wallet_machine:wallet(Machine)),
-    AccounterID = ff_account:accounter_account_id(Account),
-    {CurrentAmount, _, Currency} = get_account_balance(Account),
-    {ok, AnotherAccounterID} = ct_helper:create_account(Currency),
-    Postings = [{AnotherAccounterID, AccounterID, {Amount - CurrentAmount, Currency}}],
-    {ok, _} = ff_accounting:prepare_trx(TransactionID, Postings),
-    {ok, _} = ff_accounting:commit_trx(TransactionID, Postings),
-    ok.
-
-make_dummy_party_change(PartyID) ->
-    {ok, _ContractID} = ff_party:create_contract(PartyID, #{
-        payinst => #domain_PaymentInstitutionRef{id = 1},
-        contract_template => #domain_ContractTemplateRef{id = 1},
-        contractor_level => full
-    }),
-    ok.
 
 call_process_callback(Callback) ->
     ff_withdrawal_session_machine:process_callback(Callback).

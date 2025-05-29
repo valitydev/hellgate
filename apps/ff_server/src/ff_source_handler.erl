@@ -36,8 +36,8 @@ handle_function_('Create', {Params, Ctx}, Opts) ->
     of
         ok ->
             handle_function_('Get', {ID, #'fistful_base_EventRange'{}}, Opts);
-        {error, {identity, notfound}} ->
-            woody_error:raise(business, #fistful_IdentityNotFound{});
+        {error, {party, notfound}} ->
+            woody_error:raise(business, #fistful_PartyNotFound{});
         {error, {currency, notfound}} ->
             woody_error:raise(business, #fistful_CurrencyNotFound{});
         {error, {party, _Inaccessible}} ->

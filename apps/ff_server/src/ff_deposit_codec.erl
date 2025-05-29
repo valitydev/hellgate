@@ -13,22 +13,16 @@
 -spec marshal_deposit_state(ff_deposit:deposit_state(), ff_entity_context:context()) ->
     fistful_deposit_thrift:'DepositState'().
 marshal_deposit_state(DepositState, Context) ->
-    CashFlow = ff_deposit:effective_final_cash_flow(DepositState),
-    Reverts = ff_deposit:reverts(DepositState),
-    Adjustments = ff_deposit:adjustments(DepositState),
     #deposit_DepositState{
         id = marshal(id, ff_deposit:id(DepositState)),
+        party_id = marshal(id, ff_deposit:party_id(DepositState)),
         body = marshal(cash, ff_deposit:negative_body(DepositState)),
         status = maybe_marshal(status, ff_deposit:status(DepositState)),
         wallet_id = marshal(id, ff_deposit:wallet_id(DepositState)),
         source_id = marshal(id, ff_deposit:source_id(DepositState)),
         external_id = maybe_marshal(id, ff_deposit:external_id(DepositState)),
         domain_revision = maybe_marshal(domain_revision, ff_deposit:domain_revision(DepositState)),
-        party_revision = maybe_marshal(party_revision, ff_deposit:party_revision(DepositState)),
         created_at = maybe_marshal(timestamp_ms, ff_deposit:created_at(DepositState)),
-        effective_final_cash_flow = ff_cash_flow_codec:marshal(final_cash_flow, CashFlow),
-        reverts = [ff_deposit_revert_codec:marshal(revert_state, R) || R <- Reverts],
-        adjustments = [ff_deposit_adjustment_codec:marshal(adjustment_state, A) || A <- Adjustments],
         context = marshal(ctx, Context),
         metadata = marshal(ctx, ff_deposit:metadata(DepositState)),
         description = maybe_marshal(string, ff_deposit:description(DepositState))
@@ -58,26 +52,15 @@ marshal(change, {p_transfer, TransferChange}) ->
     {transfer, #deposit_TransferChange{payload = ff_p_transfer_codec:marshal(change, TransferChange)}};
 marshal(change, {limit_check, Details}) ->
     {limit_check, #deposit_LimitCheckChange{details = ff_limit_check_codec:marshal(details, Details)}};
-marshal(change, {revert, #{id := ID, payload := Payload}}) ->
-    {revert, #deposit_RevertChange{
-        id = marshal(id, ID),
-        payload = ff_deposit_revert_codec:marshal(change, Payload)
-    }};
-marshal(change, {adjustment, #{id := ID, payload := Payload}}) ->
-    {adjustment, #deposit_AdjustmentChange{
-        id = marshal(id, ID),
-        payload = ff_deposit_adjustment_codec:marshal(change, Payload)
-    }};
 marshal(deposit, Deposit) ->
     #deposit_Deposit{
         id = marshal(id, ff_deposit:id(Deposit)),
+        party_id = marshal(id, ff_deposit:party_id(Deposit)),
         body = marshal(cash, ff_deposit:body(Deposit)),
-        status = maybe_marshal(status, ff_deposit:status(Deposit)),
         wallet_id = marshal(id, ff_deposit:wallet_id(Deposit)),
         source_id = marshal(id, ff_deposit:source_id(Deposit)),
         external_id = maybe_marshal(id, ff_deposit:external_id(Deposit)),
         domain_revision = maybe_marshal(domain_revision, ff_deposit:domain_revision(Deposit)),
-        party_revision = maybe_marshal(party_revision, ff_deposit:party_revision(Deposit)),
         created_at = maybe_marshal(timestamp_ms, ff_deposit:created_at(Deposit)),
         metadata = maybe_marshal(ctx, ff_deposit:metadata(Deposit)),
         description = maybe_marshal(string, ff_deposit:description(Deposit))
@@ -85,6 +68,7 @@ marshal(deposit, Deposit) ->
 marshal(deposit_params, DepositParams) ->
     #deposit_DepositParams{
         id = marshal(id, maps:get(id, DepositParams)),
+        party_id = marshal(id, maps:get(party_id, DepositParams)),
         body = marshal(cash, maps:get(body, DepositParams)),
         wallet_id = marshal(id, maps:get(wallet_id, DepositParams)),
         source_id = marshal(id, maps:get(source_id, DepositParams)),
@@ -120,31 +104,19 @@ unmarshal(change, {transfer, #deposit_TransferChange{payload = TransferChange}})
     {p_transfer, ff_p_transfer_codec:unmarshal(change, TransferChange)};
 unmarshal(change, {limit_check, #deposit_LimitCheckChange{details = Details}}) ->
     {limit_check, ff_limit_check_codec:unmarshal(details, Details)};
-unmarshal(change, {revert, Change}) ->
-    {revert, #{
-        id => unmarshal(id, Change#deposit_RevertChange.id),
-        payload => ff_deposit_revert_codec:unmarshal(change, Change#deposit_RevertChange.payload)
-    }};
-unmarshal(change, {adjustment, Change}) ->
-    {adjustment, #{
-        id => unmarshal(id, Change#deposit_AdjustmentChange.id),
-        payload => ff_deposit_adjustment_codec:unmarshal(change, Change#deposit_AdjustmentChange.payload)
-    }};
 unmarshal(status, Status) ->
     ff_deposit_status_codec:unmarshal(status, Status);
 unmarshal(deposit, Deposit) ->
     genlib_map:compact(#{
         version => 3,
-        transfer_type => deposit,
         id => unmarshal(id, Deposit#deposit_Deposit.id),
         body => unmarshal(cash, Deposit#deposit_Deposit.body),
-        status => maybe_unmarshal(status, Deposit#deposit_Deposit.status),
         params => genlib_map:compact(#{
             wallet_id => unmarshal(id, Deposit#deposit_Deposit.wallet_id),
-            source_id => unmarshal(id, Deposit#deposit_Deposit.source_id)
+            source_id => unmarshal(id, Deposit#deposit_Deposit.source_id),
+            party_id => unmarshal(id, Deposit#deposit_Deposit.party_id)
         }),
         external_id => maybe_unmarshal(id, Deposit#deposit_Deposit.external_id),
-        party_revision => maybe_unmarshal(party_revision, Deposit#deposit_Deposit.party_revision),
         domain_revision => maybe_unmarshal(domain_revision, Deposit#deposit_Deposit.domain_revision),
         created_at => maybe_unmarshal(timestamp_ms, Deposit#deposit_Deposit.created_at),
         metadata => maybe_unmarshal(ctx, Deposit#deposit_Deposit.metadata),
@@ -153,6 +125,7 @@ unmarshal(deposit, Deposit) ->
 unmarshal(deposit_params, DepositParams) ->
     genlib_map:compact(#{
         id => unmarshal(id, DepositParams#deposit_DepositParams.id),
+        party_id => unmarshal(id, DepositParams#deposit_DepositParams.party_id),
         body => unmarshal(cash, DepositParams#deposit_DepositParams.body),
         wallet_id => unmarshal(id, DepositParams#deposit_DepositParams.wallet_id),
         source_id => unmarshal(id, DepositParams#deposit_DepositParams.source_id),
@@ -194,11 +167,10 @@ deposit_symmetry_test() ->
         },
         source_id = genlib:unique(),
         wallet_id = genlib:unique(),
+        party_id = genlib:unique(),
         external_id = undefined,
-        status = {pending, #deposit_status_Pending{}},
         id = genlib:unique(),
         domain_revision = 24500062,
-        party_revision = 140028,
         created_at = <<"2025-01-01T00:00:00.001Z">>
     },
     ?assertEqual(Encoded, marshal(deposit, unmarshal(deposit, Encoded))).
@@ -214,6 +186,7 @@ deposit_params_symmetry_test() ->
         },
         source_id = genlib:unique(),
         wallet_id = genlib:unique(),
+        party_id = genlib:unique(),
         external_id = undefined,
         id = genlib:unique(),
         metadata = Metadata,
@@ -223,18 +196,17 @@ deposit_params_symmetry_test() ->
 
 -spec deposit_timestamped_change_codec_test() -> _.
 deposit_timestamped_change_codec_test() ->
+    erlang:put(deposit_codec_keep_transfer_type, true),
     Deposit = #{
         version => 3,
-        transfer_type => deposit,
         id => genlib:unique(),
-        status => pending,
         body => {123, <<"RUB">>},
         created_at => ff_time:now(),
         domain_revision => 123,
-        party_revision => 321,
         params => #{
             wallet_id => genlib:unique(),
-            source_id => genlib:unique()
+            source_id => genlib:unique(),
+            party_id => genlib:unique()
         },
         external_id => genlib:unique()
     },
@@ -243,61 +215,8 @@ deposit_timestamped_change_codec_test() ->
     Type = {struct, struct, {fistful_deposit_thrift, 'TimestampedChange'}},
     Binary = ff_proto_utils:serialize(Type, marshal(timestamped_change, TimestampedChange)),
     Decoded = ff_proto_utils:deserialize(Type, Binary),
-    ?assertEqual(TimestampedChange, unmarshal(timestamped_change, Decoded)).
-
--spec deposit_change_revert_codec_test() -> _.
-deposit_change_revert_codec_test() ->
-    Revert = #{
-        id => genlib:unique(),
-        payload =>
-            {created, #{
-                id => genlib:unique(),
-                status => pending,
-                body => {123, <<"RUB">>},
-                created_at => ff_time:now(),
-                domain_revision => 123,
-                party_revision => 321,
-                external_id => genlib:unique(),
-                wallet_id => genlib:unique(),
-                source_id => genlib:unique()
-            }}
-    },
-    Change = {revert, Revert},
-    TimestampedChange = {ev, machinery_time:now(), Change},
-    Type = {struct, struct, {fistful_deposit_thrift, 'TimestampedChange'}},
-    Binary = ff_proto_utils:serialize(Type, marshal(timestamped_change, TimestampedChange)),
-    Decoded = ff_proto_utils:deserialize(Type, Binary),
-    ?assertEqual(TimestampedChange, unmarshal(timestamped_change, Decoded)).
-
--spec deposit_change_adjustment_codec_test() -> _.
-deposit_change_adjustment_codec_test() ->
-    Adjustment = #{
-        id => genlib:unique(),
-        payload =>
-            {created, #{
-                id => genlib:unique(),
-                status => pending,
-                changes_plan => #{
-                    new_cash_flow => #{
-                        old_cash_flow_inverted => #{postings => []},
-                        new_cash_flow => #{postings => []}
-                    },
-                    new_status => #{
-                        new_status => succeeded
-                    }
-                },
-                created_at => ff_time:now(),
-                domain_revision => 123,
-                party_revision => 321,
-                operation_timestamp => ff_time:now(),
-                external_id => genlib:unique()
-            }}
-    },
-    Change = {adjustment, Adjustment},
-    TimestampedChange = {ev, machinery_time:now(), Change},
-    Type = {struct, struct, {fistful_deposit_thrift, 'TimestampedChange'}},
-    Binary = ff_proto_utils:serialize(Type, marshal(timestamped_change, TimestampedChange)),
-    Decoded = ff_proto_utils:deserialize(Type, Binary),
-    ?assertEqual(TimestampedChange, unmarshal(timestamped_change, Decoded)).
+    Res = ?assertEqual(TimestampedChange, unmarshal(timestamped_change, Decoded)),
+    erlang:put(deposit_codec_keep_transfer_type, false),
+    Res.
 
 -endif.

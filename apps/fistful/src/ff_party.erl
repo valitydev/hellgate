@@ -12,15 +12,12 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -type id() :: dmsl_domain_thrift:'PartyID'().
--type contract_id() :: dmsl_domain_thrift:'ContractID'().
 -type wallet_id() :: dmsl_domain_thrift:'WalletID'().
--type revision() :: dmsl_domain_thrift:'PartyRevision'().
+-type wallet() :: dmsl_domain_thrift:'WalletConfig'().
 -type terms() :: dmsl_domain_thrift:'TermSet'().
+-type account_id() :: dmsl_domain_thrift:'AccountID'().
+-type realm() :: ff_payment_institution:realm().
 -type attempt_limit() :: integer().
-
--type party_params() :: #{
-    email := binary()
-}.
 
 -type validate_account_creation_error() ::
     currency_validation_error().
@@ -28,11 +25,6 @@
 -type validate_deposit_creation_error() ::
     currency_validation_error()
     | {bad_deposit_amount, Cash :: cash()}.
-
--type get_contract_terms_error() ::
-    {party_not_found, id()}
-    | {contract_not_found, id()}
-    | {party_not_exists_yet, id()}.
 
 -type validate_destination_creation_error() ::
     withdrawal_method_validation_error().
@@ -42,25 +34,15 @@
     | withdrawal_method_validation_error()
     | cash_range_validation_error().
 
--type validate_w2w_transfer_creation_error() ::
-    w2w_forbidden_error()
-    | currency_validation_error()
-    | {bad_w2w_transfer_amount, Cash :: cash()}
-    | invalid_w2w_terms_error().
-
 -export_type([id/0]).
--export_type([revision/0]).
 -export_type([terms/0]).
--export_type([contract_id/0]).
 -export_type([wallet_id/0]).
--export_type([party_params/0]).
+-export_type([wallet/0]).
 -export_type([validate_deposit_creation_error/0]).
 -export_type([validate_account_creation_error/0]).
--export_type([get_contract_terms_error/0]).
 -export_type([validate_destination_creation_error/0]).
 -export_type([validate_withdrawal_creation_error/0]).
 -export_type([withdrawal_method_validation_error/0]).
--export_type([validate_w2w_transfer_creation_error/0]).
 -export_type([cash/0]).
 -export_type([cash_range/0]).
 -export_type([attempt_limit/0]).
@@ -72,43 +54,41 @@
 
 -export_type([inaccessibility/0]).
 
--export([create/1]).
--export([create/2]).
+-export([get_party/1]).
+-export([get_party_revision/0]).
+-export([checkout/2]).
+-export([get_wallet/2]).
+-export([get_wallet/3]).
+-export([build_account_for_wallet/2]).
+-export([wallet_log_balance/1]).
+-export([get_wallet_account/1]).
+-export([get_wallet_realm/2]).
 -export([is_accessible/1]).
--export([create_contract/2]).
--export([get_revision/1]).
--export([change_contractor_level/3]).
--export([validate_account_creation/2]).
+-export([is_wallet_accessible/1]).
 -export([validate_destination_creation/2]).
 -export([get_withdrawal_methods/1]).
 -export([validate_withdrawal_creation/3]).
 -export([validate_deposit_creation/2]).
--export([validate_w2w_transfer_creation/2]).
 -export([validate_wallet_limits/2]).
--export([get_contract_terms/6]).
+-export([get_terms/3]).
 -export([compute_payment_institution/3]).
 -export([compute_routing_ruleset/3]).
 -export([compute_provider_terminal_terms/4]).
 -export([get_withdrawal_cash_flow_plan/1]).
--export([get_w2w_cash_flow_plan/1]).
--export([get_identity_payment_institution_id/1]).
 
 %% Internal types
 -type cash() :: ff_cash:cash().
 -type method() :: ff_resource:method().
 -type wallet_terms() :: dmsl_domain_thrift:'WalletServiceTerms'().
 -type withdrawal_terms() :: dmsl_domain_thrift:'WithdrawalServiceTerms'().
--type w2w_terms() :: dmsl_domain_thrift:'W2WServiceTerms'().
 -type currency_id() :: ff_currency:id().
+
 -type currency_ref() :: dmsl_domain_thrift:'CurrencyRef'().
 -type domain_cash() :: dmsl_domain_thrift:'Cash'().
 -type domain_cash_range() :: dmsl_domain_thrift:'CashRange'().
 -type domain_revision() :: ff_domain_config:revision().
--type timestamp() :: ff_time:timestamp_ms().
--type wallet() :: ff_wallet:wallet_state().
 -type payinst_ref() :: ff_payment_institution:payinst_ref().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
--type payment_institution_id() :: ff_payment_institution:id().
 -type routing_ruleset_ref() :: dmsl_domain_thrift:'RoutingRulesetRef'().
 -type routing_ruleset() :: dmsl_domain_thrift:'RoutingRuleset'().
 -type provider_ref() :: dmsl_domain_thrift:'ProviderRef'().
@@ -117,12 +97,13 @@
 -type provision_term_set() :: dmsl_domain_thrift:'ProvisionTermSet'().
 -type bound_type() :: 'exclusive' | 'inclusive'.
 -type cash_range() :: {{bound_type(), cash()}, {bound_type(), cash()}}.
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
 
 -type currency_validation_error() ::
     {terms_violation, {not_allowed_currency, {currency_ref(), ordsets:ordset(currency_ref())}}}.
 
 -type cash_range_validation_error() :: {terms_violation, {cash_range, {cash(), cash_range()}}}.
--type w2w_forbidden_error() :: {terms_violation, w2w_forbidden}.
 -type attempt_limit_error() :: {terms_violation, {attempt_limit, attempt_limit()}}.
 
 -type not_reduced_error() :: {not_reduced, {Name :: atom(), TermsPart :: any()}}.
@@ -136,11 +117,6 @@
     {invalid_terms, not_reduced_error()}
     | {invalid_terms, undefined_wallet_terms}.
 
--type invalid_w2w_terms_error() ::
-    {invalid_terms, not_reduced_error()}
-    | {invalid_terms, undefined_wallet_terms}
-    | {invalid_terms, {undefined_w2w_terms, wallet_terms()}}.
-
 -type withdrawal_method_validation_error() ::
     {terms_violation, {not_allowed_withdrawal_method, {method_ref(), ordsets:ordset(method_ref())}}}.
 
@@ -150,126 +126,118 @@
 
 %%
 
--spec create(id()) ->
-    ok
-    | {error, exists}.
-create(ID) ->
-    create(ID, #{email => <<"bob@example.org">>}).
+-spec get_party(party_id()) -> {ok, party()} | {error, notfound}.
+get_party(PartyID) ->
+    checkout(PartyID, get_party_revision()).
 
--spec create(id(), party_params()) ->
-    ok
-    | {error, exists}.
-create(ID, Params) ->
-    do_create_party(ID, Params).
+-spec get_party_revision() -> domain_revision() | no_return().
+get_party_revision() ->
+    ff_domain_config:head().
+
+-spec checkout(party_id(), domain_revision()) -> {ok, party()} | {error, notfound}.
+checkout(PartyID, Revision) ->
+    case ff_domain_config:object(Revision, {party_config, #domain_PartyConfigRef{id = PartyID}}) of
+        {error, notfound} = Error ->
+            Error;
+        Party ->
+            Party
+    end.
+
+-spec get_wallet(wallet_id(), party()) -> wallet() | {error, notfound}.
+get_wallet(ID, Party) ->
+    get_wallet(ID, Party, get_party_revision()).
+
+-spec get_wallet(wallet_id(), party(), domain_revision()) -> {ok, wallet()} | {error, notfound}.
+get_wallet(ID, #domain_PartyConfig{wallets = Wallets}, Revision) ->
+    Ref = #domain_WalletConfigRef{id = ID},
+    case lists:member(Ref, Wallets) of
+        true ->
+            ff_domain_config:object(Revision, {wallet_config, Ref});
+        false ->
+            {error, notfound}
+    end.
+
+-spec build_account_for_wallet(wallet(), domain_revision()) -> ff_account:account().
+build_account_for_wallet(#domain_WalletConfig{party_id = PartyID} = Wallet, DomainRevision) ->
+    {SettlementID, Currency} = get_wallet_account(Wallet),
+    Realm = get_wallet_realm(Wallet, DomainRevision),
+    ff_account:build(PartyID, Realm, SettlementID, Currency).
+
+-spec wallet_log_balance(wallet()) -> ok.
+wallet_log_balance(#domain_WalletConfig{id = WalletID} = Wallet) ->
+    {SettlementID, Currency} = get_wallet_account(Wallet),
+    {ok, {Amounts, Currency}} = ff_accounting:balance(SettlementID, Currency),
+    logger:log(notice, "Wallet balance", [], #{
+        wallet => #{
+            id => WalletID,
+            balance => #{
+                amount => ff_indef:current(Amounts),
+                currency => Currency
+            }
+        }
+    }),
+    ok.
+
+-spec get_wallet_account(wallet()) -> {account_id(), currency_id()}.
+get_wallet_account(#domain_WalletConfig{currency_configs = Configs}) when is_map(Configs) ->
+    %% TODO: fix it when add multi currency support
+    [
+        {
+            #domain_CurrencyRef{symbolic_code = Currency},
+            #domain_WalletCurrencyConfig{settlement = SettlementID}
+        }
+        | _
+    ] = maps:to_list(
+        Configs
+    ),
+    {SettlementID, Currency}.
+
+-spec get_wallet_realm(wallet(), domain_revision()) -> realm().
+get_wallet_realm(#domain_WalletConfig{payment_institution = PaymentInstitutionRef}, DomainRevision) ->
+    {ok, WalletRealm} = ff_payment_institution:get_realm(PaymentInstitutionRef, DomainRevision),
+    WalletRealm.
 
 -spec is_accessible(id()) ->
     {ok, accessible}
     | {error, inaccessibility()}
     | {error, notfound}.
 is_accessible(ID) ->
-    case do_get_party(ID) of
-        #domain_Party{blocking = {blocked, _}} ->
+    case get_party(ID) of
+        {ok, #domain_PartyConfig{blocking = {blocked, _}}} ->
             {error, {inaccessible, blocked}};
-        #domain_Party{suspension = {suspended, _}} ->
+        {ok, #domain_PartyConfig{suspension = {suspended, _}}} ->
             {error, {inaccessible, suspended}};
-        #domain_Party{} ->
+        {ok, #domain_PartyConfig{}} ->
             {ok, accessible};
-        #payproc_PartyNotFound{} ->
+        {error, notfound} ->
             {error, notfound}
     end.
 
--spec get_revision(id()) -> {ok, revision()} | {error, {party_not_found, id()}}.
-get_revision(ID) ->
-    {Client, Context} = get_party_client(),
-    case party_client_thrift:get_revision(ID, Client, Context) of
-        {ok, Revision} ->
-            {ok, Revision};
-        {error, #payproc_PartyNotFound{}} ->
-            {error, {party_not_found, ID}}
-    end.
+-spec is_wallet_accessible(wallet()) ->
+    {ok, accessible}
+    | {error, inaccessibility()}
+    | {error, notfound}.
+is_wallet_accessible(#domain_WalletConfig{blocking = {blocked, _}}) ->
+    {error, {inaccessible, blocked}};
+is_wallet_accessible(#domain_WalletConfig{suspension = {suspended, _}}) ->
+    {error, {inaccessible, suspended}};
+is_wallet_accessible(#domain_WalletConfig{}) ->
+    {ok, accessible};
+is_wallet_accessible(_) ->
+    {error, notfound}.
 
 %%
 
--type contract_prototype() :: #{
-    payinst := dmsl_domain_thrift:'PaymentInstitutionRef'(),
-    contract_template := dmsl_domain_thrift:'ContractTemplateRef'(),
-    contractor_level := dmsl_domain_thrift:'ContractorIdentificationLevel'()
-}.
-
--spec create_contract(id(), contract_prototype()) ->
-    {ok, contract_id()}
-    | {error, inaccessibility()}
-    | {error, invalid}.
-create_contract(ID, Prototype) ->
-    do(fun() ->
-        ContractID = generate_contract_id(),
-        Changeset = construct_contract_changeset(ContractID, Prototype),
-        Claim = unwrap(do_create_claim(ID, Changeset)),
-        accepted = do_accept_claim(ID, Claim),
-        ContractID
-    end).
-
-%%
-
--spec change_contractor_level(id(), contract_id(), dmsl_domain_thrift:'ContractorIdentificationLevel'()) ->
-    ok
-    | {error, inaccessibility()}
-    | {error, invalid}.
-change_contractor_level(ID, ContractID, ContractorLevel) ->
-    do(fun() ->
-        Changeset = construct_level_changeset(ContractID, ContractorLevel),
-        Claim = unwrap(do_create_claim(ID, Changeset)),
-        accepted = do_accept_claim(ID, Claim),
-        ok
-    end).
-
--spec get_identity_payment_institution_id(ff_identity:identity_state()) -> Result when
-    Result :: {ok, payment_institution_id()} | {error, Error},
-    Error ::
-        {party_not_found, id()}
-        | {contract_not_found, id()}
-        | no_return().
-get_identity_payment_institution_id(Identity) ->
-    do(fun() ->
-        PartyID = ff_identity:party(Identity),
-        ContractID = ff_identity:contract(Identity),
-        Contract = unwrap(do_get_contract(PartyID, ContractID)),
-        #domain_PaymentInstitutionRef{id = ID} = Contract#domain_Contract.payment_institution,
-        ID
-    end).
-
--spec get_contract_terms(PartyID, ContractID, Varset, Timestamp, PartyRevision, DomainRevision) -> Result when
-    PartyID :: id(),
-    ContractID :: contract_id(),
-    Varset :: ff_varset:varset(),
-    Timestamp :: timestamp(),
-    PartyRevision :: revision(),
-    DomainRevision :: domain_revision(),
-    Result :: {ok, terms()} | {error, Error},
-    Error :: get_contract_terms_error().
-get_contract_terms(PartyID, ContractID, Varset, Timestamp, PartyRevision, DomainRevision) ->
-    DomainVarset = ff_varset:encode_contract_terms_varset(Varset),
-    TimestampStr = ff_time:to_rfc3339(Timestamp),
-    {Client, Context} = get_party_client(),
-    Result = party_client_thrift:compute_contract_terms(
-        PartyID,
-        ContractID,
-        TimestampStr,
-        {revision, PartyRevision},
-        DomainRevision,
-        DomainVarset,
-        Client,
-        Context
-    ),
-    case Result of
+-spec get_terms(domain_revision(), wallet(), ff_varset:varset()) -> terms() | no_return().
+get_terms(DomainRevision, #domain_WalletConfig{terms = Ref}, Varset) ->
+    DomainVarset = ff_varset:encode(Varset),
+    Args = {Ref, DomainRevision, DomainVarset},
+    Request = {{dmsl_payproc_thrift, 'PartyConfigManagement'}, 'ComputeTerms', Args},
+    case ff_woody_client:call(party_config, Request) of
         {ok, Terms} ->
-            {ok, Terms};
-        {error, #payproc_PartyNotFound{}} ->
-            {error, {party_not_found, PartyID}};
-        {error, #payproc_ContractNotFound{}} ->
-            {error, {contract_not_found, ContractID}};
-        {error, #payproc_PartyNotExistsYet{}} ->
-            {error, {party_not_exists_yet, PartyID}}
+            Terms;
+        {exception, Exception} ->
+            error(Exception)
     end.
 
 -spec compute_payment_institution(PaymentInstitutionRef, Varset, DomainRevision) -> Result when
@@ -344,16 +312,6 @@ compute_provider_terminal_terms(ProviderRef, TerminalRef, Varset, DomainRevision
             {error, provision_termset_undefined}
     end.
 
--spec validate_account_creation(terms(), currency_id()) -> Result when
-    Result :: {ok, valid} | {error, Error},
-    Error :: currency_validation_error().
-validate_account_creation(Terms, CurrencyID) ->
-    #domain_TermSet{wallets = WalletTerms} = Terms,
-    do(fun() ->
-        {ok, valid} = validate_wallet_currencies_term_is_reduced(WalletTerms),
-        valid = unwrap(validate_wallet_terms_currency(CurrencyID, WalletTerms))
-    end).
-
 -spec get_withdrawal_methods(terms()) ->
     ordsets:ordset(method_ref()).
 get_withdrawal_methods(Terms) ->
@@ -399,21 +357,6 @@ validate_deposit_creation(Terms, {_Amount, CurrencyID} = _Cash) ->
         valid = unwrap(validate_wallet_terms_currency(CurrencyID, WalletTerms))
     end).
 
--spec validate_w2w_transfer_creation(terms(), cash()) -> Result when
-    Result :: {ok, valid} | {error, Error},
-    Error :: validate_w2w_transfer_creation_error().
-validate_w2w_transfer_creation(_Terms, {Amount, _Currency} = Cash) when Amount < 1 ->
-    {error, {bad_w2w_transfer_amount, Cash}};
-validate_w2w_transfer_creation(Terms, {_Amount, CurrencyID} = Cash) ->
-    #domain_TermSet{wallets = WalletTerms} = Terms,
-    do(fun() ->
-        {ok, valid} = validate_w2w_terms_is_reduced(WalletTerms),
-        #domain_WalletServiceTerms{w2w = W2WServiceTerms} = WalletTerms,
-        valid = unwrap(validate_w2w_terms_currency(CurrencyID, W2WServiceTerms)),
-        valid = unwrap(validate_w2w_cash_limit(Cash, W2WServiceTerms)),
-        valid = unwrap(validate_w2w_allow(W2WServiceTerms))
-    end).
-
 -spec get_withdrawal_cash_flow_plan(terms()) -> {ok, ff_cash_flow:cash_flow_plan()} | {error, _Error}.
 get_withdrawal_cash_flow_plan(Terms) ->
     #domain_TermSet{
@@ -427,158 +370,13 @@ get_withdrawal_cash_flow_plan(Terms) ->
     Postings = ff_cash_flow:decode_domain_postings(DomainPostings),
     {ok, #{postings => Postings}}.
 
--spec get_w2w_cash_flow_plan(terms()) -> {ok, ff_cash_flow:cash_flow_plan()} | {error, _Error}.
-get_w2w_cash_flow_plan(Terms) ->
-    #domain_TermSet{
-        wallets = #domain_WalletServiceTerms{
-            w2w = #domain_W2WServiceTerms{
-                cash_flow = CashFlow
-            }
-        }
-    } = Terms,
-    {value, DomainPostings} = CashFlow,
-    Postings = ff_cash_flow:decode_domain_postings(DomainPostings),
-    {ok, #{postings => Postings}}.
-
-%% Internal functions
-
-generate_contract_id() ->
-    generate_uuid().
-
-generate_uuid() ->
-    % TODO
-    %  - Snowflake, anyone?
-    uuid:uuid_to_string(uuid:get_v4(), binary_nodash).
-
 %% Party management client
-
-do_create_party(ID, Params) ->
-    {Client, Context} = get_party_client(),
-    case party_client_thrift:create(ID, construct_party_params(Params), Client, Context) of
-        ok ->
-            ok;
-        {error, #payproc_PartyExists{}} ->
-            {error, exists}
-    end.
-
-do_get_party(ID) ->
-    {Client, Context} = get_party_client(),
-    Result = do(fun() ->
-        Revision = unwrap(party_client_thrift:get_revision(ID, Client, Context)),
-        unwrap(party_client_thrift:checkout(ID, {revision, Revision}, Client, Context))
-    end),
-    case Result of
-        {ok, Party} ->
-            Party;
-        {error, #payproc_PartyNotFound{} = Reason} ->
-            Reason
-    end.
-
-do_get_contract(ID, ContractID) ->
-    {Client, Context} = get_party_client(),
-    case party_client_thrift:get_contract(ID, ContractID, Client, Context) of
-        {ok, #domain_Contract{} = Contract} ->
-            {ok, Contract};
-        {error, #payproc_PartyNotFound{}} ->
-            {error, {party_not_found, ID}};
-        {error, #payproc_ContractNotFound{}} ->
-            {error, {contract_not_found, ContractID}}
-    end.
-
-do_create_claim(ID, Changeset) ->
-    {Client, Context} = get_party_client(),
-    case party_client_thrift:create_claim(ID, Changeset, Client, Context) of
-        {ok, Claim} ->
-            {ok, Claim};
-        {error, #payproc_InvalidChangeset{
-            reason = {invalid_wallet, #payproc_InvalidWallet{reason = {contract_terms_violated, _}}}
-        }} ->
-            {error, invalid};
-        {error, #payproc_InvalidPartyStatus{status = Status}} ->
-            {error, construct_inaccessibilty(Status)}
-    end.
-
-do_accept_claim(ID, Claim) ->
-    % TODO
-    %  - We assume here that there's only one actor (identity machine) acting in
-    %    such a way which may cause conflicts.
-    ClaimID = Claim#payproc_Claim.id,
-    Revision = Claim#payproc_Claim.revision,
-    {Client, Context} = get_party_client(),
-    case party_client_thrift:accept_claim(ID, ClaimID, Revision, Client, Context) of
-        ok ->
-            accepted;
-        {error, #payproc_InvalidClaimStatus{status = {accepted, _}}} ->
-            accepted
-    end.
 
 get_party_client() ->
     Context = ff_context:load(),
     Client = ff_context:get_party_client(Context),
     ClientContext = ff_context:get_party_client_context(Context),
     {Client, ClientContext}.
-
-construct_inaccessibilty({blocking, _}) ->
-    {inaccessible, blocked};
-construct_inaccessibilty({suspension, _}) ->
-    {inaccessible, suspended}.
-
-%%
-
--define(CONTRACTOR_MOD(ID, Mod),
-    {contractor_modification, #payproc_ContractorModificationUnit{id = ID, modification = Mod}}
-).
-
--define(CONTRACT_MOD(ID, Mod),
-    {contract_modification, #payproc_ContractModificationUnit{id = ID, modification = Mod}}
-).
-
-construct_party_params(#{email := Email}) ->
-    #payproc_PartyParams{
-        contact_info = #domain_PartyContactInfo{
-            registration_email = Email
-        }
-    }.
-
-construct_contract_changeset(ContractID, #{
-    payinst := PayInstRef,
-    contract_template := ContractTemplateRef,
-    contractor_level := ContractorLevel
-}) ->
-    [
-        ?CONTRACTOR_MOD(
-            ContractID,
-            {creation,
-                {private_entity,
-                    {russian_private_entity, #domain_RussianPrivateEntity{
-                        % TODO
-                        first_name = <<>>,
-                        second_name = <<>>,
-                        middle_name = <<>>,
-                        contact_info = #domain_ContactInfo{}
-                    }}}}
-        ),
-        ?CONTRACTOR_MOD(
-            ContractID,
-            {identification_level_modification, ContractorLevel}
-        ),
-        ?CONTRACT_MOD(
-            ContractID,
-            {creation, #payproc_ContractParams{
-                contractor_id = ContractID,
-                payment_institution = PayInstRef,
-                template = ContractTemplateRef
-            }}
-        )
-    ].
-
-construct_level_changeset(ContractID, ContractorLevel) ->
-    [
-        ?CONTRACTOR_MOD(
-            ContractID,
-            {identification_level_modification, ContractorLevel}
-        )
-    ].
 
 %% Terms stuff
 
@@ -621,28 +419,6 @@ validate_withdrawal_terms_is_reduced(Terms) ->
         {withdrawal_methods, MethodsSelector}
     ]).
 
--spec validate_w2w_terms_is_reduced(wallet_terms() | undefined) -> {ok, valid} | {error, invalid_w2w_terms_error()}.
-validate_w2w_terms_is_reduced(undefined) ->
-    {error, {invalid_terms, undefined_wallet_terms}};
-validate_w2w_terms_is_reduced(#domain_WalletServiceTerms{w2w = undefined} = WalletTerms) ->
-    {error, {invalid_terms, {undefined_w2w_terms, WalletTerms}}};
-validate_w2w_terms_is_reduced(Terms) ->
-    #domain_WalletServiceTerms{
-        w2w = W2WServiceTerms
-    } = Terms,
-    #domain_W2WServiceTerms{
-        currencies = W2WCurrenciesSelector,
-        cash_limit = CashLimitSelector,
-        cash_flow = CashFlowSelector,
-        fees = FeeSelector
-    } = W2WServiceTerms,
-    do_validate_terms_is_reduced([
-        {w2w_currencies, W2WCurrenciesSelector},
-        {w2w_cash_limit, CashLimitSelector},
-        {w2w_cash_flow, CashFlowSelector},
-        {w2w_fee, FeeSelector}
-    ]).
-
 -spec do_validate_terms_is_reduced([{atom(), Selector :: any()}]) ->
     {ok, valid} | {error, {invalid_terms, not_reduced_error()}}.
 do_validate_terms_is_reduced([]) ->
@@ -674,14 +450,16 @@ validate_wallet_terms_currency(CurrencyID, Terms) ->
     {ok, valid}
     | {error, invalid_wallet_terms_error()}
     | {error, cash_range_validation_error()}.
-validate_wallet_limits(Terms, Wallet) ->
+validate_wallet_limits(Terms, #domain_WalletConfig{party_id = PartyID} = Wallet) ->
     do(fun() ->
         #domain_TermSet{wallets = WalletTerms} = Terms,
         valid = unwrap(validate_wallet_limits_terms_is_reduced(WalletTerms)),
         #domain_WalletServiceTerms{
             wallet_limit = {value, CashRange}
         } = WalletTerms,
-        Account = ff_wallet:account(Wallet),
+        {AccountID, Currency} = get_wallet_account(Wallet),
+        Realm = get_wallet_realm(Wallet, ff_domain_config:head()),
+        Account = ff_account:build(PartyID, Realm, AccountID, Currency),
         valid = unwrap(validate_account_balance(Account, CashRange))
     end).
 
@@ -734,30 +512,6 @@ validate_withdrawal_terms_method(Method, MethodRefs) ->
             {ok, valid};
         false ->
             {error, {terms_violation, {not_allowed_withdrawal_method, {MethodRef, MethodRefs}}}}
-    end.
-
--spec validate_w2w_terms_currency(currency_id(), w2w_terms()) -> {ok, valid} | {error, currency_validation_error()}.
-validate_w2w_terms_currency(CurrencyID, Terms) ->
-    #domain_W2WServiceTerms{
-        currencies = {value, Currencies}
-    } = Terms,
-    validate_currency(CurrencyID, Currencies).
-
--spec validate_w2w_cash_limit(cash(), w2w_terms()) -> {ok, valid} | {error, cash_range_validation_error()}.
-validate_w2w_cash_limit(Cash, Terms) ->
-    #domain_W2WServiceTerms{
-        cash_limit = {value, CashRange}
-    } = Terms,
-    validate_cash_range(ff_dmsl_codec:marshal(cash, Cash), CashRange).
-
--spec validate_w2w_allow(w2w_terms()) -> {ok, valid} | {error, w2w_forbidden_error()}.
-validate_w2w_allow(W2WServiceTerms) ->
-    #domain_W2WServiceTerms{allow = Constant} = W2WServiceTerms,
-    case Constant of
-        {constant, true} ->
-            {ok, valid};
-        {constant, false} ->
-            {error, {terms_violation, w2w_forbidden}}
     end.
 
 -spec validate_currency(currency_id(), ordsets:ordset(currency_ref())) ->

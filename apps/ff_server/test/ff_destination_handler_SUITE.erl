@@ -19,7 +19,6 @@
 -export([create_ripple_wallet_destination_ok/1]).
 -export([create_digital_wallet_destination_ok/1]).
 -export([create_generic_destination_ok/1]).
--export([create_destination_forbidden_withdrawal_method_fail/1]).
 
 -type config() :: ct_helper:config().
 -type test_case_name() :: ct_helper:test_case_name().
@@ -33,13 +32,12 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {default, [parallel], [
+        {default, [], [
             create_bank_card_destination_ok,
             create_crypto_wallet_destination_ok,
             create_ripple_wallet_destination_ok,
             create_digital_wallet_destination_ok,
-            create_generic_destination_ok,
-            create_destination_forbidden_withdrawal_method_fail
+            create_generic_destination_ok
         ]}
     ].
 
@@ -141,34 +139,6 @@ create_generic_destination_ok(C) ->
         }},
     create_destination_ok(Resource, C).
 
--spec create_destination_forbidden_withdrawal_method_fail(config()) -> test_return().
-create_destination_forbidden_withdrawal_method_fail(C) ->
-    Resource =
-        {generic, #'fistful_base_ResourceGeneric'{
-            generic = #'fistful_base_ResourceGenericData'{
-                data = #'fistful_base_Content'{type = <<"application/json">>, data = <<"{}">>},
-                provider = #'fistful_base_PaymentServiceRef'{id = <<"qiwi">>}
-            }
-        }},
-    Party = create_party(C),
-    Currency = <<"RUB">>,
-    DstName = <<"loSHara card">>,
-    ID = genlib:unique(),
-    ExternalId = genlib:unique(),
-    IdentityID = create_identity(Party, C),
-    Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
-    Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
-    Params = #destination_DestinationParams{
-        id = ID,
-        identity = IdentityID,
-        name = DstName,
-        currency = Currency,
-        resource = Resource,
-        external_id = ExternalId,
-        metadata = Metadata
-    },
-    {exception, #fistful_ForbiddenWithdrawalMethod{}} = call_service('Create', {Params, Ctx}).
-
 %%----------------------------------------------------------------------
 %%  Internal functions
 %%----------------------------------------------------------------------
@@ -176,22 +146,22 @@ create_destination_forbidden_withdrawal_method_fail(C) ->
 create_destination_ok(Resource, C) ->
     create_destination_ok(undefined, Resource, C).
 
-create_destination_ok(AuthData, Resource, C) ->
-    Party = create_party(C),
+create_destination_ok(AuthData, Resource, _C) ->
+    PartyID = ct_objects:create_party(),
     Currency = <<"RUB">>,
     DstName = <<"loSHara card">>,
     ID = genlib:unique(),
-    ExternalId = genlib:unique(),
-    IdentityID = create_identity(Party, C),
+    ExternalID = genlib:unique(),
     Ctx = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
     Params = #destination_DestinationParams{
         id = ID,
-        identity = IdentityID,
+        party_id = PartyID,
+        realm = live,
         name = DstName,
         currency = Currency,
         resource = Resource,
-        external_id = ExternalId,
+        external_id = ExternalID,
         metadata = Metadata,
         auth_data = AuthData
     },
@@ -199,25 +169,13 @@ create_destination_ok(AuthData, Resource, C) ->
     DstName = Dst#destination_DestinationState.name,
     ID = Dst#destination_DestinationState.id,
     Resource = Dst#destination_DestinationState.resource,
-    ExternalId = Dst#destination_DestinationState.external_id,
+    ExternalID = Dst#destination_DestinationState.external_id,
     Metadata = Dst#destination_DestinationState.metadata,
     Ctx = Dst#destination_DestinationState.context,
     AuthData = Dst#destination_DestinationState.auth_data,
 
     Account = Dst#destination_DestinationState.account,
-    IdentityID = Account#account_Account.identity,
     #'fistful_base_CurrencyRef'{symbolic_code = Currency} = Account#account_Account.currency,
-
-    {authorized, #destination_Authorized{}} = ct_helper:await(
-        {authorized, #destination_Authorized{}},
-        fun() ->
-            {ok, #destination_DestinationState{status = Status}} =
-                call_service('Get', {ID, #'fistful_base_EventRange'{}}),
-            Status
-        end,
-        genlib_retry:linear(15, 1000)
-    ),
-
     {ok, #destination_DestinationState{}} = call_service('Get', {ID, #'fistful_base_EventRange'{}}).
 
 call_service(Fun, Args) ->
@@ -228,22 +186,3 @@ call_service(Fun, Args) ->
         event_handler => ff_woody_event_handler
     }),
     ff_woody_client:call(Client, Request).
-
-create_party(_C) ->
-    ID = genlib:bsuuid(),
-    _ = ff_party:create(ID),
-    ID.
-
-create_identity(Party, C) ->
-    create_identity(Party, <<"good-one">>, C).
-
-create_identity(Party, ProviderID, C) ->
-    create_identity(Party, <<"Identity Name">>, ProviderID, C).
-
-create_identity(Party, Name, ProviderID, _C) ->
-    ID = genlib:unique(),
-    ok = ff_identity_machine:create(
-        #{id => ID, name => Name, party => Party, provider => ProviderID},
-        #{<<"com.valitydev.wapi">> => #{<<"name">> => Name}}
-    ),
-    ID.

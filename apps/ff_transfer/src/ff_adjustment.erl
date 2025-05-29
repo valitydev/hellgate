@@ -10,7 +10,6 @@
     status := status(),
     created_at := ff_time:timestamp_ms(),
     changes_plan := changes(),
-    party_revision := party_revision(),
     domain_revision := domain_revision(),
     operation_timestamp := ff_time:timestamp_ms(),
     external_id => id(),
@@ -20,7 +19,6 @@
 -type params() :: #{
     id := id(),
     changes_plan := changes(),
-    party_revision := party_revision(),
     domain_revision := domain_revision(),
     operation_timestamp := ff_time:timestamp_ms(),
     external_id => id()
@@ -71,7 +69,6 @@
 -export([p_transfer/1]).
 -export([created_at/1]).
 -export([operation_timestamp/1]).
--export([party_revision/1]).
 -export([domain_revision/1]).
 
 %% API
@@ -98,7 +95,6 @@
 -type process_result() :: {action(), [event()]}.
 -type legacy_event() :: any().
 -type external_id() :: id().
--type party_revision() :: ff_party:revision().
 -type domain_revision() :: ff_domain_config:revision().
 
 -type activity() ::
@@ -129,10 +125,6 @@ external_id(T) ->
 p_transfer(T) ->
     maps:get(p_transfer, T, undefined).
 
--spec party_revision(adjustment()) -> party_revision().
-party_revision(#{party_revision := V}) ->
-    V.
-
 -spec domain_revision(adjustment()) -> domain_revision().
 domain_revision(#{domain_revision := V}) ->
     V.
@@ -152,7 +144,6 @@ create(Params) ->
     #{
         id := ID,
         changes_plan := Changes,
-        party_revision := PartyRevision,
         domain_revision := DomainRevision,
         operation_timestamp := Timestamp
     } = Params,
@@ -162,7 +153,6 @@ create(Params) ->
         changes_plan => Changes,
         status => pending,
         created_at => ff_time:now(),
-        party_revision => PartyRevision,
         domain_revision => DomainRevision,
         operation_timestamp => Timestamp,
         external_id => maps:get(external_id, Params, undefined)

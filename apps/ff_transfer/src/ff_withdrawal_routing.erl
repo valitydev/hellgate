@@ -28,7 +28,7 @@
 
 -type routing_context() :: #{
     domain_revision := domain_revision(),
-    identity := identity(),
+    wallet := wallet(),
     iteration := pos_integer(),
     withdrawal => withdrawal()
 }.
@@ -44,7 +44,7 @@
 -export_type([routing_context/0]).
 -export_type([route_not_found/0]).
 
--type identity() :: ff_identity:identity_state().
+-type wallet() :: ff_party:wallet().
 -type withdrawal() :: ff_withdrawal:withdrawal_state().
 -type domain_revision() :: ff_domain_config:revision().
 -type party_varset() :: ff_varset:varset().
@@ -69,10 +69,10 @@
 
 %%
 
--spec prepare_routes(party_varset(), identity(), domain_revision()) ->
+-spec prepare_routes(party_varset(), wallet(), domain_revision()) ->
     {ok, [route()]} | {error, route_not_found()}.
-prepare_routes(PartyVarset, Identity, DomainRevision) ->
-    prepare_routes(PartyVarset, #{identity => Identity, domain_revision => DomainRevision, iteration => 1}).
+prepare_routes(PartyVarset, Wallet, DomainRevision) ->
+    prepare_routes(PartyVarset, #{wallet => Wallet, domain_revision => DomainRevision, iteration => 1}).
 
 -spec prepare_routes(party_varset(), routing_context()) ->
     {ok, [route()]} | {error, route_not_found()}.
@@ -88,9 +88,9 @@ gather_routes(PartyVarset, Context) ->
 
 -spec gather_routes(party_varset(), routing_context(), [terminal_id()]) ->
     routing_state().
-gather_routes(PartyVarset, #{identity := Identity, domain_revision := DomainRevision} = Context, ExcludeRoutes) ->
-    {ok, PaymentInstitutionID} = ff_party:get_identity_payment_institution_id(Identity),
-    {ok, PaymentInstitution} = ff_payment_institution:get(PaymentInstitutionID, PartyVarset, DomainRevision),
+gather_routes(PartyVarset, #{wallet := Wallet, domain_revision := DomainRevision} = Context, ExcludeRoutes) ->
+    #domain_WalletConfig{payment_institution = PaymentInstitutionRef} = Wallet,
+    {ok, PaymentInstitution} = ff_payment_institution:get(PaymentInstitutionRef, PartyVarset, DomainRevision),
     {Routes, RejectContext} = ff_routing_rule:gather_routes(
         PaymentInstitution,
         withdrawal_routing_rules,

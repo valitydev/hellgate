@@ -62,8 +62,7 @@ marshal(session, Session) ->
         id = marshal(id, SessionID),
         status = marshal(session_status, SessionStatus),
         withdrawal = marshal(withdrawal, Withdrawal),
-        route = marshal(route, Route),
-        provider_legacy = marshal(string, get_legacy_provider_id(Session))
+        route = marshal(route, Route)
     };
 marshal(session_status, active) ->
     {active, #wthd_session_SessionActive{}};
@@ -84,8 +83,8 @@ marshal(
         cash := Cash
     } = Params
 ) ->
-    SenderIdentity = maps:get(sender, Params, undefined),
-    ReceiverIdentity = maps:get(receiver, Params, undefined),
+    Sender = maps:get(sender, Params, undefined),
+    Receiver = maps:get(receiver, Params, undefined),
     SessionID = maps:get(session_id, Params, undefined),
     Quote = maps:get(quote, Params, undefined),
     DestAuthData = maps:get(dest_auth_data, Params, undefined),
@@ -93,26 +92,11 @@ marshal(
         id = marshal(id, WithdrawalID),
         destination_resource = marshal(resource, Resource),
         cash = marshal(cash, Cash),
-        sender = marshal(identity, SenderIdentity),
-        receiver = marshal(identity, ReceiverIdentity),
+        sender = marshal(id, Sender),
+        receiver = marshal(id, Receiver),
         session_id = maybe_marshal(id, SessionID),
         quote = maybe_marshal(quote, Quote),
         auth_data = maybe_marshal(auth_data, DestAuthData)
-    };
-marshal(identity, #{id := ID} = Identity) ->
-    #wthd_session_Identity{
-        identity_id = marshal(id, ID),
-        effective_challenge = maybe_marshal(challenge, maps:get(effective_challenge, Identity, undefined))
-    };
-marshal(challenge, #{id := ID, proofs := Proofs}) ->
-    #wthd_session_Challenge{
-        id = maybe_marshal(id, ID),
-        proofs = maybe_marshal({list, proof}, Proofs)
-    };
-marshal(proof, {Type, Token}) ->
-    #wthd_session_ChallengeProof{
-        type = Type,
-        token = Token
     };
 marshal(route, Route) ->
     #wthd_session_Route{
@@ -131,8 +115,7 @@ marshal(quote, #{
         cash_to = marshal(cash, CashTo),
         created_at = CreatedAt,
         expires_on = ExpiresOn,
-        quote_data = maybe_marshal(msgpack, Data),
-        quote_data_legacy = marshal(ctx, #{})
+        quote_data = maybe_marshal(msgpack, Data)
     };
 marshal(auth_data, #{
     sender := SenderToken,
@@ -204,8 +187,7 @@ unmarshal(session, #wthd_session_Session{
     id = SessionID,
     status = SessionStatus,
     withdrawal = Withdrawal,
-    route = Route0,
-    provider_legacy = ProviderLegacy
+    route = Route0
 }) ->
     Route1 = unmarshal(route, Route0),
     genlib_map:compact(#{
@@ -213,8 +195,7 @@ unmarshal(session, #wthd_session_Session{
         id => unmarshal(id, SessionID),
         status => unmarshal(session_status, SessionStatus),
         withdrawal => unmarshal(withdrawal, Withdrawal),
-        route => Route1,
-        provider_legacy => ProviderLegacy
+        route => Route1
     });
 unmarshal(session_status, {active, #wthd_session_SessionActive{}}) ->
     active;
@@ -228,8 +209,8 @@ unmarshal(withdrawal, #wthd_session_Withdrawal{
     id = WithdrawalID,
     destination_resource = Resource,
     cash = Cash,
-    sender = SenderIdentity,
-    receiver = ReceiverIdentity,
+    sender = Sender,
+    receiver = Receiver,
     session_id = SessionID,
     quote = Quote,
     auth_data = DestAuthData
@@ -238,33 +219,12 @@ unmarshal(withdrawal, #wthd_session_Withdrawal{
         id => unmarshal(id, WithdrawalID),
         resource => unmarshal(resource, Resource),
         cash => unmarshal(cash, Cash),
-        sender => unmarshal(identity, SenderIdentity),
-        receiver => unmarshal(identity, ReceiverIdentity),
+        sender => unmarshal(id, Sender),
+        receiver => unmarshal(id, Receiver),
         session_id => maybe_unmarshal(id, SessionID),
         quote => maybe_unmarshal(quote, Quote),
         dest_auth_data => maybe_unmarshal(auth_data, DestAuthData)
     });
-unmarshal(identity, #wthd_session_Identity{
-    identity_id = ID,
-    effective_challenge = EffectiveChallenge
-}) ->
-    genlib_map:compact(#{
-        id => unmarshal(id, ID),
-        effective_challenge => maybe_unmarshal(challenge, EffectiveChallenge)
-    });
-unmarshal(challenge, #wthd_session_Challenge{
-    id = ID,
-    proofs = Proofs
-}) ->
-    #{
-        id => maybe_unmarshal(id, ID),
-        proofs => maybe_unmarshal({list, proof}, Proofs)
-    };
-unmarshal(proof, #wthd_session_ChallengeProof{
-    type = Type,
-    token = Token
-}) ->
-    {Type, Token};
 unmarshal(route, Route) ->
     genlib_map:compact(#{
         provider_id => unmarshal(provider_id, Route#wthd_session_Route.provider_id),
@@ -331,11 +291,6 @@ maybe_unmarshal(_Type, undefined) ->
     undefined;
 maybe_unmarshal(Type, Value) ->
     unmarshal(Type, Value).
-
-get_legacy_provider_id(#{provider_legacy := Provider}) when is_binary(Provider) ->
-    Provider;
-get_legacy_provider_id(#{route := #{provider_id := Provider}}) when is_integer(Provider) ->
-    genlib:to_binary(Provider - 300).
 
 %% TESTS
 

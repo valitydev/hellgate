@@ -17,7 +17,8 @@
 unmarshal_source_params(Params) ->
     genlib_map:compact(#{
         id => unmarshal(id, Params#source_SourceParams.id),
-        identity => unmarshal(id, Params#source_SourceParams.identity_id),
+        realm => Params#source_SourceParams.realm,
+        party_id => unmarshal(id, Params#source_SourceParams.party_id),
         name => unmarshal(string, Params#source_SourceParams.name),
         currency => unmarshal(currency_ref, Params#source_SourceParams.currency),
         resource => unmarshal(resource, Params#source_SourceParams.resource),
@@ -37,11 +38,12 @@ marshal_source_state(SourceState, Context) ->
         end,
     #source_SourceState{
         id = maybe_marshal(id, ff_source:id(SourceState)),
+        realm = ff_source:realm(SourceState),
+        party_id = marshal(id, ff_source:party_id(SourceState)),
         name = marshal(string, ff_source:name(SourceState)),
         resource = marshal(resource, ff_source:resource(SourceState)),
         external_id = maybe_marshal(id, ff_source:external_id(SourceState)),
         account = maybe_marshal(account, ff_source:account(SourceState)),
-        status = maybe_marshal(status, ff_source:status(SourceState)),
         created_at = maybe_marshal(timestamp_ms, ff_source:created_at(SourceState)),
         blocking = Blocking,
         metadata = maybe_marshal(ctx, ff_source:metadata(SourceState)),
@@ -66,8 +68,6 @@ marshal(change, {created, Source}) ->
     {created, marshal(source, Source)};
 marshal(change, {account, AccountChange}) ->
     {account, marshal(account_change, AccountChange)};
-marshal(change, {status_changed, Status}) ->
-    {status, #source_StatusChange{status = marshal(status, Status)}};
 marshal(
     source,
     #{
@@ -77,7 +77,8 @@ marshal(
 ) ->
     #source_Source{
         id = marshal(id, ff_source:id(Source)),
-        status = maybe_marshal(status, ff_source:status(Source)),
+        realm = ff_source:realm(Source),
+        party_id = marshal(id, ff_source:party_id(Source)),
         name = marshal(string, Name),
         resource = marshal(resource, Resource),
         external_id = maybe_marshal(id, maps:get(external_id, Source, undefined)),
@@ -91,10 +92,6 @@ marshal(internal, Internal) ->
     #source_Internal{
         details = marshal(string, Details)
     };
-marshal(status, unauthorized) ->
-    {unauthorized, #source_Unauthorized{}};
-marshal(status, authorized) ->
-    {authorized, #source_Authorized{}};
 marshal(ctx, Ctx) ->
     marshal(context, Ctx);
 marshal(T, V) ->
@@ -117,9 +114,10 @@ unmarshal(change, {created, Source}) ->
     {created, unmarshal(source, Source)};
 unmarshal(change, {account, AccountChange}) ->
     {account, unmarshal(account_change, AccountChange)};
-unmarshal(change, {status, #source_StatusChange{status = Status}}) ->
-    {status_changed, unmarshal(status, Status)};
 unmarshal(source, #source_Source{
+    id = ID,
+    realm = Realm,
+    party_id = PartyID,
     name = Name,
     resource = Resource,
     external_id = ExternalID,
@@ -127,7 +125,10 @@ unmarshal(source, #source_Source{
     metadata = Metadata
 }) ->
     genlib_map:compact(#{
-        version => 3,
+        version => 4,
+        id => unmarshal(id, ID),
+        realm => Realm,
+        party_id => unmarshal(id, PartyID),
         name => unmarshal(string, Name),
         resource => unmarshal(resource, Resource),
         external_id => maybe_unmarshal(id, ExternalID),
@@ -139,10 +140,6 @@ unmarshal(resource, {internal, #source_Internal{details = Details}}) ->
         type => internal,
         details => unmarshal(string, Details)
     });
-unmarshal(status, {unauthorized, #source_Unauthorized{}}) ->
-    unauthorized;
-unmarshal(status, {authorized, #source_Authorized{}}) ->
-    authorized;
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);
 unmarshal(T, V) ->

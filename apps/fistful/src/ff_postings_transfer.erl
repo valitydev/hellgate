@@ -48,7 +48,6 @@
 %% Event source
 
 -export([apply_event/2]).
--export([maybe_migrate/2]).
 
 %% Pipeline
 
@@ -88,7 +87,7 @@ create(ID, CashFlow) ->
     do(fun() ->
         Accounts = ff_cash_flow:gather_used_accounts(CashFlow),
         valid = validate_currencies(Accounts),
-        valid = validate_identities(Accounts),
+        valid = validate_realms(Accounts),
         accessible = validate_accessible(Accounts),
         [
             {created, #{
@@ -108,14 +107,11 @@ validate_currencies([A0 | Accounts]) ->
     _ = [ok = unwrap(currency, valid(Currency, ff_account:currency(A))) || A <- Accounts],
     valid.
 
-validate_identities([A0 | Accounts]) ->
-    {ok, IdentitySt} = ff_identity_machine:get(ff_account:identity(A0)),
-    Identity0 = ff_identity_machine:identity(IdentitySt),
-    ProviderID0 = ff_identity:provider(Identity0),
+validate_realms([A0 | Accounts]) ->
+    Realm0 = ff_account:realm(A0),
     _ = [
-        ok = unwrap(provider, valid(ProviderID0, ff_identity:provider(ff_identity_machine:identity(Identity))))
-     || Account <- Accounts,
-        {ok, Identity} <- [ff_identity_machine:get(ff_account:identity(Account))]
+        ok = unwrap(provider, valid(Realm0, ff_account:realm(Account)))
+     || Account <- Accounts
     ],
     valid.
 
@@ -195,105 +191,6 @@ construct_trx_posting(Posting) ->
         receiver := #{account := Receiver},
         volume := Volume
     } = Posting,
-    SenderAccount = ff_account:accounter_account_id(Sender),
-    ReceiverAccount = ff_account:accounter_account_id(Receiver),
+    SenderAccount = ff_account:account_id(Sender),
+    ReceiverAccount = ff_account:account_id(Receiver),
     {SenderAccount, ReceiverAccount, Volume}.
-
-%% Event migrations
--spec maybe_migrate(any(), withdrawal | deposit) -> event().
-% Actual events
-maybe_migrate({created, #{final_cash_flow := CashFlow} = EvBody}, EvType) ->
-    {created, EvBody#{final_cash_flow => maybe_migrate_cash_flow(CashFlow, EvType)}};
-% Old events
-maybe_migrate({created, #{postings := Postings} = Transfer}, EvType) ->
-    #{
-        id := ID,
-        postings := Postings
-    } = Transfer,
-    CashFlowPostings = [
-        #{
-            sender => #{account => maybe_migrate_account(S)},
-            receiver => #{account => maybe_migrate_account(D)},
-            volume => B
-        }
-     || {S, D, B} <- Postings
-    ],
-    maybe_migrate(
-        {created, #{
-            id => ID,
-            final_cash_flow => #{
-                postings => CashFlowPostings
-            }
-        }},
-        EvType
-    );
-% Other events
-maybe_migrate(Ev, _) ->
-    Ev.
-
-maybe_migrate_cash_flow(#{postings := CashFlowPostings} = CashFlow, EvType) ->
-    NewPostings = [
-        maybe_migrate_posting(CashFlowPosting, EvType)
-     || CashFlowPosting <- CashFlowPostings
-    ],
-    CashFlow#{postings => NewPostings}.
-
-% Some cashflow in early withdrawals has been created with binary accounter_account_id
-maybe_migrate_posting(
-    #{
-        sender := #{account := #{accounter_account_id := SenderAcc} = Account} = Sender
-    } = Posting,
-    EvType
-) when is_binary(SenderAcc) ->
-    maybe_migrate_posting(
-        Posting#{
-            sender := Sender#{
-                account := Account#{
-                    accounter_account_id := erlang:binary_to_integer(SenderAcc)
-                }
-            }
-        },
-        EvType
-    );
-maybe_migrate_posting(
-    #{
-        receiver := #{account := #{accounter_account_id := ReceiverAcc} = Account} = Receiver
-    } = Posting,
-    EvType
-) when is_binary(ReceiverAcc) ->
-    maybe_migrate_posting(
-        Posting#{
-            receiver := Receiver#{
-                account := Account#{
-                    accounter_account_id := erlang:binary_to_integer(ReceiverAcc)
-                }
-            }
-        },
-        EvType
-    );
-maybe_migrate_posting(#{receiver := Receiver, sender := Sender} = Posting, EvType) ->
-    Posting#{
-        receiver := maybe_migrate_final_account(Receiver, receiver, EvType),
-        sender := maybe_migrate_final_account(Sender, sender, EvType)
-    }.
-
-maybe_migrate_account({wallet, WalletID}) ->
-    {ok, Machine} = ff_wallet_machine:get(WalletID),
-    ff_wallet:account(ff_wallet_machine:wallet(Machine));
-maybe_migrate_account({destination, DestinationID}) ->
-    {ok, Machine} = ff_destination_machine:get(DestinationID),
-    Destination = ff_destination_machine:destination(Machine),
-    ff_destination:account(Destination);
-maybe_migrate_account(Account) when is_map(Account) ->
-    Account.
-
-maybe_migrate_final_account(#{type := _Type} = Account, _, _) ->
-    Account;
-maybe_migrate_final_account(Account, receiver, withdrawal) ->
-    Account#{type => {wallet, receiver_destination}};
-maybe_migrate_final_account(Account, receiver, deposit) ->
-    Account#{type => {wallet, receiver_settlement}};
-maybe_migrate_final_account(Account, sender, withdrawal) ->
-    Account#{type => {wallet, sender_settlement}};
-maybe_migrate_final_account(Account, sender, deposit) ->
-    Account#{type => {wallet, sender_source}}.

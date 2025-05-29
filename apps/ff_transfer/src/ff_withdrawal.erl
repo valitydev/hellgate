@@ -12,11 +12,9 @@
 
 -opaque withdrawal_state() :: #{
     id := id(),
-    transfer_type := withdrawal,
     body := body(),
     params := transfer_params(),
     created_at => ff_time:timestamp_ms(),
-    party_revision => party_revision(),
     domain_revision => domain_revision(),
     route => route(),
     attempts => attempts(),
@@ -31,11 +29,9 @@
 -opaque withdrawal() :: #{
     version := ?ACTUAL_FORMAT_VERSION,
     id := id(),
-    transfer_type := withdrawal,
     body := body(),
     params := transfer_params(),
     created_at => ff_time:timestamp_ms(),
-    party_revision => party_revision(),
     domain_revision => domain_revision(),
     route => route(),
     metadata => metadata(),
@@ -44,7 +40,8 @@
 
 -type params() :: #{
     id := id(),
-    wallet_id := ff_wallet_machine:id(),
+    party_id := party_id(),
+    wallet_id := wallet_id(),
     destination_id := ff_destination:id(),
     body := body(),
     external_id => id(),
@@ -87,19 +84,22 @@
 
 -type create_error() ::
     {wallet, notfound}
+    | {party, notfound}
     | {destination, notfound | unauthorized}
-    | {wallet, ff_wallet:inaccessibility()}
+    | {wallet, ff_party:inaccessibility()}
     | {inconsistent_currency, {Withdrawal :: currency_id(), Wallet :: currency_id(), Destination :: currency_id()}}
     | {terms, ff_party:validate_withdrawal_creation_error()}
-    | {identity_providers_mismatch, {ff_provider:id(), ff_provider:id()}}
+    | {realms_mismatch, {realm(), realm()}}
     | {destination_resource, {bin_data, ff_bin_data:bin_data_error()}}.
 
 -type route() :: ff_withdrawal_routing:route().
+-type realm() :: ff_payment_institution:realm().
 
 -type attempts() :: ff_withdrawal_route_attempt_utils:attempts().
 
 -type quote_params() :: #{
-    wallet_id := ff_wallet_machine:id(),
+    wallet_id := wallet_id(),
+    party_id := party_id(),
     currency_from := ff_currency:id(),
     currency_to := ff_currency:id(),
     body := ff_accounting:body(),
@@ -116,8 +116,7 @@
     route := route(),
     operation_timestamp := ff_time:timestamp_ms(),
     resource_descriptor => resource_descriptor(),
-    domain_revision => domain_revision(),
-    party_revision => party_revision()
+    domain_revision => domain_revision()
 }.
 
 -type quote_state() :: #{
@@ -133,21 +132,6 @@
 -type session() :: #{
     id := session_id(),
     result => session_result()
-}.
-
--type gen_args() :: #{
-    id := id(),
-    body := body(),
-    params := params(),
-    transfer_type := withdrawal,
-
-    status => status(),
-    route => route(),
-    external_id => external_id(),
-    created_at => ff_time:timestamp_ms(),
-    party_revision => party_revision(),
-    domain_revision => domain_revision(),
-    metadata => metadata()
 }.
 
 -type limit_check_details() ::
@@ -201,7 +185,6 @@
 -export_type([quote/0]).
 -export_type([quote_params/0]).
 -export_type([session/0]).
--export_type([gen_args/0]).
 -export_type([create_error/0]).
 -export_type([action/0]).
 -export_type([adjustment_params/0]).
@@ -223,13 +206,13 @@
 -export([destination_id/1]).
 -export([quote/1]).
 -export([id/1]).
+-export([party_id/1]).
 -export([body/1]).
 -export([status/1]).
 -export([route/1]).
 -export([attempts/1]).
 -export([external_id/1]).
 -export([created_at/1]).
--export([party_revision/1]).
 -export([domain_revision/1]).
 -export([destination_resource/1]).
 -export([metadata/1]).
@@ -240,7 +223,6 @@
 %% API
 
 -export([create/1]).
--export([gen/1]).
 -export([get_quote/1]).
 -export([is_finished/1]).
 
@@ -265,10 +247,9 @@
 %% Internal types
 
 -type body() :: ff_accounting:body().
--type identity() :: ff_identity:identity_state().
 -type party_id() :: ff_party:id().
--type wallet_id() :: ff_wallet:id().
--type wallet() :: ff_wallet:wallet_state().
+-type wallet_id() :: ff_party:wallet_id().
+-type wallet() :: ff_party:wallet().
 -type destination_id() :: ff_destination:id().
 -type destination() :: ff_destination:destination_state().
 -type process_result() :: {action(), [event()]}.
@@ -286,7 +267,6 @@
 -type adjustment_id() :: ff_adjustment:id().
 -type adjustments_index() :: ff_adjustment_utils:index().
 -type currency_id() :: ff_currency:id().
--type party_revision() :: ff_party:revision().
 -type domain_revision() :: ff_domain_config:revision().
 -type terms() :: ff_party:terms().
 -type party_varset() :: ff_varset:varset().
@@ -301,6 +281,7 @@
 -type legacy_event() :: any().
 
 -type transfer_params() :: #{
+    party_id := party_id(),
     wallet_id := wallet_id(),
     destination_id := destination_id(),
     quote => quote_state()
@@ -369,6 +350,10 @@ quote(T) ->
 id(#{id := V}) ->
     V.
 
+-spec party_id(withdrawal_state()) -> party_id().
+party_id(#{params := #{party_id := V}}) ->
+    V.
+
 -spec body(withdrawal_state()) -> body().
 body(#{body := V}) ->
     V.
@@ -390,10 +375,6 @@ attempts(T) when not is_map_key(attempts, T) ->
 -spec external_id(withdrawal_state()) -> external_id() | undefined.
 external_id(T) ->
     maps:get(external_id, T, undefined).
-
--spec party_revision(withdrawal_state()) -> party_revision() | undefined.
-party_revision(T) ->
-    maps:get(party_revision, T, undefined).
 
 -spec domain_revision(withdrawal_state()) -> domain_revision() | undefined.
 domain_revision(T) ->
@@ -423,45 +404,26 @@ validation(_) ->
 
 %% API
 
--spec gen(gen_args()) -> withdrawal().
-gen(Args) ->
-    TypeKeys = [
-        id,
-        transfer_type,
-        body,
-        params,
-        external_id,
-        domain_revision,
-        party_revision,
-        created_at,
-        route,
-        metadata
-    ],
-    Withdrawal = genlib_map:compact(maps:with(TypeKeys, Args)),
-    Withdrawal#{version => 4}.
-
 -spec create(params()) ->
     {ok, [event()]}
     | {error, create_error()}.
 create(Params) ->
     do(fun() ->
-        #{id := ID, wallet_id := WalletID, destination_id := DestinationID, body := Body} = Params,
+        #{id := ID, wallet_id := WalletID, party_id := PartyID, destination_id := DestinationID, body := Body} = Params,
         CreatedAt = ff_time:now(),
         Quote = maps:get(quote, Params, undefined),
         ResourceDescriptor = quote_resource_descriptor(Quote),
-        Timestamp = ff_maybe:get_defined(quote_timestamp(Quote), CreatedAt),
         DomainRevision = ensure_domain_revision_defined(quote_domain_revision(Quote)),
-        Wallet = unwrap(wallet, get_wallet(WalletID)),
-        accessible = unwrap(wallet, ff_wallet:is_accessible(Wallet)),
-        Identity = get_wallet_identity(Wallet),
+        Party = unwrap(party, ff_party:checkout(PartyID, DomainRevision)),
+        Wallet = unwrap(wallet, ff_party:get_wallet(WalletID, Party, DomainRevision)),
+        accessible = unwrap(wallet, ff_party:is_wallet_accessible(Wallet)),
         Destination = unwrap(destination, get_destination(DestinationID)),
         ResourceParams = ff_destination:resource(Destination),
         Resource = unwrap(
             destination_resource,
-            create_resource(ResourceParams, ResourceDescriptor, Identity, DomainRevision)
+            create_resource(ResourceParams, ResourceDescriptor, Wallet, DomainRevision)
         ),
         valid = ff_resource:check_resource(DomainRevision, Resource),
-        PartyID = ff_identity:party(Identity),
         VarsetParams = genlib_map:compact(#{
             body => Body,
             wallet_id => WalletID,
@@ -470,12 +432,12 @@ create(Params) ->
             resource => Resource
         }),
         Varset = build_party_varset(VarsetParams),
-        PartyRevision = ensure_party_revision_defined(PartyID, quote_party_revision(Quote)),
-        Terms = ff_identity:get_terms(Identity, #{timestamp => Timestamp, varset => Varset}),
+        Terms = ff_party:get_terms(DomainRevision, Wallet, Varset),
 
         valid = unwrap(validate_withdrawal_creation(Terms, Body, Wallet, Destination, Resource)),
 
         TransferParams = genlib_map:compact(#{
+            party_id => PartyID,
             wallet_id => WalletID,
             destination_id => DestinationID,
             quote => Quote
@@ -485,11 +447,9 @@ create(Params) ->
                 genlib_map:compact(#{
                     version => ?ACTUAL_FORMAT_VERSION,
                     id => ID,
-                    transfer_type => withdrawal,
                     body => Body,
                     params => TransferParams,
                     created_at => CreatedAt,
-                    party_revision => PartyRevision,
                     domain_revision => DomainRevision,
                     external_id => maps:get(external_id, Params, undefined),
                     metadata => maps:get(metadata, Params, undefined)
@@ -502,17 +462,17 @@ create(Params) ->
 create_resource(
     {bank_card, #{bank_card := #{token := Token}} = ResourceBankCardParams},
     ResourceDescriptor,
-    Identity,
+    #domain_WalletConfig{payment_institution = PaymentInstitutionRef},
     DomainRevision
 ) ->
     BinData = ff_maybe:from_result(ff_resource:get_bin_data(Token, ResourceDescriptor)),
     Varset = #{
         bin_data => ff_dmsl_codec:maybe_marshal(bin_data, BinData)
     },
-    {ok, PaymentInstitution} = get_payment_institution(Identity, Varset, DomainRevision),
+    {ok, PaymentInstitution} = ff_payment_institution:get(PaymentInstitutionRef, Varset, DomainRevision),
     PaymentSystem = ff_maybe:from_result(ff_payment_institution:payment_system(PaymentInstitution)),
     ff_resource:create_bank_card_basic(ResourceBankCardParams, BinData, PaymentSystem);
-create_resource(ResourceParams, ResourceDescriptor, _Identity, _DomainRevision) ->
+create_resource(ResourceParams, ResourceDescriptor, _Party, _DomainRevision) ->
     ff_resource:create_resource(ResourceParams, ResourceDescriptor).
 
 -spec start_adjustment(adjustment_params(), withdrawal_state()) ->
@@ -695,18 +655,6 @@ operation_timestamp(Withdrawal) ->
     QuoteTimestamp = quote_timestamp(quote(Withdrawal)),
     ff_maybe:get_defined([QuoteTimestamp, created_at(Withdrawal), ff_time:now()]).
 
--spec operation_party_revision(withdrawal_state()) -> domain_revision().
-operation_party_revision(Withdrawal) ->
-    case party_revision(Withdrawal) of
-        undefined ->
-            {ok, Wallet} = get_wallet(wallet_id(Withdrawal)),
-            PartyID = ff_identity:party(get_wallet_identity(Wallet)),
-            {ok, Revision} = ff_party:get_revision(PartyID),
-            Revision;
-        Revision ->
-            Revision
-    end.
-
 -spec operation_domain_revision(withdrawal_state()) -> domain_revision().
 operation_domain_revision(Withdrawal) ->
     case domain_revision(Withdrawal) of
@@ -782,7 +730,10 @@ do_process_transfer(p_transfer_commit, Withdrawal) ->
     ok = commit_routes_limits([route(Withdrawal)], Withdrawal),
     Tr = ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)),
     {ok, Events} = ff_postings_transfer:commit(Tr),
-    ok = ff_wallet:log_balance(wallet_id(Withdrawal)),
+    DomainRevision = final_domain_revision(Withdrawal),
+    {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(wallet_id(Withdrawal), Party, DomainRevision),
+    ok = ff_party:wallet_log_balance(Wallet),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
 do_process_transfer(p_transfer_cancel, Withdrawal) ->
     ok = rollback_routes_limits([route(Withdrawal)], Withdrawal),
@@ -875,10 +826,11 @@ commit_routes_limits(Routes, Withdrawal) ->
 make_routing_varset_and_context(Withdrawal) ->
     DomainRevision = final_domain_revision(Withdrawal),
     WalletID = wallet_id(Withdrawal),
-    {ok, Wallet} = get_wallet(WalletID),
+    PartyID = party_id(Withdrawal),
+    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
     Resource = destination_resource(Withdrawal),
-    PartyID = ff_identity:party(get_wallet_identity(Wallet)),
     VarsetParams = genlib_map:compact(#{
         body => body(Withdrawal),
         wallet_id => WalletID,
@@ -887,10 +839,9 @@ make_routing_varset_and_context(Withdrawal) ->
         destination => Destination,
         resource => Resource
     }),
-    Identity = get_wallet_identity(Wallet),
     Context = #{
         domain_revision => DomainRevision,
-        identity => Identity,
+        wallet => Wallet,
         withdrawal => Withdrawal,
         iteration => ff_withdrawal_route_attempt_utils:get_index(attempts(Withdrawal))
     },
@@ -916,15 +867,13 @@ validate_quote_terminal(#{terminal_id := TerminalID}, _) ->
 
 -spec process_limit_check(withdrawal_state()) -> process_result().
 process_limit_check(Withdrawal) ->
-    WalletID = wallet_id(Withdrawal),
-    {ok, Wallet} = get_wallet(WalletID),
     DomainRevision = final_domain_revision(Withdrawal),
+    WalletID = wallet_id(Withdrawal),
+    PartyID = party_id(Withdrawal),
+    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
     Resource = destination_resource(Withdrawal),
-    Identity = get_wallet_identity(Wallet),
-    PartyID = ff_identity:party(get_wallet_identity(Wallet)),
-    PartyRevision = operation_party_revision(Withdrawal),
-    Timestamp = operation_timestamp(Withdrawal),
     VarsetParams = genlib_map:compact(#{
         body => body(Withdrawal),
         wallet_id => WalletID,
@@ -933,12 +882,7 @@ process_limit_check(Withdrawal) ->
         destination => Destination,
         resource => Resource
     }),
-    Terms = ff_identity:get_terms(Identity, #{
-        timestamp => Timestamp,
-        party_revision => PartyRevision,
-        domain_revision => DomainRevision,
-        varset => build_party_varset(VarsetParams)
-    }),
+    Terms = ff_party:get_terms(DomainRevision, Wallet, build_party_varset(VarsetParams)),
     Events =
         case validate_wallet_limits(Terms, Wallet) of
             {ok, valid} ->
@@ -966,30 +910,30 @@ process_session_creation(Withdrawal) ->
         wallet_id := WalletID,
         destination_id := DestinationID
     } = params(Withdrawal),
-    {ok, WalletMachine} = ff_wallet_machine:get(WalletID),
-    Wallet = ff_wallet_machine:wallet(WalletMachine),
-    WalletAccount = ff_wallet:account(Wallet),
+
+    DomainRevision = final_domain_revision(Withdrawal),
+    {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {AccountID, Currency} = ff_party:get_wallet_account(Wallet),
+    WalletRealm = ff_party:get_wallet_realm(Wallet, DomainRevision),
+    WalletAccount = ff_account:build(party_id(Withdrawal), WalletRealm, AccountID, Currency),
 
     {ok, DestinationMachine} = ff_destination_machine:get(DestinationID),
     Destination = ff_destination_machine:destination(DestinationMachine),
     DestinationAccount = ff_destination:account(Destination),
 
-    Route = route(Withdrawal),
-    {ok, SenderSt} = ff_identity_machine:get(ff_account:identity(WalletAccount)),
-    {ok, ReceiverSt} = ff_identity_machine:get(ff_account:identity(DestinationAccount)),
-
     TransferData = genlib_map:compact(#{
         id => ID,
         cash => body(Withdrawal),
-        sender => ff_identity_machine:identity(SenderSt),
-        receiver => ff_identity_machine:identity(ReceiverSt),
+        sender => ff_account:party_id(WalletAccount),
+        receiver => ff_account:party_id(DestinationAccount),
         quote => build_session_quote(quote(Withdrawal))
     }),
     AuthData = ff_destination:auth_data(Destination),
     SessionParams = #{
         withdrawal_id => id(Withdrawal),
         resource => destination_resource(Withdrawal),
-        route => Route,
+        route => route(Withdrawal),
         dest_auth_data => AuthData
     },
     ok = create_session(ID, TransferData, SessionParams),
@@ -1037,7 +981,10 @@ handle_child_result({undefined, Events} = Result, Withdrawal) ->
         true ->
             {continue, Events};
         false ->
-            ok = ff_wallet:log_balance(wallet_id(Withdrawal)),
+            DomainRevision = final_domain_revision(Withdrawal),
+            {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
+            {ok, Wallet} = ff_party:get_wallet(wallet_id(Withdrawal), Party, DomainRevision),
+            ok = ff_party:wallet_log_balance(Wallet),
             Result
     end;
 handle_child_result({_OtherAction, _Events} = Result, _Withdrawal) ->
@@ -1055,26 +1002,26 @@ make_final_cash_flow(Withdrawal) ->
 make_final_cash_flow(DomainRevision, Withdrawal) ->
     Body = body(Withdrawal),
     WalletID = wallet_id(Withdrawal),
-    {ok, Wallet} = get_wallet(WalletID),
+    {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {AccountID, Currency} = ff_party:get_wallet_account(Wallet),
+    WalletRealm = ff_party:get_wallet_realm(Wallet, DomainRevision),
+    WalletAccount = ff_account:build(party_id(Withdrawal), WalletRealm, AccountID, Currency),
+
     Route = route(Withdrawal),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
+    DestinationAccount = ff_destination:account(Destination),
+
     Resource = destination_resource(Withdrawal),
-    Identity = get_wallet_identity(Wallet),
-    PartyID = ff_identity:party(get_wallet_identity(Wallet)),
-    PartyRevision = operation_party_revision(Withdrawal),
-    Timestamp = operation_timestamp(Withdrawal),
     VarsetParams = genlib_map:compact(#{
         body => body(Withdrawal),
         wallet_id => WalletID,
         wallet => Wallet,
-        party_id => PartyID,
+        party_id => party_id(Withdrawal),
         destination => Destination,
         resource => Resource
     }),
     PartyVarset = build_party_varset(VarsetParams),
-
-    WalletAccount = ff_wallet:account(Wallet),
-    DestinationAccount = ff_destination:account(Destination),
 
     {_Amount, CurrencyID} = Body,
     #{provider_id := ProviderID} = Route,
@@ -1082,7 +1029,8 @@ make_final_cash_flow(DomainRevision, Withdrawal) ->
     ProviderAccounts = ff_payouts_provider:accounts(Provider),
     ProviderAccount = maps:get(CurrencyID, ProviderAccounts, undefined),
 
-    {ok, PaymentInstitution} = get_payment_institution(Identity, PartyVarset, DomainRevision),
+    #domain_WalletConfig{payment_institution = PaymentInstitutionRef} = Wallet,
+    {ok, PaymentInstitution} = ff_payment_institution:get(PaymentInstitutionRef, PartyVarset, DomainRevision),
     {ok, SystemAccounts} = ff_payment_institution:system_accounts(PaymentInstitution, DomainRevision),
     SystemAccount = maps:get(CurrencyID, SystemAccounts, #{}),
     SettlementAccount = maps:get(settlement, SystemAccount, undefined),
@@ -1090,12 +1038,7 @@ make_final_cash_flow(DomainRevision, Withdrawal) ->
 
     {ok, ProviderFee} = compute_fees(Route, PartyVarset, DomainRevision),
 
-    Terms = ff_identity:get_terms(Identity, #{
-        timestamp => Timestamp,
-        party_revision => PartyRevision,
-        domain_revision => DomainRevision,
-        varset => PartyVarset
-    }),
+    Terms = ff_party:get_terms(DomainRevision, Wallet, PartyVarset),
 
     {ok, WalletCashFlowPlan} = ff_party:get_withdrawal_cash_flow_plan(Terms),
     {ok, CashFlowPlan} = ff_cash_flow:add_fee(WalletCashFlowPlan, ProviderFee),
@@ -1156,46 +1099,12 @@ ensure_domain_revision_defined(undefined) ->
 ensure_domain_revision_defined(Revision) ->
     Revision.
 
--spec ensure_party_revision_defined(party_id(), party_revision() | undefined) -> domain_revision().
-ensure_party_revision_defined(PartyID, undefined) ->
-    {ok, Revision} = ff_party:get_revision(PartyID),
-    Revision;
-ensure_party_revision_defined(_PartyID, Revision) ->
-    Revision.
-
--spec get_wallet(wallet_id()) -> {ok, wallet()} | {error, notfound}.
-get_wallet(WalletID) ->
-    do(fun() ->
-        WalletMachine = unwrap(ff_wallet_machine:get(WalletID)),
-        ff_wallet_machine:wallet(WalletMachine)
-    end).
-
 -spec get_destination(destination_id()) -> {ok, destination()} | {error, notfound}.
 get_destination(DestinationID) ->
     do(fun() ->
         DestinationMachine = unwrap(ff_destination_machine:get(DestinationID)),
         ff_destination_machine:destination(DestinationMachine)
     end).
-
--spec get_wallet_identity(wallet()) -> identity().
-get_wallet_identity(Wallet) ->
-    IdentityID = ff_wallet:identity(Wallet),
-    get_identity(IdentityID).
-
--spec get_destination_identity(destination()) -> identity().
-get_destination_identity(Destination) ->
-    IdentityID = ff_destination:identity(Destination),
-    get_identity(IdentityID).
-
-get_identity(IdentityID) ->
-    {ok, IdentityMachine} = ff_identity_machine:get(IdentityID),
-    ff_identity_machine:identity(IdentityMachine).
-
--spec get_payment_institution(identity(), party_varset(), domain_revision()) ->
-    {ok, ff_payment_institution:payment_institution()}.
-get_payment_institution(Identity, PartyVarset, DomainRevision) ->
-    {ok, PaymentInstitutionID} = ff_party:get_identity_payment_institution_id(Identity),
-    ff_payment_institution:get(PaymentInstitutionID, PartyVarset, DomainRevision).
 
 -spec build_party_varset(party_varset_params()) -> party_varset().
 build_party_varset(#{body := Body, wallet_id := WalletID, party_id := PartyID} = Params) ->
@@ -1257,17 +1166,15 @@ construct_payment_tool(
 
 -spec get_quote(quote_params()) ->
     {ok, quote()} | {error, create_error() | {route, ff_withdrawal_routing:route_not_found()}}.
-get_quote(#{destination_id := DestinationID, body := Body, wallet_id := WalletID} = Params) ->
+get_quote(#{destination_id := DestinationID, body := Body, wallet_id := WalletID, party_id := PartyID} = Params) ->
     do(fun() ->
         Destination = unwrap(destination, get_destination(DestinationID)),
-        Wallet = unwrap(wallet, get_wallet(WalletID)),
-        Identity = get_wallet_identity(Wallet),
-        PartyID = ff_identity:party(Identity),
         DomainRevision = ff_domain_config:head(),
-        {ok, PartyRevision} = ff_party:get_revision(PartyID),
+        Party = unwrap(party, ff_party:checkout(PartyID, DomainRevision)),
+        Wallet = unwrap(wallet, ff_party:get_wallet(WalletID, Party, DomainRevision)),
         Resource = unwrap(
             destination_resource,
-            create_resource(ff_destination:resource(Destination), undefined, Identity, DomainRevision)
+            create_resource(ff_destination:resource(Destination), undefined, Wallet, DomainRevision)
         ),
         VarsetParams = genlib_map:compact(#{
             body => Body,
@@ -1280,20 +1187,15 @@ get_quote(#{destination_id := DestinationID, body := Body, wallet_id := WalletID
         PartyVarset = build_party_varset(VarsetParams),
         Timestamp = ff_time:now(),
 
-        Terms = ff_identity:get_terms(Identity, #{
-            timestamp => Timestamp,
-            party_revision => PartyRevision,
-            domain_revision => DomainRevision,
-            varset => PartyVarset
-        }),
+        Terms = ff_party:get_terms(DomainRevision, Wallet, PartyVarset),
+
         valid = unwrap(validate_withdrawal_creation(Terms, Body, Wallet, Destination, Resource)),
         GetQuoteParams = #{
             base_params => Params,
-            identity => Identity,
+            party_id => PartyID,
             party_varset => build_party_varset(VarsetParams),
             timestamp => Timestamp,
             domain_revision => DomainRevision,
-            party_revision => PartyRevision,
             resource => Resource
         },
         unwrap(get_quote_(GetQuoteParams))
@@ -1301,14 +1203,13 @@ get_quote(#{destination_id := DestinationID, body := Body, wallet_id := WalletID
 get_quote(Params) ->
     #{
         wallet_id := WalletID,
+        party_id := PartyID,
         body := Body
     } = Params,
-    Wallet = unwrap(wallet, get_wallet(WalletID)),
-    Identity = get_wallet_identity(Wallet),
-    PartyID = ff_identity:party(Identity),
-    Timestamp = ff_time:now(),
     DomainRevision = ff_domain_config:head(),
-    {ok, PartyRevision} = ff_party:get_revision(PartyID),
+    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    Timestamp = ff_time:now(),
     VarsetParams = genlib_map:compact(#{
         body => Body,
         wallet_id => WalletID,
@@ -1317,11 +1218,10 @@ get_quote(Params) ->
     }),
     GetQuoteParams = #{
         base_params => Params,
-        identity => Identity,
+        party_id => PartyID,
         party_varset => build_party_varset(VarsetParams),
         timestamp => Timestamp,
-        domain_revision => DomainRevision,
-        party_revision => PartyRevision
+        domain_revision => DomainRevision
     },
     get_quote_(GetQuoteParams).
 
@@ -1330,19 +1230,21 @@ get_quote_(Params) ->
         #{
             base_params := #{
                 body := Body,
+                wallet_id := WalletID,
                 currency_from := CurrencyFrom,
                 currency_to := CurrencyTo
             },
-            identity := Identity,
+            party_id := PartyID,
             party_varset := Varset,
             timestamp := Timestamp,
-            domain_revision := DomainRevision,
-            party_revision := PartyRevision
+            domain_revision := DomainRevision
         } = Params,
         Resource = maps:get(resource, Params, undefined),
+        Party = unwrap(party, ff_party:checkout(PartyID, DomainRevision)),
+        Wallet = unwrap(wallet, ff_party:get_wallet(WalletID, Party, DomainRevision)),
 
         %% TODO: don't apply turnover limits here
-        [Route | _] = unwrap(route, ff_withdrawal_routing:prepare_routes(Varset, Identity, DomainRevision)),
+        [Route | _] = unwrap(route, ff_withdrawal_routing:prepare_routes(Varset, Wallet, DomainRevision)),
         {Adapter, AdapterOpts} = ff_withdrawal_session:get_adapter_with_opts(Route),
         GetQuoteParams = #{
             external_id => maps:get(external_id, Params, undefined),
@@ -1361,8 +1263,7 @@ get_quote_(Params) ->
             route => Route,
             operation_timestamp => Timestamp,
             resource_descriptor => ff_resource:resource_descriptor(Resource),
-            domain_revision => DomainRevision,
-            party_revision => PartyRevision
+            domain_revision => DomainRevision
         })
     end).
 
@@ -1383,12 +1284,6 @@ quote_timestamp(undefined) ->
     undefined;
 quote_timestamp(Quote) ->
     maps:get(operation_timestamp, Quote, undefined).
-
--spec quote_party_revision(quote() | undefined) -> party_revision() | undefined.
-quote_party_revision(undefined) ->
-    undefined;
-quote_party_revision(Quote) ->
-    maps:get(party_revision, Quote, undefined).
 
 -spec quote_domain_revision(quote() | undefined) -> domain_revision() | undefined.
 quote_domain_revision(undefined) ->
@@ -1460,18 +1355,16 @@ validate_withdrawal_creation(Terms, Body, Wallet, Destination, Resource) ->
         Method = ff_resource:method(Resource),
         valid = unwrap(terms, validate_withdrawal_creation_terms(Terms, Body, Method)),
         valid = unwrap(validate_withdrawal_currency(Body, Wallet, Destination)),
-        valid = unwrap(validate_destination_status(Destination)),
-        valid = unwrap(validate_withdrawal_providers(Wallet, Destination))
+        valid = unwrap(validate_withdrawal_realms(Wallet, Destination))
     end).
 
-validate_withdrawal_providers(Wallet, Destination) ->
-    WalletIdentity = get_wallet_identity(Wallet),
-    DestinationIdentity = get_destination_identity(Destination),
-    WalletProvider = ff_identity:provider(WalletIdentity),
-    DestinationProvider = ff_identity:provider(DestinationIdentity),
-    case WalletProvider =:= DestinationProvider of
+validate_withdrawal_realms(#domain_WalletConfig{payment_institution = PaymentInstitutionRef}, Destination) ->
+    DomainRevision = ff_domain_config:head(),
+    {ok, WalletRealm} = ff_payment_institution:get_realm(PaymentInstitutionRef, DomainRevision),
+    DestinationtRealm = ff_destination:realm(Destination),
+    case WalletRealm =:= DestinationtRealm of
         true -> {ok, valid};
-        false -> {error, {identity_providers_mismatch, {WalletProvider, DestinationProvider}}}
+        false -> {error, {realms_mismatch, {WalletRealm, DestinationtRealm}}}
     end.
 
 -spec validate_withdrawal_creation_terms(terms(), body(), ff_resource:method()) ->
@@ -1485,7 +1378,7 @@ validate_withdrawal_creation_terms(Terms, Body, Method) ->
     | {error, {inconsistent_currency, {currency_id(), currency_id(), currency_id()}}}.
 validate_withdrawal_currency(Body, Wallet, Destination) ->
     DestiantionCurrencyID = ff_account:currency(ff_destination:account(Destination)),
-    WalletCurrencyID = ff_account:currency(ff_wallet:account(Wallet)),
+    {_AccountID, WalletCurrencyID} = ff_party:get_wallet_account(Wallet),
     case Body of
         {_Amount, WithdrawalCurencyID} when
             WithdrawalCurencyID =:= DestiantionCurrencyID andalso
@@ -1494,17 +1387,6 @@ validate_withdrawal_currency(Body, Wallet, Destination) ->
             {ok, valid};
         {_Amount, WithdrawalCurencyID} ->
             {error, {inconsistent_currency, {WithdrawalCurencyID, WalletCurrencyID, DestiantionCurrencyID}}}
-    end.
-
--spec validate_destination_status(destination()) ->
-    {ok, valid}
-    | {error, {destination, ff_destination:status()}}.
-validate_destination_status(Destination) ->
-    case ff_destination:status(Destination) of
-        authorized ->
-            {ok, valid};
-        unauthorized ->
-            {error, {destination, unauthorized}}
     end.
 
 %% Limit helpers
@@ -1685,7 +1567,6 @@ make_adjustment_params(Params, Withdrawal) ->
         changes_plan => make_adjustment_change(Change, Withdrawal),
         external_id => genlib_map:get(external_id, Params),
         domain_revision => adjustment_domain_revision(Change, Withdrawal),
-        party_revision => operation_party_revision(Withdrawal),
         operation_timestamp => operation_timestamp(Withdrawal)
     }).
 
@@ -1776,8 +1657,7 @@ process_route_change(Withdrawal, Reason) ->
 
 -spec is_failure_transient(fail_type(), withdrawal_state()) -> boolean().
 is_failure_transient(Reason, Withdrawal) ->
-    {ok, Wallet} = get_wallet(wallet_id(Withdrawal)),
-    PartyID = ff_identity:party(get_wallet_identity(Wallet)),
+    PartyID = party_id(Withdrawal),
     RetryableErrors = get_retryable_error_list(PartyID),
     ErrorTokens = to_error_token_list(Reason, Withdrawal),
     match_error_whitelist(ErrorTokens, RetryableErrors).
@@ -1983,15 +1863,13 @@ get_attempt_limit(Withdrawal) ->
             wallet_id := WalletID,
             destination_id := DestinationID
         },
-        created_at := Timestamp,
-        party_revision := PartyRevision,
         resource := Resource
     } = Withdrawal,
     DomainRevision = final_domain_revision(Withdrawal),
-    {ok, Wallet} = get_wallet(WalletID),
+    PartyID = party_id(Withdrawal),
+    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
     {ok, Destination} = get_destination(DestinationID),
-    Identity = get_wallet_identity(Wallet),
-    PartyID = ff_identity:party(Identity),
     VarsetParams = genlib_map:compact(#{
         body => Body,
         wallet_id => WalletID,
@@ -2000,12 +1878,7 @@ get_attempt_limit(Withdrawal) ->
         resource => Resource
     }),
 
-    Terms = ff_identity:get_terms(Identity, #{
-        timestamp => Timestamp,
-        party_revision => PartyRevision,
-        domain_revision => DomainRevision,
-        varset => build_party_varset(VarsetParams)
-    }),
+    Terms = ff_party:get_terms(DomainRevision, Wallet, build_party_varset(VarsetParams)),
 
     #domain_TermSet{wallets = WalletTerms} = Terms,
     #domain_WalletServiceTerms{withdrawals = WithdrawalTerms} = WalletTerms,

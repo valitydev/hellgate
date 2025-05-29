@@ -19,25 +19,7 @@
 
 -type resource() :: ff_destination:resource().
 
--type identity() :: #{
-    id := binary(),
-    effective_challenge => challenge()
-}.
-
--type challenge() :: #{
-    id => binary(),
-    proofs => [proof()]
-}.
-
--type proof() ::
-    {proof_type(), identdoc_token()}.
-
--type proof_type() ::
-    rus_domestic_passport
-    | rus_retiree_insurance_cert.
-
--type identdoc_token() ::
-    binary().
+-type party_id() :: ff_party:id().
 
 -type cash() :: ff_accounting:body().
 
@@ -47,8 +29,8 @@
     resource => resource(),
     dest_auth_data => ff_destination:auth_data(),
     cash => cash(),
-    sender => identity() | undefined,
-    receiver => identity() | undefined,
+    sender => party_id(),
+    receiver => party_id(),
     quote => quote()
 }.
 
@@ -121,7 +103,6 @@
 -export_type([quote/1]).
 -export_type([quote_params/0]).
 -export_type([quote_data/0]).
--export_type([identity/0]).
 -export_type([handle_callback_result/0]).
 
 %%

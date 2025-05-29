@@ -34,12 +34,12 @@ handle_function_('GetQuote', {MarshaledParams}, _Opts) ->
             {ok, Response};
         %% TODO TD-582: Missing clause for routing error?
         %%      {error, {route, {route_not_found, RejectedRoutes}}} -> ...
+        {error, {party, notfound}} ->
+            woody_error:raise(business, #fistful_PartyNotFound{});
         {error, {wallet, notfound}} ->
             woody_error:raise(business, #fistful_WalletNotFound{});
         {error, {destination, notfound}} ->
             woody_error:raise(business, #fistful_DestinationNotFound{});
-        {error, {destination, unauthorized}} ->
-            woody_error:raise(business, #fistful_DestinationUnauthorized{});
         {error, {terms, {terms_violation, {not_allowed_currency, {DomainCurrency, DomainAllowed}}}}} ->
             Currency = ff_dmsl_codec:unmarshal(currency_ref, DomainCurrency),
             Allowed = [ff_dmsl_codec:unmarshal(currency_ref, C) || C <- DomainAllowed],
@@ -60,10 +60,10 @@ handle_function_('GetQuote', {MarshaledParams}, _Opts) ->
                 destination_currency = ff_codec:marshal(currency_ref, Destination),
                 wallet_currency = ff_codec:marshal(currency_ref, Wallet)
             });
-        {error, {identity_providers_mismatch, {WalletProvider, DestinationProvider}}} ->
-            woody_error:raise(business, #wthd_IdentityProvidersMismatch{
-                wallet_provider = ff_codec:marshal(identity_provider, WalletProvider),
-                destination_provider = ff_codec:marshal(identity_provider, DestinationProvider)
+        {error, {realms_mismatch, {WalletRealm, DestinationRealm}}} ->
+            woody_error:raise(business, #fistful_RealmsMismatch{
+                wallet_realm = WalletRealm,
+                destination_realm = DestinationRealm
             })
     end;
 handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
@@ -75,12 +75,12 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
             handle_function_('Get', {maps:get(id, Params), #'fistful_base_EventRange'{}}, Opts);
         {error, exists} ->
             handle_function_('Get', {maps:get(id, Params), #'fistful_base_EventRange'{}}, Opts);
+        {error, {party, notfound}} ->
+            woody_error:raise(business, #fistful_PartyNotFound{});
         {error, {wallet, notfound}} ->
             woody_error:raise(business, #fistful_WalletNotFound{});
         {error, {destination, notfound}} ->
             woody_error:raise(business, #fistful_DestinationNotFound{});
-        {error, {destination, unauthorized}} ->
-            woody_error:raise(business, #fistful_DestinationUnauthorized{});
         {error, {wallet, {inaccessible, _}}} ->
             woody_error:raise(business, #fistful_WalletInaccessible{
                 id = MarshaledParams#wthd_WithdrawalParams.wallet_id
@@ -105,10 +105,10 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
                 destination_currency = ff_codec:marshal(currency_ref, Destination),
                 wallet_currency = ff_codec:marshal(currency_ref, Wallet)
             });
-        {error, {identity_providers_mismatch, {WalletProvider, DestinationProvider}}} ->
-            woody_error:raise(business, #wthd_IdentityProvidersMismatch{
-                wallet_provider = ff_codec:marshal(identity_provider, WalletProvider),
-                destination_provider = ff_codec:marshal(identity_provider, DestinationProvider)
+        {error, {realms_mismatch, {WalletRealm, DestinationRealm}}} ->
+            woody_error:raise(business, #fistful_RealmsMismatch{
+                wallet_realm = WalletRealm,
+                destination_realm = DestinationRealm
             })
     end;
 handle_function_('Get', {ID, EventRange}, _Opts) ->

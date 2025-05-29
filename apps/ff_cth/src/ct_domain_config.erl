@@ -5,6 +5,8 @@
 -module(ct_domain_config).
 
 -export([head/0]).
+-export([get/1]).
+-export([get/2]).
 
 -export([commit/2]).
 -export([insert/1]).
@@ -21,10 +23,28 @@
 
 -type revision() :: dmt_client:version().
 -type object() :: dmsl_domain_thrift:'DomainObject'().
+-type ref() :: dmsl_domain_thrift:'Reference'().
+-type data() :: _.
 
 -spec head() -> revision().
 head() ->
     dmt_client:get_last_version().
+
+-spec get(ref()) -> data() | no_return().
+get(Ref) ->
+    get(latest, Ref).
+
+-spec get(dmt_client:version(), ref()) -> data() | no_return().
+get(Revision, Ref) ->
+    try
+        extract_data(dmt_client:checkout_object(Revision, Ref))
+    catch
+        throw:#domain_conf_ObjectNotFound{} ->
+            error({object_not_found, {Revision, Ref}})
+    end.
+
+extract_data({_Tag, {_Name, _Ref, Data}}) ->
+    Data.
 
 -spec all(revision()) -> dmsl_domain_thrift:'Domain'().
 all(Revision) ->

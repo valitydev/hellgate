@@ -44,10 +44,7 @@
     callbacks => callbacks_index(),
     result => session_result(),
     % For validate outstanding TransactionsInfo
-    transaction_info => transaction_info(),
-
-    % Deprecated. Remove after MSPF-560 finish
-    provider_legacy => binary() | ff_payouts_provider:id()
+    transaction_info => transaction_info()
 }.
 
 -type session() :: #{
@@ -55,15 +52,13 @@
     id := id(),
     status := status(),
     withdrawal := withdrawal(),
-    route := route(),
-
-    % Deprecated. Remove after MSPF-560 finish
-    provider_legacy => binary() | ff_payouts_provider:id()
+    route := route()
 }.
 
 -type transaction_info() :: ff_adapter_withdrawal:transaction_info().
 -type session_result() :: success | {success, transaction_info()} | {failed, ff_adapter_withdrawal:failure()}.
 -type status() :: active | {finished, success | {failed, ff_adapter_withdrawal:failure()}}.
+-type party_id() :: ff_party:id().
 
 -type event() ::
     {created, session()}
@@ -77,8 +72,8 @@
 -type data() :: #{
     id := id(),
     cash := ff_accounting:body(),
-    sender := ff_identity:identity_state(),
-    receiver := ff_identity:identity_state(),
+    sender := party_id(),
+    receiver := party_id(),
     quote_data => ff_adapter_withdrawal:quote_data()
 }.
 
@@ -337,12 +332,6 @@ create_callback(Tag, Session) ->
             erlang:error({callback_already_exists, Callback})
     end.
 
--spec convert_identity_state_to_adapter_identity(ff_identity:identity_state()) -> ff_adapter_withdrawal:identity().
-convert_identity_state_to_adapter_identity(IdentityState) ->
-    #{
-        id => ff_identity:id(IdentityState)
-    }.
-
 -spec get_adapter_with_opts(ff_withdrawal_routing:route()) -> adapter_with_opts().
 get_adapter_with_opts(Route) ->
     ProviderID = ff_withdrawal_routing:get_provider(Route),
@@ -369,8 +358,8 @@ create_adapter_withdrawal(
     #{id := SesID, sender := Sender, receiver := Receiver} = Data, Resource, WdthID, DestAuthData
 ) ->
     Data#{
-        sender => convert_identity_state_to_adapter_identity(Sender),
-        receiver => convert_identity_state_to_adapter_identity(Receiver),
+        sender => Sender,
+        receiver => Receiver,
         resource => Resource,
         id => WdthID,
         session_id => SesID,

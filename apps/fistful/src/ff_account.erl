@@ -11,19 +11,20 @@
 
 -include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 
--type id() :: binary().
--type accounter_account_id() :: dmsl_accounter_thrift:'AccountID'().
+-type account_id() :: dmsl_accounter_thrift:'AccountID'().
+-type amount() :: dmsl_domain_thrift:'Amount'().
+-type party_id() :: ff_party:id().
+-type realm() :: ff_payment_institution:realm().
+
 -type account() :: #{
-    id := id(),
-    identity := identity_id(),
+    realm := realm(),
+    party_id => party_id(),
     currency := currency_id(),
-    accounter_account_id := accounter_account_id()
+    account_id := account_id()
 }.
 
--type amount() :: dmsl_domain_thrift:'Amount'().
-
 -type account_balance() :: #{
-    id := id(),
+    account_id := account_id(),
     currency := ff_currency:id(),
     expected_min := amount(),
     current := amount(),
@@ -37,108 +38,97 @@
     {terms, ff_party:validate_account_creation_error()}
     | {party, ff_party:inaccessibility()}.
 
--export_type([id/0]).
--export_type([accounter_account_id/0]).
+-export_type([account_id/0]).
 -export_type([account/0]).
 -export_type([event/0]).
 -export_type([create_error/0]).
 -export_type([account_balance/0]).
 
--export([id/1]).
--export([identity/1]).
+-export([party_id/1]).
+-export([realm/1]).
 -export([currency/1]).
--export([accounter_account_id/1]).
+-export([account_id/1]).
 
+-export([build/3]).
+-export([build/4]).
 -export([create/3]).
 -export([is_accessible/1]).
--export([check_account_creation/3]).
 
 -export([apply_event/2]).
 
 %% Pipeline
 
--import(ff_pipeline, [do/1, unwrap/1, unwrap/2]).
+-import(ff_pipeline, [do/1, unwrap/1]).
 
 %% Internal types
 
--type identity() :: ff_identity:identity_state().
 -type currency() :: ff_currency:currency().
--type identity_id() :: ff_identity:id().
 -type currency_id() :: ff_currency:id().
 
 %% Accessors
 
--spec id(account()) -> id().
--spec identity(account()) -> identity_id().
+-spec party_id(account()) -> party_id() | undefined.
+-spec realm(account()) -> realm().
 -spec currency(account()) -> currency_id().
--spec accounter_account_id(account()) -> accounter_account_id().
+-spec account_id(account()) -> account_id().
 
-id(#{id := ID}) ->
-    ID.
+party_id(Account) ->
+    maps:get(party_id, Account, undefined).
 
-identity(#{identity := IdentityID}) ->
-    IdentityID.
+realm(#{realm := V}) ->
+    V.
 
 currency(#{currency := CurrencyID}) ->
     CurrencyID.
 
-accounter_account_id(#{accounter_account_id := AccounterID}) ->
+account_id(#{account_id := AccounterID}) ->
     AccounterID.
 
 %% Actuators
 
--spec create(id(), identity(), currency()) -> {ok, [event()]} | {error, create_error()}.
-create(ID, Identity, Currency) ->
-    do(fun() ->
-        unwrap(check_account_creation(ID, Identity, Currency)),
-        CurrencyID = ff_currency:id(Currency),
-        CurrencyCode = ff_currency:symcode(Currency),
-        Description = ff_string:join($/, [<<"ff/account">>, ID]),
-        {ok, AccounterID} = ff_accounting:create_account(CurrencyCode, Description),
-        [
-            {created, #{
-                id => ID,
-                identity => ff_identity:id(Identity),
-                currency => CurrencyID,
-                accounter_account_id => AccounterID
-            }}
-        ]
-    end).
+-spec build(realm(), account_id(), currency_id()) -> account().
+build(Realm, AccountID, CurrencyID) ->
+    #{
+        realm => Realm,
+        currency => CurrencyID,
+        account_id => AccountID
+    }.
+
+-spec build(party_id(), realm(), account_id(), currency_id()) -> account().
+build(PartyID, Realm, AccountID, CurrencyID) ->
+    #{
+        realm => Realm,
+        party_id => PartyID,
+        currency => CurrencyID,
+        account_id => AccountID
+    }.
+
+-spec create(party_id(), realm(), currency()) -> {ok, [event()]}.
+create(PartyID, Realm, Currency) ->
+    CurrencyID = ff_currency:id(Currency),
+    CurrencyCode = ff_currency:symcode(Currency),
+    {ok, AccountID} = ff_accounting:create_account(CurrencyCode, atom_to_binary(Realm)),
+    {ok, [
+        {created, #{
+            realm => Realm,
+            party_id => PartyID,
+            currency => CurrencyID,
+            account_id => AccountID
+        }}
+    ]}.
 
 -spec is_accessible(account()) ->
     {ok, accessible}
     | {error, ff_party:inaccessibility()}.
 is_accessible(Account) ->
     do(fun() ->
-        Identity = get_identity(Account),
-        accessible = unwrap(ff_identity:is_accessible(Identity))
+        case party_id(Account) of
+            undefined ->
+                accessible;
+            PartyID ->
+                unwrap(ff_party:is_accessible(PartyID))
+        end
     end).
-
--spec check_account_creation(id(), identity(), currency()) ->
-    {ok, valid}
-    | {error, create_error()}.
-check_account_creation(ID, Identity, Currency) ->
-    do(fun() ->
-        DomainRevision = ff_domain_config:head(),
-        PartyID = ff_identity:party(Identity),
-        accessible = unwrap(party, ff_party:is_accessible(PartyID)),
-        TermVarset = #{
-            wallet_id => ID,
-            currency => ff_currency:to_domain_ref(Currency)
-        },
-        {ok, PartyRevision} = ff_party:get_revision(PartyID),
-        Terms = ff_identity:get_terms(Identity, #{
-            party_revision => PartyRevision,
-            domain_revision => DomainRevision,
-            varset => TermVarset
-        }),
-        CurrencyID = ff_currency:id(Currency),
-        valid = unwrap(terms, ff_party:validate_account_creation(Terms, CurrencyID))
-    end).
-
-get_identity(Account) ->
-    {ok, V} = ff_identity_machine:get(identity(Account)),
-    ff_identity_machine:identity(V).
 
 %% State
 

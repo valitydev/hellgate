@@ -271,18 +271,17 @@ marshal_withdrawal(Withdrawal) ->
         wallet_id := WalletID,
         destination_id := DestinationID
     } = ff_withdrawal:params(Withdrawal),
-    {ok, WalletMachine} = ff_wallet_machine:get(WalletID),
-    Wallet = ff_wallet_machine:wallet(WalletMachine),
-    WalletAccount = ff_wallet:account(Wallet),
+    DomainRevision = ff_withdrawal:final_domain_revision(Withdrawal),
+    PartyID = ff_withdrawal:party_id(Withdrawal),
+    {ok, Party} = ff_party:checkout(ff_withdrawal:party_id(Withdrawal), DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {AccountID, Currency} = ff_party:get_wallet_account(Wallet),
+    WalletRealm = ff_party:get_wallet_realm(Wallet, DomainRevision),
+    WalletAccount = ff_account:build(PartyID, WalletRealm, AccountID, Currency),
 
     {ok, DestinationMachine} = ff_destination_machine:get(DestinationID),
     Destination = ff_destination_machine:destination(DestinationMachine),
     DestinationAccount = ff_destination:account(Destination),
-
-    {ok, SenderSt} = ff_identity_machine:get(ff_account:identity(WalletAccount)),
-    {ok, ReceiverSt} = ff_identity_machine:get(ff_account:identity(DestinationAccount)),
-    SenderIdentity = ff_identity_machine:identity(SenderSt),
-    ReceiverIdentity = ff_identity_machine:identity(ReceiverSt),
 
     Resource = ff_withdrawal:destination_resource(Withdrawal),
     MarshaledResource = ff_adapter_withdrawal_codec:marshal(resource, Resource),
@@ -293,14 +292,9 @@ marshal_withdrawal(Withdrawal) ->
         body = ff_dmsl_codec:marshal(cash, ff_withdrawal:body(Withdrawal)),
         destination = MarshaledResource,
         auth_data = MarshaledAuthData,
-        sender = ff_adapter_withdrawal_codec:marshal(identity, #{
-            id => ff_identity:id(SenderIdentity),
-            owner_id => ff_identity:party(SenderIdentity)
-        }),
-        receiver = ff_adapter_withdrawal_codec:marshal(identity, #{
-            id => ff_identity:id(ReceiverIdentity),
-            owner_id => ff_identity:party(SenderIdentity)
-        })
+        %% TODO: change proto
+        sender = ff_account:party_id(WalletAccount),
+        receiver = ff_account:party_id(DestinationAccount)
     }.
 
 -spec get(limit_id(), limit_version(), clock(), context()) -> limit() | no_return().

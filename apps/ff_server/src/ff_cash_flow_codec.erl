@@ -33,11 +33,8 @@ marshal(final_cash_flow_account, #{
     account := Account,
     type := AccountType
 }) ->
-    #{id := AccountID} = Account,
     #cashflow_FinalCashFlowAccount{
         account_type = marshal(account_type, AccountType),
-        % for compatability, deprecate
-        account_id = marshal(id, AccountID),
         account = ff_codec:marshal(account, Account)
     };
 marshal(account_type, CashflowAccount) ->
@@ -102,19 +99,19 @@ final_cash_flow_symmetry_test() ->
         #{
             sender => #{
                 account => #{
-                    id => genlib:unique(),
-                    identity => genlib:unique(),
+                    realm => test,
+                    party_id => genlib:unique(),
                     currency => <<"RUB">>,
-                    accounter_account_id => 123
+                    account_id => 123
                 },
                 type => sender_source
             },
             receiver => #{
                 account => #{
-                    id => genlib:unique(),
-                    identity => genlib:unique(),
+                    realm => test,
+                    party_id => genlib:unique(),
                     currency => <<"USD">>,
-                    accounter_account_id => 321
+                    account_id => 321
                 },
                 type => receiver_settlement
             },

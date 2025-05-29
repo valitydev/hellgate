@@ -20,7 +20,7 @@
 %%
 
 -type destination() :: dmsl_wthd_domain_thrift:'Destination'().
--type identity() :: dmsl_wthd_domain_thrift:'Identity'().
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type currency() :: dmsl_domain_thrift:'Currency'().
 -type domain_quote() :: dmsl_wthd_provider_thrift:'Quote'().
@@ -29,8 +29,8 @@
     id => binary(),
     body => cash(),
     destination => destination(),
-    sender => identity(),
-    receiver => identity(),
+    sender => party_id(),
+    receiver => party_id(),
     quote => domain_quote()
 }.
 

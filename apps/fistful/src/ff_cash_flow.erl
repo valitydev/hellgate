@@ -6,7 +6,6 @@
 
 -export([make_empty_final/0]).
 -export([gather_used_accounts/1]).
--export([find_account/2]).
 -export([finalize/3]).
 -export([add_fee/2]).
 -export([combine/2]).
@@ -131,14 +130,6 @@ make_empty_final() ->
 -spec gather_used_accounts(final_cash_flow()) -> [account()].
 gather_used_accounts(#{postings := Postings}) ->
     lists:usort(lists:flatten([[S, D] || #{sender := #{account := S}, receiver := #{account := D}} <- Postings])).
-
--spec find_account(ff_account:id(), final_cash_flow()) -> account() | undefined.
-find_account(AccountID, FinalCashFlow) ->
-    Accounts = gather_used_accounts(FinalCashFlow),
-    case lists:filter(fun(A) -> ff_account:id(A) =:= AccountID end, Accounts) of
-        [Account | _] -> Account;
-        _Else -> undefined
-    end.
 
 -spec finalize(cash_flow_plan(), account_mapping(), constant_mapping()) ->
     {ok, final_cash_flow()} | {error, finalize_error()}.
