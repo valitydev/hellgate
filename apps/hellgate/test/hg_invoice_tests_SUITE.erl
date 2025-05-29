@@ -670,7 +670,7 @@ end).
 
 -spec init_per_group(group_name(), config()) -> config().
 init_per_group(route_cascading, C) ->
-    init_route_cascading_group(C);
+    [{pre_group_domain_revision, hg_domain:head()} | init_route_cascading_group(C)];
 init_per_group(operation_limits, C) ->
     init_operation_limits_group(C);
 init_per_group(repair_preproc_w_limits, C) ->
@@ -681,8 +681,14 @@ init_per_group(_, C) ->
     C.
 
 -spec end_per_group(group_name(), config()) -> _.
-end_per_group(_Group, _C) ->
-    ok.
+end_per_group(_Group, C) ->
+    case cfg(pre_group_domain_revision, C) of
+        Revision when is_integer(Revision) ->
+            _ = hg_domain:reset(Revision),
+            ok;
+        undefined ->
+            ok
+    end.
 
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(Name, C) when
