@@ -20,8 +20,8 @@
 -type target() :: dmsl_domain_thrift:'AllocationTransactionTarget'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 
--type party() :: dmsl_domain_thrift:'Party'().
--type shop() :: dmsl_domain_thrift:'Shop'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type party_id() :: dmsl_payproc_thrift:'PartyID'().
 -type shop_id() :: dmsl_payproc_thrift:'ShopID'().
 -type target_map() :: #{
@@ -52,17 +52,17 @@
         | currency_mismatch}.
 
 -spec calculate(allocation_prototype(), party(), shop(), cash(), allocation_terms()) ->
-    {ok, allocation()} | {error, calculate_errors()}.
+    {error, calculate_errors()}.
 calculate(AllocationPrototype, Party, Shop, Cost, PaymentAllocationServiceTerms) ->
     case assert_allocatable(AllocationPrototype, PaymentAllocationServiceTerms, Party, Shop, Cost) of
-        ok ->
-            try calculate(AllocationPrototype, Party#domain_Party.id, Shop#domain_Shop.id, Cost) of
-                Result ->
-                    {ok, Result}
-            catch
-                throw:Error ->
-                    {error, Error}
-            end;
+        % ok ->
+        %     try calculate(AllocationPrototype, Party#domain_PartyConfig.id, Shop#domain_ShopConfig.id, Cost) of
+        %         Result ->
+        %             {ok, Result}
+        %     catch
+        %         throw:Error ->
+        %             {error, Error}
+        %     end;
         {error, Error} ->
             {error, Error}
     end.
@@ -80,53 +80,9 @@ sub(Allocation, SubAllocation) ->
     end.
 
 -spec assert_allocatable(allocation_prototype(), allocation_terms(), party(), shop(), cash()) ->
-    ok | {error, allocatable_errors()}.
-assert_allocatable(
-    ?allocation_prototype(Trxs),
-    #domain_PaymentAllocationServiceTerms{allow = {constant, true}},
-    Party,
-    Shop,
-    Cash
-) ->
-    Contract = hg_party:get_contract(Shop#domain_Shop.contract_id, Party),
-    PaymentInstitutionRef = Contract#domain_Contract.payment_institution,
-    try
-        lists:foreach(
-            fun(?allocation_trx_prototype(?allocation_trx_target_shop(PartyID, ShopID), _Body) = Proto) ->
-                TargetParty = hg_party:get_party(PartyID),
-                TargetShop = hg_party:get_shop(ShopID, TargetParty),
-                TargetContract = hg_party:get_contract(TargetShop#domain_Shop.contract_id, TargetParty),
-                _ =
-                    case validate_currency(Cash, TargetShop) of
-                        ok ->
-                            ok;
-                        {error, currency_mismatch} ->
-                            throw({invalid_transaction, Proto, currency_mismatch})
-                    end,
-                case TargetContract#domain_Contract.payment_institution of
-                    PaymentInstitutionRef ->
-                        ok;
-                    _ ->
-                        throw({invalid_transaction, Proto, payment_institutions_mismatch})
-                end
-            end,
-            Trxs
-        )
-    catch
-        throw:Error ->
-            {error, Error}
-    end;
+    {error, allocatable_errors()}.
 assert_allocatable(_Allocation, _PaymentAllocationServiceTerms, _Party, _Shop, _Cash) ->
     {error, allocation_not_allowed}.
-
-validate_currency(#domain_Cash{currency = Currency}, Shop) ->
-    ShopCurrency = hg_invoice_utils:get_shop_currency(Shop),
-    validate_currency_(Currency, ShopCurrency).
-
-validate_currency_(Currency, Currency) ->
-    ok;
-validate_currency_(_Currency1, _Currency2) ->
-    {error, currency_mismatch}.
 
 -spec construct_target(target_map()) -> target().
 construct_target(#{party_id := PartyID, shop_id := ShopID}) ->

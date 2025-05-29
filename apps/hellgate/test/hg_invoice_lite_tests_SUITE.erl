@@ -19,7 +19,6 @@
 -export([payment_w_first_blacklisted_success/1]).
 -export([payment_w_all_blacklisted/1]).
 -export([register_payment_success/1]).
--export([register_payment_customer_payer_success/1]).
 -export([payment_success_additional_info/1]).
 -export([payment_w_mobile_commerce/1]).
 -export([payment_suspend_timeout_failure/1]).
@@ -70,7 +69,6 @@ groups() ->
             payment_w_first_blacklisted_success,
             payment_w_all_blacklisted,
             register_payment_success,
-            register_payment_customer_payer_success,
             payment_success_additional_info,
             payment_w_mobile_commerce,
             payment_suspend_timeout_failure,
@@ -103,15 +101,15 @@ init_per_suite(C) ->
     _ = hg_domain:insert(construct_domain_fixture()),
     PartyID = hg_utils:unique_id(),
     PartyClient = {party_client:create_client(), party_client:create_context()},
-    CustomerClient = hg_client_customer:start(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ok = hg_context:save(hg_context:create()),
+    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ok = hg_context:cleanup(),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     ok = hg_invoice_helper:start_kv_store(SupPid),
     NewC = [
         {party_id, PartyID},
         {shop_id, ShopID},
-        {customer_client, CustomerClient},
         {root_url, RootUrl},
         {test_sup, SupPid},
         {apps, Apps}
@@ -363,29 +361,6 @@ register_payment_success(C) ->
         Payment
     ).
 
--spec register_payment_customer_payer_success(config()) -> test_return().
-register_payment_customer_payer_success(C) ->
-    Client = cfg(client, C),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    Route = ?route(?prv(1), ?trm(1)),
-    CustomerID = make_customer_w_rec_tool(
-        cfg(party_id, C), cfg(shop_id, C), cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)
-    ),
-    PaymentParams = #payproc_RegisterInvoicePaymentParams{
-        payer_params =
-            {customer, #payproc_CustomerPayerParams{
-                customer_id = CustomerID
-            }},
-        route = Route,
-        transaction_info = ?trx_info(<<"1">>, #{})
-    },
-    PaymentID = register_payment(InvoiceID, PaymentParams, false, Client),
-    PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
-    PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    ?invoice_state(?invoice_w_status(?invoice_paid())) =
-        hg_client_invoicing:get(InvoiceID, Client).
-
 -spec payment_success_additional_info(config()) -> test_return().
 payment_success_additional_info(C) ->
     Client = hg_ct_helper:cfg(client, C),
@@ -605,9 +580,6 @@ make_wallet_payment_params(PmtSrv) ->
 
 execute_payment(InvoiceID, PaymentParams, Client) ->
     hg_invoice_helper:execute_payment(InvoiceID, PaymentParams, Client).
-
-make_customer_w_rec_tool(PartyID, ShopID, Client, PmtSys) ->
-    hg_invoice_helper:make_customer_w_rec_tool(PartyID, ShopID, Client, PmtSys).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% CONFIG
@@ -833,13 +805,13 @@ construct_domain_fixture() ->
             data = #domain_Provider{
                 name = <<"Brovider">>,
                 description = <<"A provider but bro">>,
+                realm = test,
                 proxy = #domain_Proxy{
                     ref = ?prx(1),
                     additional = #{
                         <<"override">> => <<"brovider">>
                     }
                 },
-                abs_account = <<"1234567890">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{

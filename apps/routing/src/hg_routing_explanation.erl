@@ -275,15 +275,16 @@ check_route_blacklisted(_) ->
 gather_varset(Payment, Opts) ->
     #domain_InvoicePayment{
         cost = Cost,
-        payer = Payer
+        payer = Payer,
+        domain_revision = Revision
     } = Payment,
-    #domain_Party{
+    #domain_PartyConfig{
         id = PartyID
     } = get_party(Opts),
-    #domain_Shop{
+    #domain_ShopConfig{
         id = ShopID,
         category = Category
-    } = get_shop(Opts),
+    } = get_shop(Opts, Revision),
     #payproc_Varset{
         category = Category,
         currency = Cost#domain_Cash.currency,
@@ -296,9 +297,9 @@ gather_varset(Payment, Opts) ->
 get_party(#{party := Party}) ->
     Party.
 
-get_shop(#{party := Party, invoice := Invoice}) ->
+get_shop(#{party := Party, invoice := Invoice}, Revision) ->
     #domain_Invoice{shop_id = ShopID} = Invoice,
-    hg_party:get_shop(ShopID, Party).
+    hg_party:get_shop(ShopID, Party, Revision).
 
 format(Format, Data) ->
     erlang:iolist_to_binary(io_lib:format(Format, Data)).

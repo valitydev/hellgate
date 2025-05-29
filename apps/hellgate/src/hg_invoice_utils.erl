@@ -14,28 +14,26 @@
 -export([assert_shop_exists/1]).
 -export([assert_shop_operable/1]).
 -export([assert_cost_payable/2]).
--export([compute_shop_terms/5]).
--export([get_merchant_terms/5]).
+-export([compute_shop_terms/3]).
 -export([get_shop_currency/1]).
+-export([get_shop_account/1]).
 -export([get_cart_amount/1]).
 -export([check_deadline/1]).
 -export([assert_party_unblocked/1]).
 -export([assert_shop_unblocked/1]).
 
+-type account_id() :: dmsl_domain_thrift:'AccountID'().
 -type amount() :: dmsl_domain_thrift:'Amount'().
 -type currency() :: dmsl_domain_thrift:'CurrencyRef'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type cart() :: dmsl_domain_thrift:'InvoiceCart'().
 -type cash_range() :: dmsl_domain_thrift:'CashRange'().
--type party() :: dmsl_domain_thrift:'Party'().
--type shop() :: dmsl_domain_thrift:'Shop'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
--type shop_id() :: dmsl_domain_thrift:'ShopID'().
+-type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type payment_service_terms() :: dmsl_domain_thrift:'PaymentsServiceTerms'().
--type timestamp() :: dmsl_base_thrift:'Timestamp'().
--type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
--type varset() :: dmsl_payproc_thrift:'ComputeShopTermsVarset'().
+-type varset() :: dmsl_payproc_thrift:'Varset'().
+-type revision() :: dmsl_domain_thrift:'DataRevision'().
 
 -spec validate_cost(cash(), shop()) -> ok.
 validate_cost(#domain_Cash{currency = Currency, amount = Amount}, Shop) ->
@@ -50,7 +48,7 @@ validate_amount(_) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid amount">>]}).
 
 -spec validate_currency(currency(), shop()) -> ok.
-validate_currency(Currency, Shop = #domain_Shop{}) ->
+validate_currency(Currency, Shop = #domain_ShopConfig{}) ->
     validate_currency_(Currency, get_shop_currency(Shop)).
 
 -spec validate_cash_range(cash_range()) -> ok.
@@ -67,19 +65,25 @@ validate_cash_range(_) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid cost range">>]}).
 
 -spec assert_party_operable(party()) -> party().
+assert_party_operable({object_not_found, _}) ->
+    throw(#payproc_PartyNotFound{});
 assert_party_operable(V) ->
     _ = assert_party_unblocked(V),
     _ = assert_party_active(V),
     V.
 
 -spec assert_shop_operable(shop()) -> shop().
+assert_shop_operable({object_not_found, _}) ->
+    throw(#payproc_ShopNotFound{});
+assert_shop_operable(undefined) ->
+    throw(#payproc_ShopNotFound{});
 assert_shop_operable(V) ->
     _ = assert_shop_unblocked(V),
     _ = assert_shop_active(V),
     V.
 
 -spec assert_shop_exists(shop() | undefined) -> shop().
-assert_shop_exists(#domain_Shop{} = V) ->
+assert_shop_exists(#domain_ShopConfig{} = V) ->
     V;
 assert_shop_exists(undefined) ->
     throw(#payproc_ShopNotFound{}).
@@ -105,36 +109,18 @@ any_limit_matches(Cash, {decisions, Decisions}) ->
         Decisions
     ).
 
--spec compute_shop_terms(party_id(), shop_id(), timestamp(), party_revision_param(), varset()) -> term_set().
-compute_shop_terms(PartyID, ShopID, Timestamp, PartyRevision, Varset) ->
-    {Client, Context} = get_party_client(),
-    {ok, TermSet} =
-        party_client_thrift:compute_shop_terms(PartyID, ShopID, Timestamp, PartyRevision, Varset, Client, Context),
-    TermSet.
-
--spec get_merchant_terms(party(), shop(), hg_domain:revision(), hg_datetime:timestamp(), hg_varset:varset()) ->
-    term_set().
-get_merchant_terms(Party, Shop, DomainRevision, Timestamp, VS) ->
-    ContractID = Shop#domain_Shop.contract_id,
-    Contract = hg_party:get_contract(ContractID, Party),
-    ok = assert_contract_active(Contract),
-    {Client, Context} = get_party_client(),
-    {ok, Terms} = party_client_thrift:compute_contract_terms(
-        Party#domain_Party.id,
-        ContractID,
-        Timestamp,
-        {revision, Party#domain_Party.revision},
-        DomainRevision,
-        hg_varset:prepare_contract_terms_varset(VS),
-        Client,
-        Context
-    ),
-    Terms.
-
-assert_contract_active(#domain_Contract{status = {active, _}}) ->
-    ok;
-assert_contract_active(#domain_Contract{status = Status}) ->
-    throw(#payproc_InvalidContractStatus{status = Status}).
+-spec compute_shop_terms(revision(), shop(), varset() | hg_varset:varset()) -> term_set().
+compute_shop_terms(Revision, #domain_ShopConfig{terms = Ref}, #payproc_Varset{} = Varset) ->
+    Args = {Ref, Revision, Varset},
+    Opts = hg_woody_wrapper:get_service_options(party_config),
+    case hg_woody_wrapper:call(party_config, 'ComputeTerms', Args, Opts) of
+        {ok, Terms} ->
+            Terms;
+        {exception, Exception} ->
+            error(Exception)
+    end;
+compute_shop_terms(Revision, Shop, Varset0) ->
+    compute_shop_terms(Revision, Shop, hg_varset:prepare_varset(Varset0)).
 
 validate_currency_(Currency, Currency) ->
     ok;
@@ -142,23 +128,33 @@ validate_currency_(_, _) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid currency">>]}).
 
 -spec get_shop_currency(shop()) -> currency().
-get_shop_currency(#domain_Shop{account = #domain_ShopAccount{currency = Currency}}) ->
+get_shop_currency(#domain_ShopConfig{currency_configs = Configs}) when is_map(Configs) ->
+    %% TODO: fix it when add multi currency support
+    [Currency | _] = maps:keys(Configs),
     Currency.
 
+-spec get_shop_account(shop()) -> {account_id(), account_id()}.
+get_shop_account(#domain_ShopConfig{currency_configs = Configs}) when is_map(Configs) ->
+    %% TODO: fix it when add multi currency support
+    [{_Currency, #domain_ShopCurrencyConfig{settlement = SettlementID, guarantee = GuaranteeID}} | _] = maps:to_list(
+        Configs
+    ),
+    {SettlementID, GuaranteeID}.
+
 -spec assert_party_unblocked(party()) -> true | no_return().
-assert_party_unblocked(#domain_Party{blocking = V = {Status, _}}) ->
+assert_party_unblocked(#domain_PartyConfig{blocking = V = {Status, _}}) ->
     Status == unblocked orelse throw(#payproc_InvalidPartyStatus{status = {blocking, V}}).
 
 -spec assert_party_active(party()) -> true | no_return().
-assert_party_active(#domain_Party{suspension = V = {Status, _}}) ->
+assert_party_active(#domain_PartyConfig{suspension = V = {Status, _}}) ->
     Status == active orelse throw(#payproc_InvalidPartyStatus{status = {suspension, V}}).
 
 -spec assert_shop_unblocked(shop()) -> true | no_return().
-assert_shop_unblocked(#domain_Shop{blocking = V = {Status, _}}) ->
+assert_shop_unblocked(#domain_ShopConfig{blocking = V = {Status, _}}) ->
     Status == unblocked orelse throw(#payproc_InvalidShopStatus{status = {blocking, V}}).
 
 -spec assert_shop_active(shop()) -> true | no_return().
-assert_shop_active(#domain_Shop{suspension = V = {Status, _}}) ->
+assert_shop_active(#domain_ShopConfig{suspension = V = {Status, _}}) ->
     Status == active orelse throw(#payproc_InvalidShopStatus{status = {suspension, V}}).
 
 -spec get_cart_amount(cart()) -> cash().
@@ -187,9 +183,3 @@ check_deadline(Deadline) ->
         _ ->
             {error, deadline_reached}
     end.
-
-get_party_client() ->
-    HgContext = hg_context:load(),
-    Client = hg_context:get_party_client(HgContext),
-    Context = hg_context:get_party_client_context(HgContext),
-    {Client, Context}.

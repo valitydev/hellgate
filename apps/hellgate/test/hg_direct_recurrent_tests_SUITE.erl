@@ -5,7 +5,6 @@
 
 -include("invoice_events.hrl").
 -include("payment_events.hrl").
--include("customer_events.hrl").
 
 -export([init_per_suite/1]).
 -export([end_per_suite/1]).
@@ -21,7 +20,6 @@
 -export([second_recurrent_payment_success_test/1]).
 -export([another_shop_test/1]).
 -export([not_recurring_first_test/1]).
--export([customer_paytools_as_first_test/1]).
 -export([cancelled_first_payment_test/1]).
 -export([not_permitted_recurrent_test/1]).
 -export([not_exists_invoice_test/1]).
@@ -77,7 +75,6 @@ groups() ->
             second_recurrent_payment_success_test,
             another_shop_test,
             not_recurring_first_test,
-            customer_paytools_as_first_test,
             cancelled_first_payment_test,
             not_exists_invoice_test,
             not_exists_payment_test
@@ -109,16 +106,16 @@ init_per_suite(C) ->
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyID = hg_utils:unique_id(),
     PartyClient = {party_client:create_client(), party_client:create_context()},
-    CustomerClient = hg_client_customer:start(hg_ct_helper:create_client(RootUrl)),
     _ = hg_ct_helper:create_party(PartyID, PartyClient),
-    Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
-    Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    ok = hg_context:save(hg_context:create()),
+    Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient),
+    Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient),
+    ok = hg_context:cleanup(),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     C1 = [
         {apps, Apps},
         {root_url, RootUrl},
-        {customer_client, CustomerClient},
         {party_id, PartyID},
         {shop_id, Shop1ID},
         {another_shop_id, Shop2ID},
@@ -221,16 +218,6 @@ not_recurring_first_test(C) ->
     Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
     ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment has no recurrent token">>},
     {error, ExpectedError} = start_payment(Invoice2ID, Payment2Params, Client).
-
--spec customer_paytools_as_first_test(config()) -> test_result().
-customer_paytools_as_first_test(C) ->
-    Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    CustomerID = make_customer_w_rec_tool(cfg(party_id, C), ShopID, cfg(customer_client, C), ?pmt_sys(<<"visa-ref">>)),
-    PaymentParams = make_customer_payment_params(CustomerID),
-    ExpectedError = #base_InvalidRequest{errors = [<<"Invalid payer">>]},
-    {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
 -spec cancelled_first_payment_test(config()) -> test_result().
 cancelled_first_payment_test(C) ->
@@ -426,58 +413,6 @@ await_payment_cancel(InvoiceID, PaymentID, Reason, Client) ->
     {ok, _Events} = await_events(InvoiceID, Pattern, Client),
     PaymentID.
 
-make_customer_w_rec_tool(PartyID, ShopID, Client, PmtSys) ->
-    CustomerParams = hg_ct_helper:make_customer_params(PartyID, ShopID, <<"InvoicingTests">>),
-    #payproc_Customer{id = CustomerID} =
-        hg_client_customer:create(CustomerParams, Client),
-    #payproc_CustomerBinding{id = BindingID} =
-        hg_client_customer:start_binding(
-            CustomerID,
-            hg_ct_helper:make_customer_binding_params(hg_dummy_provider:make_payment_tool(no_preauth, PmtSys)),
-            Client
-        ),
-    ok = wait_for_binding_success(CustomerID, BindingID, Client),
-    CustomerID.
-
-wait_for_binding_success(CustomerID, BindingID, Client) ->
-    wait_for_binding_success(CustomerID, BindingID, 15000, Client).
-
-wait_for_binding_success(CustomerID, BindingID, TimeLeft, Client) when TimeLeft > 0 ->
-    Target = ?customer_binding_changed(BindingID, ?customer_binding_status_changed(?customer_binding_succeeded())),
-    Started = genlib_time:ticks(),
-    Event = hg_client_customer:pull_event(CustomerID, Client),
-    R =
-        case Event of
-            {ok, ?customer_event(Changes)} ->
-                lists:member(Target, Changes);
-            _ ->
-                false
-        end,
-    case R of
-        true ->
-            ok;
-        false ->
-            timer:sleep(200),
-            Now = genlib_time:ticks(),
-            TimeLeftNext = TimeLeft - (Now - Started) div 1000,
-            wait_for_binding_success(CustomerID, BindingID, TimeLeftNext, Client)
-    end;
-wait_for_binding_success(_, _, _, _) ->
-    timeout.
-
-make_customer_payment_params(CustomerID) ->
-    make_customer_payment_params(CustomerID, true).
-
-make_customer_payment_params(CustomerID, MakeRecurrent) ->
-    #payproc_InvoicePaymentParams{
-        payer =
-            {customer, #payproc_CustomerPayerParams{
-                customer_id = CustomerID
-            }},
-        flow = {instant, #payproc_InvoicePaymentParamsFlowInstant{}},
-        make_recurrent = MakeRecurrent
-    }.
-
 %% Event helpers
 
 await_events(InvoiceID, Filters, Client) ->
@@ -661,8 +596,8 @@ construct_domain_fixture(TermSet) ->
             data = #domain_Provider{
                 name = <<"Brovider">>,
                 description = <<"A provider but bro">>,
+                realm = test,
                 proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
-                abs_account = <<"1234567890">>,
                 accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
                 terms = #domain_ProvisionTermSet{
                     payments = #domain_PaymentsProvisionTerms{

@@ -26,11 +26,13 @@
 -type ref() :: dmsl_domain_thrift:'Reference'().
 -type object() :: dmsl_domain_thrift:'DomainObject'().
 -type data() :: _.
+-type get_error() :: {object_not_found, _}.
 
 -export_type([revision/0]).
 -export_type([ref/0]).
 -export_type([object/0]).
 -export_type([data/0]).
+-export_type([get_error/0]).
 
 -spec head() -> revision().
 head() ->
