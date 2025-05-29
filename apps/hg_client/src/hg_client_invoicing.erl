@@ -40,8 +40,6 @@
 -export([create_payment_adjustment/4]).
 -export([get_payment_adjustment/4]).
 
--export([compute_terms/3]).
-
 -export([explain_route/3]).
 
 -export([pull_event/2]).
@@ -90,12 +88,10 @@
 
 -type invoice_payment_explanation() :: dmsl_payproc_thrift:'InvoicePaymentExplanation'().
 
--type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type cash() :: undefined | dmsl_domain_thrift:'Cash'().
 -type cart() :: undefined | dmsl_domain_thrift:'InvoiceCart'().
 -type allocation_prototype() :: undefined | dmsl_domain_thrift:'AllocationPrototype'().
 -type event_range() :: dmsl_payproc_thrift:'EventRange'().
--type party_revision_param() :: dmsl_payproc_thrift:'PartyRevisionParam'().
 
 -type route_limit_context() :: dmsl_payproc_thrift:'RouteLimitContext'().
 
@@ -297,12 +293,6 @@ create_payment_adjustment(InvoiceID, PaymentID, ID, Client) ->
 get_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     Args = [InvoiceID, PaymentID, Params],
     map_result_error(gen_server:call(Client, {call, 'GetPaymentAdjustment', Args, otel_ctx:get_current()})).
-
--spec compute_terms(invoice_id(), party_revision_param(), pid()) -> term_set().
-compute_terms(InvoiceID, PartyRevision, Client) ->
-    map_result_error(
-        gen_server:call(Client, {call, 'ComputeTerms', [InvoiceID, PartyRevision], otel_ctx:get_current()})
-    ).
 
 -spec explain_route(invoice_id(), payment_id(), pid()) ->
     invoice_payment_explanation() | woody_error:business_error().

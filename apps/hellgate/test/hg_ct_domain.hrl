@@ -183,13 +183,13 @@
 -define(provider(ProvisionTermSet, FdOverrides), #domain_Provider{
     name = <<"Biba">>,
     description = <<"Payment terminal provider">>,
+    realm = test,
     proxy = #domain_Proxy{
         ref = ?prx(1),
         additional = #{
             <<"override">> => <<"biba">>
         }
     },
-    abs_account = <<"0987654321">>,
     accounts = hg_ct_fixture:construct_provider_account_set([?cur(<<"RUB">>)]),
     terms = ProvisionTermSet,
     route_fd_overrides = FdOverrides

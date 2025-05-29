@@ -37,9 +37,7 @@ stop() ->
 init([]) ->
     MachineHandlers = [
         hg_invoice,
-        hg_invoice_template,
-        hg_customer,
-        hg_recurrent_paytool
+        hg_invoice_template
     ],
     PartyClient = party_client:create_client(),
     DefaultTimeout = genlib_app:env(hellgate, default_woody_handling_timeout, ?DEFAULT_HANDLING_TIMEOUT),
@@ -76,9 +74,6 @@ get_api_child_spec(MachineHandlers, Opts) ->
                 [
                     construct_service_handler(invoicing, hg_invoice_handler, Opts),
                     construct_service_handler(invoice_templating, hg_invoice_template, Opts),
-                    construct_service_handler(customer_management, hg_customer, Opts),
-                    construct_service_handler(recurrent_paytool, hg_recurrent_paytool, Opts),
-                    construct_service_handler(recurrent_paytool_eventsink, hg_recurrent_paytool, Opts),
                     construct_service_handler(proxy_host_provider, hg_proxy_host_provider, Opts)
                 ],
             additional_routes => [PrometeusRoute | HealthRoutes],
