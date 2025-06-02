@@ -96,6 +96,21 @@ handle_function_('GetPaymentAdjustment', {InvoiceID, PaymentID, ID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
     hg_invoice_payment:get_adjustment(ID, get_payment_session(PaymentID, St));
+handle_function_('ComputeTerms', {InvoiceID}, _Opts) ->
+    _ = set_invoicing_meta(InvoiceID),
+    St = get_state(InvoiceID),
+    DomainRevision = hg_domain:head(),
+    Party = hg_party:get_party(get_party_id(St)),
+    Shop = assert_shop_exists(hg_party:get_shop(get_shop_id(St), Party, DomainRevision)),
+    _ = assert_party_shop_operable(Shop, Party),
+    VS = #{
+        cost => get_cost(St),
+        shop_id => Shop#domain_ShopConfig.id,
+        party_id => Party#domain_PartyConfig.id,
+        category => Shop#domain_ShopConfig.category,
+        currency => hg_invoice_utils:get_shop_currency(Shop)
+    },
+    hg_invoice_utils:compute_shop_terms(DomainRevision, Shop, VS);
 handle_function_(Fun, Args, _Opts) when
     Fun =:= 'StartPayment' orelse
         Fun =:= 'RegisterPayment' orelse
@@ -232,6 +247,15 @@ map_history_error({error, notfound}) ->
     throw(#payproc_InvoiceNotFound{}).
 
 %%
+
+get_party_id(#st{invoice = #domain_Invoice{owner_id = PartyID}}) ->
+    PartyID.
+
+get_shop_id(#st{invoice = #domain_Invoice{shop_id = ShopID}}) ->
+    ShopID.
+
+get_cost(#st{invoice = #domain_Invoice{cost = Cash}}) ->
+    Cash.
 
 get_payment_session(PaymentID, St) ->
     case try_get_payment_session(PaymentID, St) of
