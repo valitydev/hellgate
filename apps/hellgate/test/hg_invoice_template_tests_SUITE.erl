@@ -484,7 +484,6 @@ terms_retrieval(C) ->
     Client = cfg(client, C),
     ?invoice_tpl(TplID1) = create_invoice_tpl(C),
 
-    Timestamp = hg_datetime:format_now(),
     TermSet1 = hg_client_invoice_templating:compute_terms(TplID1, Client),
     #domain_TermSet{
         payments = #domain_PaymentsServiceTerms{
@@ -494,7 +493,7 @@ terms_retrieval(C) ->
 
     _ = hg_domain:update(construct_term_set_for_cost(5000, 11000)),
 
-    TermSet2 = hg_client_invoice_templating:compute_terms(TplID1, Timestamp, {timestamp, Timestamp}, Client),
+    TermSet2 = hg_client_invoice_templating:compute_terms(TplID1, Client),
     #domain_TermSet{
         payments = #domain_PaymentsServiceTerms{
             payment_methods =
@@ -509,7 +508,7 @@ terms_retrieval(C) ->
     Lifetime = make_lifetime(0, 0, 2),
     Cost = make_cost(unlim, sale, "1%"),
     ?invoice_tpl(TplID2) = create_invoice_tpl(C, <<"rubberduck">>, Lifetime, Cost),
-    TermSet3 = hg_client_invoice_templating:compute_terms(TplID2, Timestamp, {timestamp, Timestamp}, Client),
+    TermSet3 = hg_client_invoice_templating:compute_terms(TplID2, Client),
     #domain_TermSet{
         payments = #domain_PaymentsServiceTerms{
             payment_methods = {decisions, _}
