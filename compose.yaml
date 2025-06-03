@@ -27,7 +27,7 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-ba60639-epic-fixes_for_client
+    image: ghcr.io/valitydev/dominant-v2:sha-fede605-epic-domain-party-support
     command: /opt/dmt/bin/dmt foreground
     healthcheck:
       test: "/opt/dmt/bin/dmt ping"
@@ -65,7 +65,7 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-2150901-epic-dmt-client-v2
+    image: ghcr.io/valitydev/limiter:sha-5460b1e-epic-dmt-client-v2
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
@@ -121,7 +121,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-1455452-epic-dmt-client-v2
+    image: ghcr.io/valitydev/party-management:sha-e34b394-epic-dmt-client-v2
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       db:

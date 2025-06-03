@@ -6016,6 +6016,7 @@ init_route_cascading_group(C1) ->
     PartyID = cfg(party_id, C1),
     PartyClient = cfg(party_client, C1),
     Revision = hg_domain:head(),
+    ok = hg_context:save(hg_context:create()),
     _ = hg_domain:upsert(cascade_fixture_pre_shop_create(Revision, C1)),
     C2 = [
         {
@@ -6102,6 +6103,7 @@ init_route_cascading_group(C1) ->
         }
         | C1
     ],
+    ok = hg_context:cleanup(),
     _ = hg_domain:upsert(cascade_fixture(Revision, C2)),
     [{base_limits_domain_revision, Revision} | C2].
 
