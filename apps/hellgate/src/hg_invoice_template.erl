@@ -81,7 +81,7 @@ handle_function_('Delete' = Fun, {TplID} = Args, _Opts) ->
     _ = get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party),
     _ = set_meta(TplID),
     call(TplID, Fun, Args);
-handle_function_('ComputeTerms', {TplID, _Timestamp, _PartyRevision0}, _Opts) ->
+handle_function_('ComputeTerms', {TplID}, _Opts) ->
     _ = set_meta(TplID),
     Tpl = get_invoice_template(TplID),
     Cost =
@@ -91,18 +91,27 @@ handle_function_('ComputeTerms', {TplID, _Timestamp, _PartyRevision0}, _Opts) ->
             _ ->
                 undefined
         end,
-    VS0 = #{
-        cost => Cost
-    },
-    VS = hg_varset:prepare_varset(VS0),
     Revision = hg_party:get_party_revision(),
     Party = hg_party:checkout(Tpl#domain_InvoiceTemplate.owner_id, Revision),
     Shop = hg_party:get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party, Revision),
+    _ = assert_party_shop_operable(Shop, Party),
+    VS = #{
+        cost => Cost,
+        shop_id => Shop#domain_ShopConfig.id,
+        party_id => Party#domain_PartyConfig.id,
+        category => Shop#domain_ShopConfig.category,
+        currency => hg_invoice_utils:get_shop_currency(Shop)
+    },
     hg_invoice_utils:compute_shop_terms(
         Revision,
         Shop,
         VS
     ).
+
+assert_party_shop_operable(Shop, Party) ->
+    _ = hg_invoice_utils:assert_party_operable(Party),
+    _ = hg_invoice_utils:assert_shop_operable(Shop),
+    ok.
 
 get_party(PartyID) ->
     Party = hg_party:get_party(PartyID),
