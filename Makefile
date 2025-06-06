@@ -15,7 +15,7 @@ DEV_IMAGE_TAG = $(TEST_CONTAINER_NAME)-dev
 DEV_IMAGE_ID = $(file < .image.dev)
 
 DOCKER ?= docker
-DOCKERCOMPOSE ?= docker-compose
+DOCKERCOMPOSE ?= docker compose
 DOCKERCOMPOSE_W_ENV = DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE) -f compose.yaml -f compose.tracing.yaml
 REBAR ?= rebar3
 TEST_CONTAINER_NAME ?= testrunner
@@ -63,6 +63,16 @@ wdeps-%: dev-image
 	res=$$?; \
 	$(DOCKERCOMPOSE_W_ENV) down; \
 	exit $$res
+
+# Database tasks
+
+ifeq (db,$(firstword $(MAKECMDGOALS)))
+  DATABASE_NAME := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(eval $(DATABASE_NAME):;@:)
+endif
+
+db:
+	$(DOCKERCOMPOSE_W_ENV) exec db bash -c "PGPASSWORD=postgres psql -U $(DATABASE_NAME) -d $(DATABASE_NAME)"
 
 # Rebar tasks
 

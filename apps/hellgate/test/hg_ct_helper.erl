@@ -115,8 +115,9 @@ start_app(dmt_client = AppName) ->
                 }}
             ]},
             {service_urls, #{
-                'Repository' => <<"http://dominant:8022/v1/domain/repository">>,
-                'RepositoryClient' => <<"http://dominant:8022/v1/domain/repository_client">>
+                'AuthorManagement' => <<"http://dmt:8022/v1/domain/author">>,
+                'Repository' => <<"http://dmt:8022/v1/domain/repository">>,
+                'RepositoryClient' => <<"http://dmt:8022/v1/domain/repository_client">>
             }}
         ]),
         #{}
@@ -268,11 +269,11 @@ start_app(epg_connector = AppName) ->
         start_app(AppName, [
             {databases, #{
                 default_db => #{
-                    host => "postgres",
+                    host => "db",
                     port => 5432,
-                    database => "progressor_db",
-                    username => "progressor",
-                    password => "progressor"
+                    database => "hellgate",
+                    username => "hellgate",
+                    password => "postgres"
                 }
             }},
             {pools, #{
