@@ -146,7 +146,10 @@ handle_function_('ExplainRoute', {InvoiceID, PaymentID}, _Opts) ->
     hg_routing_explanation:get_explanation(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)).
 
 ensure_started(ID, TemplateID, Params, Allocation, Mutations) ->
+    ErrorText = "[ensure_started] Args ID ~p TemplateID ~p Params ~p  ~p:~p",
+    _ = logger:warning(ErrorText, [ID, TemplateID, Params, Allocation, Mutations]),
     Invoice = hg_invoice:create(ID, TemplateID, Params, Allocation, Mutations),
+    _ = logger:warning("Inoice ~p", [Invoice]),
     case hg_machine:start(hg_invoice:namespace(), ID, hg_invoice:marshal_invoice(Invoice)) of
         {ok, _} -> ok;
         {error, exists} -> ok;
