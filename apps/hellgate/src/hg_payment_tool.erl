@@ -30,8 +30,6 @@ try_get_payment_service_w_ref(Ref, Revision) ->
 
 -spec has_any_payment_method(t(), ordsets:ordset(method())) -> boolean().
 has_any_payment_method(PaymentTool, SupportedMethods) ->
-    Method = get_method(PaymentTool),
-    logger:warning("validate payment tool args. Method: ~p . Supported: ~p", [Method, SupportedMethods]),
     ordsets:is_element(get_method(PaymentTool), SupportedMethods).
 
 -spec get_method(t()) -> method().
