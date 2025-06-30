@@ -59,7 +59,10 @@ init([]) ->
 
 get_api_child_spec(MachineHandlers, Opts) ->
     {ok, Ip} = inet:parse_address(genlib_app:env(?MODULE, ip, "::")),
-    HealthRoutes = construct_health_routes(genlib_app:env(?MODULE, health_check, #{})),
+    %HealthRoutes = construct_health_routes(genlib_app:env(?MODULE, health_check, #{})),
+    HealthRoutes =
+        construct_health_routes(liveness, genlib_app:env(?MODULE, health_check_liveness, #{})) ++
+            construct_health_routes(readiness, genlib_app:env(?MODULE, health_check_readiness, #{})),
     EventHandlerOpts = genlib_app:env(?MODULE, scoper_event_handler_options, #{}),
     PrometeusRoute = get_prometheus_route(),
     woody_server:child_spec(
@@ -81,8 +84,10 @@ get_api_child_spec(MachineHandlers, Opts) ->
         }
     ).
 
-construct_health_routes(Check) ->
-    [erl_health_handle:get_route(enable_health_logging(Check))].
+construct_health_routes(liveness, Check) ->
+    [erl_health_handle:get_liveness_route(enable_health_logging(Check))];
+construct_health_routes(readiness, Check) ->
+    [erl_health_handle:get_readiness_route(enable_health_logging(Check))].
 
 enable_health_logging(Check) ->
     EvHandler = {erl_health_event_handler, []},
