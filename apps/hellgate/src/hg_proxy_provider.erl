@@ -25,8 +25,7 @@
 -type change() :: dmsl_payproc_thrift:'SessionChangePayload'().
 -type proxy_state() :: dmsl_base_thrift:'Opaque'().
 -type proxy_intent() ::
-    dmsl_proxy_provider_thrift:'Intent'()
-    | dmsl_proxy_provider_thrift:'RecurrentTokenIntent'().
+    dmsl_proxy_provider_thrift:'Intent'().
 
 %%
 

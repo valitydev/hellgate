@@ -1860,8 +1860,8 @@ payment_error_in_cancel_session_does_not_cause_payment_failure(C) ->
     PartyID = cfg(party_id, C),
     PartyPair = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
-    Party = hg_party:get_party(PartyID),
-    Shop = hg_party:get_shop(ShopID, Party),
+    {PartyID, Party} = hg_party:get_party(PartyID),
+    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
     {SettlementID, _GuaranteeID} = hg_invoice_utils:get_shop_account(Shop),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(1000), 42000, C),
     PaymentParams = make_scenario_payment_params([good, fail, good], {hold, capture}, ?pmt_sys(<<"visa-ref">>)),
@@ -1887,8 +1887,8 @@ payment_error_in_capture_session_does_not_cause_payment_failure(C) ->
     ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
     Amount = 42000,
     Cost = ?cash(Amount, <<"RUB">>),
-    Party = hg_party:get_party(PartyID),
-    Shop = hg_party:get_shop(ShopID, Party),
+    {PartyID, Party} = hg_party:get_party(PartyID),
+    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
     {SettlementID, _GuaranteeID} = hg_invoice_utils:get_shop_account(Shop),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(1000), Amount, C),
     PaymentParams = make_scenario_payment_params([good, fail, good], {hold, cancel}, ?pmt_sys(<<"visa-ref">>)),
@@ -2687,7 +2687,7 @@ payment_adjustment_chargeback_success(C) ->
     PartyPair = cfg(party_client, C),
     % % Контракт на основе шаблона ?trms(1)
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(3), ?pinst(1), PartyPair),
-    % Shop = hg_party:get_shop(PartyID, ShopID, PartyClient, , hg_party:get_party_revision()),
+    % {ShopID, Shop} = hg_party:get_shop(PartyID, ShopID, PartyClient, , hg_party:get_party_revision()),
     % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(3), PartyPair),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 10000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
@@ -2912,7 +2912,7 @@ payment_adjustment_change_amount_and_captured(C) ->
     Client = cfg(client, C),
     % PartyID = cfg(party_id, C),
     % {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
-    % Shop = hg_party:get_shop(PartyID, cfg(shop_id, C), hg_party:get_party_revision()),
+    % {ShopID, Shop} = hg_party:get_shop(PartyID, cfg(shop_id, C), hg_party:get_party_revision()),
 
     % reinit terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
@@ -3060,7 +3060,7 @@ payment_adjustment_change_amount_and_refund_all(C) ->
     % PartyID = cfg(party_id, C),
     ShopID = cfg(shop_id, C),
     % {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
-    % Shop = hg_party:get_shop(PartyID, ShopID, hg_party:get_party_revision()),
+    % {ShopID, Shop} = hg_party:get_shop(PartyID, ShopID, hg_party:get_party_revision()),
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
     % reinit merchant fees
     % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
@@ -4458,8 +4458,8 @@ start_chargeback(C, Cost, CBParams, PaymentParams) ->
     PartyID = cfg(party_id, C),
     PartyPair = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
-    Party = hg_party:get_party(PartyID),
-    Shop = hg_party:get_shop(ShopID, Party),
+    {PartyID, Party} = hg_party:get_party(PartyID),
+    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
     {SettlementID, _} = hg_invoice_utils:get_shop_account(Shop),
     Settlement0 = hg_accounting:get_balance(SettlementID),
     % 0.045
@@ -4478,8 +4478,8 @@ start_chargeback_partial_capture(C, Cost, Partial, CBParams, PmtSys) ->
     Cash = ?cash(Partial, <<"RUB">>),
     PartyPair = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
-    Party = hg_party:get_party(PartyID),
-    Shop = hg_party:get_shop(ShopID, Party),
+    {PartyID, Party} = hg_party:get_party(PartyID),
+    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
     {SettlementID, _} = hg_invoice_utils:get_shop_account(Shop),
     Settlement0 = hg_accounting:get_balance(SettlementID),
     % Fee          = 450, % 0.045
@@ -5899,11 +5899,11 @@ consistent_account_balances(C) ->
         end
     end,
 
-    Party = hg_party:get_party(cfg(party_id, C)),
+    {_PartyID, Party} = hg_party:get_party(cfg(party_id, C)),
     #domain_PartyConfig{shops = Shops} = Party,
     _ = lists:foreach(
         fun(#domain_ShopConfigRef{id = ShopID}) ->
-            Shop = hg_party:get_shop(ShopID, Party),
+            {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
             {ID1, ID2} = hg_invoice_utils:get_shop_account(Shop),
             ok = Fun(ID1, Shop),
             ok = Fun(ID2, Shop)

@@ -78,6 +78,7 @@
 %% Internal types
 
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
@@ -114,6 +115,7 @@
 
 -type injected_context() :: #{
     party := party(),
+    party_id := party_id(),
     invoice := invoice(),
     payment := payment(),
     shop := shop(),
@@ -125,6 +127,7 @@
 
 -type options() :: #{
     party => party(),
+    party_id => party_id(),
     invoice => invoice(),
     timestamp => hg_datetime:timestamp(),
 
@@ -270,12 +273,12 @@ do_process(finished, _Refund) ->
 
 process_refund_cashflow(Refund) ->
     Action = hg_machine_action:set_timeout(0, hg_machine_action:new()),
-    Party = get_injected_party(Refund),
+    PartyID = get_injected_party_id(Refund),
+    #domain_Invoice{shop_id = ShopID} = get_injected_invoice(Refund),
     Shop = get_injected_shop(Refund),
-    #domain_InvoicePayment{cost = #domain_Cash{currency = Currency}} = get_injected_payment(Refund),
     hold_refund_limits(Refund),
 
-    #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(Currency, Party, Shop, #{}),
+    #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(PartyID, {ShopID, Shop}, #{}),
     _ = prepare_refund_cashflow(Refund),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
     #{min_available_amount := AvailableAmount} = hg_accounting:get_balance(SettlementID),
@@ -371,9 +374,9 @@ get_limits(Refund) ->
 get_provider_terms(Revision, Payment, Invoice, Party, Refund) ->
     Route = route(Refund),
     #domain_Invoice{shop_id = ShopID} = Invoice,
-    Shop = hg_party:get_shop(ShopID, Party, Revision),
+    ShopObj = hg_party:get_shop(ShopID, Party, Revision),
     VS0 = construct_payment_flow(Payment),
-    VS1 = collect_validation_varset(Party, Shop, Payment, VS0),
+    VS1 = collect_validation_varset(get_injected_party_id(Refund), ShopObj, Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
 construct_payment_flow(Payment) ->
@@ -389,10 +392,8 @@ reconstruct_payment_flow(?invoice_payment_flow_hold(_OnHoldExpiration, HeldUntil
     Seconds = hg_datetime:parse_ts(HeldUntil) - hg_datetime:parse_ts(CreatedAt),
     #{flow => {hold, ?hold_lifetime(Seconds)}}.
 
-collect_validation_varset(Party, Shop, Payment, VS) ->
-    #domain_PartyConfig{id = PartyID} = Party,
+collect_validation_varset(PartyID, {ShopID, Shop}, Payment, VS) ->
     #domain_ShopConfig{
-        id = ShopID,
         category = Category
     } = Shop,
     #domain_InvoicePayment{
@@ -491,9 +492,11 @@ inject_context(Options, Refund) ->
     #domain_Invoice{id = InvoiceID, shop_id = ShopID} = Invoice,
     #domain_InvoicePayment{id = PaymentID, domain_revision = Revision} = Payment,
     Party = maps:get(party, Options),
+    PartyID = maps:get(party_id, Options),
     Shop = hg_party:get_shop(ShopID, Party, Revision),
     Context = genlib_map:compact(#{
         party => Party,
+        party_id => PartyID,
         invoice => Invoice,
         payment => Payment,
         shop => Shop,
@@ -505,6 +508,7 @@ inject_context(Options, Refund) ->
     Refund#{injected_context => Context}.
 
 get_injected_party(#{injected_context := #{party := V}}) -> V.
+get_injected_party_id(#{injected_context := #{party_id := V}}) -> V.
 get_injected_invoice(#{injected_context := #{invoice := V}}) -> V.
 get_injected_payment(#{injected_context := #{payment := V}}) -> V.
 get_injected_shop(#{injected_context := #{shop := V}}) -> V.

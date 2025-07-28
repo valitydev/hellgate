@@ -278,13 +278,10 @@ gather_varset(Payment, Opts) ->
         payer = Payer,
         domain_revision = Revision
     } = Payment,
-    #domain_PartyConfig{
-        id = PartyID
-    } = get_party(Opts),
-    #domain_ShopConfig{
-        id = ShopID,
+    PartyID = get_party_id(Opts),
+    {ShopID, #domain_ShopConfig{
         category = Category
-    } = get_shop(Opts, Revision),
+    }} = get_shop(Opts, Revision),
     #payproc_Varset{
         category = Category,
         currency = Cost#domain_Cash.currency,
@@ -294,8 +291,8 @@ gather_varset(Payment, Opts) ->
         party_id = PartyID
     }.
 
-get_party(#{party := Party}) ->
-    Party.
+get_party_id(#{party_id := PartyID}) ->
+    PartyID.
 
 get_shop(#{party := Party, invoice := Invoice}, Revision) ->
     #domain_Invoice{shop_id = ShopID} = Invoice,

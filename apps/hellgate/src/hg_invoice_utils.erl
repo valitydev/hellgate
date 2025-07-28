@@ -30,6 +30,7 @@
 -type cash_range() :: dmsl_domain_thrift:'CashRange'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
+-type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type payment_service_terms() :: dmsl_domain_thrift:'PaymentsServiceTerms'().
 -type varset() :: dmsl_payproc_thrift:'Varset'().
@@ -82,8 +83,8 @@ assert_shop_operable(V) ->
     _ = assert_shop_active(V),
     V.
 
--spec assert_shop_exists(shop() | undefined) -> shop().
-assert_shop_exists(#domain_ShopConfig{} = V) ->
+-spec assert_shop_exists({shop_id(), shop()} | undefined) -> {shop_id(), shop()}.
+assert_shop_exists({_, #domain_ShopConfig{}} = V) ->
     V;
 assert_shop_exists(undefined) ->
     throw(#payproc_ShopNotFound{}).
@@ -128,21 +129,15 @@ validate_currency_(_, _) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid currency">>]}).
 
 -spec get_shop_currency(shop()) -> currency().
-get_shop_currency(#domain_ShopConfig{currency_configs = Configs}) when is_map(Configs) ->
-    %% TODO: fix it when add multi currency support
-    [Currency | _] = maps:keys(Configs),
+get_shop_currency(#domain_ShopConfig{account = #domain_ShopAccount{currency = Currency}}) ->
     Currency.
 
 -spec get_shop_account(shop()) -> {account_id(), account_id()}.
-get_shop_account(#domain_ShopConfig{currency_configs = Configs}) when is_map(Configs) ->
-    %% TODO: fix it when add multi currency support
-    [{_Currency, #domain_ShopCurrencyConfig{settlement = SettlementID, guarantee = GuaranteeID}} | _] = maps:to_list(
-        Configs
-    ),
+get_shop_account(#domain_ShopConfig{account = #domain_ShopAccount{settlement = SettlementID, guarantee = GuaranteeID}}) ->
     {SettlementID, GuaranteeID}.
 
 -spec assert_party_unblocked(party()) -> true | no_return().
-assert_party_unblocked(#domain_PartyConfig{blocking = V = {Status, _}}) ->
+assert_party_unblocked(#domain_PartyConfig{block = V = {Status, _}}) ->
     Status == unblocked orelse throw(#payproc_InvalidPartyStatus{status = {blocking, V}}).
 
 -spec assert_party_active(party()) -> true | no_return().
@@ -150,7 +145,7 @@ assert_party_active(#domain_PartyConfig{suspension = V = {Status, _}}) ->
     Status == active orelse throw(#payproc_InvalidPartyStatus{status = {suspension, V}}).
 
 -spec assert_shop_unblocked(shop()) -> true | no_return().
-assert_shop_unblocked(#domain_ShopConfig{blocking = V = {Status, _}}) ->
+assert_shop_unblocked(#domain_ShopConfig{block = V = {Status, _}}) ->
     Status == unblocked orelse throw(#payproc_InvalidShopStatus{status = {blocking, V}}).
 
 -spec assert_shop_active(shop()) -> true | no_return().

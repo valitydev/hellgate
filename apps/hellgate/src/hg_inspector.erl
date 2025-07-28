@@ -100,14 +100,13 @@ inspect(
     RiskScore.
 
 get_payment_info(
-    #domain_ShopConfig{
-        id = ShopID,
+    Shop = #domain_ShopConfig{
         category = CategoryRef,
-        details = ShopDetails,
         location = Location
     },
     #domain_Invoice{
         owner_id = PartyID,
+        shop_id = ShopID,
         id = InvoiceID,
         created_at = InvoiceCreatedAt,
         due = InvoiceDue,
@@ -133,10 +132,8 @@ get_payment_info(
     ProxyShop = #proxy_inspector_Shop{
         id = ShopID,
         category = ShopCategory,
-        details = #domain_ShopDetails{
-            name = ShopDetails#domain_Details.name,
-            description = ShopDetails#domain_Details.description
-        },
+        name = Shop#domain_ShopConfig.name,
+        description = Shop#domain_ShopConfig.description,
         location = Location
     },
     ProxyInvoice = #proxy_inspector_Invoice{

@@ -10,8 +10,8 @@
 -type cash_flow_context() :: #{
     operation := refund | payment,
     provision_terms := dmsl_domain_thrift:'PaymentsProvisionTerms'(),
-    party := party(),
-    shop := shop(),
+    party := {party_id(), party()},
+    shop := {shop_id(), shop()},
     route := route(),
     payment := payment(),
     provider := provider(),
@@ -29,7 +29,9 @@
 -export([collect_cashflow/2]).
 
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
+-type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
@@ -39,8 +41,8 @@
 -type final_cash_flow() :: hg_cashflow:final_cash_flow().
 
 -spec collect_cashflow(cash_flow_context()) -> final_cash_flow().
-collect_cashflow(#{party := Party, shop := Shop, varset := VS, revision := Revision} = Context) ->
-    PaymentInstitution = get_cashflow_payment_institution(Party, Shop, VS, Revision),
+collect_cashflow(#{shop := {_, Shop}, varset := VS, revision := Revision} = Context) ->
+    PaymentInstitution = get_cashflow_payment_institution(Shop, VS, Revision),
     collect_cashflow(PaymentInstitution, Context).
 
 -spec collect_cashflow(payment_institution(), cash_flow_context()) -> final_cash_flow().
@@ -62,27 +64,26 @@ collect_allocation_cash_flow(
     Transactions,
     Context = #{
         revision := Revision,
-        party := Party,
-        shop := Shop,
+        shop := {_, Shop},
         varset := VS0
     }
 ) ->
     lists:foldl(
         fun(?allocation_trx(_ID, Target, Amount), Acc) ->
             ?allocation_trx_target_shop(PartyID, ShopID) = Target,
-            TargetParty = hg_party:get_party(PartyID),
-            TargetShop = hg_party:get_shop(ShopID, TargetParty, Revision),
+            {PartyID, TargetParty} = hg_party:get_party(PartyID),
+            {ShopID, TargetShop} = hg_party:get_shop(ShopID, TargetParty, Revision),
             VS1 = VS0#{
-                party_id => Party#domain_PartyConfig.id,
-                shop_id => Shop#domain_ShopConfig.id,
+                party_id => PartyID,
+                shop_id => ShopID,
                 cost => Amount
             },
             AllocationPaymentInstitution =
-                get_cashflow_payment_institution(Party, Shop, VS1, Revision),
+                get_cashflow_payment_institution(Shop, VS1, Revision),
             construct_transaction_cashflow(
                 Amount,
                 AllocationPaymentInstitution,
-                Context#{party => TargetParty, shop => TargetShop}
+                Context#{party => {PartyID, TargetParty}, shop => {ShopID, TargetShop}}
             ) ++ Acc
         end,
         [],
@@ -95,7 +96,7 @@ construct_transaction_cashflow(
     Context = #{
         revision := Revision,
         operation := OpType,
-        shop := Shop,
+        shop := {_, Shop},
         varset := VS
     }
 ) ->
@@ -122,7 +123,6 @@ construct_final_cashflow(Cashflow, Context, AccountMap) ->
     hg_cashflow:finalize(Cashflow, Context, AccountMap).
 
 get_cashflow_payment_institution(
-    _Party,
     #domain_ShopConfig{payment_institution = PaymentInstitutionRef},
     VS,
     Revision
@@ -161,7 +161,7 @@ get_selector_value(Name, Selector) ->
     hg_accounting:collect_account_context().
 make_collect_account_context(PaymentInstitution, #{
     payment := Payment,
-    party := Party,
+    party := {PartyID, _},
     shop := Shop,
     route := Route,
     provider := Provider,
@@ -170,7 +170,7 @@ make_collect_account_context(PaymentInstitution, #{
 }) ->
     #{
         payment => Payment,
-        party => Party,
+        party_id => PartyID,
         shop => Shop,
         route => Route,
         payment_institution => PaymentInstitution,
