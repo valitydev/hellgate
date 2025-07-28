@@ -1640,20 +1640,16 @@ mk_provider_w_term(TerminalRef, TerminalName, ProviderRef, ProviderName, Provide
     ].
 
 new_merchant_terms_attempt_limit(TermSetHierarchyRef, TargetTermSetHierarchyRef, Attempts, Revision) ->
-    #domain_TermSetHierarchy{term_sets = [BaseTermSet0]} =
+    #domain_TermSetHierarchy{term_sets = [TermsSet]} =
         hg_domain:get(Revision, {term_set_hierarchy, TermSetHierarchyRef}),
-    #domain_TimedTermSet{terms = TermsSet} = BaseTermSet0,
     #domain_TermSet{payments = PaymentsTerms0} = TermsSet,
     PaymentsTerms1 = PaymentsTerms0#domain_PaymentsServiceTerms{
         attempt_limit = {value, #domain_AttemptLimit{attempts = Attempts}}
     },
-    BaseTermSet1 = BaseTermSet0#domain_TimedTermSet{
-        terms = TermsSet#domain_TermSet{payments = PaymentsTerms1}
-    },
     [
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = TargetTermSetHierarchyRef,
-            data = #domain_TermSetHierarchy{term_sets = [BaseTermSet1]}
+            data = #domain_TermSetHierarchy{term_sets = [TermsSet#domain_TermSet{payments = PaymentsTerms1}]}
         }}
     ].
 
@@ -2688,7 +2684,6 @@ payment_adjustment_chargeback_success(C) ->
     % % Контракт на основе шаблона ?trms(1)
     ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(3), ?pinst(1), PartyPair),
     % {ShopID, Shop} = hg_party:get_shop(PartyID, ShopID, PartyClient, , hg_party:get_party_revision()),
-    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?tmpl(3), PartyPair),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 10000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     CashFlow = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
@@ -2916,8 +2911,6 @@ payment_adjustment_change_amount_and_captured(C) ->
 
     % reinit terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
-    % reinit merchant fees
-    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
 
     OriginalAmount = 100000,
     NewAmount = 200000,
@@ -3062,8 +3055,6 @@ payment_adjustment_change_amount_and_refund_all(C) ->
     % {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
     % {ShopID, Shop} = hg_party:get_shop(PartyID, ShopID, hg_party:get_party_revision()),
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
-    % reinit merchant fees
-    % ok = hg_ct_helper:adjust_contract(PartyID, Shop#domain_ShopConfig.contract_id, ?trms(1), PartyPair),
 
     OriginalAmount = 100000,
     NewAmount = 200000,
@@ -6381,10 +6372,6 @@ payment_cascade_success_w_refund(C) ->
 
 payment_big_cascade_success_fixture_pre(Revision, _C) ->
     lists:flatten([
-        hg_ct_fixture:construct_contract_template(
-            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID)),
-            ?trms(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID))
-        ),
         new_merchant_terms_attempt_limit(
             ?trms(1),
             ?trms(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID)),
@@ -6519,10 +6506,6 @@ payment_big_cascade_success_fixture(Revision, _C) ->
 
 payment_cascade_limit_overflow_fixture_pre(Revision, _C) ->
     lists:flatten([
-        hg_ct_fixture:construct_contract_template(
-            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
-            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID))
-        ),
         new_merchant_terms_attempt_limit(
             ?trms(1),
             ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
@@ -6751,10 +6734,6 @@ payment_big_cascade_success(C) ->
 
 payment_cascade_fail_provider_error_fixture_pre(Revision, _C) ->
     lists:flatten([
-        hg_ct_fixture:construct_contract_template(
-            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID)),
-            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID))
-        ),
         new_merchant_terms_attempt_limit(
             ?trms(1),
             ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID)),
@@ -6871,10 +6850,6 @@ payment_cascade_fail_provider_error(C) ->
 
 payment_cascade_fail_ui_fixture_pre(Revision, _C) ->
     lists:flatten([
-        hg_ct_fixture:construct_contract_template(
-            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
-            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID))
-        ),
         new_merchant_terms_attempt_limit(
             ?trms(1),
             ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
@@ -6994,10 +6969,6 @@ payment_cascade_fail_ui(C) ->
 
 payment_cascade_fail_wo_route_candidates_fixture_pre(Revision, _C) ->
     lists:flatten([
-        hg_ct_fixture:construct_contract_template(
-            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID)),
-            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID))
-        ),
         new_merchant_terms_attempt_limit(
             ?trms(1),
             ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID)),
@@ -7078,10 +7049,6 @@ payment_cascade_fail_wo_route_candidates(C) ->
 
 payment_cascade_fail_wo_available_attempt_limit_fixture_pre(Revision, _C) ->
     lists:flatten([
-        hg_ct_fixture:construct_contract_template(
-            ?tmpl(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID)),
-            ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID))
-        ),
         new_merchant_terms_attempt_limit(
             ?trms(1),
             ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID)),
@@ -8420,10 +8387,6 @@ construct_domain_fixture() ->
             #{<<"link_state">> => <<"temporary_failure">>}
         ),
 
-        hg_ct_fixture:construct_contract_template(?tmpl(1), ?trms(1)),
-        hg_ct_fixture:construct_contract_template(?tmpl(2), ?trms(2)),
-        hg_ct_fixture:construct_contract_template(?tmpl(3), ?trms(3)),
-
         hg_ct_fixture:construct_system_account_set(?sas(1)),
         hg_ct_fixture:construct_system_account_set(?sas(2)),
         hg_ct_fixture:construct_external_account_set(?eas(1)),
@@ -8491,16 +8454,6 @@ construct_domain_fixture() ->
             data = #domain_PaymentInstitution{
                 name = <<"Test Inc.">>,
                 system_account_set = {value, ?sas(1)},
-                default_contract_template = {value, ?tmpl(1)},
-                providers =
-                    {value,
-                        ?ordset([
-                            ?prv(1),
-                            ?prv(2),
-                            ?prv(3),
-                            ?prv(4),
-                            ?prv(5)
-                        ])},
                 payment_routing_rules = #domain_RoutingRules{
                     policies = ?ruleset(2),
                     prohibitions = ?ruleset(3)
@@ -8563,18 +8516,10 @@ construct_domain_fixture() ->
             data = #domain_PaymentInstitution{
                 name = <<"Chetky Payments Inc.">>,
                 system_account_set = {value, ?sas(2)},
-                default_contract_template = {value, ?tmpl(2)},
                 payment_routing_rules = #domain_RoutingRules{
                     policies = ?ruleset(5),
                     prohibitions = ?ruleset(3)
                 },
-                providers =
-                    {value,
-                        ?ordset([
-                            ?prv(1),
-                            ?prv(2),
-                            ?prv(3)
-                        ])},
                 inspector =
                     {decisions, [
                         #domain_InspectorDecision{
@@ -8665,10 +8610,7 @@ construct_domain_fixture() ->
             ref = ?trms(1),
             data = #domain_TermSetHierarchy{
                 term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = TestTermSet
-                    }
+                    TestTermSet
                 ]
             }
         }},
@@ -8676,10 +8618,7 @@ construct_domain_fixture() ->
             ref = ?trms(2),
             data = #domain_TermSetHierarchy{
                 term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = DefaultTermSet
-                    }
+                    DefaultTermSet
                 ]
             }
         }},
@@ -9496,16 +9435,12 @@ construct_term_set_for_refund_eligibility_time(Seconds) ->
         }
     },
     [
-        hg_ct_fixture:construct_contract_template(?tmpl(100), ?trms(100)),
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = ?trms(100),
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(2),
                 term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = TermSet
-                    }
+                    TermSet
                 ]
             }
         }}
@@ -9518,29 +9453,26 @@ get_payment_adjustment_fixture(Revision) ->
             ref = ?trms(3),
             data = #domain_TermSetHierarchy{
                 term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = #domain_TermSet{
-                            payments = #domain_PaymentsServiceTerms{
+                    #domain_TermSet{
+                        payments = #domain_PaymentsServiceTerms{
+                            fees =
+                                {value, [
+                                    ?cfpost(
+                                        {merchant, settlement},
+                                        {system, settlement},
+                                        ?merchant_to_system_share_3
+                                    )
+                                ]},
+                            chargebacks = #domain_PaymentChargebackServiceTerms{
+                                allow = {constant, true},
                                 fees =
                                     {value, [
                                         ?cfpost(
                                             {merchant, settlement},
                                             {system, settlement},
-                                            ?merchant_to_system_share_3
+                                            ?share(1, 1, surplus)
                                         )
-                                    ]},
-                                chargebacks = #domain_PaymentChargebackServiceTerms{
-                                    allow = {constant, true},
-                                    fees =
-                                        {value, [
-                                            ?cfpost(
-                                                {merchant, settlement},
-                                                {system, settlement},
-                                                ?share(1, 1, surplus)
-                                            )
-                                        ]}
-                                }
+                                    ]}
                             }
                         }
                     }
@@ -9817,13 +9749,7 @@ payments_w_bank_card_issuer_conditions_fixture(Revision, _C) ->
     [
         {payment_institution, #domain_PaymentInstitutionObject{
             ref = ?pinst(1),
-            data = PaymentInstitution#domain_PaymentInstitution{
-                providers =
-                    {value,
-                        ?ordset([
-                            ?prv(100)
-                        ])}
-            }
+            data = PaymentInstitution#domain_PaymentInstitution{}
         }},
         {provider, #domain_ProviderObject{
             ref = ?prv(100),
@@ -9930,43 +9856,39 @@ payments_w_bank_card_issuer_conditions_fixture(Revision, _C) ->
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(1),
                 term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = #domain_TermSet{
-                            payments = #domain_PaymentsServiceTerms{
-                                cash_limit =
-                                    {decisions, [
-                                        #domain_CashLimitDecision{
-                                            if_ =
-                                                {condition,
-                                                    {payment_tool,
-                                                        {bank_card, #domain_BankCardCondition{
-                                                            definition = {issuer_country_is, kaz}
-                                                        }}}},
-                                            then_ =
-                                                {value,
-                                                    ?cashrng(
-                                                        {inclusive, ?cash(1000, <<"RUB">>)},
-                                                        {inclusive, ?cash(1000, <<"RUB">>)}
-                                                    )}
-                                        },
-                                        #domain_CashLimitDecision{
-                                            if_ = {constant, true},
-                                            then_ =
-                                                {value,
-                                                    ?cashrng(
-                                                        {inclusive, ?cash(1000, <<"RUB">>)},
-                                                        {exclusive, ?cash(1000000000, <<"RUB">>)}
-                                                    )}
-                                        }
-                                    ]}
-                            }
+                    #domain_TermSet{
+                        payments = #domain_PaymentsServiceTerms{
+                            cash_limit =
+                                {decisions, [
+                                    #domain_CashLimitDecision{
+                                        if_ =
+                                            {condition,
+                                                {payment_tool,
+                                                    {bank_card, #domain_BankCardCondition{
+                                                        definition = {issuer_country_is, kaz}
+                                                    }}}},
+                                        then_ =
+                                            {value,
+                                                ?cashrng(
+                                                    {inclusive, ?cash(1000, <<"RUB">>)},
+                                                    {inclusive, ?cash(1000, <<"RUB">>)}
+                                                )}
+                                    },
+                                    #domain_CashLimitDecision{
+                                        if_ = {constant, true},
+                                        then_ =
+                                            {value,
+                                                ?cashrng(
+                                                    {inclusive, ?cash(1000, <<"RUB">>)},
+                                                    {exclusive, ?cash(1000000000, <<"RUB">>)}
+                                                )}
+                                    }
+                                ]}
                         }
                     }
                 ]
             }
-        }},
-        hg_ct_fixture:construct_contract_template(?tmpl(4), ?trms(4))
+        }}
     ].
 
 payments_w_bank_conditions_fixture(_Revision, _C) ->
@@ -9976,37 +9898,34 @@ payments_w_bank_conditions_fixture(_Revision, _C) ->
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(1),
                 term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = #domain_TermSet{
-                            payments = #domain_PaymentsServiceTerms{
-                                cash_limit =
-                                    {decisions, [
-                                        #domain_CashLimitDecision{
-                                            if_ =
-                                                {condition,
-                                                    {payment_tool,
-                                                        {bank_card, #domain_BankCardCondition{
-                                                            definition = {issuer_bank_is, ?bank(1)}
-                                                        }}}},
-                                            then_ =
-                                                {value,
-                                                    ?cashrng(
-                                                        {inclusive, ?cash(1000, <<"RUB">>)},
-                                                        {inclusive, ?cash(1000, <<"RUB">>)}
-                                                    )}
-                                        },
-                                        #domain_CashLimitDecision{
-                                            if_ = {constant, true},
-                                            then_ =
-                                                {value,
-                                                    ?cashrng(
-                                                        {inclusive, ?cash(1000, <<"RUB">>)},
-                                                        {exclusive, ?cash(1000000000, <<"RUB">>)}
-                                                    )}
-                                        }
-                                    ]}
-                            }
+                    #domain_TermSet{
+                        payments = #domain_PaymentsServiceTerms{
+                            cash_limit =
+                                {decisions, [
+                                    #domain_CashLimitDecision{
+                                        if_ =
+                                            {condition,
+                                                {payment_tool,
+                                                    {bank_card, #domain_BankCardCondition{
+                                                        definition = {issuer_bank_is, ?bank(1)}
+                                                    }}}},
+                                        then_ =
+                                            {value,
+                                                ?cashrng(
+                                                    {inclusive, ?cash(1000, <<"RUB">>)},
+                                                    {inclusive, ?cash(1000, <<"RUB">>)}
+                                                )}
+                                    },
+                                    #domain_CashLimitDecision{
+                                        if_ = {constant, true},
+                                        then_ =
+                                            {value,
+                                                ?cashrng(
+                                                    {inclusive, ?cash(1000, <<"RUB">>)},
+                                                    {exclusive, ?cash(1000000000, <<"RUB">>)}
+                                                )}
+                                    }
+                                ]}
                         }
                     }
                 ]
@@ -10020,8 +9939,7 @@ payments_w_bank_conditions_fixture(_Revision, _C) ->
                 bins = ordsets:from_list([<<"42424242">>]),
                 binbase_id_patterns = ordsets:from_list([<<"TEST*BANK">>])
             }
-        }},
-        hg_ct_fixture:construct_contract_template(?tmpl(4), ?trms(4))
+        }}
     ].
 
 payment_manual_refund_fixture(_Revision) ->
@@ -10063,15 +9981,9 @@ construct_term_set_for_partial_capture_service_permit(_Revision, _C) ->
             ref = ?trms(5),
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(1),
-                term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = TermSet
-                    }
-                ]
+                term_sets = [TermSet]
             }
-        }},
-        hg_ct_fixture:construct_contract_template(?tmpl(6), ?trms(5))
+        }}
     ].
 
 construct_term_set_for_partial_capture_provider_permit(Revision, _C) ->

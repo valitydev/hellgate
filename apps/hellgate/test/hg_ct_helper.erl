@@ -23,7 +23,6 @@
 -export([block_shop/1]).
 -export([unblock_shop/1]).
 -export([create_battle_ready_shop/6]).
--export([adjust_contract/4]).
 
 -export([make_invoice_params/4]).
 -export([make_invoice_params/5]).
@@ -55,9 +54,6 @@
 
 -export([make_disposable_payment_resource/1]).
 
--export([make_meta_ns/0]).
--export([make_meta_data/0]).
--export([make_meta_data/1]).
 -export([get_hellgate_url/0]).
 
 -export([make_trace_id/1]).
@@ -443,8 +439,6 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type invoice_template_id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
 -type party_id() :: dmsl_domain_thrift:'PartyID'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
--type contract_id() :: dmsl_domain_thrift:'ContractID'().
--type contract_tpl() :: dmsl_domain_thrift:'ContractTemplateRef'().
 -type termset_ref() :: dmsl_domain_thrift:'TermSetHierarchyRef'().
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 -type turnover_limits() :: ordsets:ordset(turnover_limit()).
@@ -472,12 +466,11 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 create_party(PartyID, _Client) ->
     % Создаем Party как объект конфигурации
     PartyConfig = #domain_PartyConfig{
-        id = PartyID,
         contact_info = #domain_PartyContactInfo{
             registration_email = <<"test@test.ru">>
         },
-        created_at = hg_datetime:format_now(),
-        blocking =
+        name = <<"Test Party">>,
+        block =
             {unblocked, #domain_Unblocked{
                 reason = <<"">>,
                 since = hg_datetime:format_now()
@@ -526,7 +519,7 @@ activate_party(PartyID) ->
 block_party(PartyID) ->
     change_party(PartyID, fun(PartyConfig) ->
         PartyConfig#domain_PartyConfig{
-            blocking =
+            block =
                 {blocked, #domain_Blocked{
                     reason = <<"test">>,
                     since = hg_datetime:format_now()
@@ -538,7 +531,7 @@ block_party(PartyID) ->
 unblock_party(PartyID) ->
     change_party(PartyID, fun(PartyConfig) ->
         PartyConfig#domain_PartyConfig{
-            blocking =
+            block =
                 {unblocked, #domain_Unblocked{
                     reason = <<"test">>,
                     since = hg_datetime:format_now()
@@ -575,9 +568,7 @@ create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimit
 
     % Создаем Shop как объект конфигурации
     ShopConfig = #domain_ShopConfig{
-        id = ShopID,
-        created_at = hg_datetime:format_now(),
-        blocking =
+        block =
             {unblocked, #domain_Unblocked{
                 reason = <<"">>,
                 since = hg_datetime:format_now()
@@ -586,18 +577,14 @@ create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimit
             {active, #domain_Active{
                 since = hg_datetime:format_now()
             }},
-        details = #domain_Details{
-            name = <<"Test Shop">>,
-            description = <<"Test description">>
-        },
+        name = <<"Test Shop">>,
+        description = <<"Test description">>,
         location = {url, <<"www.url.ru">>},
         category = Category,
-        currency_configs = #{
-            #domain_CurrencyRef{symbolic_code = Currency} => #domain_ShopCurrencyConfig{
-                currency = #domain_CurrencyRef{symbolic_code = Currency},
-                settlement = SettlementID,
-                guarantee = GuaranteeID
-            }
+        account = #domain_ShopAccount{
+            currency = #domain_CurrencyRef{symbolic_code = Currency},
+            settlement = SettlementID,
+            guarantee = GuaranteeID
         },
         payment_institution = PaymentInstRef,
         terms = TermsRef,
@@ -655,7 +642,7 @@ activate_shop(ShopID) ->
 block_shop(ShopID) ->
     change_shop(ShopID, fun(ShopConfig) ->
         ShopConfig#domain_ShopConfig{
-            blocking =
+            block =
                 {blocked, #domain_Blocked{
                     reason = <<"test">>,
                     since = hg_datetime:format_now()
@@ -667,7 +654,7 @@ block_shop(ShopID) ->
 unblock_shop(ShopID) ->
     change_shop(ShopID, fun(ShopConfig) ->
         ShopConfig#domain_ShopConfig{
-            blocking =
+            block =
                 {unblocked, #domain_Unblocked{
                     reason = <<"test">>,
                     since = hg_datetime:format_now()
@@ -699,12 +686,11 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
 
     % Создаем Party как объект конфигурации
     PartyConfig = #domain_PartyConfig{
-        id = PartyID,
         contact_info = #domain_PartyContactInfo{
             registration_email = <<"test@test.ru">>
         },
-        created_at = hg_datetime:format_now(),
-        blocking =
+        name = <<"Test Party">>,
+        block =
             {unblocked, #domain_Unblocked{
                 reason = <<"">>,
                 since = hg_datetime:format_now()
@@ -731,9 +717,7 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
 
     % Создаем Shop как объект конфигурации
     ShopConfig = #domain_ShopConfig{
-        id = ShopID,
-        created_at = hg_datetime:format_now(),
-        blocking =
+        block =
             {unblocked, #domain_Unblocked{
                 reason = <<"">>,
                 since = hg_datetime:format_now()
@@ -742,18 +726,14 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
             {active, #domain_Active{
                 since = hg_datetime:format_now()
             }},
-        details = #domain_Details{
-            name = <<"Test Shop">>,
-            description = <<"Test description">>
-        },
+        name = <<"Test Shop">>,
+        description = <<"Test description">>,
         location = {url, <<"www.url.ru">>},
         category = Category,
-        currency_configs = #{
-            #domain_CurrencyRef{symbolic_code = Currency} => #domain_ShopCurrencyConfig{
-                currency = #domain_CurrencyRef{symbolic_code = Currency},
-                settlement = SettlementID,
-                guarantee = GuaranteeID
-            }
+        account = #domain_ShopAccount{
+            currency = #domain_CurrencyRef{symbolic_code = Currency},
+            settlement = SettlementID,
+            guarantee = GuaranteeID
         },
         terms = TermsRef,
         payment_institution = PaymentInstRef,
@@ -805,9 +785,7 @@ create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, 
 
     % Создаем Shop как объект конфигурации с дополнительными настройками для боевой среды
     ShopConfig = #domain_ShopConfig{
-        id = ShopID,
-        created_at = hg_datetime:format_now(),
-        blocking =
+        block =
             {unblocked, #domain_Unblocked{
                 reason = <<"">>,
                 since = hg_datetime:format_now()
@@ -816,18 +794,14 @@ create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, 
             {active, #domain_Active{
                 since = hg_datetime:format_now()
             }},
-        details = #domain_Details{
-            name = <<"Battle Ready Shop">>,
-            description = <<"Battle Ready Description">>
-        },
+        name = <<"Battle Ready Shop">>,
+        description = <<"Battle Ready Descriptio">>,
         location = {url, <<"www.battle-ready.ru">>},
         category = Category,
-        currency_configs = #{
-            #domain_CurrencyRef{symbolic_code = Currency} => #domain_ShopCurrencyConfig{
-                currency = #domain_CurrencyRef{symbolic_code = Currency},
-                settlement = SettlementID,
-                guarantee = GuaranteeID
-            }
+        account = #domain_ShopAccount{
+            currency = #domain_CurrencyRef{symbolic_code = Currency},
+            settlement = SettlementID,
+            guarantee = GuaranteeID
         },
         payment_institution = PaymentInstRef,
         terms = TermsRef,
@@ -849,33 +823,6 @@ create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, 
     end),
 
     ShopID.
-
--spec adjust_contract(party_id(), contract_id(), contract_tpl(), party_client()) -> ok.
-adjust_contract(PartyID, ContractID, TemplateRef, Client) ->
-    Changeset = [
-        {contract_modification, #payproc_ContractModificationUnit{
-            id = ContractID,
-            modification =
-                {adjustment_modification, #payproc_ContractAdjustmentModificationUnit{
-                    adjustment_id = hg_utils:unique_id(),
-                    modification =
-                        {creation, #payproc_ContractAdjustmentParams{
-                            template = TemplateRef
-                        }}
-                }}
-        }}
-    ],
-    create_claim(PartyID, Changeset, Client).
-
--spec create_claim(party_id(), list(), party_client()) -> ok.
-create_claim(PartyID, Changeset, {Client, Context}) ->
-    {ok, Claim} = party_client_thrift:create_claim(PartyID, Changeset, Client, Context),
-    case Claim of
-        #payproc_Claim{status = {accepted, _}} ->
-            ok;
-        #payproc_Claim{id = ID, revision = Rev} ->
-            party_client_thrift:accept_claim(PartyID, ID, Rev, Client, Context)
-    end.
 
 -spec make_invoice_params(party_id(), shop_id(), binary(), cash()) -> invoice_params().
 make_invoice_params(PartyID, ShopID, Product, Cost) ->
@@ -1074,22 +1021,6 @@ make_disposable_payment_resource({PaymentTool, SessionID}) ->
         payment_session_id = SessionID,
         client_info = #domain_ClientInfo{}
     }.
-
--spec make_meta_ns() -> dmsl_domain_thrift:'PartyMetaNamespace'().
-make_meta_ns() ->
-    list_to_binary(lists:concat(["NS-", erlang:system_time()])).
-
--spec make_meta_data() -> dmsl_domain_thrift:'PartyMetaData'().
-make_meta_data() ->
-    make_meta_data(<<"NS-0">>).
-
--spec make_meta_data(dmsl_domain_thrift:'PartyMetaNamespace'()) -> dmsl_domain_thrift:'PartyMetaData'().
-make_meta_data(NS) ->
-    {obj, #{
-        {str, <<"NS">>} => {str, NS},
-        {i, 42} => {str, <<"42">>},
-        {str, <<"STRING!">>} => {arr, []}
-    }}.
 
 -spec get_hellgate_url() -> string().
 get_hellgate_url() ->

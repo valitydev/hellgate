@@ -529,8 +529,6 @@ construct_domain_fixture(TermSet) ->
 
         hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{<<"risk_score">> => <<"low">>}),
 
-        hg_ct_fixture:construct_contract_template(?tmpl(1), ?trms(1)),
-
         hg_ct_fixture:construct_system_account_set(?sas(1)),
         hg_ct_fixture:construct_external_account_set(?eas(1)),
 
@@ -539,7 +537,6 @@ construct_domain_fixture(TermSet) ->
             data = #domain_PaymentInstitution{
                 name = <<"Test Inc.">>,
                 system_account_set = {value, ?sas(1)},
-                default_contract_template = {value, ?tmpl(1)},
                 payment_routing_rules = #domain_RoutingRules{
                     policies = ?ruleset(2),
                     prohibitions = ?ruleset(1)
@@ -584,10 +581,7 @@ construct_domain_fixture(TermSet) ->
             data = #domain_TermSetHierarchy{
                 parent_terms = undefined,
                 term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = TermSet
-                    }
+                    TermSet
                 ]
             }
         }},
