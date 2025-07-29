@@ -34,7 +34,7 @@
 -define(payinst(ID), #domain_PaymentInstitutionRef{id = ID}).
 -define(ruleset(ID), #domain_RoutingRulesetRef{id = ID}).
 -define(trnvrlimit(ID, UpperBoundary), #domain_TurnoverLimit{
-    id = ID, domain_revision = dmt_client:get_last_version(), upper_boundary = UpperBoundary
+    id = ID, domain_revision = dmt_client:get_latest_version(), upper_boundary = UpperBoundary
 }).
 
 -define(cash(Amount, SymCode), #domain_Cash{amount = Amount, currency = ?cur(SymCode)}).

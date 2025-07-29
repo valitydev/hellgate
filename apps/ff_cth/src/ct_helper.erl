@@ -97,8 +97,9 @@ start_app(dmt_client = AppName) ->
                 {ff_woody_event_handler, #{}}
             ]},
             {service_urls, #{
-                'Repository' => <<"http://dominant:8022/v1/domain/repository">>,
-                'RepositoryClient' => <<"http://dominant:8022/v1/domain/repository_client">>
+                'AuthorManagement' => <<"http://dmt:8022/v1/domain/author">>,
+                'Repository' => <<"http://dmt:8022/v1/domain/repository">>,
+                'RepositoryClient' => <<"http://dmt:8022/v1/domain/repository_client">>
             }}
         ]),
         #{}

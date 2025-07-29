@@ -1,6 +1,6 @@
 services:
 
-  dominant:
+  dmt:
     environment: &otlp_enabled
       OTEL_TRACES_EXPORTER: otlp
       OTEL_TRACES_SAMPLER: parentbased_always_off
@@ -14,9 +14,6 @@ services:
     environment: *otlp_enabled
 
   party-management:
-    environment: *otlp_enabled
-
-  machinegun:
     environment: *otlp_enabled
 
   testrunner:

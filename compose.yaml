@@ -12,11 +12,9 @@ services:
       - .:$PWD
     hostname: fistful-server
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
-      machinegun:
-        condition: service_healthy
-      dominant:
+      dmt:
         condition: service_healthy
       party-management:
         condition: service_healthy
@@ -29,32 +27,36 @@ services:
     working_dir: $PWD
     command: /sbin/init
 
-  dominant:
-    image: ghcr.io/valitydev/dominant:sha-4bfce76
-    command: /opt/dominant/bin/dominant foreground
-    depends_on:
-      machinegun:
-        condition: service_healthy
+  dmt:
+    image: ghcr.io/valitydev/dominant-v2:sha-fe53b88
+    command: /opt/dmt/bin/dmt foreground
     healthcheck:
-      test: "/opt/dominant/bin/dominant ping"
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      test: "/opt/dmt/bin/dmt ping"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DMT_KAFKA_ENABLED: "0"
+    volumes:
+      - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
 
   machinegun:
-    image: ghcr.io/valitydev/mg2:sha-8bbcd29
+    image: ghcr.io/valitydev/mg2:sha-0fd6d09
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
       - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
     healthcheck:
       test: "/opt/machinegun/bin/machinegun ping"
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      interval: 5s
+      timeout: 1s
+      retries: 20
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-08cdd07
+    image: ghcr.io/valitydev/limiter:sha-8fd529e
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
@@ -62,7 +64,7 @@ services:
       shumway:
         condition: service_started
       liminator:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: "/opt/limiter/bin/limiter ping"
       interval: 5s
@@ -73,16 +75,15 @@ services:
     image: ghcr.io/valitydev/shumway:sha-658587c
     restart: unless-stopped
     depends_on:
-      - shumway-db
-    ports:
-      - "8022"
+      db:
+        condition: service_healthy
     entrypoint:
       - java
       - -Xmx512m
       - -jar
       - /opt/shumway/shumway.jar
-      - --spring.datasource.url=jdbc:postgresql://shumway-db:5432/shumway
-      - --spring.datasource.username=postgres
+      - --spring.datasource.url=jdbc:postgresql://db:5432/shumway
+      - --spring.datasource.username=shumway
       - --spring.datasource.password=postgres
       - --management.endpoint.metrics.enabled=false
       - --management.endpoint.prometheus.enabled=false
@@ -90,39 +91,33 @@ services:
       disable: true
 
   liminator:
-    image: ghcr.io/valitydev/liminator:sha-fc6546f
+    image: ghcr.io/valitydev/liminator:sha-672e804
     restart: unless-stopped
     entrypoint:
       - java
       - -Xmx512m
       - -jar
       - /opt/liminator/liminator.jar
-      - --spring.datasource.url=jdbc:postgresql://liminator-db:5432/liminator
-      - --spring.datasource.username=vality
+      - --spring.datasource.url=jdbc:postgresql://db:5432/liminator
+      - --spring.datasource.username=liminator
       - --spring.datasource.password=postgres
-      - --spring.flyway.url=jdbc:postgresql://liminator-db:5432/liminator
-      - --spring.flyway.username=vality
-      - --spring.flyway.password=postgres
       - --service.skipExistedHoldOps=false
     depends_on:
-      - liminator-db
+      db:
+        condition: service_healthy
     healthcheck:
-      disable: true
-
-  liminator-db:
-    image: docker.io/library/postgres:13.10
-    environment:
-      - POSTGRES_DB=liminator
-      - POSTGRES_USER=vality
-      - POSTGRES_PASSWORD=postgres
+      test: "curl http://localhost:8022/actuator/health"
+      interval: 5s
+      timeout: 1s
+      retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-435e3f2
+    image: ghcr.io/valitydev/party-management:sha-f0d1848
     command: /opt/party-management/bin/party-management foreground
     depends_on:
-      machinegun:
+      db:
         condition: service_healthy
-      dominant:
+      dmt:
         condition: service_started
       shumway:
         condition: service_started
@@ -131,52 +126,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    volumes:
+      - ./test/party-management/sys.config:/opt/party-management/releases/0.1/sys.config
 
   bender:
-    image: ghcr.io/valitydev/bender:sha-cf92a7d
+    image: ghcr.io/valitydev/bender:sha-b0f17b2
     command: /opt/bender/bin/bender foreground
     depends_on:
-      machinegun:
+      db:
         condition: service_healthy
     healthcheck:
       test: "/opt/bender/bin/bender ping"
       interval: 10s
       timeout: 5s
       retries: 10
-
-  shumway-db:
-    image: docker.io/library/postgres:13.10
-    ports:
-      - "5432"
-    environment:
-      - POSTGRES_DB=shumway
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-
-  postgres:
-    image: postgres:15-bookworm
-    command: -c 'max_connections=200'
-    environment:
-      POSTGRES_DB: "progressor_db"
-      POSTGRES_USER: "progressor"
-      POSTGRES_PASSWORD: "progressor"
-      PGDATA: "/tmp/postgresql/data/pgdata"
     volumes:
-      - progressor-data:/tmp/postgresql/data
-    ports:
-      - "5432:5432"
+      - ./test/bender/sys.config:/opt/bender/releases/1.0.0/sys.config
+
+  db:
+    image: postgres:15-bookworm
+    command: -c 'max_connections=1000'
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: "fistful,bender,dmt,party_management,shumway,liminator"
+      POSTGRES_PASSWORD: "postgres"
+    volumes:
+      - ./test/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U progressor -d progressor_db"]
+      test: ["CMD-SHELL", "pg_isready -U hellgate"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 4G
-
-volumes:
-  progressor-data:

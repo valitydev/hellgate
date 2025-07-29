@@ -21,15 +21,18 @@
 -spec init_per_suite(config()) -> _.
 init_per_suite(Config) ->
     SenderScopes = [{sender, #limiter_config_LimitScopeEmptyDetails{}}],
-    LimitsRevision = dmt_client:upsert([
-        {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID1)},
-        {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2)},
-        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1)},
-        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2)},
-        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID3)},
-        {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID4)},
-        {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_SENDER_ID1, SenderScopes)}
-    ]),
+    LimitsRevision = dmt_client:upsert(
+        [
+            {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID1)},
+            {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_PAYTOOL_ID2)},
+            {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1)},
+            {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2)},
+            {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID3)},
+            {limit_config, limiter_mk_config_object_amount(?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID4)},
+            {limit_config, limiter_mk_config_object_num(?LIMIT_TURNOVER_NUM_SENDER_ID1, SenderScopes)}
+        ],
+        dmt_client:create_author(genlib:unique(), genlib:unique())
+    ),
     [{'$limits_domain_revision', LimitsRevision} | Config].
 
 -spec get_limit_amount(id(), dmt_client:vsn(), withdrawal(), config()) -> integer().

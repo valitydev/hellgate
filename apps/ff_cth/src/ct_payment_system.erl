@@ -209,11 +209,11 @@ services(Options) ->
 epg_databases() ->
     #{
         default_db => #{
-            host => "postgres",
+            host => "db",
             port => 5432,
-            database => "progressor_db",
-            username => "progressor",
-            password => "progressor"
+            database => "fistful",
+            username => "fistful",
+            password => "postgres"
         }
     }.
 

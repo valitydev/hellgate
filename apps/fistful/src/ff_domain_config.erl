@@ -8,31 +8,31 @@
 -export([object/2]).
 -export([head/0]).
 
+-include_lib("damsel/include/dmsl_domain_conf_v2_thrift.hrl").
+
 -type revision() :: dmt_client:version().
--type object_data() :: dmt_client:untagged_domain_object().
--type object_ref() :: dmsl_domain_thrift:'Reference'().
+-type object_data() :: tuple().
 
 -export_type([revision/0]).
--export_type([object_data/0]).
--export_type([object_ref/0]).
 
 %%
 
--include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
-
--spec object(object_ref()) -> {ok, object_data()} | {error, notfound}.
+-spec object(dmt_client:object_ref()) -> {ok, object_data()} | {error, notfound}.
 object(ObjectRef) ->
     object(head(), ObjectRef).
 
--spec object(dmt_client:version(), object_ref()) -> {ok, object_data()} | {error, notfound}.
+-spec object(dmt_client:version(), dmt_client:object_ref()) -> {ok, object_data()} | {error, notfound}.
 object(Version, Ref) ->
-    case dmt_client:try_checkout_data(Version, Ref) of
-        {ok, Data} ->
-            {ok, Data};
-        {error, object_not_found} ->
+    try
+        {ok, extract_data(dmt_client:checkout_object(Version, Ref))}
+    catch
+        throw:#domain_conf_v2_ObjectNotFound{} ->
             {error, notfound}
     end.
 
+extract_data(#domain_conf_v2_VersionedObject{object = {_Tag, {_Name, _Ref, Data}}}) ->
+    Data.
+
 -spec head() -> revision().
 head() ->
-    dmt_client:get_last_version().
+    dmt_client:get_latest_version().
