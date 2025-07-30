@@ -278,7 +278,9 @@ process_refund_cashflow(Refund) ->
     Shop = get_injected_shop(Refund),
     hold_refund_limits(Refund),
 
-    #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(PartyID, {ShopID, Shop}, #{}),
+    #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(
+        PartyID, {ShopID, Shop}, #{}
+    ),
     _ = prepare_refund_cashflow(Refund),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
     #{min_available_amount := AvailableAmount} = hg_accounting:get_balance(SettlementID),

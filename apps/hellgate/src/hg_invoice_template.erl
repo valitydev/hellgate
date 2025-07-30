@@ -119,7 +119,9 @@ get_party(PartyID) ->
     Party.
 
 get_shop(ShopID, Party) ->
-    {ShopID, Shop} = hg_invoice_utils:assert_shop_exists(hg_party:get_shop(ShopID, Party, hg_party:get_party_revision())),
+    {ShopID, Shop} = hg_invoice_utils:assert_shop_exists(
+        hg_party:get_shop(ShopID, Party, hg_party:get_party_revision())
+    ),
     _ = hg_invoice_utils:assert_shop_operable(Shop),
     Shop.
 

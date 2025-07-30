@@ -133,7 +133,9 @@ get_shop_currency(#domain_ShopConfig{account = #domain_ShopAccount{currency = Cu
     Currency.
 
 -spec get_shop_account(shop()) -> {account_id(), account_id()}.
-get_shop_account(#domain_ShopConfig{account = #domain_ShopAccount{settlement = SettlementID, guarantee = GuaranteeID}}) ->
+get_shop_account(#domain_ShopConfig{
+    account = #domain_ShopAccount{settlement = SettlementID, guarantee = GuaranteeID}
+}) ->
     {SettlementID, GuaranteeID}.
 
 -spec assert_party_unblocked(party()) -> true | no_return().

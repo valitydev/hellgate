@@ -2842,10 +2842,11 @@ construct_proxy_invoice(
     }.
 
 construct_proxy_shop(
-    {ShopID, Shop = #domain_ShopConfig{
-        location = Location,
-        category = ShopCategoryRef
-    }}
+    {ShopID,
+        Shop = #domain_ShopConfig{
+            location = Location,
+            category = ShopCategoryRef
+        }}
 ) ->
     ShopCategory = hg_domain:get({category, ShopCategoryRef}),
     #proxy_provider_Shop{

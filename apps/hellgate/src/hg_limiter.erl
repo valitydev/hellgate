@@ -176,7 +176,9 @@ hold_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
     Context = gen_limit_shop_context(Invoice, Payment),
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_hold_shop_limits(Context, LegacyTurnoverLimits, PartyID, ShopID, Invoice, Payment),
-    ok = batch_hold_limits(Context, BatchTurnoverLimits, make_shop_operation_segments(PartyID, ShopID, Invoice, Payment)).
+    ok = batch_hold_limits(
+        Context, BatchTurnoverLimits, make_shop_operation_segments(PartyID, ShopID, Invoice, Payment)
+    ).
 
 legacy_hold_shop_limits(Context, TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
     ChangeIDs = [construct_shop_change_id(PartyID, ShopID, Invoice, Payment)],
