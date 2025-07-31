@@ -148,7 +148,7 @@ start_app(hg_proto = AppName) ->
                     }
                 },
                 party_config => #{
-                    url => <<"http://party-management:8022/v1/processing/partycfg">>,
+                    url => <<"http://party-management:8022/v1/processing/partymgmt">>,
                     transport_opts => #{
                         pool => party_config,
                         max_connections => 300

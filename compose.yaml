@@ -27,7 +27,7 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-085d2b3
+    image: ghcr.io/valitydev/dominant-v2:sha-f55c065
     command: /opt/dmt/bin/dmt foreground
     healthcheck:
       test: "/opt/dmt/bin/dmt ping"
@@ -121,7 +121,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-6b6d4a5
+    image: ghcr.io/valitydev/party-management:sha-74da178
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       db:
