@@ -580,9 +580,7 @@ construct_domain_fixture(TermSet) ->
             ref = ?trms(1),
             data = #domain_TermSetHierarchy{
                 parent_terms = undefined,
-                term_sets = [
-                    TermSet
-                ]
+                term_set = TermSet
             }
         }},
         {provider, #domain_ProviderObject{

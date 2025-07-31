@@ -614,14 +614,12 @@ construct_domain_fixture() ->
             ref = ?trms(1),
             data = #domain_TermSetHierarchy{
                 parent_terms = undefined,
-                term_sets = [
-                    #domain_TermSet{
-                        payments = #domain_PaymentsServiceTerms{
-                            currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
-                            categories = {value, ordsets:from_list([?cat(1)])}
-                        }
+                term_set = #domain_TermSet{
+                    payments = #domain_PaymentsServiceTerms{
+                        currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
+                        categories = {value, ordsets:from_list([?cat(1)])}
                     }
-                ]
+                }
             }
         }}
     ].
@@ -660,8 +658,6 @@ construct_term_set_for_cost(LowerBound, UpperBound) ->
         ref = ?trms(1),
         data = #domain_TermSetHierarchy{
             parent_terms = undefined,
-            term_sets = [
-                TermSet
-            ]
+            term_set = TermSet
         }
     }}.

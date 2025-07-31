@@ -783,9 +783,7 @@ construct_domain_fixture() ->
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = ?trms(1),
             data = #domain_TermSetHierarchy{
-                term_sets = [
-                    TestTermSet
-                ]
+                term_set = TestTermSet
             }
         }},
 

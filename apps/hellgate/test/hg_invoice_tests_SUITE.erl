@@ -1640,7 +1640,7 @@ mk_provider_w_term(TerminalRef, TerminalName, ProviderRef, ProviderName, Provide
     ].
 
 new_merchant_terms_attempt_limit(TermSetHierarchyRef, TargetTermSetHierarchyRef, Attempts, Revision) ->
-    #domain_TermSetHierarchy{term_sets = [TermsSet]} =
+    #domain_TermSetHierarchy{term_set = TermsSet} =
         hg_domain:get(Revision, {term_set_hierarchy, TermSetHierarchyRef}),
     #domain_TermSet{payments = PaymentsTerms0} = TermsSet,
     PaymentsTerms1 = PaymentsTerms0#domain_PaymentsServiceTerms{
@@ -1649,7 +1649,7 @@ new_merchant_terms_attempt_limit(TermSetHierarchyRef, TargetTermSetHierarchyRef,
     [
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = TargetTermSetHierarchyRef,
-            data = #domain_TermSetHierarchy{term_sets = [TermsSet#domain_TermSet{payments = PaymentsTerms1}]}
+            data = #domain_TermSetHierarchy{term_set = TermsSet#domain_TermSet{payments = PaymentsTerms1}}
         }}
     ].
 
@@ -8609,24 +8609,20 @@ construct_domain_fixture() ->
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = ?trms(1),
             data = #domain_TermSetHierarchy{
-                term_sets = [
-                    TestTermSet
-                ]
+                term_set = TestTermSet
             }
         }},
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = ?trms(2),
             data = #domain_TermSetHierarchy{
-                term_sets = [
-                    DefaultTermSet
-                ]
+                term_set = DefaultTermSet
             }
         }},
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = ?trms(3),
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(1),
-                term_sets = []
+                term_set = DefaultTermSet
             }
         }},
 
@@ -9439,9 +9435,7 @@ construct_term_set_for_refund_eligibility_time(Seconds) ->
             ref = ?trms(100),
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(2),
-                term_sets = [
-                    TermSet
-                ]
+                term_set = TermSet
             }
         }}
     ].
@@ -9452,31 +9446,29 @@ get_payment_adjustment_fixture(Revision) ->
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = ?trms(3),
             data = #domain_TermSetHierarchy{
-                term_sets = [
-                    #domain_TermSet{
-                        payments = #domain_PaymentsServiceTerms{
+                term_set = #domain_TermSet{
+                    payments = #domain_PaymentsServiceTerms{
+                        fees =
+                            {value, [
+                                ?cfpost(
+                                    {merchant, settlement},
+                                    {system, settlement},
+                                    ?merchant_to_system_share_3
+                                )
+                            ]},
+                        chargebacks = #domain_PaymentChargebackServiceTerms{
+                            allow = {constant, true},
                             fees =
                                 {value, [
                                     ?cfpost(
                                         {merchant, settlement},
                                         {system, settlement},
-                                        ?merchant_to_system_share_3
+                                        ?share(1, 1, surplus)
                                     )
-                                ]},
-                            chargebacks = #domain_PaymentChargebackServiceTerms{
-                                allow = {constant, true},
-                                fees =
-                                    {value, [
-                                        ?cfpost(
-                                            {merchant, settlement},
-                                            {system, settlement},
-                                            ?share(1, 1, surplus)
-                                        )
-                                    ]}
-                            }
+                                ]}
                         }
                     }
-                ],
+                },
                 parent_terms = ?trms(1)
             }
         }},
@@ -9855,38 +9847,36 @@ payments_w_bank_card_issuer_conditions_fixture(Revision, _C) ->
             ref = ?trms(4),
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(1),
-                term_sets = [
-                    #domain_TermSet{
-                        payments = #domain_PaymentsServiceTerms{
-                            cash_limit =
-                                {decisions, [
-                                    #domain_CashLimitDecision{
-                                        if_ =
-                                            {condition,
-                                                {payment_tool,
-                                                    {bank_card, #domain_BankCardCondition{
-                                                        definition = {issuer_country_is, kaz}
-                                                    }}}},
-                                        then_ =
-                                            {value,
-                                                ?cashrng(
-                                                    {inclusive, ?cash(1000, <<"RUB">>)},
-                                                    {inclusive, ?cash(1000, <<"RUB">>)}
-                                                )}
-                                    },
-                                    #domain_CashLimitDecision{
-                                        if_ = {constant, true},
-                                        then_ =
-                                            {value,
-                                                ?cashrng(
-                                                    {inclusive, ?cash(1000, <<"RUB">>)},
-                                                    {exclusive, ?cash(1000000000, <<"RUB">>)}
-                                                )}
-                                    }
-                                ]}
-                        }
+                term_set = #domain_TermSet{
+                    payments = #domain_PaymentsServiceTerms{
+                        cash_limit =
+                            {decisions, [
+                                #domain_CashLimitDecision{
+                                    if_ =
+                                        {condition,
+                                            {payment_tool,
+                                                {bank_card, #domain_BankCardCondition{
+                                                    definition = {issuer_country_is, kaz}
+                                                }}}},
+                                    then_ =
+                                        {value,
+                                            ?cashrng(
+                                                {inclusive, ?cash(1000, <<"RUB">>)},
+                                                {inclusive, ?cash(1000, <<"RUB">>)}
+                                            )}
+                                },
+                                #domain_CashLimitDecision{
+                                    if_ = {constant, true},
+                                    then_ =
+                                        {value,
+                                            ?cashrng(
+                                                {inclusive, ?cash(1000, <<"RUB">>)},
+                                                {exclusive, ?cash(1000000000, <<"RUB">>)}
+                                            )}
+                                }
+                            ]}
                     }
-                ]
+                }
             }
         }}
     ].
@@ -9897,38 +9887,36 @@ payments_w_bank_conditions_fixture(_Revision, _C) ->
             ref = ?trms(4),
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(1),
-                term_sets = [
-                    #domain_TermSet{
-                        payments = #domain_PaymentsServiceTerms{
-                            cash_limit =
-                                {decisions, [
-                                    #domain_CashLimitDecision{
-                                        if_ =
-                                            {condition,
-                                                {payment_tool,
-                                                    {bank_card, #domain_BankCardCondition{
-                                                        definition = {issuer_bank_is, ?bank(1)}
-                                                    }}}},
-                                        then_ =
-                                            {value,
-                                                ?cashrng(
-                                                    {inclusive, ?cash(1000, <<"RUB">>)},
-                                                    {inclusive, ?cash(1000, <<"RUB">>)}
-                                                )}
-                                    },
-                                    #domain_CashLimitDecision{
-                                        if_ = {constant, true},
-                                        then_ =
-                                            {value,
-                                                ?cashrng(
-                                                    {inclusive, ?cash(1000, <<"RUB">>)},
-                                                    {exclusive, ?cash(1000000000, <<"RUB">>)}
-                                                )}
-                                    }
-                                ]}
-                        }
+                term_set = #domain_TermSet{
+                    payments = #domain_PaymentsServiceTerms{
+                        cash_limit =
+                            {decisions, [
+                                #domain_CashLimitDecision{
+                                    if_ =
+                                        {condition,
+                                            {payment_tool,
+                                                {bank_card, #domain_BankCardCondition{
+                                                    definition = {issuer_bank_is, ?bank(1)}
+                                                }}}},
+                                    then_ =
+                                        {value,
+                                            ?cashrng(
+                                                {inclusive, ?cash(1000, <<"RUB">>)},
+                                                {inclusive, ?cash(1000, <<"RUB">>)}
+                                            )}
+                                },
+                                #domain_CashLimitDecision{
+                                    if_ = {constant, true},
+                                    then_ =
+                                        {value,
+                                            ?cashrng(
+                                                {inclusive, ?cash(1000, <<"RUB">>)},
+                                                {exclusive, ?cash(1000000000, <<"RUB">>)}
+                                            )}
+                                }
+                            ]}
                     }
-                ]
+                }
             }
         }},
         {bank, #domain_BankObject{
@@ -9981,7 +9969,7 @@ construct_term_set_for_partial_capture_service_permit(_Revision, _C) ->
             ref = ?trms(5),
             data = #domain_TermSetHierarchy{
                 parent_terms = ?trms(1),
-                term_sets = [TermSet]
+                term_set = TermSet
             }
         }}
     ].
