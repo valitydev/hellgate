@@ -352,7 +352,7 @@ do_process_transfer(p_transfer_commit, Deposit) ->
     {ok, Events} = ff_pipeline:with(p_transfer, Deposit, fun ff_postings_transfer:commit/1),
     {ok, Party} = ff_party:checkout(party_id(Deposit), domain_revision(Deposit)),
     {ok, Wallet} = ff_party:get_wallet(wallet_id(Deposit), Party, domain_revision(Deposit)),
-    ok = ff_party:wallet_log_balance(Wallet),
+    ok = ff_party:wallet_log_balance(wallet_id(Deposit), Wallet),
     {continue, Events};
 do_process_transfer(p_transfer_cancel, Deposit) ->
     {ok, Events} = ff_pipeline:with(p_transfer, Deposit, fun ff_postings_transfer:cancel/1),

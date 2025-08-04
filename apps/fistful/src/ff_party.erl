@@ -12,7 +12,7 @@
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
 -type id() :: dmsl_domain_thrift:'PartyID'().
--type wallet_id() :: dmsl_domain_thrift:'WalletID'().
+-type wallet_id() :: dmsl_domain_thrift:'WalletConfigID'().
 -type wallet() :: dmsl_domain_thrift:'WalletConfig'().
 -type terms() :: dmsl_domain_thrift:'TermSet'().
 -type account_id() :: dmsl_domain_thrift:'AccountID'().
@@ -60,7 +60,7 @@
 -export([get_wallet/2]).
 -export([get_wallet/3]).
 -export([build_account_for_wallet/2]).
--export([wallet_log_balance/1]).
+-export([wallet_log_balance/2]).
 -export([get_wallet_account/1]).
 -export([get_wallet_realm/2]).
 -export([is_accessible/1]).
@@ -163,8 +163,8 @@ build_account_for_wallet(#domain_WalletConfig{party_id = PartyID} = Wallet, Doma
     Realm = get_wallet_realm(Wallet, DomainRevision),
     ff_account:build(PartyID, Realm, SettlementID, Currency).
 
--spec wallet_log_balance(wallet()) -> ok.
-wallet_log_balance(#domain_WalletConfig{id = WalletID} = Wallet) ->
+-spec wallet_log_balance(wallet_id(), wallet()) -> ok.
+wallet_log_balance(WalletID, Wallet) ->
     {SettlementID, Currency} = get_wallet_account(Wallet),
     {ok, {Amounts, Currency}} = ff_accounting:balance(SettlementID, Currency),
     logger:log(notice, "Wallet balance", [], #{
@@ -179,17 +179,9 @@ wallet_log_balance(#domain_WalletConfig{id = WalletID} = Wallet) ->
     ok.
 
 -spec get_wallet_account(wallet()) -> {account_id(), currency_id()}.
-get_wallet_account(#domain_WalletConfig{currency_configs = Configs}) when is_map(Configs) ->
-    %% TODO: fix it when add multi currency support
-    [
-        {
-            #domain_CurrencyRef{symbolic_code = Currency},
-            #domain_WalletCurrencyConfig{settlement = SettlementID}
-        }
-        | _
-    ] = maps:to_list(
-        Configs
-    ),
+get_wallet_account(#domain_WalletConfig{
+    account = #domain_WalletAccount{settlement = SettlementID, currency = #domain_CurrencyRef{symbolic_code = Currency}}
+}) ->
     {SettlementID, Currency}.
 
 -spec get_wallet_realm(wallet(), domain_revision()) -> realm().
@@ -203,7 +195,7 @@ get_wallet_realm(#domain_WalletConfig{payment_institution = PaymentInstitutionRe
     | {error, notfound}.
 is_accessible(ID) ->
     case get_party(ID) of
-        {ok, #domain_PartyConfig{blocking = {blocked, _}}} ->
+        {ok, #domain_PartyConfig{block = {blocked, _}}} ->
             {error, {inaccessible, blocked}};
         {ok, #domain_PartyConfig{suspension = {suspended, _}}} ->
             {error, {inaccessible, suspended}};
@@ -217,7 +209,7 @@ is_accessible(ID) ->
     {ok, accessible}
     | {error, inaccessibility()}
     | {error, notfound}.
-is_wallet_accessible(#domain_WalletConfig{blocking = {blocked, _}}) ->
+is_wallet_accessible(#domain_WalletConfig{block = {blocked, _}}) ->
     {error, {inaccessible, blocked}};
 is_wallet_accessible(#domain_WalletConfig{suspension = {suspended, _}}) ->
     {error, {inaccessible, suspended}};
@@ -232,7 +224,7 @@ is_wallet_accessible(_) ->
 get_terms(DomainRevision, #domain_WalletConfig{terms = Ref}, Varset) ->
     DomainVarset = ff_varset:encode(Varset),
     Args = {Ref, DomainRevision, DomainVarset},
-    Request = {{dmsl_payproc_thrift, 'PartyConfigManagement'}, 'ComputeTerms', Args},
+    Request = {{dmsl_payproc_thrift, 'PartyManagement'}, 'ComputeTerms', Args},
     case ff_woody_client:call(party_config, Request) of
         {ok, Terms} ->
             Terms;

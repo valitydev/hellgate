@@ -7,7 +7,6 @@
 -export_type([encoded_varset/0]).
 
 -export([encode/1]).
--export([encode_contract_terms_varset/1]).
 
 -type varset() :: #{
     category => dmsl_domain_thrift:'CategoryRef'(),
@@ -18,8 +17,7 @@
     shop_id => dmsl_domain_thrift:'ShopID'(),
     risk_score => dmsl_domain_thrift:'RiskScore'(),
     flow => instant | {hold, dmsl_domain_thrift:'HoldLifetime'()},
-    wallet_id => dmsl_domain_thrift:'WalletID'(),
-    identification_level => dmsl_domain_thrift:'ContractorIdentificationLevel'(),
+    wallet_id => dmsl_domain_thrift:'WalletConfigID'(),
     bin_data => dmsl_domain_thrift:'BinData'()
 }.
 
@@ -34,19 +32,7 @@ encode(Varset) ->
         wallet_id = genlib_map:get(wallet_id, Varset),
         payment_tool = PaymentTool,
         payment_method = encode_payment_method(PaymentTool),
-        identification_level = genlib_map:get(identification_level, Varset),
         party_id = genlib_map:get(party_id, Varset),
-        bin_data = genlib_map:get(bin_data, Varset)
-    }.
-
--spec encode_contract_terms_varset(varset()) -> dmsl_payproc_thrift:'ComputeContractTermsVarset'().
-encode_contract_terms_varset(Varset) ->
-    #payproc_ComputeContractTermsVarset{
-        currency = genlib_map:get(currency, Varset),
-        amount = genlib_map:get(cost, Varset),
-        shop_id = genlib_map:get(shop_id, Varset),
-        payment_tool = genlib_map:get(payment_tool, Varset),
-        wallet_id = genlib_map:get(wallet_id, Varset),
         bin_data = genlib_map:get(bin_data, Varset)
     }.
 

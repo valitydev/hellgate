@@ -1,7 +1,7 @@
 -ifndef(__ct_domain_hrl__).
 -define(__ct_domain_hrl__, 42).
 
--include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_v2_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_base_thrift.hrl").
 
@@ -26,7 +26,6 @@
 -define(prx(ID), #domain_ProxyRef{id = ID}).
 -define(prv(ID), #domain_ProviderRef{id = ID}).
 -define(trm(ID), #domain_TerminalRef{id = ID}).
--define(tmpl(ID), #domain_ContractTemplateRef{id = ID}).
 -define(trms(ID), #domain_TermSetHierarchyRef{id = ID}).
 -define(sas(ID), #domain_SystemAccountSetRef{id = ID}).
 -define(eas(ID), #domain_ExternalAccountSetRef{id = ID}).

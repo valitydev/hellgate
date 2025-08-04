@@ -35,7 +35,7 @@ get_service(withdrawal_session_management) ->
 get_service(deposit_management) ->
     {fistful_deposit_thrift, 'Management'};
 get_service(party_config) ->
-    {dmsl_payproc_thrift, 'PartyConfigManagement'};
+    {dmsl_payproc_thrift, 'PartyManagement'};
 get_service(ff_claim_committer) ->
     {dmsl_claimmgmt_thrift, 'ClaimCommitter'}.
 

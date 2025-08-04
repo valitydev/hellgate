@@ -202,7 +202,7 @@ services(Options) ->
         partymgmt => "http://party-management:8022/v1/processing/partymgmt",
         binbase => "http://localhost:8222/binbase",
         limiter => "http://limiter:8022/v1/limiter",
-        party_config => "http://party-management:8022/v1/processing/partycfg"
+        party_config => "http://party-management:8022/v1/processing/partymgmt"
     },
     maps:get(services, Options, Default).
 
@@ -814,8 +814,6 @@ domain_config(Options) ->
             data = #domain_PaymentInstitution{
                 name = <<"Generic Payment Institution">>,
                 system_account_set = {value, ?sas(1)},
-                default_contract_template = {value, ?tmpl(1)},
-                providers = {value, ?ordset([])},
                 withdrawal_routing_rules = #domain_RoutingRules{
                     policies = ?ruleset(?PAYINST1_ROUTING_POLICIES),
                     prohibitions = ?ruleset(?PAYINST1_ROUTING_PROHIBITIONS)
@@ -864,8 +862,6 @@ domain_config(Options) ->
             data = #domain_PaymentInstitution{
                 name = <<"Generic Payment Institution">>,
                 system_account_set = {value, ?sas(1)},
-                default_contract_template = {value, ?tmpl(1)},
-                providers = {value, ?ordset([])},
                 inspector = {value, ?insp(1)},
                 residences = ['rus'],
                 realm = live,
@@ -914,8 +910,6 @@ domain_config(Options) ->
             data = #domain_PaymentInstitution{
                 name = <<"Generic Payment Institution">>,
                 system_account_set = {value, ?sas(1)},
-                default_contract_template = {value, ?tmpl(1)},
-                providers = {value, ?ordset([])},
                 inspector = {value, ?insp(1)},
                 residences = ['rus'],
                 realm = test,
@@ -983,10 +977,8 @@ domain_config(Options) ->
         ct_domain:withdrawal_provider(?prv(16), ?prx(2), live, undefined),
         ct_domain:withdrawal_provider(?prv(17), ?prx(2), live, ProviderTermSet),
 
-        ct_domain:contract_template(?tmpl(1), ?trms(1)),
-        ct_domain:term_set_hierarchy(?trms(1), [ct_domain:timed_term_set(default_termset(Options))]),
-        ct_domain:contract_template(?tmpl(2), ?trms(2)),
-        ct_domain:term_set_hierarchy(?trms(2), [ct_domain:timed_term_set(company_termset(Options))]),
+        ct_domain:term_set_hierarchy(?trms(1), default_termset(Options)),
+        ct_domain:term_set_hierarchy(?trms(2), company_termset(Options)),
 
         ct_domain:withdrawal_terminal(?trm(1), ?prv(1)),
         ct_domain:withdrawal_terminal(?trm(2), ?prv(1)),

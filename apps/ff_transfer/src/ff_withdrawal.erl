@@ -733,7 +733,7 @@ do_process_transfer(p_transfer_commit, Withdrawal) ->
     DomainRevision = final_domain_revision(Withdrawal),
     {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
     {ok, Wallet} = ff_party:get_wallet(wallet_id(Withdrawal), Party, DomainRevision),
-    ok = ff_party:wallet_log_balance(Wallet),
+    ok = ff_party:wallet_log_balance(wallet_id(Withdrawal), Wallet),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
 do_process_transfer(p_transfer_cancel, Withdrawal) ->
     ok = rollback_routes_limits([route(Withdrawal)], Withdrawal),
@@ -984,7 +984,7 @@ handle_child_result({undefined, Events} = Result, Withdrawal) ->
             DomainRevision = final_domain_revision(Withdrawal),
             {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
             {ok, Wallet} = ff_party:get_wallet(wallet_id(Withdrawal), Party, DomainRevision),
-            ok = ff_party:wallet_log_balance(Wallet),
+            ok = ff_party:wallet_log_balance(wallet_id(Withdrawal), Wallet),
             Result
     end;
 handle_child_result({_OtherAction, _Events} = Result, _Withdrawal) ->
