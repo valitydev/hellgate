@@ -92,13 +92,13 @@ handle_function_('ComputeTerms', {TplID}, _Opts) ->
                 undefined
         end,
     Revision = hg_party:get_party_revision(),
-    Party = hg_party:checkout(Tpl#domain_InvoiceTemplate.owner_id, Revision),
-    Shop = hg_party:get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party, Revision),
+    {PartyID, Party} = hg_party:checkout(Tpl#domain_InvoiceTemplate.owner_id, Revision),
+    {ShopID, Shop} = hg_party:get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party, Revision),
     _ = assert_party_shop_operable(Shop, Party),
     VS = #{
         cost => Cost,
-        shop_id => Shop#domain_ShopConfig.id,
-        party_id => Party#domain_PartyConfig.id,
+        shop_id => ShopID,
+        party_id => PartyID,
         category => Shop#domain_ShopConfig.category,
         currency => hg_invoice_utils:get_shop_currency(Shop)
     },
@@ -114,12 +114,14 @@ assert_party_shop_operable(Shop, Party) ->
     ok.
 
 get_party(PartyID) ->
-    Party = hg_party:get_party(PartyID),
+    {PartyID, Party} = hg_party:get_party(PartyID),
     _ = hg_invoice_utils:assert_party_operable(Party),
     Party.
 
 get_shop(ShopID, Party) ->
-    Shop = hg_invoice_utils:assert_shop_exists(hg_party:get_shop(ShopID, Party, hg_party:get_party_revision())),
+    {ShopID, Shop} = hg_invoice_utils:assert_shop_exists(
+        hg_party:get_shop(ShopID, Party, hg_party:get_party_revision())
+    ),
     _ = hg_invoice_utils:assert_shop_operable(Shop),
     Shop.
 

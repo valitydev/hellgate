@@ -71,6 +71,8 @@
 }.
 
 -type opts() :: #{
+    party => party(),
+    party_id => party_id(),
     payment_state := payment_state(),
     party := party(),
     invoice := invoice()
@@ -81,6 +83,9 @@
 
 -type party() ::
     dmsl_domain_thrift:'PartyConfig'().
+
+-type party_id() ::
+    dmsl_domain_thrift:'PartyID'().
 
 -type invoice() ::
     dmsl_domain_thrift:'Invoice'().
@@ -280,11 +285,12 @@ do_create(Opts, CreateParams = ?chargeback_params(Levy, Body, _Reason)) ->
     CreatedAt = hg_datetime:format_now(),
     Invoice = get_opts_invoice(Opts),
     Party = get_opts_party(Opts),
+    PartyID = get_opts_party_id(Opts),
     Route = get_opts_route(Opts),
     Payment = get_opts_payment(Opts),
     ShopID = get_invoice_shop_id(Invoice),
-    Shop = hg_party:get_shop(ShopID, Party, Revision),
-    VS = collect_validation_varset(Party, Shop, Payment, Body),
+    ShopObj = {_, Shop} = hg_party:get_shop(ShopID, Party, Revision),
+    VS = collect_validation_varset(PartyID, ShopObj, Payment, Body),
     PaymentsTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     ProviderTerms = get_provider_chargeback_terms(PaymentsTerms, Payment),
     ServiceTerms = get_merchant_chargeback_terms(Party, Shop, VS, Revision, CreatedAt),
@@ -416,9 +422,10 @@ build_chargeback_final_cash_flow(State, Opts) ->
     Invoice = get_opts_invoice(Opts),
     Route = get_opts_route(Opts),
     Party = get_opts_party(Opts),
+    PartyID = get_opts_party_id(Opts),
     ShopID = get_invoice_shop_id(Invoice),
-    Shop = hg_party:get_shop(ShopID, Party, Revision),
-    VS = collect_validation_varset(Party, Shop, Payment, Body),
+    ShopObj = {_, Shop} = hg_party:get_shop(ShopID, Party, Revision),
+    VS = collect_validation_varset(PartyID, ShopObj, Payment, Body),
     ServiceTerms = get_merchant_chargeback_terms(Party, Shop, VS, Revision, CreatedAt),
     PaymentsTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     ProviderTerms = get_provider_chargeback_terms(PaymentsTerms, Payment),
@@ -430,8 +437,8 @@ build_chargeback_final_cash_flow(State, Opts) ->
     Provider = get_route_provider(Route, Revision),
     CollectAccountContext = #{
         payment => Payment,
-        party => Party,
-        shop => Shop,
+        party_id => PartyID,
+        shop => ShopObj,
         route => Route,
         payment_institution => PaymentInst,
         provider => Provider,
@@ -512,11 +519,9 @@ construct_chargeback_plan_id(State, Opts) ->
         genlib:to_binary(Stage)
     ]).
 
-collect_validation_varset(Party, Shop, Payment, Body) ->
+collect_validation_varset(PartyID, {ShopID, Shop}, Payment, Body) ->
     #domain_InvoicePayment{cost = #domain_Cash{currency = Currency}} = Payment,
-    #domain_PartyConfig{id = PartyID} = Party,
     #domain_ShopConfig{
-        id = ShopID,
         category = Category
     } = Shop,
     #{
@@ -715,6 +720,9 @@ get_route_provider(#domain_PaymentRoute{provider = ProviderRef}, Revision) ->
 
 get_opts_party(#{party := Party}) ->
     Party.
+
+get_opts_party_id(#{party_id := PartyID}) ->
+    PartyID.
 
 get_opts_invoice(#{invoice := Invoice}) ->
     Invoice.

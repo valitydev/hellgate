@@ -167,6 +167,7 @@ calc_deviation(MaxDeviation, PrecisionFactor) ->
     shop_id = <<"shop_id">>,
     owner_id = <<"owner_id">>,
     created_at = <<"1970-01-01T00:00:00Z">>,
+    domain_revision = 1223,
     status = {unpaid, #domain_InvoiceUnpaid{}},
     cost = ?cash(Amount),
     due = <<"1970-01-01T00:00:00Z">>,

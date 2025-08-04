@@ -884,7 +884,6 @@ construct_domain_fixture() ->
                 data = #domain_PaymentInstitution{
                     name = <<"Test Inc.">>,
                     system_account_set = {decisions, []},
-                    default_contract_template = {decisions, []},
                     inspector = {decisions, []},
                     residences = [],
                     realm = test,
@@ -900,7 +899,6 @@ construct_domain_fixture() ->
                 data = #domain_PaymentInstitution{
                     name = <<"Chetky Payments Inc.">>,
                     system_account_set = {decisions, []},
-                    default_contract_template = {decisions, []},
                     inspector = {decisions, []},
                     residences = [],
                     realm = live

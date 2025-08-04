@@ -82,18 +82,6 @@
     {success, #proxy_provider_Success{token = Token, changed_cost = ChangedCash}}
 ).
 
--define(recurrent_token_finish(Token),
-    {finish, #proxy_provider_RecurrentTokenFinishIntent{
-        status = {success, #proxy_provider_RecurrentTokenSuccess{token = Token}}
-    }}
-).
-
--define(recurrent_token_finish_w_failure(Failure),
-    {finish, #proxy_provider_RecurrentTokenFinishIntent{
-        status = {failure, Failure}
-    }}
-).
-
 -define(DEFAULT_SESSION(PaymentTool), {PaymentTool, <<"">>}).
 -define(SESSION42(PaymentTool), {PaymentTool, <<"SESSION42">>}).
 
@@ -132,26 +120,6 @@ construct_silent_callback(Form) ->
 -include_lib("hellgate/include/payment_events.hrl").
 
 -spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
-handle_function(
-    'GenerateToken',
-    {#proxy_provider_RecurrentTokenContext{
-        session = #proxy_provider_RecurrentTokenSession{state = State},
-        token_info = TokenInfo,
-        options = _
-    }},
-    Opts
-) ->
-    generate_token(State, TokenInfo, Opts);
-handle_function(
-    'HandleRecurrentTokenCallback',
-    {Payload, #proxy_provider_RecurrentTokenContext{
-        session = #proxy_provider_RecurrentTokenSession{state = State},
-        token_info = TokenInfo,
-        options = _
-    }},
-    Opts
-) ->
-    handle_token_callback(Payload, State, TokenInfo, Opts);
 handle_function(
     'ProcessPayment',
     {#proxy_provider_PaymentContext{
@@ -192,75 +160,6 @@ handle_function(
     Opts
 ) ->
     handle_payment_callback(Payload, Target, State, PaymentInfo, Opts).
-
-%
-% Recurrent tokens
-%
-
-generate_token(undefined, #proxy_provider_RecurrentTokenInfo{payment_tool = RecurrentPaytool}, _Opts) ->
-    case get_recurrent_paytool_scenario(RecurrentPaytool) of
-        forbidden ->
-            #proxy_provider_RecurrentTokenProxyResult{
-                intent = ?recurrent_token_finish_w_failure(#domain_Failure{code = <<"forbidden">>})
-            };
-        unexpected_failure ->
-            error(unexpected_failure);
-        _ ->
-            token_result(?sleep(0), <<"sleeping">>)
-    end;
-generate_token(<<"sleeping">>, #proxy_provider_RecurrentTokenInfo{payment_tool = RecurrentPaytool}, _Opts) ->
-    case get_recurrent_paytool_scenario(RecurrentPaytool) of
-        {preauth_3ds, Timeout} ->
-            Tag = generate_tag(<<"recurrent">>),
-            Uri = get_callback_url(),
-            UserInteraction = ?redirect(Uri, #{<<"tag">> => Tag}),
-            token_result(?suspend(Tag, Timeout, UserInteraction), <<"suspended">>);
-        {preauth_3ds_sleep, Timeout} ->
-            Tag = generate_tag(<<"recurrent-sleep">>),
-            Uri = get_callback_url(),
-            UserInteraction = ?redirect(Uri, #{<<"tag">> => Tag}),
-            token_result(?suspend(Tag, Timeout, UserInteraction), <<"suspended">>);
-        no_preauth_timeout ->
-            Tag = generate_tag(<<"recurrent-suspend-timeout">>),
-            Callback = {callback, Tag},
-            token_result(?suspend(Tag, 1, undefined, Callback), <<"suspended">>);
-        no_preauth_timeout_failure ->
-            Tag = generate_tag(<<"recurrent-suspend-timeout-failure">>),
-            Failure = {operation_failure, failure(preauthorization_failed)},
-            token_result(?suspend(Tag, 1, undefined, Failure), <<"suspended">>);
-        no_preauth_suspend_default ->
-            Tag = generate_tag(<<"recurrent-suspend-timeout-default">>),
-            token_result(?suspend(Tag, 1), <<"suspended">>);
-        no_preauth ->
-            token_result(?sleep(0), <<"finishing">>)
-    end;
-generate_token(<<"finishing">>, TokenInfo, _Opts) ->
-    Token = ?REC_TOKEN,
-    token_finish(TokenInfo, Token).
-
-handle_token_callback(<<"recurrent-sleep-", _/binary>>, <<"suspended">>, TokenInfo, _Opts) ->
-    token_respond(<<"sure">>, token_finish(TokenInfo, ?REC_TOKEN));
-handle_token_callback(_Tag, <<"suspended">>, _TokenInfo, _Opts) ->
-    Intent = ?sleep(0, undefined, ?completed),
-    token_respond(<<"sure">>, token_result(Intent, <<"finishing">>)).
-
-token_finish(#proxy_provider_RecurrentTokenInfo{payment_tool = PaymentTool}, Token) ->
-    #proxy_provider_RecurrentTokenProxyResult{
-        intent = ?recurrent_token_finish(Token),
-        trx = #domain_TransactionInfo{id = PaymentTool#proxy_provider_RecurrentPaymentTool.id, extra = #{}}
-    }.
-
-token_result(Intent, State) ->
-    #proxy_provider_RecurrentTokenProxyResult{
-        intent = Intent,
-        next_state = State
-    }.
-
-token_respond(Response, CallbackResult) ->
-    #proxy_provider_RecurrentTokenCallbackResult{
-        response = Response,
-        result = CallbackResult
-    }.
 
 %
 % Payments
@@ -654,10 +553,6 @@ get_payment_resource_scenario({disposable_payment_resource, PaymentResource}) ->
 get_payment_resource_scenario({recurrent_payment_resource, _}) ->
     recurrent.
 
-get_recurrent_paytool_scenario(#proxy_provider_RecurrentPaymentTool{payment_resource = PaymentResource}) ->
-    PaymentTool = get_payment_tool(PaymentResource),
-    get_payment_tool_scenario(PaymentTool).
-
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"change_cash_increase">>}}) ->
     change_cash_increase;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = <<"change_cash_decrease">>}}) ->
@@ -919,9 +814,6 @@ callback_to_hell(Tag, Payload) ->
         case Tag of
             <<"payment-", _Rest/binary>> ->
                 'ProcessPaymentCallback';
-            <<"recurrent-", _Rest/binary>> ->
-                'ProcessRecurrentTokenCallback';
-            % FIXME adhoc for old tests, probably can be safely removed
             _ ->
                 'ProcessPaymentCallback'
         end,
