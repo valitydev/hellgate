@@ -584,7 +584,6 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_category(?cat(1), <<"Test category">>),
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_inspector(?insp(1), <<"Dummy Inspector">>, ?prx(1)),
-        hg_ct_fixture:construct_contract_template(?tmpl(1), ?trms(1)),
         hg_ct_fixture:construct_system_account_set(?sas(1)),
         hg_ct_fixture:construct_external_account_set(?eas(1)),
 
@@ -598,8 +597,6 @@ construct_domain_fixture() ->
             data = #domain_PaymentInstitution{
                 name = <<"Test Inc.">>,
                 system_account_set = {value, ?sas(1)},
-                default_contract_template = {value, ?tmpl(1)},
-                providers = {value, ?ordset([])},
                 inspector = {value, ?insp(1)},
                 residences = [],
                 realm = test
@@ -617,17 +614,12 @@ construct_domain_fixture() ->
             ref = ?trms(1),
             data = #domain_TermSetHierarchy{
                 parent_terms = undefined,
-                term_sets = [
-                    #domain_TimedTermSet{
-                        action_time = #base_TimestampInterval{},
-                        terms = #domain_TermSet{
-                            payments = #domain_PaymentsServiceTerms{
-                                currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
-                                categories = {value, ordsets:from_list([?cat(1)])}
-                            }
-                        }
+                term_set = #domain_TermSet{
+                    payments = #domain_PaymentsServiceTerms{
+                        currencies = {value, ordsets:from_list([?cur(<<"RUB">>)])},
+                        categories = {value, ordsets:from_list([?cat(1)])}
                     }
-                ]
+                }
             }
         }}
     ].
@@ -666,11 +658,6 @@ construct_term_set_for_cost(LowerBound, UpperBound) ->
         ref = ?trms(1),
         data = #domain_TermSetHierarchy{
             parent_terms = undefined,
-            term_sets = [
-                #domain_TimedTermSet{
-                    action_time = #base_TimestampInterval{},
-                    terms = TermSet
-                }
-            ]
+            term_set = TermSet
         }
     }}.

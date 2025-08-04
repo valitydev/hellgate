@@ -9,14 +9,11 @@
 -export([construct_category/2]).
 -export([construct_category/3]).
 -export([construct_payment_method/1]).
--export([construct_payout_method/1]).
 -export([construct_proxy/2]).
 -export([construct_proxy/3]).
 -export([construct_inspector/3]).
 -export([construct_inspector/4]).
 -export([construct_inspector/5]).
--export([construct_contract_template/2]).
--export([construct_contract_template/4]).
 -export([construct_provider_account_set/1]).
 -export([construct_system_account_set/1]).
 -export([construct_system_account_set/3]).
@@ -42,9 +39,6 @@
 -type proxy() :: dmsl_domain_thrift:'ProxyRef'().
 -type inspector() :: dmsl_domain_thrift:'InspectorRef'().
 -type risk_score() :: hg_inspector:risk_score().
--type template() :: dmsl_domain_thrift:'ContractTemplateRef'().
--type terms() :: dmsl_domain_thrift:'TermSetHierarchyRef'().
--type lifetime() :: dmsl_domain_thrift:'Lifetime'() | undefined.
 -type payment_routing_ruleset() :: dmsl_domain_thrift:'RoutingRulesetRef'().
 -type payment_system() :: dmsl_domain_thrift:'PaymentSystemRef'().
 -type mobile_operator() :: dmsl_domain_thrift:'MobileOperatorRef'().
@@ -122,18 +116,6 @@ construct_payment_method(Name, Ref) when is_binary(Name) ->
         }
     }}.
 
--spec construct_payout_method(dmsl_domain_thrift:'PayoutMethodRef'()) ->
-    {payout_method, dmsl_domain_thrift:'PayoutMethodObject'()}.
-construct_payout_method(?pomt(M) = Ref) ->
-    Def = erlang:atom_to_binary(M, unicode),
-    {payout_method, #domain_PayoutMethodObject{
-        ref = Ref,
-        data = #domain_PayoutMethodDefinition{
-            name = Def,
-            description = Def
-        }
-    }}.
-
 -spec construct_proxy(proxy(), name()) -> {proxy, dmsl_domain_thrift:'ProxyObject'()}.
 construct_proxy(Ref, Name) ->
     construct_proxy(Ref, Name, #{}).
@@ -172,23 +154,6 @@ construct_inspector(Ref, Name, ProxyRef, Additional, FallBackScore) ->
                 additional = Additional
             },
             fallback_risk_score = FallBackScore
-        }
-    }}.
-
--spec construct_contract_template(template(), terms()) ->
-    {contract_template, dmsl_domain_thrift:'ContractTemplateObject'()}.
-construct_contract_template(Ref, TermsRef) ->
-    construct_contract_template(Ref, TermsRef, undefined, undefined).
-
--spec construct_contract_template(template(), terms(), ValidSince :: lifetime(), ValidUntil :: lifetime()) ->
-    {contract_template, dmsl_domain_thrift:'ContractTemplateObject'()}.
-construct_contract_template(Ref, TermsRef, ValidSince, ValidUntil) ->
-    {contract_template, #domain_ContractTemplateObject{
-        ref = Ref,
-        data = #domain_ContractTemplate{
-            valid_since = ValidSince,
-            valid_until = ValidUntil,
-            terms = TermsRef
         }
     }}.
 

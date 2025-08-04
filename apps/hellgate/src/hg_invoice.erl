@@ -31,13 +31,14 @@
 -export_type([payment_id/0]).
 -export_type([payment_st/0]).
 -export_type([party/0]).
+-export_type([party_id/0]).
 
 %% Public interface
 
 -export([get/1]).
 -export([get_payment/2]).
 -export([get_payment_opts/1]).
--export([create/5]).
+-export([create/6]).
 -export([marshal_invoice/1]).
 -export([unmarshal_history/1]).
 -export([collapse_history/1]).
@@ -76,6 +77,8 @@
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type allocation() :: dmsl_domain_thrift:'Allocation'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
+-type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type revision() :: dmt_client:vsn().
 
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type payment_st() :: hg_invoice_payment:st().
@@ -106,14 +109,17 @@ get_payment(PaymentID, St) ->
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
+    {PartyID, Party} = hg_party:get_party(get_party_id(St)),
     #{
-        party => hg_party:get_party(get_party_id(St)),
+        party => Party,
+        party_id => PartyID,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     };
-get_payment_opts(#st{invoice = Invoice, party = Party}) ->
+get_payment_opts(#st{invoice = Invoice, party = Party, party_id = PartyID}) ->
     #{
         party => Party,
+        party_id => PartyID,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     }.
@@ -121,8 +127,10 @@ get_payment_opts(#st{invoice = Invoice, party = Party}) ->
 -spec get_payment_opts(hg_domain:revision(), st()) ->
     hg_invoice_payment:opts().
 get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
+    {PartyID, Party} = hg_party:checkout(get_party_id(St), Revision),
     #{
-        party => hg_party:checkout(get_party_id(St), Revision),
+        party => Party,
+        party_id => PartyID,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     }.
@@ -132,10 +140,11 @@ get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
     undefined | hg_machine:id(),
     invoice_params(),
     undefined | allocation(),
-    [hg_invoice_mutation:mutation()]
+    [hg_invoice_mutation:mutation()],
+    revision()
 ) ->
     invoice().
-create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, _Allocation, Mutations) ->
+create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, _Allocation, Mutations, DomainRevision) ->
     OwnerID = V#payproc_InvoiceParams.party_id,
     ShopID = V#payproc_InvoiceParams.shop_id,
     Cost = V#payproc_InvoiceParams.cost,
@@ -146,6 +155,7 @@ create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, _Allocation, Mutations) -
         created_at = hg_datetime:format_now(),
         status = ?invoice_unpaid(),
         cost = Cost,
+        domain_revision = DomainRevision,
         due = V#payproc_InvoiceParams.due,
         details = V#payproc_InvoiceParams.details,
         context = V#payproc_InvoiceParams.context,
@@ -174,12 +184,12 @@ assert_invoice({status, Status}, #st{invoice = #domain_Invoice{status = {Status,
 assert_invoice({status, _Status}, #st{invoice = #domain_Invoice{status = Invalid}}) ->
     throw(?invalid_invoice_status(Invalid)).
 
-assert_party_shop_operable(Shop, Party) ->
+assert_party_shop_operable({_ShopID, Shop}, Party) ->
     _ = assert_party_operable(Party),
     _ = assert_shop_operable(Shop),
     ok.
 
-assert_party_shop_unblocked(Shop, Party) ->
+assert_party_shop_unblocked({_ShopID, Shop}, Party) ->
     _ = assert_party_unblocked(Party),
     _ = assert_shop_unblocked(Shop),
     ok.
@@ -381,15 +391,15 @@ process_call(Call, #{history := History}) ->
 
 -spec handle_call(call(), st()) -> call_result().
 handle_call({{'Invoicing', 'StartPayment'}, {_InvoiceID, PaymentParams}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice(operable, St),
     start_payment(PaymentParams, St);
 handle_call({{'Invoicing', 'RegisterPayment'}, {_InvoiceID, PaymentParams}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice(unblocked, St),
     register_payment(PaymentParams, St);
 handle_call({{'Invoicing', 'CapturePayment'}, {_InvoiceID, PaymentID, Params}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice(operable, St),
     #payproc_InvoicePaymentCaptureParams{
         reason = Reason,
@@ -406,7 +416,7 @@ handle_call({{'Invoicing', 'CapturePayment'}, {_InvoiceID, PaymentID, Params}}, 
         state => St
     };
 handle_call({{'Invoicing', 'CancelPayment'}, {_InvoiceID, PaymentID, Reason}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice(operable, St),
     PaymentSession = get_payment_session(PaymentID, St),
     {ok, {Changes, Action}} = hg_invoice_payment:cancel(PaymentSession, Reason),
@@ -417,7 +427,7 @@ handle_call({{'Invoicing', 'CancelPayment'}, {_InvoiceID, PaymentID, Reason}}, S
         state => St
     };
 handle_call({{'Invoicing', 'Fulfill'}, {_InvoiceID, Reason}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice([operable, {status, paid}], St),
     #{
         response => ok,
@@ -425,7 +435,7 @@ handle_call({{'Invoicing', 'Fulfill'}, {_InvoiceID, Reason}}, St0) ->
         state => St
     };
 handle_call({{'Invoicing', 'Rescind'}, {_InvoiceID, Reason}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice([operable, {status, unpaid}], St),
     _ = assert_no_pending_payment(St),
     #{
@@ -435,12 +445,12 @@ handle_call({{'Invoicing', 'Rescind'}, {_InvoiceID, Reason}}, St0) ->
         state => St
     };
 handle_call({{'Invoicing', 'RefundPayment'}, {_InvoiceID, PaymentID, Params}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice(operable, St),
     PaymentSession = get_payment_session(PaymentID, St),
     start_refund(refund, Params, PaymentID, PaymentSession, St);
 handle_call({{'Invoicing', 'CreateManualRefund'}, {_InvoiceID, PaymentID, Params}}, St0) ->
-    St = St0#st{party = hg_party:get_party(get_party_id(St0))},
+    St = add_party_to_st(St0),
     _ = assert_invoice(operable, St),
     PaymentSession = get_payment_session(PaymentID, St),
     start_refund(manual_refund, Params, PaymentID, PaymentSession, St);
@@ -886,6 +896,10 @@ check_non_idle_payments_([{PaymentID, PaymentSession} | Rest], St) ->
         idle ->
             check_non_idle_payments_(Rest, St)
     end.
+
+add_party_to_st(St) ->
+    {PartyID, Party} = hg_party:get_party(get_party_id(St)),
+    St#st{party = Party, party_id = PartyID}.
 
 get_party_id(#st{invoice = #domain_Invoice{owner_id = PartyID}}) ->
     PartyID.

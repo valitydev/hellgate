@@ -41,7 +41,7 @@ get_service(fault_detector) ->
 get_service(limiter) ->
     {limproto_limiter_thrift, 'Limiter'};
 get_service(party_config) ->
-    {dmsl_payproc_thrift, 'PartyConfigManagement'}.
+    {dmsl_payproc_thrift, 'PartyManagement'}.
 
 -spec get_service_spec(Name :: atom()) -> service_spec().
 get_service_spec(Name) ->
