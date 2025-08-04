@@ -815,7 +815,7 @@ collect_partial_refund_varset(undefined) ->
 
 collect_validation_varset(St, Opts) ->
     Revision = get_payment_revision(St),
-    collect_validation_varset(get_party_obj(Opts), get_shop_obj(Opts, Revision), get_payment(St), #{}).
+    collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), get_payment(St), #{}).
 
 collect_validation_varset(PartyID, ShopObj, Payment, VS) ->
     Cost = #domain_Cash{currency = Currency} = get_payment_cost(Payment),
@@ -2053,7 +2053,7 @@ process_cash_flow_building(Action, St) ->
     Payment = get_payment(St),
     Timestamp = get_payment_created_at(Payment),
     VS0 = reconstruct_payment_flow(Payment, #{}),
-    VS1 = collect_validation_varset(get_party(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
+    VS1 = collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     ProviderTerms = get_provider_terminal_terms(Route, VS1, Revision),
     Allocation = get_allocation(St),
     Context = #{
@@ -2483,7 +2483,7 @@ get_provider_terms(St, Revision) ->
     Route = get_route(St),
     Payment = get_payment(St),
     VS0 = reconstruct_payment_flow(Payment, #{}),
-    VS1 = collect_validation_varset(get_party(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
+    VS1 = collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
 filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
@@ -2964,7 +2964,7 @@ get_varset(St, InitialValue) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     VS0 = reconstruct_payment_flow(Payment, InitialValue),
-    VS1 = collect_validation_varset(get_party(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
+    VS1 = collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     VS1.
 
 %%
@@ -3364,7 +3364,7 @@ get_routing_attempt_limit(
 ) ->
     {PartyID, Party} = hg_party:checkout(PartyID, Revision),
     ShopObj = {_, Shop} = hg_party:get_shop(ShopID, Party, Revision),
-    VS = collect_validation_varset(Party, ShopObj, get_payment(St), #{}),
+    VS = collect_validation_varset(PartyID, ShopObj, get_payment(St), #{}),
     Terms = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS),
     #domain_TermSet{payments = PaymentTerms} = Terms,
     log_cascade_attempt_context(PaymentTerms, St),

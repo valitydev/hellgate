@@ -82,6 +82,7 @@
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
+-type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type domain_refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
@@ -119,6 +120,7 @@
     invoice := invoice(),
     payment := payment(),
     shop := shop(),
+    shop_id := shop_id(),
     invoice_id := invoice_id(),
     payment_id := payment_id(),
     repair_scenario => repair_scenario(),
@@ -274,7 +276,7 @@ do_process(finished, _Refund) ->
 process_refund_cashflow(Refund) ->
     Action = hg_machine_action:set_timeout(0, hg_machine_action:new()),
     PartyID = get_injected_party_id(Refund),
-    #domain_Invoice{shop_id = ShopID} = get_injected_invoice(Refund),
+    ShopID = get_injected_shop_id(Refund),
     Shop = get_injected_shop(Refund),
     hold_refund_limits(Refund),
 
@@ -495,13 +497,14 @@ inject_context(Options, Refund) ->
     #domain_InvoicePayment{id = PaymentID, domain_revision = Revision} = Payment,
     Party = maps:get(party, Options),
     PartyID = maps:get(party_id, Options),
-    Shop = hg_party:get_shop(ShopID, Party, Revision),
+    {ShopID, Shop} = hg_party:get_shop(ShopID, Party, Revision),
     Context = genlib_map:compact(#{
         party => Party,
         party_id => PartyID,
         invoice => Invoice,
         payment => Payment,
         shop => Shop,
+        shop_id => ShopID,
         invoice_id => InvoiceID,
         payment_id => PaymentID,
         repair_scenario => maps:get(repair_scenario, Options, undefined),
@@ -514,6 +517,7 @@ get_injected_party_id(#{injected_context := #{party_id := V}}) -> V.
 get_injected_invoice(#{injected_context := #{invoice := V}}) -> V.
 get_injected_payment(#{injected_context := #{payment := V}}) -> V.
 get_injected_shop(#{injected_context := #{shop := V}}) -> V.
+get_injected_shop_id(#{injected_context := #{shop_id := V}}) -> V.
 get_injected_invoice_id(#{injected_context := #{invoice_id := V}}) -> V.
 get_injected_payment_id(#{injected_context := #{payment_id := V}}) -> V.
 get_injected_repair_scenario(#{injected_context := Context}) -> maps:get(repair_scenario, Context, undefined).

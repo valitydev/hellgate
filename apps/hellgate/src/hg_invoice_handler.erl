@@ -38,7 +38,7 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     PartyID = InvoiceParams#payproc_InvoiceParams.party_id,
     ShopID = InvoiceParams#payproc_InvoiceParams.shop_id,
     {PartyID, Party} = hg_party:get_party(PartyID),
-    {ShopID, Shop} = hg_party:get_shop(ShopID, Party, DomainRevision),
+    {ShopID, Shop} = assert_shop_exists(hg_party:get_shop(ShopID, Party, DomainRevision)),
     _ = assert_party_shop_operable(Shop, Party),
     ok = validate_invoice_mutations(InvoiceParams),
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
