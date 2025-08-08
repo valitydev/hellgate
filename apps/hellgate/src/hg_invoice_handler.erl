@@ -49,7 +49,7 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     MerchantTerms = hg_invoice_utils:compute_shop_terms(DomainRevision, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     ok = ensure_started(InvoiceID, undefined, InvoiceParams, undefined, Mutations, DomainRevision),
-    get_invoice_state(get_state(InvoiceID));
+    get_invoice_state(get_state(InvoiceID, #{cache => ignore}));
 handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     DomainRevision = hg_domain:head(),
     InvoiceID = Params#payproc_InvoiceWithTemplateParams.id,
@@ -65,7 +65,7 @@ handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     MerchantTerms = hg_invoice_utils:compute_shop_terms(DomainRevision, Shop, VS),
     ok = validate_invoice_params(InvoiceParams, Shop, MerchantTerms),
     ok = ensure_started(InvoiceID, TplID, InvoiceParams, undefined, Mutations, DomainRevision),
-    get_invoice_state(get_state(InvoiceID));
+    get_invoice_state(get_state(InvoiceID, #{cache => ignore}));
 handle_function_('CapturePaymentNew', Args, Opts) ->
     handle_function_('CapturePayment', Args, Opts);
 handle_function_('Get', {InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}}, _Opts) ->
@@ -217,13 +217,16 @@ set_invoicing_meta(InvoiceID, PaymentID) ->
 %%
 
 get_state(ID) ->
-    hg_invoice:collapse_history(get_history(ID)).
+    get_state(ID, #{}).
+
+get_state(ID, Opts) ->
+    hg_invoice:collapse_history(get_history(ID, Opts)).
 
 get_state(ID, AfterID, Limit) ->
     hg_invoice:collapse_history(get_history(ID, AfterID, Limit)).
 
-get_history(ID) ->
-    History = hg_machine:get_history(hg_invoice:namespace(), ID),
+get_history(ID, Opts) ->
+    History = hg_machine:get_history(hg_invoice:namespace(), ID, Opts),
     hg_invoice:unmarshal_history(map_history_error(History)).
 
 get_history(ID, AfterID, Limit) ->

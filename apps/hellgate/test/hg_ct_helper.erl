@@ -293,6 +293,9 @@ start_app(progressor = AppName) ->
     {
         start_app(AppName, [
             {call_wait_timeout, 20},
+            {post_init_hooks, [
+                {prg_pg_cache, start, [#{default_db => {[invoice], "hellgate"}}]}
+            ]},
             {defaults, #{
                 storage => #{
                     client => prg_pg_backend,
@@ -316,6 +319,15 @@ start_app(progressor = AppName) ->
             }},
             {namespaces, #{
                 invoice => #{
+                    storage => #{
+                        client => prg_pg_backend,
+                        options => #{
+                            cache => default_db,
+                            pool => default_pool,
+                            front_pool => default_front_pool,
+                            scan_pool => default_scan_pool
+                        }
+                    },
                     processor => #{
                         client => hg_progressor,
                         options => #{

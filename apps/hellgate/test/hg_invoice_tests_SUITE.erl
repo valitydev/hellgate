@@ -7322,7 +7322,7 @@ payment_cascade_deadline_failures(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
-        processing_deadline = hg_datetime:add_time_span(#base_TimeSpan{seconds = 2}, hg_datetime:format_now())
+        processing_deadline = hg_datetime:add_time_span(#base_TimeSpan{seconds = 4}, hg_datetime:format_now())
     },
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
