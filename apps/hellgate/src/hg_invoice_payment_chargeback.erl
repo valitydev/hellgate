@@ -361,8 +361,7 @@ finalise(State = #chargeback_st{target_status = Status}, Action, Opts) when
     _ = commit_cash_flow(State, Opts),
     {[?chargeback_status_changed(Status)], Action}.
 
--spec build_chargeback(opts(), create_params(), revision(), timestamp()) ->
-    chargeback() | no_return().
+-spec build_chargeback(opts(), create_params(), revision(), timestamp()) -> chargeback() | no_return().
 build_chargeback(Opts, Params = ?chargeback_params(Levy, Body, Reason), Revision, CreatedAt) ->
     Revision = hg_domain:head(),
     #domain_InvoicePaymentChargeback{
@@ -413,9 +412,7 @@ build_reopen_result(State, ?reopen_params(ParamsLevy, ParamsBody) = Params) ->
     {Changes, Action}.
 
 -spec build_chargeback_final_cash_flow(state(), opts()) -> final_cash_flow() | no_return().
-build_chargeback_final_cash_flow(
-    #chargeback_st{target_status = ?chargeback_status_cancelled()}, _Opts
-) ->
+build_chargeback_final_cash_flow(#chargeback_st{target_status = ?chargeback_status_cancelled()}, _Opts) ->
     [];
 build_chargeback_final_cash_flow(State, Opts) ->
     CreatedAt = get_created_at(State),
@@ -436,9 +433,7 @@ build_chargeback_final_cash_flow(State, Opts) ->
     ProviderCashFlow = get_chargeback_provider_cash_flow(ProviderTerms),
     ProviderFees = collect_chargeback_provider_fees(ProviderTerms),
     PaymentInstitutionRef = Shop#domain_ShopConfig.payment_institution,
-    PaymentInst = hg_payment_institution:compute_payment_institution(
-        PaymentInstitutionRef, VS, Revision
-    ),
+    PaymentInst = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
     Provider = get_route_provider(Route, Revision),
     CollectAccountContext = #{
         payment => Payment,
@@ -544,9 +539,7 @@ collect_validation_varset(
 
 validate_eligibility_time(#domain_PaymentChargebackServiceTerms{eligibility_time = undefined}) ->
     ok;
-validate_eligibility_time(#domain_PaymentChargebackServiceTerms{
-    eligibility_time = {value, EligibilityTime}
-}) ->
+validate_eligibility_time(#domain_PaymentChargebackServiceTerms{eligibility_time = {value, EligibilityTime}}) ->
     Now = hg_datetime:format_now(),
     EligibleUntil = hg_datetime:add_time_span(EligibilityTime, Now),
     case hg_datetime:compare(Now, EligibleUntil) of
@@ -591,9 +584,7 @@ validate_not_arbitration(#domain_InvoicePaymentChargeback{}) ->
 
 validate_chargeback_is_pending(#chargeback_st{chargeback = Chargeback}) ->
     validate_chargeback_is_pending(Chargeback);
-validate_chargeback_is_pending(#domain_InvoicePaymentChargeback{
-    status = ?chargeback_status_pending()
-}) ->
+validate_chargeback_is_pending(#domain_InvoicePaymentChargeback{status = ?chargeback_status_pending()}) ->
     ok;
 validate_chargeback_is_pending(#domain_InvoicePaymentChargeback{status = Status}) ->
     throw(#payproc_InvoicePaymentChargebackInvalidStatus{status = Status}).
@@ -660,8 +651,7 @@ get_reopen_stage(#domain_InvoicePaymentChargeback{stage = CurrentStage} = Charge
             throw(#payproc_InvoicePaymentChargebackInvalidStage{stage = CurrentStage})
     end.
 
--spec get_next_stage(chargeback()) ->
-    ?chargeback_stage_pre_arbitration() | ?chargeback_stage_arbitration().
+-spec get_next_stage(chargeback()) -> ?chargeback_stage_pre_arbitration() | ?chargeback_stage_arbitration().
 get_next_stage(#domain_InvoicePaymentChargeback{stage = ?chargeback_stage_chargeback()}) ->
     ?chargeback_stage_pre_arbitration();
 get_next_stage(#domain_InvoicePaymentChargeback{stage = ?chargeback_stage_pre_arbitration()}) ->

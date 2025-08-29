@@ -136,9 +136,7 @@ collect_provider_account_map(Payment, #domain_Provider{accounts = ProviderAccoun
 -spec collect_system_account_map(payment(), payment_institution(), revision(), map()) -> map().
 collect_system_account_map(Payment, PaymentInstitution, Revision, Acc) ->
     Currency = get_currency(get_payment_cost(Payment)),
-    SystemAccount = hg_payment_institution:get_system_account(
-        Currency, Revision, PaymentInstitution
-    ),
+    SystemAccount = hg_payment_institution:get_system_account(Currency, Revision, PaymentInstitution),
     Acc#{
         {system, settlement} => SystemAccount#domain_SystemAccount.settlement,
         {system, subagent} => SystemAccount#domain_SystemAccount.subagent

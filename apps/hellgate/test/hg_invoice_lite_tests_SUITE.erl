@@ -117,9 +117,7 @@ init_per_suite(C) ->
         {apps, Apps}
         | C
     ],
-    ok = hg_invoice_helper:start_proxies([
-        {hg_dummy_provider, 1, NewC}, {hg_dummy_inspector, 2, NewC}
-    ]),
+    ok = hg_invoice_helper:start_proxies([{hg_dummy_provider, 1, NewC}, {hg_dummy_inspector, 2, NewC}]),
     NewC.
 
 -spec end_per_suite(config()) -> _.
@@ -259,9 +257,7 @@ payment_success(C) ->
 payment_w_first_blacklisted_success(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
-        inspector_fail_first, ?pmt_sys(<<"visa-ref">>)
-    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(inspector_fail_first, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
@@ -284,21 +280,16 @@ payment_w_first_blacklisted_success(C) ->
             ]
         } = hg_client_invoicing:explain_route(InvoiceID, PaymentID, Client),
     ?assertEqual(
-        <<"Route was blacklisted {domain_PaymentRoute,{domain_ProviderRef,1},{domain_TerminalRef,1}}.">>,
-        Desc
+        <<"Route was blacklisted {domain_PaymentRoute,{domain_ProviderRef,1},{domain_TerminalRef,1}}.">>, Desc
     ).
 
 -spec payment_w_all_blacklisted(config()) -> test_return().
 payment_w_all_blacklisted(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
-        inspector_fail_all, ?pmt_sys(<<"visa-ref">>)
-    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(inspector_fail_all, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
-        InvoiceID, PaymentParams, Client
-    ),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -321,9 +312,7 @@ register_payment_success(C) ->
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
     },
     PayerSessionInfo = #domain_PayerSessionInfo{},
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
-        no_preauth, ?pmt_sys(<<"visa-ref">>)
-    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
     Route = ?route(?prv(1), ?trm(1)),
     Cost = ?cash(41999, <<"RUB">>),
     ID = hg_utils:unique_id(),
@@ -378,9 +367,7 @@ register_payment_success(C) ->
 payment_success_additional_info(C) ->
     Client = hg_ct_helper:cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
-        empty_cvv, ?pmt_sys(<<"visa-ref">>)
-    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(empty_cvv, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -413,9 +400,7 @@ payment_w_mobile_commerce(C, Expectation) ->
     Client = cfg(client, C),
     PayCash = 1001,
     InvoiceID = start_invoice(<<"oatmeal">>, make_due_date(10), PayCash, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
-        {mobile_commerce, Expectation}, ?mob(<<"mts-ref">>)
-    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool({mobile_commerce, Expectation}, ?mob(<<"mts-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
@@ -425,9 +410,7 @@ payment_w_mobile_commerce(C, Expectation) ->
     case Expectation of
         success ->
             [
-                ?payment_ev(
-                    PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))
-                ),
+                ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
                 ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
             ] =
                 next_changes(InvoiceID, 2, Client);
@@ -435,9 +418,7 @@ payment_w_mobile_commerce(C, Expectation) ->
             [
                 ?payment_ev(
                     PaymentID,
-                    ?session_ev(
-                        ?processed(), ?session_finished(?session_failed({failure, Failure}))
-                    )
+                    ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
                 ),
                 ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
                 ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
@@ -450,9 +431,7 @@ payment_w_crypto_currency_success(C) ->
     Client = cfg(client, C),
     PayCash = 2000,
     InvoiceID = start_invoice(<<"cryptoduck">>, make_due_date(10), PayCash, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
-        crypto_currency, ?crypta(<<"bitcoin-ref">>)
-    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     ?payment_state(#domain_InvoicePayment{
         id = PaymentID,
@@ -462,16 +441,10 @@ payment_w_crypto_currency_success(C) ->
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {CF, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(PartyConfigRef, ShopConfigRef, Route),
-    ?cash(PayCash, <<"RUB">>) = get_cashflow_volume(
-        {provider, settlement}, {merchant, settlement}, CF, CFContext
-    ),
-    ?cash(36, <<"RUB">>) = get_cashflow_volume(
-        {system, settlement}, {provider, settlement}, CF, CFContext
-    ),
-    ?cash(90, <<"RUB">>) = get_cashflow_volume(
-        {merchant, settlement}, {system, settlement}, CF, CFContext
-    ).
+    CFContext = construct_ta_context(PartyID, ShopID, Route),
+    ?cash(PayCash, <<"RUB">>) = get_cashflow_volume({provider, settlement}, {merchant, settlement}, CF, CFContext),
+    ?cash(36, <<"RUB">>) = get_cashflow_volume({system, settlement}, {provider, settlement}, CF, CFContext),
+    ?cash(90, <<"RUB">>) = get_cashflow_volume({merchant, settlement}, {system, settlement}, CF, CFContext).
 
 -spec payment_w_wallet_success(config()) -> _ | no_return().
 payment_w_wallet_success(C) ->
@@ -488,9 +461,7 @@ payment_w_wallet_success(C) ->
 payment_success_empty_cvv(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
-        empty_cvv, ?pmt_sys(<<"visa-ref">>)
-    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(empty_cvv, ?pmt_sys(<<"visa-ref">>)),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     ?invoice_state(
@@ -753,9 +724,7 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
 
-        hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{
-            <<"risk_score">> => <<"trusted">>
-        }),
+        hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{<<"risk_score">> => <<"trusted">>}),
 
         hg_ct_fixture:construct_system_account_set(?sas(1)),
         hg_ct_fixture:construct_external_account_set(?eas(1)),
@@ -884,9 +853,7 @@ construct_domain_fixture() ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(
-                                                                    <<"visa-ref">>
-                                                                )
+                                                                payment_system_is = ?pmt_sys(<<"visa-ref">>)
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}
@@ -952,9 +919,7 @@ construct_domain_fixture() ->
         }},
 
         hg_ct_fixture:construct_mobile_operator(?mob(<<"mts-ref">>), <<"mts mobile operator">>),
-        hg_ct_fixture:construct_payment_service(
-            ?pmt_srv(<<"qiwi-ref">>), <<"qiwi payment service">>
-        ),
+        hg_ct_fixture:construct_payment_service(?pmt_srv(<<"qiwi-ref">>), <<"qiwi payment service">>),
         hg_ct_fixture:construct_payment_system(?pmt_sys(<<"visa-ref">>), <<"visa payment system">>),
         hg_ct_fixture:construct_crypto_currency(?crypta(<<"bitcoin-ref">>), <<"bitcoin currency">>)
     ].

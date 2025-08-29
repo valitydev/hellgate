@@ -181,9 +181,7 @@ calculate_trxs([Head | Transactions], FeeTarget, CostLeft, FeeAcc, ID0, Acc0) ->
 construct_positive_trx(ID, Target, Amount, Details, Body) ->
     case construct_trx(ID, Target, Amount, Details, Body) of
         undefined ->
-            throw(
-                {invalid_transaction, ?allocation_trx(ID, Target, Amount, Details, Body), zero_amount}
-            );
+            throw({invalid_transaction, ?allocation_trx(ID, Target, Amount, Details, Body), zero_amount});
         Trx ->
             Trx
     end.
@@ -221,9 +219,7 @@ add_fee(undefined, FeeAmount) ->
 add_fee(FeeCost, FeeAmount) ->
     hg_cash:add(FeeCost, FeeAmount).
 
-calculate_trxs_body(
-    ?allocation_trx_prototype_body_amount(?cash(_, SymCode) = Amount), _FeeTarget, _TP
-) ->
+calculate_trxs_body(?allocation_trx_prototype_body_amount(?cash(_, SymCode) = Amount), _FeeTarget, _TP) ->
     {undefined, Amount, ?cash(0, SymCode)};
 calculate_trxs_body(?allocation_trx_prototype_body_total(Total, Fee), FeeTarget, TP) ->
     CalculatedFee = calculate_trxs_fee(Fee, Total),
@@ -237,9 +233,7 @@ calculate_trxs_body(?allocation_trx_prototype_body_total(Total, Fee), FeeTarget,
 
 calculate_trxs_fee(?allocation_trx_prototype_fee_fixed(Amount), _Total) ->
     Amount;
-calculate_trxs_fee(
-    ?allocation_trx_prototype_fee_share(P, Q, RoundingMethod0), ?cash(Total, SymCode)
-) ->
+calculate_trxs_fee(?allocation_trx_prototype_fee_share(P, Q, RoundingMethod0), ?cash(Total, SymCode)) ->
     RoundingMethod1 = genlib:define(RoundingMethod0, round_half_away_from_zero),
     R = genlib_rational:new(P * Total, Q),
     Amount = ?cash(genlib_rational:round(R, RoundingMethod1), SymCode),

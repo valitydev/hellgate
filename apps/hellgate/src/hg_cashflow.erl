@@ -119,9 +119,7 @@ resolve_account(AccountType, AccountMap) ->
         #{AccountType := V} ->
             V;
         #{} ->
-            error(
-                {misconfiguration, {'Cash flow account can not be mapped', {AccountType, AccountMap}}}
-            )
+            error({misconfiguration, {'Cash flow account can not be mapped', {AccountType, AccountMap}}})
     end.
 
 %%
@@ -146,9 +144,7 @@ revert_details(Details) ->
 ).
 
 -define(share(P, Q, Of, RoundingMethod),
-    {share, #domain_CashVolumeShare{
-        'parts' = ?rational(P, Q), 'of' = Of, 'rounding_method' = RoundingMethod
-    }}
+    {share, #domain_CashVolumeShare{'parts' = ?rational(P, Q), 'of' = Of, 'rounding_method' = RoundingMethod}}
 ).
 
 -define(product(Fun, CVs),
@@ -188,16 +184,12 @@ compute_product(Fun, [CV | CVRest], CV0, Context) ->
         CVRest
     ).
 
-compute_product(
-    Fun, CV, CVMin = #domain_Cash{amount = AmountMin, currency = Currency}, CV0, Context
-) ->
+compute_product(Fun, CV, CVMin = #domain_Cash{amount = AmountMin, currency = Currency}, CV0, Context) ->
     case compute_volume(CV, Context) of
         #domain_Cash{amount = Amount, currency = Currency} ->
             CVMin#domain_Cash{amount = compute_product_fun(Fun, AmountMin, Amount)};
         _ ->
-            error(
-                {misconfiguration, {'Cash volume product over volumes of different currencies', CV0}}
-            )
+            error({misconfiguration, {'Cash volume product over volumes of different currencies', CV0}})
     end.
 
 compute_product_fun(min_of, V1, V2) ->
@@ -242,9 +234,7 @@ increment_remainder(AccountType, Cash, Acc) ->
 decrement_remainder(AccountType, ?cash(Amount, Currency), Acc) ->
     modify_remainder(AccountType, ?cash(-Amount, Currency), Acc).
 
-modify_remainder(
-    #domain_FinalCashFlowAccount{account_type = AccountType}, ?cash(Amount, Currency), Acc
-) ->
+modify_remainder(#domain_FinalCashFlowAccount{account_type = AccountType}, ?cash(Amount, Currency), Acc) ->
     maps:update_with(
         AccountType,
         fun(?cash(A, C)) when C == Currency ->

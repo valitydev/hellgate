@@ -173,18 +173,9 @@ mock_dominant(SupPid) ->
     _ = hg_mock_helper:mock_dominant(
         [
             {'RepositoryClient', fun
-                (
-                    'CheckoutObject',
-                    {{version, ?routing_with_fail_rate_domain_revision = Version}, ObjectRef}
-                ) ->
+                ('CheckoutObject', {{version, ?routing_with_fail_rate_domain_revision = Version}, ObjectRef}) ->
                     Getter(Version, ObjectRef, RoutingWithFailRateDomain);
-                (
-                    'CheckoutObject',
-                    {
-                        {version, ?routing_with_risk_coverage_set_domain_revision = Version},
-                        ObjectRef
-                    }
-                ) ->
+                ('CheckoutObject', {{version, ?routing_with_risk_coverage_set_domain_revision = Version}, ObjectRef}) ->
                     Getter(Version, ObjectRef, RoutingWithRiskCoverageSetDomain);
                 ('CheckoutObject', {{version, Version}, ObjectRef}) ->
                     Getter(Version, ObjectRef, Domain)
@@ -260,22 +251,8 @@ mock_party_management(SupPid) ->
                                     0,
                                     ?pin([currency, payment_tool, email, card_token, client_ip])
                                 ),
-                                ?candidate(
-                                    <<"">>,
-                                    {constant, true},
-                                    ?trm(2),
-                                    0,
-                                    0,
-                                    ?pin([currency, payment_tool])
-                                ),
-                                ?candidate(
-                                    <<"">>,
-                                    {constant, true},
-                                    ?trm(3),
-                                    0,
-                                    0,
-                                    ?pin([currency, payment_tool])
-                                )
+                                ?candidate(<<"">>, {constant, true}, ?trm(2), 0, 0, ?pin([currency, payment_tool])),
+                                ?candidate(<<"">>, {constant, true}, ?trm(3), 0, 0, ?pin([currency, payment_tool]))
                             ]}
                     }};
                 ('ComputeRoutingRuleset', {?ruleset(2), DomainRevision, _}) when
@@ -338,10 +315,7 @@ mock_party_management(SupPid) ->
                         name = <<"No prohibition: all candidate is allowed">>,
                         decisions = {candidates, []}
                     }};
-                (
-                    'ComputeProviderTerminalTerms',
-                    {?prv(2), _, ?base_routing_rule_domain_revision, _}
-                ) ->
+                ('ComputeProviderTerminalTerms', {?prv(2), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             categories =
@@ -357,10 +331,7 @@ mock_party_management(SupPid) ->
                                     ])}
                         }
                     }};
-                (
-                    'ComputeProviderTerminalTerms',
-                    {?prv(3), _, ?base_routing_rule_domain_revision, _}
-                ) ->
+                ('ComputeProviderTerminalTerms', {?prv(3), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             payment_methods =
@@ -376,38 +347,26 @@ mock_party_management(SupPid) ->
                                     ])}
                         }
                     }};
-                (
-                    'ComputeProviderTerminalTerms',
-                    {?prv(4), _, ?base_routing_rule_domain_revision, _}
-                ) ->
+                ('ComputeProviderTerminalTerms', {?prv(4), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             allow = {constant, false}
                         }
                     }};
-                (
-                    'ComputeProviderTerminalTerms',
-                    {?prv(7), _, ?base_routing_rule_domain_revision, _}
-                ) ->
+                ('ComputeProviderTerminalTerms', {?prv(7), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             allow = {constant, true},
                             global_allow = {constant, false}
                         }
                     }};
-                (
-                    'ComputeProviderTerminalTerms',
-                    {?prv(1), _, ?routing_with_risk_coverage_set_domain_revision, _}
-                ) ->
+                ('ComputeProviderTerminalTerms', {?prv(1), _, ?routing_with_risk_coverage_set_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             risk_coverage = {value, low}
                         }
                     }};
-                (
-                    'ComputeProviderTerminalTerms',
-                    {?prv(2), _, ?routing_with_risk_coverage_set_domain_revision, _}
-                ) ->
+                ('ComputeProviderTerminalTerms', {?prv(2), _, ?routing_with_risk_coverage_set_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             risk_coverage = {value, high}
@@ -496,8 +455,7 @@ mock_fault_detector(SupPid) ->
 -spec no_route_found_for_payment(config()) -> test_return().
 no_route_found_for_payment(_C) ->
     Currency0 = ?cur(<<"RUB">>),
-    PaymentTool =
-        {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
         currency => Currency0,
@@ -555,8 +513,7 @@ no_route_found_for_payment(_C) ->
 -spec gather_route_success(config()) -> test_return().
 gather_route_success(_C) ->
     Currency = ?cur(<<"RUB">>),
-    PaymentTool =
-        {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
         currency => Currency,
@@ -659,9 +616,7 @@ empty_candidate_ok(_C) ->
     },
     ?assertMatch(
         {ok, {[], []}},
-        unwrap_routing_context(
-            hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
-        )
+        unwrap_routing_context(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
     ).
 
 -spec ruleset_misconfig(config()) -> test_return().
@@ -676,17 +631,12 @@ ruleset_misconfig(_C) ->
 
     Ctx = #{
         currency => ?cur(<<"RUB">>),
-        payment_tool =>
-            {payment_terminal, #domain_PaymentTerminal{
-                payment_service = ?pmt_srv(<<"euroset-ref">>)
-            }},
+        payment_tool => {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
         client_ip => undefined
     },
     ?assertMatch(
         {misconfiguration, {routing_decisions, {delegates, []}}},
-        hg_routing_ctx:error(
-            hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
-        )
+        hg_routing_ctx:error(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
     ).
 
 -spec routes_selected_for_low_risk_score(config()) -> test_return().
@@ -699,8 +649,7 @@ routes_selected_for_high_risk_score(C) ->
 
 routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
     Currency = ?cur(<<"RUB">>),
-    PaymentTool =
-        {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
         currency => Currency,
@@ -760,14 +709,12 @@ empty_terms_allow_test(_C) ->
 
 -spec not_reduced_terms_allow_test(config()) -> test_return().
 not_reduced_terms_allow_test(_C) ->
-    Error =
-        {'Misconfiguration', {'Could not reduce predicate to a value', {allow, {all_of, [{constant, false}]}}}},
+    Error = {'Misconfiguration', {'Could not reduce predicate to a value', {allow, {all_of, [{constant, false}]}}}},
     do_gather_routes(?not_reduced_allow_revision, undefined, [{?prv(6), ?trm(6), Error}]).
 
 do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
     Currency = ?cur(<<"RUB">>),
-    PaymentTool =
-        {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
         currency => Currency,
@@ -802,17 +749,12 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
 terminal_priority_for_shop(C) ->
     Route1 = hg_route:new(?prv(11), ?trm(11), 0, 10),
     Route2 = hg_route:new(?prv(12), ?trm(12), 0, 10),
-    ?assertMatch(
-        {Route1, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_1, C)
-    ),
-    ?assertMatch(
-        {Route2, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C)
-    ).
+    ?assertMatch({Route1, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_1, C)),
+    ?assertMatch({Route2, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C)).
 
 terminal_priority_for_shop(ShopID, _C) ->
     Currency = ?cur(<<"RUB">>),
-    PaymentTool =
-        {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
         currency => Currency,
@@ -837,8 +779,7 @@ terminal_priority_for_shop(ShopID, _C) ->
 -spec gather_pinned_route(config()) -> test_return().
 gather_pinned_route(_C) ->
     Currency = ?cur(<<"RUB">>),
-    PaymentTool =
-        {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
     VS = #{
         category => ?cat(1),
         currency => Currency,
@@ -888,9 +829,7 @@ choose_route_w_override(_C) ->
     } = hg_routing:choose_route(Routes),
 
     %% with overrides
-    Route3WithOV = hg_route:new(
-        ?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}
-    ),
+    Route3WithOV = hg_route:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
     RoutesWithOV = [Route1, Route2, Route3WithOV],
     {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
 
@@ -925,12 +864,9 @@ routing_with_risk_score_fixture(Domain, AddRiskScore) ->
 
 construct_domain_fixture() ->
     #{
-        {provider, ?prv(1)} =>
-            {provider, ?provider_obj(?prv(1), #domain_ProvisionTermSet{}, undefined)},
-        {provider, ?prv(2)} =>
-            {provider, ?provider_obj(?prv(2), #domain_ProvisionTermSet{}, ?fd_overrides(undefined))},
-        {provider, ?prv(3)} =>
-            {provider, ?provider_obj(?prv(3), #domain_ProvisionTermSet{}, ?fd_overrides(true))},
+        {provider, ?prv(1)} => {provider, ?provider_obj(?prv(1), #domain_ProvisionTermSet{}, undefined)},
+        {provider, ?prv(2)} => {provider, ?provider_obj(?prv(2), #domain_ProvisionTermSet{}, ?fd_overrides(undefined))},
+        {provider, ?prv(3)} => {provider, ?provider_obj(?prv(3), #domain_ProvisionTermSet{}, ?fd_overrides(true))},
         {provider, ?prv(4)} => {provider, ?provider_obj(?prv(4), #domain_ProvisionTermSet{})},
         {provider, ?prv(5)} => {provider, ?provider_obj(?prv(5), #domain_ProvisionTermSet{})},
         {provider, ?prv(6)} => {provider, ?provider_obj(?prv(6), #domain_ProvisionTermSet{})},
@@ -980,6 +916,4 @@ maybe_set_risk_coverage(true, V) ->
     {value, V}.
 
 unwrap_routing_context(RoutingCtx) ->
-    {ok, {
-        hg_routing_ctx:considered_candidates(RoutingCtx), hg_routing_ctx:rejected_routes(RoutingCtx)
-    }}.
+    {ok, {hg_routing_ctx:considered_candidates(RoutingCtx), hg_routing_ctx:rejected_routes(RoutingCtx)}}.

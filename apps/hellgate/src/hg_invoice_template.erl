@@ -47,8 +47,7 @@ get_invoice_template(ID) ->
 
 %% Woody handler
 
--spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) ->
-    term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoice_templating,
@@ -57,8 +56,7 @@ handle_function(Func, Args, Opts) ->
         end
     ).
 
--spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) ->
-    term() | no_return().
+-spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {Params}, _Opts) ->
     TplID = Params#payproc_InvoiceTemplateCreateParams.template_id,
     _ = set_meta(TplID),
@@ -137,16 +135,12 @@ get_shop(ShopConfigRef, PartyConfigRef) ->
 set_meta(ID) ->
     scoper:add_meta(#{invoice_template_id => ID}).
 
-validate_create_params(
-    #payproc_InvoiceTemplateCreateParams{details = Details, mutations = Mutations}, Shop
-) ->
+validate_create_params(#payproc_InvoiceTemplateCreateParams{details = Details, mutations = Mutations}, Shop) ->
     ok = validate_details(Details, Mutations, Shop).
 
 validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = undefined}, _) ->
     ok;
-validate_update_params(
-    #payproc_InvoiceTemplateUpdateParams{details = Details, mutations = Mutations}, Shop
-) ->
+validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = Details, mutations = Mutations}, Shop) ->
     ok = validate_details(Details, Mutations, Shop).
 
 validate_details({cart, #domain_InvoiceCart{}} = Details, Mutations, _) ->

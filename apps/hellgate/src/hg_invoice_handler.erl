@@ -21,8 +21,7 @@
 
 %% API
 
--spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) ->
-    term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoicing,
@@ -31,8 +30,7 @@ handle_function(Func, Args, Opts) ->
         end
     ).
 
--spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) ->
-    term() | no_return().
+-spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
 handle_function_('Create', {InvoiceParams}, _Opts) ->
     DomainRevision = hg_domain:head(),
     InvoiceID = InvoiceParams#payproc_InvoiceParams.id,
@@ -148,15 +146,11 @@ handle_function_('RepairWithScenario', {InvoiceID, Scenario}, _Opts) ->
 handle_function_('GetPaymentRoutesLimitValues', {InvoiceID, PaymentID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
-    hg_invoice_payment:get_limit_values(
-        get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)
-    );
+    hg_invoice_payment:get_limit_values(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St));
 handle_function_('ExplainRoute', {InvoiceID, PaymentID}, _Opts) ->
     _ = set_invoicing_meta(InvoiceID, PaymentID),
     St = get_state(InvoiceID),
-    hg_routing_explanation:get_explanation(
-        get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)
-    ).
+    hg_routing_explanation:get_explanation(get_payment_session(PaymentID, St), hg_invoice:get_payment_opts(St)).
 
 ensure_started(ID, TemplateID, Params, Allocation, Mutations, DomainRevision) ->
     Invoice = hg_invoice:create(ID, TemplateID, Params, Allocation, Mutations, DomainRevision),
@@ -348,9 +342,7 @@ validate_invoice_cost(Cost, Shop, #domain_TermSet{payments = PaymentTerms}) ->
 
 maybe_make_mutations(InvoiceParams) ->
     Cost = InvoiceParams#payproc_InvoiceParams.cost,
-    Mutations = hg_invoice_mutation:make_mutations(
-        InvoiceParams#payproc_InvoiceParams.mutations, #{cost => Cost}
-    ),
+    Mutations = hg_invoice_mutation:make_mutations(InvoiceParams#payproc_InvoiceParams.mutations, #{cost => Cost}),
     NewCost = hg_invoice_mutation:get_mutated_cost(Mutations, Cost),
     {NewCost, Mutations}.
 

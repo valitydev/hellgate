@@ -34,9 +34,7 @@
 -define(crypta(ID), #domain_CryptoCurrencyRef{id = ID}).
 -define(token_srv(ID), #domain_BankCardTokenServiceRef{id = ID}).
 -define(bank_card(ID), #domain_BankCardPaymentMethod{payment_system = ?pmt_sys(ID)}).
--define(bank_card_no_cvv(ID), #domain_BankCardPaymentMethod{
-    payment_system = ?pmt_sys(ID), is_cvv_empty = true
-}).
+-define(bank_card_no_cvv(ID), #domain_BankCardPaymentMethod{payment_system = ?pmt_sys(ID), is_cvv_empty = true}).
 -define(token_bank_card(ID, Prv), ?token_bank_card(ID, Prv, dpan)).
 -define(token_bank_card(ID, Prv, Method), #domain_BankCardPaymentMethod{
     payment_system = ?pmt_sys(ID),
@@ -88,32 +86,12 @@
 
 -define(contact_info(EMail, Phone),
     ?contact_info(
-        EMail,
-        Phone,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined
+        EMail, Phone, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined
     )
 ).
 
 -define(contact_info(
-    EMail,
-    Phone,
-    FirstName,
-    LastName,
-    Country,
-    State,
-    City,
-    Address,
-    PostalCode,
-    DateOfBirth,
-    DocumentId
+    EMail, Phone, FirstName, LastName, Country, State, City, Address, PostalCode, DateOfBirth, DocumentId
 ),
     #domain_ContactInfo{
         email = EMail,

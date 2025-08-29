@@ -251,9 +251,7 @@ do_deduce_activity(#{status := pending, failure := _Failure}) ->
     failure;
 do_deduce_activity(#{status := pending, sessions := []}) ->
     new;
-do_deduce_activity(#{
-    status := pending, session_status := finished, session_result := {succeeded, _}
-}) ->
+do_deduce_activity(#{status := pending, session_status := finished, session_result := {succeeded, _}}) ->
     accounter;
 do_deduce_activity(#{status := pending, session_status := finished, session_result := {failed, _}}) ->
     failure;
@@ -373,10 +371,7 @@ rollback_refund_limits(Refund) ->
 get_limits(Refund) ->
     Revision = revision(Refund),
     ProviderTerms = get_provider_terms(
-        Revision,
-        get_injected_payment(Refund),
-        get_injected_invoice(Refund),
-        Refund
+        Revision, get_injected_payment(Refund), get_injected_invoice(Refund), get_injected_party(Refund), Refund
     ),
     get_turnover_limits(ProviderTerms).
 
@@ -526,10 +521,8 @@ get_injected_shop(#{injected_context := #{shop := V}}) -> V.
 get_injected_shop_config_ref(#{injected_context := #{shop_config_ref := V}}) -> V.
 get_injected_invoice_id(#{injected_context := #{invoice_id := V}}) -> V.
 get_injected_payment_id(#{injected_context := #{payment_id := V}}) -> V.
-get_injected_repair_scenario(#{injected_context := Context}) ->
-    maps:get(repair_scenario, Context, undefined).
-get_injected_payment_info(#{injected_context := Context}) ->
-    maps:get(payment_info, Context, undefined).
+get_injected_repair_scenario(#{injected_context := Context}) -> maps:get(repair_scenario, Context, undefined).
+get_injected_payment_info(#{injected_context := Context}) -> maps:get(payment_info, Context, undefined).
 
 %% Event utils
 
@@ -563,14 +556,10 @@ apply_event(?refund_created(Refund, Cashflow, TransactionInfo), undefined, Conte
     });
 apply_event(?refund_status_changed(Status = {StatusTag, _}), Refund, _Context) ->
     DomainRefund = refund(Refund),
-    Refund#{
-        status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}
-    };
+    Refund#{status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}};
 apply_event(?refund_rollback_started(Failure), Refund, _Context) ->
     Refund#{failure => Failure};
-apply_event(
-    ?session_ev(?refunded(), Event = ?session_started()), Refund = #{session_context := Context}, _
-) ->
+apply_event(?session_ev(?refunded(), Event = ?session_started()), Refund = #{session_context := Context}, _) ->
     Session = hg_session:apply_event(Event, undefined, Context),
     add_refund_session(Session, Refund);
 apply_event(?session_ev(?refunded(), Event), Refund = #{session_context := Context}, _) ->

@@ -317,9 +317,7 @@ handle_repair({changes, Changes, RepairAction, Params}, St) ->
         % Validating that these changes are at least applicable
         validate => should_validate_transitions(Params)
     };
-handle_repair({scenario, _}, #st{activity = Activity}) when
-    Activity =:= invoice orelse Activity =:= undefined
-->
+handle_repair({scenario, _}, #st{activity = Activity}) when Activity =:= invoice orelse Activity =:= undefined ->
     throw({exception, invoice_has_no_active_payment});
 handle_repair({scenario, Scenario}, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
@@ -361,9 +359,7 @@ merge_repair_action({remove, #repair_RemoveAction{}}, Action) ->
 merge_repair_action({_, undefined}, Action) ->
     Action.
 
-should_validate_transitions(#payproc_InvoiceRepairParams{validate_transitions = V}) when
-    is_boolean(V)
-->
+should_validate_transitions(#payproc_InvoiceRepairParams{validate_transitions = V}) when is_boolean(V) ->
     V;
 should_validate_transitions(undefined) ->
     true.
@@ -499,18 +495,12 @@ handle_call({callback, _Tag, _Callback} = Call, St) ->
 handle_call({session_change, _Tag, _SessionChange} = Call, St) ->
     dispatch_to_session(Call, St).
 
--spec dispatch_to_session(
-    {callback, tag(), callback()} | {session_change, tag(), session_change()}, st()
-) ->
+-spec dispatch_to_session({callback, tag(), callback()} | {session_change, tag(), session_change()}, st()) ->
     call_result().
-dispatch_to_session(
-    {callback, Tag, {provider, Payload}}, St = #st{activity = {payment, PaymentID}}
-) ->
+dispatch_to_session({callback, Tag, {provider, Payload}}, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_call({callback, Tag, Payload}, PaymentID, PaymentSession, St);
-dispatch_to_session(
-    {session_change, _Tag, _SessionChange} = Call, St = #st{activity = {payment, PaymentID}}
-) ->
+dispatch_to_session({session_change, _Tag, _SessionChange} = Call, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_call(Call, PaymentID, PaymentSession, St);
 dispatch_to_session(_Call, _St) ->
@@ -570,9 +560,7 @@ do_register_payment(PaymentID, PaymentParams, St) ->
     _ = assert_no_pending_payment(St),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
-    {PaymentSession, {Changes, Action}} = hg_invoice_registered_payment:init(
-        PaymentID, PaymentParams, Opts
-    ),
+    {PaymentSession, {Changes, Action}} = hg_invoice_registered_payment:init(PaymentID, PaymentParams, Opts),
     #{
         response => get_payment_state(PaymentSession),
         changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
@@ -674,9 +662,7 @@ handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, 
     end.
 
 collapse_payment_changes(Changes, PaymentSession, ChangeOpts) ->
-    lists:foldl(
-        fun(C, St1) -> merge_payment_change(C, St1, ChangeOpts) end, PaymentSession, Changes
-    ).
+    lists:foldl(fun(C, St1) -> merge_payment_change(C, St1, ChangeOpts) end, PaymentSession, Changes).
 
 wrap_payment_changes(PaymentID, Changes, OccurredAt) ->
     [?payment_ev(PaymentID, C, OccurredAt) || C <- Changes].
@@ -804,9 +790,7 @@ start_chargeback(Params, PaymentID, PaymentSession, PaymentOpts, St) ->
     case get_chargeback_state(ID, PaymentSession) of
         undefined ->
             #payproc_InvoicePaymentChargebackParams{occurred_at = OccurredAt} = Params,
-            CreateResult = hg_invoice_payment:create_chargeback(
-                PaymentSession, PaymentOpts, Params
-            ),
+            CreateResult = hg_invoice_payment:create_chargeback(PaymentSession, PaymentOpts, Params),
             wrap_payment_impact(PaymentID, CreateResult, St, OccurredAt);
         ChargebackState ->
             #{
@@ -881,9 +865,7 @@ merge_change(?invoice_created(Invoice), St, _Opts) ->
     St#st{activity = invoice, invoice = Invoice};
 merge_change(?invoice_status_changed(Status), St = #st{invoice = I}, _Opts) ->
     St#st{invoice = I#domain_Invoice{status = Status}};
-merge_change(
-    ?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts
-) ->
+merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts) ->
     PaymentSession = try_get_payment_session(PaymentID, St),
     PaymentSession1 = merge_payment_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
     St1 = set_payment_session(PaymentID, PaymentSession1, St),

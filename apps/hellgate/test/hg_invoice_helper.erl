@@ -252,9 +252,7 @@ register_payment(InvoiceID, RegisterPaymentParams, WithRiskScoring, Client) ->
 
 -spec start_payment(_, _, _) -> _.
 start_payment(InvoiceID, PaymentParams, Client) ->
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
-        InvoiceID, PaymentParams, Client
-    ),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     _ = start_payment_ev(InvoiceID, Client),
     ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
         next_change(InvoiceID, Client),
@@ -303,9 +301,7 @@ await_payment_capture(InvoiceID, PaymentID, Reason, TrxID, Client) ->
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
     ] = next_changes(InvoiceID, 2, Client),
     TrxID =/= undefined andalso
-        (?payment_ev(
-            PaymentID, ?session_ev(?captured(Reason, Cost, _Cart, _), ?trx_bound(?trx_info(TrxID)))
-        ) =
+        (?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, _Cart, _), ?trx_bound(?trx_info(TrxID)))) =
             next_change(InvoiceID, Client)),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
@@ -328,10 +324,7 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client) ->
 -spec await_payment_capture_finish(_, _, _, _, _, _) -> _.
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Cart, Client) ->
     [
-        ?payment_ev(
-            PaymentID,
-            ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded()))
-        ),
+        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded()))),
         ?payment_ev(PaymentID, ?payment_status_changed(?captured(Reason, Cost, Cart, _))),
         ?invoice_status_changed(?invoice_paid())
     ] = next_changes(InvoiceID, 3, Client),

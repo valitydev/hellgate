@@ -35,9 +35,7 @@ get_explanation(
             %% If there's no routes even tried, then no explanation can be provided
             throw(#payproc_RouteNotChosen{});
         [Route | AttemptedRoutes] ->
-            CandidateRoutesWithoutChosenRoute = exclude_chosen_route_from_candidates(
-                CandidateRoutes, Route
-            ),
+            CandidateRoutesWithoutChosenRoute = exclude_chosen_route_from_candidates(CandidateRoutes, Route),
             ChosenRWC = make_route_with_context(Route, RouteScores, RouteLimits),
             AttemptedExplanation = maybe_explain_attempted_routes(
                 AttemptedRoutes, RouteScores, RouteLimits
@@ -81,9 +79,7 @@ maybe_explain_attempted_routes([AttemptedRoute | AttemptedRoutes], RouteScores, 
 
 maybe_explain_candidate_routes([], _RouteScores, _RouteLimits, _ChosenRWC) ->
     [];
-maybe_explain_candidate_routes(
-    [CandidateRoute | CandidateRoutes], RouteScores, RouteLimits, ChosenRWC
-) ->
+maybe_explain_candidate_routes([CandidateRoute | CandidateRoutes], RouteScores, RouteLimits, ChosenRWC) ->
     RouteWithContext = make_route_with_context(CandidateRoute, RouteScores, RouteLimits),
     [
         route_explanation(candidate, RouteWithContext, ChosenRWC)
@@ -152,8 +148,7 @@ candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
     #{scores := ChosenScores}
 ) when RouteScores =:= ChosenScores ->
-    IfEmpty =
-        <<"This route has the same score as the chosen route, but wasn't chosen due to order in ruleset.">>,
+    IfEmpty = <<"This route has the same score as the chosen route, but wasn't chosen due to order in ruleset.">>,
     check_route_limits(RouteLimits, IfEmpty);
 candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
@@ -234,9 +229,7 @@ check_route_scores(
         terminal_priority_rating = Rating1
     }
 ) when Rating0 < Rating1 ->
-    format("Priority of this route was less than in chosen route, where ~p < ~p.", [
-        Rating0, Rating1
-    ]);
+    format("Priority of this route was less than in chosen route, where ~p < ~p.", [Rating0, Rating1]);
 check_route_scores(
     #domain_PaymentRouteScores{
         route_pin = Pin0

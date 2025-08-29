@@ -54,9 +54,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
     PaymentTool = get_payer_payment_tool(Payer),
     VS = collect_validation_varset(PartyConfigRef, ShopObj, Cost1, PaymentTool, RiskScore),
     PaymentInstitutionRef = get_payment_institution_ref(Opts, Revision),
-    PaymentInstitution = hg_payment_institution:compute_payment_institution(
-        PaymentInstitutionRef, VS, Revision
-    ),
+    PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
 
     Payment = construct_payment(
         PaymentID,
@@ -83,9 +81,7 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
         varset => VS,
         revision => Revision
     },
-    FinalCashflow = hg_invoice_payment:calculate_cashflow(
-        PaymentInstitution, CashflowContext, Opts
-    ),
+    FinalCashflow = hg_invoice_payment:calculate_cashflow(PaymentInstitution, CashflowContext, Opts),
 
     Events =
         [
@@ -170,9 +166,7 @@ process_processing_capture(Action, St) ->
     ok = hold_payment_cashflow(St),
     Events = [
         hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost), hg_session:create()),
-        hg_session:wrap_event(
-            ?captured(?CAPTURE_REASON, Cost), ?session_finished(?session_succeeded())
-        )
+        hg_session:wrap_event(?captured(?CAPTURE_REASON, Cost), ?session_finished(?session_succeeded()))
     ],
     {next, {Events, hg_machine_action:set_timeout(0, Action)}}.
 
