@@ -17,7 +17,7 @@
 -type account_id() :: dmsl_domain_thrift:'AccountID'().
 -type account_map() :: #{
     account() => account_id(),
-    merchant := {party_id(), shop_id()},
+    merchant := {party_config_ref(), shop_config_ref()},
     provider := route()
 }.
 -type context() :: dmsl_domain_thrift:'CashFlowContext'().
@@ -27,8 +27,8 @@
 -type cash_volume() :: dmsl_domain_thrift:'CashVolume'().
 -type final_cash_flow_account() :: dmsl_domain_thrift:'FinalCashFlowAccount'().
 
--type shop_id() :: dmsl_domain_thrift:'ShopID'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type route() :: hg_route:payment_route().
 
 %%
@@ -80,10 +80,12 @@ construct_final_account(AccountType, AccountMap) ->
         transaction_account = construct_transaction_account(AccountType, AccountMap)
     }.
 
-construct_transaction_account({merchant, MerchantFlowAccount}, #{merchant := {PartyID, ShopID}}) ->
+construct_transaction_account({merchant, MerchantFlowAccount}, #{
+    merchant := {PartyConfigRef, ShopConfigRef}
+}) ->
     AccountOwner = #domain_MerchantTransactionAccountOwner{
-        party_id = PartyID,
-        shop_id = ShopID
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef
     },
     {merchant, #domain_MerchantTransactionAccount{
         type = MerchantFlowAccount,
@@ -117,7 +119,9 @@ resolve_account(AccountType, AccountMap) ->
         #{AccountType := V} ->
             V;
         #{} ->
-            error({misconfiguration, {'Cash flow account can not be mapped', {AccountType, AccountMap}}})
+            error(
+                {misconfiguration, {'Cash flow account can not be mapped', {AccountType, AccountMap}}}
+            )
     end.
 
 %%
@@ -142,7 +146,9 @@ revert_details(Details) ->
 ).
 
 -define(share(P, Q, Of, RoundingMethod),
-    {share, #domain_CashVolumeShare{'parts' = ?rational(P, Q), 'of' = Of, 'rounding_method' = RoundingMethod}}
+    {share, #domain_CashVolumeShare{
+        'parts' = ?rational(P, Q), 'of' = Of, 'rounding_method' = RoundingMethod
+    }}
 ).
 
 -define(product(Fun, CVs),
@@ -182,12 +188,16 @@ compute_product(Fun, [CV | CVRest], CV0, Context) ->
         CVRest
     ).
 
-compute_product(Fun, CV, CVMin = #domain_Cash{amount = AmountMin, currency = Currency}, CV0, Context) ->
+compute_product(
+    Fun, CV, CVMin = #domain_Cash{amount = AmountMin, currency = Currency}, CV0, Context
+) ->
     case compute_volume(CV, Context) of
         #domain_Cash{amount = Amount, currency = Currency} ->
             CVMin#domain_Cash{amount = compute_product_fun(Fun, AmountMin, Amount)};
         _ ->
-            error({misconfiguration, {'Cash volume product over volumes of different currencies', CV0}})
+            error(
+                {misconfiguration, {'Cash volume product over volumes of different currencies', CV0}}
+            )
     end.
 
 compute_product_fun(min_of, V1, V2) ->
@@ -232,7 +242,9 @@ increment_remainder(AccountType, Cash, Acc) ->
 decrement_remainder(AccountType, ?cash(Amount, Currency), Acc) ->
     modify_remainder(AccountType, ?cash(-Amount, Currency), Acc).
 
-modify_remainder(#domain_FinalCashFlowAccount{account_type = AccountType}, ?cash(Amount, Currency), Acc) ->
+modify_remainder(
+    #domain_FinalCashFlowAccount{account_type = AccountType}, ?cash(Amount, Currency), Acc
+) ->
     maps:update_with(
         AccountType,
         fun(?cash(A, C)) when C == Currency ->

@@ -37,9 +37,9 @@
 -type thrift_account() :: dmsl_accounter_thrift:'Account'().
 
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
--type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 -type route() :: hg_route:payment_route().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
 -type provider() :: dmsl_domain_thrift:'Provider'().
@@ -48,8 +48,8 @@
 
 -type collect_account_context() :: #{
     payment := payment(),
-    party_id := party_id(),
-    shop := {shop_id(), shop()},
+    party_config_ref := party_config_ref(),
+    shop := {shop_config_ref(), shop()},
     route := route(),
     payment_institution := payment_institution(),
     provider := provider(),
@@ -101,7 +101,7 @@ create_account(CurrencyCode, Description) ->
 -spec collect_account_map(collect_account_context()) -> map().
 collect_account_map(#{
     payment := Payment,
-    party_id := PartyID,
+    party_config_ref := PartyConfigRef,
     shop := ShopObj,
     route := Route,
     payment_institution := PaymentInstitution,
@@ -109,15 +109,17 @@ collect_account_map(#{
     varset := VS,
     revision := Revision
 }) ->
-    Map0 = collect_merchant_account_map(PartyID, ShopObj, #{}),
+    Map0 = collect_merchant_account_map(PartyConfigRef, ShopObj, #{}),
     Map1 = collect_provider_account_map(Payment, Provider, Route, Map0),
     Map2 = collect_system_account_map(Payment, PaymentInstitution, Revision, Map1),
     collect_external_account_map(Payment, VS, Revision, Map2).
 
--spec collect_merchant_account_map(party_id(), {shop_id(), shop()}, map()) -> map().
-collect_merchant_account_map(PartyID, {ShopID, #domain_ShopConfig{account = Account}}, Acc) ->
+-spec collect_merchant_account_map(party_config_ref(), {shop_config_ref(), shop()}, map()) -> map().
+collect_merchant_account_map(
+    PartyConfigRef, {ShopConfigRef, #domain_ShopConfig{account = Account}}, Acc
+) ->
     Acc#{
-        merchant => {PartyID, ShopID},
+        merchant => {PartyConfigRef, ShopConfigRef},
         {merchant, settlement} => Account#domain_ShopAccount.settlement,
         {merchant, guarantee} => Account#domain_ShopAccount.guarantee
     }.
@@ -134,7 +136,9 @@ collect_provider_account_map(Payment, #domain_Provider{accounts = ProviderAccoun
 -spec collect_system_account_map(payment(), payment_institution(), revision(), map()) -> map().
 collect_system_account_map(Payment, PaymentInstitution, Revision, Acc) ->
     Currency = get_currency(get_payment_cost(Payment)),
-    SystemAccount = hg_payment_institution:get_system_account(Currency, Revision, PaymentInstitution),
+    SystemAccount = hg_payment_institution:get_system_account(
+        Currency, Revision, PaymentInstitution
+    ),
     Acc#{
         {system, settlement} => SystemAccount#domain_SystemAccount.settlement,
         {system, subagent} => SystemAccount#domain_SystemAccount.subagent

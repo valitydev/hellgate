@@ -72,7 +72,7 @@
 
 -type opts() :: #{
     party => party(),
-    party_id => party_id(),
+    party_config_ref => party_config_ref(),
     payment_state := payment_state(),
     party := party(),
     invoice := invoice()
@@ -84,8 +84,8 @@
 -type party() ::
     dmsl_domain_thrift:'PartyConfig'().
 
--type party_id() ::
-    dmsl_domain_thrift:'PartyID'().
+-type party_config_ref() ::
+    dmsl_domain_thrift:'PartyConfigRef'().
 
 -type invoice() ::
     dmsl_domain_thrift:'Invoice'().
@@ -285,12 +285,12 @@ do_create(Opts, CreateParams = ?chargeback_params(Levy, Body, _Reason)) ->
     CreatedAt = hg_datetime:format_now(),
     Invoice = get_opts_invoice(Opts),
     Party = get_opts_party(Opts),
-    PartyID = get_opts_party_id(Opts),
+    PartyConfigRef = get_opts_party_config_ref(Opts),
     Route = get_opts_route(Opts),
     Payment = get_opts_payment(Opts),
-    ShopID = get_invoice_shop_id(Invoice),
-    ShopObj = {_, Shop} = hg_party:get_shop(ShopID, Party, Revision),
-    VS = collect_validation_varset(PartyID, ShopObj, Payment, Body),
+    ShopConfigRef = get_invoice_shop_config_ref(Invoice),
+    ShopObj = {_, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
+    VS = collect_validation_varset(PartyConfigRef, ShopObj, Payment, Body),
     PaymentsTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     ProviderTerms = get_provider_chargeback_terms(PaymentsTerms, Payment),
     ServiceTerms = get_merchant_chargeback_terms(Party, Shop, VS, Revision, CreatedAt),
@@ -361,7 +361,8 @@ finalise(State = #chargeback_st{target_status = Status}, Action, Opts) when
     _ = commit_cash_flow(State, Opts),
     {[?chargeback_status_changed(Status)], Action}.
 
--spec build_chargeback(opts(), create_params(), revision(), timestamp()) -> chargeback() | no_return().
+-spec build_chargeback(opts(), create_params(), revision(), timestamp()) ->
+    chargeback() | no_return().
 build_chargeback(Opts, Params = ?chargeback_params(Levy, Body, Reason), Revision, CreatedAt) ->
     Revision = hg_domain:head(),
     #domain_InvoicePaymentChargeback{
@@ -412,7 +413,9 @@ build_reopen_result(State, ?reopen_params(ParamsLevy, ParamsBody) = Params) ->
     {Changes, Action}.
 
 -spec build_chargeback_final_cash_flow(state(), opts()) -> final_cash_flow() | no_return().
-build_chargeback_final_cash_flow(#chargeback_st{target_status = ?chargeback_status_cancelled()}, _Opts) ->
+build_chargeback_final_cash_flow(
+    #chargeback_st{target_status = ?chargeback_status_cancelled()}, _Opts
+) ->
     [];
 build_chargeback_final_cash_flow(State, Opts) ->
     CreatedAt = get_created_at(State),
@@ -422,10 +425,10 @@ build_chargeback_final_cash_flow(State, Opts) ->
     Invoice = get_opts_invoice(Opts),
     Route = get_opts_route(Opts),
     Party = get_opts_party(Opts),
-    PartyID = get_opts_party_id(Opts),
-    ShopID = get_invoice_shop_id(Invoice),
-    ShopObj = {_, Shop} = hg_party:get_shop(ShopID, Party, Revision),
-    VS = collect_validation_varset(PartyID, ShopObj, Payment, Body),
+    PartyConfigRef = get_opts_party_config_ref(Opts),
+    ShopConfigRef = get_invoice_shop_config_ref(Invoice),
+    ShopObj = {_, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
+    VS = collect_validation_varset(PartyConfigRef, ShopObj, Payment, Body),
     ServiceTerms = get_merchant_chargeback_terms(Party, Shop, VS, Revision, CreatedAt),
     PaymentsTerms = hg_routing:get_payment_terms(Route, VS, Revision),
     ProviderTerms = get_provider_chargeback_terms(PaymentsTerms, Payment),
@@ -433,11 +436,13 @@ build_chargeback_final_cash_flow(State, Opts) ->
     ProviderCashFlow = get_chargeback_provider_cash_flow(ProviderTerms),
     ProviderFees = collect_chargeback_provider_fees(ProviderTerms),
     PaymentInstitutionRef = Shop#domain_ShopConfig.payment_institution,
-    PaymentInst = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS, Revision),
+    PaymentInst = hg_payment_institution:compute_payment_institution(
+        PaymentInstitutionRef, VS, Revision
+    ),
     Provider = get_route_provider(Route, Revision),
     CollectAccountContext = #{
         payment => Payment,
-        party_id => PartyID,
+        party_config_ref => PartyConfigRef,
         shop => ShopObj,
         route => Route,
         payment_institution => PaymentInst,
@@ -519,14 +524,16 @@ construct_chargeback_plan_id(State, Opts) ->
         genlib:to_binary(Stage)
     ]).
 
-collect_validation_varset(PartyID, {ShopID, Shop}, Payment, Body) ->
+collect_validation_varset(
+    PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Payment, Body
+) ->
     #domain_InvoicePayment{cost = #domain_Cash{currency = Currency}} = Payment,
     #domain_ShopConfig{
         category = Category
     } = Shop,
     #{
-        party_id => PartyID,
-        shop_id => ShopID,
+        party_config_ref => PartyConfigRef,
+        shop_id => ShopConfigID,
         category => Category,
         currency => Currency,
         cost => Body,
@@ -537,7 +544,9 @@ collect_validation_varset(PartyID, {ShopID, Shop}, Payment, Body) ->
 
 validate_eligibility_time(#domain_PaymentChargebackServiceTerms{eligibility_time = undefined}) ->
     ok;
-validate_eligibility_time(#domain_PaymentChargebackServiceTerms{eligibility_time = {value, EligibilityTime}}) ->
+validate_eligibility_time(#domain_PaymentChargebackServiceTerms{
+    eligibility_time = {value, EligibilityTime}
+}) ->
     Now = hg_datetime:format_now(),
     EligibleUntil = hg_datetime:add_time_span(EligibilityTime, Now),
     case hg_datetime:compare(Now, EligibleUntil) of
@@ -582,7 +591,9 @@ validate_not_arbitration(#domain_InvoicePaymentChargeback{}) ->
 
 validate_chargeback_is_pending(#chargeback_st{chargeback = Chargeback}) ->
     validate_chargeback_is_pending(Chargeback);
-validate_chargeback_is_pending(#domain_InvoicePaymentChargeback{status = ?chargeback_status_pending()}) ->
+validate_chargeback_is_pending(#domain_InvoicePaymentChargeback{
+    status = ?chargeback_status_pending()
+}) ->
     ok;
 validate_chargeback_is_pending(#domain_InvoicePaymentChargeback{status = Status}) ->
     throw(#payproc_InvoicePaymentChargebackInvalidStatus{status = Status}).
@@ -649,7 +660,8 @@ get_reopen_stage(#domain_InvoicePaymentChargeback{stage = CurrentStage} = Charge
             throw(#payproc_InvoicePaymentChargebackInvalidStage{stage = CurrentStage})
     end.
 
--spec get_next_stage(chargeback()) -> ?chargeback_stage_pre_arbitration() | ?chargeback_stage_arbitration().
+-spec get_next_stage(chargeback()) ->
+    ?chargeback_stage_pre_arbitration() | ?chargeback_stage_arbitration().
 get_next_stage(#domain_InvoicePaymentChargeback{stage = ?chargeback_stage_chargeback()}) ->
     ?chargeback_stage_pre_arbitration();
 get_next_stage(#domain_InvoicePaymentChargeback{stage = ?chargeback_stage_pre_arbitration()}) ->
@@ -721,8 +733,8 @@ get_route_provider(#domain_PaymentRoute{provider = ProviderRef}, Revision) ->
 get_opts_party(#{party := Party}) ->
     Party.
 
-get_opts_party_id(#{party_id := PartyID}) ->
-    PartyID.
+get_opts_party_config_ref(#{party_config_ref := PartyConfigRef}) ->
+    PartyConfigRef.
 
 get_opts_invoice(#{invoice := Invoice}) ->
     Invoice.
@@ -759,8 +771,8 @@ get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = Payme
 
 %%
 
-get_invoice_shop_id(#domain_Invoice{shop_id = ShopID}) ->
-    ShopID.
+get_invoice_shop_config_ref(#domain_Invoice{shop_ref = ShopConfigRef}) ->
+    ShopConfigRef.
 
 %%
 

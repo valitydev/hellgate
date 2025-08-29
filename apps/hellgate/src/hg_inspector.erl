@@ -105,8 +105,8 @@ get_payment_info(
         location = Location
     },
     #domain_Invoice{
-        owner_id = PartyID,
-        shop_id = ShopID,
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef,
         id = InvoiceID,
         created_at = InvoiceCreatedAt,
         due = InvoiceDue,
@@ -123,14 +123,14 @@ get_payment_info(
     }
 ) ->
     Party = #proxy_inspector_Party{
-        party_id = PartyID
+        party_ref = PartyConfigRef
     },
     ShopCategory = hg_domain:get(
         Revision,
         {category, CategoryRef}
     ),
     ProxyShop = #proxy_inspector_Shop{
-        id = ShopID,
+        shop_ref = ShopConfigRef,
         category = ShopCategory,
         name = Shop#domain_ShopConfig.name,
         description = Shop#domain_ShopConfig.description,

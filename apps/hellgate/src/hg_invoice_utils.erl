@@ -30,7 +30,7 @@
 -type cash_range() :: dmsl_domain_thrift:'CashRange'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
--type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 -type term_set() :: dmsl_domain_thrift:'TermSet'().
 -type payment_service_terms() :: dmsl_domain_thrift:'PaymentsServiceTerms'().
 -type varset() :: dmsl_payproc_thrift:'Varset'().
@@ -83,7 +83,7 @@ assert_shop_operable(V) ->
     _ = assert_shop_active(V),
     V.
 
--spec assert_shop_exists({shop_id(), shop()} | undefined) -> {shop_id(), shop()}.
+-spec assert_shop_exists({shop_config_ref(), shop()} | undefined) -> {shop_config_ref(), shop()}.
 assert_shop_exists({_, #domain_ShopConfig{}} = V) ->
     V;
 assert_shop_exists(undefined) ->

@@ -47,7 +47,9 @@ validate_mutations_w_cart(Mutations, #domain_InvoiceCart{lines = Lines}) ->
     Mutations1 = genlib:define(Mutations, []),
     amount_mutation_is_present(Mutations1) andalso cart_is_not_valid_for_mutation(Lines) andalso
         throw(#base_InvalidRequest{
-            errors = [<<"Amount mutation with multiline cart or multiple items in a line is not allowed">>]
+            errors = [
+                <<"Amount mutation with multiline cart or multiple items in a line is not allowed">>
+            ]
         }),
     ok.
 
@@ -63,7 +65,8 @@ amount_mutation_is_present(Mutations) ->
 cart_is_not_valid_for_mutation(Lines) ->
     length(Lines) > 1 orelse (hd(Lines))#domain_InvoiceLine.quantity =/= 1.
 
--spec apply_mutations([mutation()] | undefined, Invoice) -> Invoice when Invoice :: hg_invoice:invoice().
+-spec apply_mutations([mutation()] | undefined, Invoice) -> Invoice when
+    Invoice :: hg_invoice:invoice().
 apply_mutations(Mutations, Invoice) ->
     lists:foldl(fun apply_mutation/2, Invoice, genlib:define(Mutations, [])).
 
@@ -94,7 +97,9 @@ update_invoice_line_price(NewAmount, Line = #domain_InvoiceLine{price = Price}) 
 
 -spec make_mutations([mutation_params()], mutation_context()) -> [mutation()].
 make_mutations(MutationsParams, Context) ->
-    {Mutations, _} = lists:foldl(fun make_mutation/2, {[], Context}, genlib:define(MutationsParams, [])),
+    {Mutations, _} = lists:foldl(
+        fun make_mutation/2, {[], Context}, genlib:define(MutationsParams, [])
+    ),
     lists:reverse(Mutations).
 
 -define(SATISFY_RANDOMIZATION_CONDITION(P, Amount),
@@ -114,7 +119,9 @@ make_mutation(
     {Mutations, Context = #{cost := #domain_Cash{amount = Amount}}}
 ) when ?SATISFY_RANDOMIZATION_CONDITION(Params, Amount) ->
     NewMutation =
-        {amount, #domain_InvoiceAmountMutation{original = Amount, mutated = calc_new_amount(Amount, Params)}},
+        {amount, #domain_InvoiceAmountMutation{
+            original = Amount, mutated = calc_new_amount(Amount, Params)
+        }},
     {[NewMutation | Mutations], Context};
 make_mutation(_, {Mutations, Context}) ->
     {Mutations, Context}.
@@ -164,8 +171,8 @@ calc_deviation(MaxDeviation, PrecisionFactor) ->
 
 -define(invoice_w_cart(Amount, Cart, Mutations), #domain_Invoice{
     id = <<"invoice">>,
-    shop_id = <<"shop_id">>,
-    owner_id = <<"owner_id">>,
+    shop_ref = #domain_ShopConfigRef{id = <<"shop_ref">>},
+    party_ref = #domain_PartyConfigRef{id = <<"party_ref">>},
     created_at = <<"1970-01-01T00:00:00Z">>,
     domain_revision = 1223,
     status = {unpaid, #domain_InvoiceUnpaid{}},

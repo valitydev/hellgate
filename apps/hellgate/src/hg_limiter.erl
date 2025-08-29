@@ -16,8 +16,8 @@
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type handling_flag() :: ignore_business_error | ignore_not_found.
 -type turnover_limit_value() :: dmsl_payproc_thrift:'TurnoverLimitValue'().
--type party_id() :: hg_party:party_id().
--type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 
 -type change_queue() :: [hg_limiter_client:limit_change()].
 
@@ -50,10 +50,13 @@ get_turnover_limits({value, Limits}) ->
 get_turnover_limits(Ambiguous) ->
     error({misconfiguration, {'Could not reduce selector to a value', Ambiguous}}).
 
--spec get_limit_values([turnover_limit()], invoice(), payment(), route(), pos_integer()) -> [turnover_limit_value()].
+-spec get_limit_values([turnover_limit()], invoice(), payment(), route(), pos_integer()) ->
+    [turnover_limit_value()].
 get_limit_values(TurnoverLimits, Invoice, Payment, Route, Iter) ->
     Context = gen_limit_context(Invoice, Payment, Route),
-    get_limit_values(Context, TurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)).
+    get_limit_values(
+        Context, TurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)
+    ).
 
 make_route_operation_segments(Invoice, Payment, ?route(ProviderRef, TerminalRef), Iter) ->
     [
@@ -65,7 +68,9 @@ make_route_operation_segments(Invoice, Payment, ?route(ProviderRef, TerminalRef)
     ].
 
 get_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
     get_legacy_limit_values(Context, LegacyTurnoverLimits) ++
         get_batch_limit_values(Context, BatchTurnoverLimits, OperationIdSegments).
 
@@ -98,7 +103,9 @@ get_batch_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
     | {error, {limit_overflow, [binary()], [turnover_limit_value()]}}.
 check_limits(TurnoverLimits, Invoice, Payment, Route, Iter) ->
     Context = gen_limit_context(Invoice, Payment, Route),
-    Limits = get_limit_values(Context, TurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)),
+    Limits = get_limit_values(
+        Context, TurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)
+    ),
     try
         ok = check_limits_(Limits, Context),
         {ok, Limits}
@@ -108,12 +115,18 @@ check_limits(TurnoverLimits, Invoice, Payment, Route, Iter) ->
             {error, {limit_overflow, IDs, Limits}}
     end.
 
--spec check_shop_limits([turnover_limit()], party_id(), shop_id(), invoice(), payment()) ->
+-spec check_shop_limits(
+    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()
+) ->
     ok
     | {error, {limit_overflow, [binary()]}}.
-check_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
+check_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     Context = gen_limit_shop_context(Invoice, Payment),
-    Limits = get_limit_values(Context, TurnoverLimits, make_shop_operation_segments(PartyID, ShopID, Invoice, Payment)),
+    Limits = get_limit_values(
+        Context,
+        TurnoverLimits,
+        make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment)
+    ),
     try
         check_limits_(Limits, Context)
     catch
@@ -122,10 +135,10 @@ check_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
             {error, {limit_overflow, IDs}}
     end.
 
-make_shop_operation_segments(PartyID, ShopID, Invoice, Payment) ->
+make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     [
-        PartyID,
-        ShopID,
+        PartyConfigRef,
+        ShopConfigRef,
         get_invoice_id(Invoice),
         get_payment_id(Payment)
     ].
@@ -155,9 +168,13 @@ check_limits_([TurnoverLimitValue | TLVs], Context) ->
 -spec hold_payment_limits([turnover_limit()], invoice(), payment(), route(), pos_integer()) -> ok.
 hold_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter) ->
     Context = gen_limit_context(Invoice, Payment, Route),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
     ok = legacy_hold_payment_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter),
-    ok = batch_hold_limits(Context, BatchTurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)).
+    ok = batch_hold_limits(
+        Context, BatchTurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)
+    ).
 
 legacy_hold_payment_limits(Context, TurnoverLimits, Invoice, Payment, Route, Iter) ->
     ChangeIDs = [construct_payment_change_id(Route, Iter, Invoice, Payment)],
@@ -171,26 +188,38 @@ batch_hold_limits(Context, TurnoverLimits, OperationIdSegments) ->
     _ = hg_limiter_client:hold_batch(LimitRequest, Context),
     ok.
 
--spec hold_shop_limits([turnover_limit()], party_id(), shop_id(), invoice(), payment()) -> ok.
-hold_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
+-spec hold_shop_limits(
+    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()
+) -> ok.
+hold_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     Context = gen_limit_shop_context(Invoice, Payment),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
-    ok = legacy_hold_shop_limits(Context, LegacyTurnoverLimits, PartyID, ShopID, Invoice, Payment),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
+    ok = legacy_hold_shop_limits(
+        Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
+    ),
     ok = batch_hold_limits(
-        Context, BatchTurnoverLimits, make_shop_operation_segments(PartyID, ShopID, Invoice, Payment)
+        Context,
+        BatchTurnoverLimits,
+        make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment)
     ).
 
-legacy_hold_shop_limits(Context, TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
-    ChangeIDs = [construct_shop_change_id(PartyID, ShopID, Invoice, Payment)],
+legacy_hold_shop_limits(Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
+    ChangeIDs = [construct_shop_change_id(PartyConfigRef, ShopConfigRef, Invoice, Payment)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     hold(LimitChanges, get_latest_clock(), Context).
 
 -spec hold_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
 hold_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
     ok = legacy_hold_refund_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Refund),
-    ok = batch_hold_limits(Context, BatchTurnoverLimits, make_refund_operation_segments(Invoice, Payment, Refund)).
+    ok = batch_hold_limits(
+        Context, BatchTurnoverLimits, make_refund_operation_segments(Invoice, Payment, Refund)
+    ).
 
 make_refund_operation_segments(Invoice, Payment, Refund) ->
     [
@@ -204,12 +233,18 @@ legacy_hold_refund_limits(Context, TurnoverLimits, Invoice, Payment, Refund) ->
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     hold(LimitChanges, get_latest_clock(), Context).
 
--spec commit_payment_limits([turnover_limit()], invoice(), payment(), route(), pos_integer(), cash() | undefined) -> ok.
+-spec commit_payment_limits(
+    [turnover_limit()], invoice(), payment(), route(), pos_integer(), cash() | undefined
+) -> ok.
 commit_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, CapturedCash) ->
     Context = gen_limit_context(Invoice, Payment, Route, CapturedCash),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
     Clock = get_latest_clock(),
-    ok = legacy_commit_payment_limits(Clock, Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter),
+    ok = legacy_commit_payment_limits(
+        Clock, Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter
+    ),
     OperationIdSegments = make_route_operation_segments(Invoice, Payment, Route, Iter),
     ok = batch_commit_limits(Context, BatchTurnoverLimits, OperationIdSegments),
     ok = log_limit_changes(TurnoverLimits, Clock, Context).
@@ -228,27 +263,41 @@ legacy_commit_payment_limits(Clock, Context, TurnoverLimits, Invoice, Payment, R
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     commit(LimitChanges, Clock, Context).
 
--spec commit_shop_limits([turnover_limit()], party_id(), shop_id(), invoice(), payment()) -> ok.
-commit_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
+-spec commit_shop_limits(
+    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()
+) -> ok.
+commit_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     Context = gen_limit_shop_context(Invoice, Payment),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
     Clock = get_latest_clock(),
-    ok = legacy_commit_shop_limits(Clock, Context, LegacyTurnoverLimits, PartyID, ShopID, Invoice, Payment),
-    OperationIdSegments = make_shop_operation_segments(PartyID, ShopID, Invoice, Payment),
+    ok = legacy_commit_shop_limits(
+        Clock, Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
+    ),
+    OperationIdSegments = make_shop_operation_segments(
+        PartyConfigRef, ShopConfigRef, Invoice, Payment
+    ),
     ok = batch_commit_limits(Context, BatchTurnoverLimits, OperationIdSegments),
     ok = log_limit_changes(TurnoverLimits, Clock, Context).
 
-legacy_commit_shop_limits(Clock, Context, TurnoverLimits, PartyID, ShopID, Invoice, Payment) ->
-    ChangeIDs = [construct_shop_change_id(PartyID, ShopID, Invoice, Payment)],
+legacy_commit_shop_limits(
+    Clock, Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
+) ->
+    ChangeIDs = [construct_shop_change_id(PartyConfigRef, ShopConfigRef, Invoice, Payment)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     ok = commit(LimitChanges, Clock, Context).
 
 -spec commit_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
 commit_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
     Clock = get_latest_clock(),
-    ok = legacy_commit_refund_limits(Clock, Context, LegacyTurnoverLimits, Invoice, Payment, Refund),
+    ok = legacy_commit_refund_limits(
+        Clock, Context, LegacyTurnoverLimits, Invoice, Payment, Refund
+    ),
     OperationIdSegments = make_refund_operation_segments(Invoice, Payment, Refund),
     ok = batch_commit_limits(Context, BatchTurnoverLimits, OperationIdSegments),
     ok = log_limit_changes(TurnoverLimits, Clock, Context).
@@ -266,12 +315,18 @@ legacy_commit_refund_limits(Clock, Context, TurnoverLimits, Invoice, Payment, Re
 %%
 %%      - `ignore_not_found` -- does not raise error if limiter won't be able to
 %%      find according posting plan in accountant service
--spec rollback_payment_limits([turnover_limit()], invoice(), payment(), route(), pos_integer(), [handling_flag()]) ->
+-spec rollback_payment_limits([turnover_limit()], invoice(), payment(), route(), pos_integer(), [
+    handling_flag()
+]) ->
     ok.
 rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags) ->
     Context = gen_limit_context(Invoice, Payment, Route),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
-    ok = legacy_rollback_payment_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter, Flags),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
+    ok = legacy_rollback_payment_limits(
+        Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter, Flags
+    ),
     OperationIdSegments = make_route_operation_segments(Invoice, Payment, Route, Iter),
     ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
 
@@ -289,24 +344,38 @@ legacy_rollback_payment_limits(Context, TurnoverLimits, Invoice, Payment, Route,
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     rollback(LimitChanges, get_latest_clock(), Context, Flags).
 
--spec rollback_shop_limits([turnover_limit()], party_id(), shop_id(), invoice(), payment(), [handling_flag()]) ->
+-spec rollback_shop_limits(
+    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment(), [
+        handling_flag()
+    ]
+) ->
     ok.
-rollback_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment, Flags) ->
+rollback_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags) ->
     Context = gen_limit_shop_context(Invoice, Payment),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
-    ok = legacy_rollback_shop_limits(Context, LegacyTurnoverLimits, PartyID, ShopID, Invoice, Payment, Flags),
-    OperationIdSegments = make_shop_operation_segments(PartyID, ShopID, Invoice, Payment),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
+    ok = legacy_rollback_shop_limits(
+        Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags
+    ),
+    OperationIdSegments = make_shop_operation_segments(
+        PartyConfigRef, ShopConfigRef, Invoice, Payment
+    ),
     ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
 
-legacy_rollback_shop_limits(Context, TurnoverLimits, PartyID, ShopID, Invoice, Payment, Flags) ->
-    ChangeIDs = [construct_shop_change_id(PartyID, ShopID, Invoice, Payment)],
+legacy_rollback_shop_limits(
+    Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags
+) ->
+    ChangeIDs = [construct_shop_change_id(PartyConfigRef, ShopConfigRef, Invoice, Payment)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     rollback(LimitChanges, get_latest_clock(), Context, Flags).
 
 -spec rollback_refund_limits([turnover_limit()], invoice(), payment(), refund(), route()) -> ok.
 rollback_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     Context = gen_limit_refund_context(Invoice, Payment, Refund, Route),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
+        TurnoverLimits
+    ),
     ok = legacy_rollback_refund_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Refund),
     OperationIdSegments = make_refund_operation_segments(Invoice, Payment, Refund),
     ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
@@ -324,7 +393,9 @@ hold(LimitChanges, Clock, Context) ->
 commit(LimitChanges, Clock, Context) ->
     process_changes(LimitChanges, fun hg_limiter_client:commit/3, Clock, Context, []).
 
--spec rollback([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context(), [handling_flag()]) -> ok.
+-spec rollback([change_queue()], hg_limiter_client:clock(), hg_limiter_client:context(), [
+    handling_flag()
+]) -> ok.
 rollback(LimitChanges, Clock, Context, Flags) ->
     process_changes(LimitChanges, fun hg_limiter_client:rollback/3, Clock, Context, Flags).
 
@@ -337,7 +408,9 @@ process_changes(LimitChangesQueues, WithFun, Clock, Context, Flags) ->
     ).
 
 %% Very specific error to crutch around
--define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
+-define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{
+    errors = [<<"Posting plan not found: ", ID/binary>>]
+}).
 
 process_changes_try_wrap([LimitChange], WithFun, Clock, Context, Flags) ->
     IgnoreNotFound = lists:member(ignore_not_found, Flags),
@@ -361,11 +434,16 @@ process_changes_try_wrap([LimitChange | OtherLimitChanges], WithFun, Clock, Cont
             handle_caught_exception(Class, Reason, Stacktrace, IgnoreBusinessError)
     end.
 
-handle_caught_exception(error, #limiter_LimitNotFound{}, _Stacktrace, true) -> ok;
-handle_caught_exception(error, #limiter_InvalidOperationCurrency{}, _Stacktrace, true) -> ok;
-handle_caught_exception(error, #limiter_OperationContextNotSupported{}, _Stacktrace, true) -> ok;
-handle_caught_exception(error, #limiter_PaymentToolNotSupported{}, _Stacktrace, true) -> ok;
-handle_caught_exception(Class, Reason, Stacktrace, _IgnoreBusinessError) -> erlang:raise(Class, Reason, Stacktrace).
+handle_caught_exception(error, #limiter_LimitNotFound{}, _Stacktrace, true) ->
+    ok;
+handle_caught_exception(error, #limiter_InvalidOperationCurrency{}, _Stacktrace, true) ->
+    ok;
+handle_caught_exception(error, #limiter_OperationContextNotSupported{}, _Stacktrace, true) ->
+    ok;
+handle_caught_exception(error, #limiter_PaymentToolNotSupported{}, _Stacktrace, true) ->
+    ok;
+handle_caught_exception(Class, Reason, Stacktrace, _IgnoreBusinessError) ->
+    erlang:raise(Class, Reason, Stacktrace).
 
 gen_limit_context(Invoice, Payment, Route) ->
     gen_limit_context(Invoice, Payment, Route, undefined).
@@ -452,10 +530,10 @@ construct_payment_change_id(?route(ProviderRef, TerminalRef), Iter, Invoice, Pay
         integer_to_binary(Iter)
     ]).
 
-construct_shop_change_id(PartyID, ShopID, Invoice, Payment) ->
+construct_shop_change_id(PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     hg_utils:construct_complex_id([
-        PartyID,
-        ShopID,
+        PartyConfigRef,
+        ShopConfigRef,
         get_invoice_id(Invoice),
         get_payment_id(Payment)
     ]).
@@ -494,8 +572,14 @@ convert_to_limit_route(#domain_PaymentRoute{provider = Provider, terminal = Term
 log_limit_changes(TurnoverLimits, Clock, Context) ->
     Attrs = mk_limit_log_attributes(Context),
     lists:foreach(
-        fun(#domain_TurnoverLimit{id = ID, upper_boundary = UpperBoundary, domain_revision = DomainRevision}) ->
-            #limiter_Limit{amount = LimitAmount} = hg_limiter_client:get(ID, DomainRevision, Clock, Context),
+        fun(
+            #domain_TurnoverLimit{
+                id = ID, upper_boundary = UpperBoundary, domain_revision = DomainRevision
+            }
+        ) ->
+            #limiter_Limit{amount = LimitAmount} = hg_limiter_client:get(
+                ID, DomainRevision, Clock, Context
+            ),
             ok = logger:log(notice, "Limit change commited", [], #{
                 limit => Attrs#{config_id => ID, boundary => UpperBoundary, amount => LimitAmount}
             })
@@ -507,7 +591,10 @@ mk_limit_log_attributes(#limiter_LimitContext{
     payment_processing = #context_payproc_Context{op = Op, invoice = CtxInvoice}
 }) ->
     #context_payproc_Invoice{
-        invoice = #domain_Invoice{owner_id = PartyID, shop_id = ShopID},
+        invoice = #domain_Invoice{
+            party_ref = PartyConfigRef,
+            shop_ref = ShopConfigRef
+        },
         payment = #context_payproc_InvoicePayment{
             payment = Payment,
             refund = Refund,
@@ -528,8 +615,8 @@ mk_limit_log_attributes(#limiter_LimitContext{
         %% Current amount with accounted change
         amount => undefined,
         route => maybe_route_context(Route),
-        party_id => PartyID,
-        shop_id => ShopID,
+        party_config_ref => PartyConfigRef,
+        shop_config_ref => ShopConfigRef,
         change => #{
             amount => Amount,
             currency => Currency#domain_CurrencyRef.symbolic_code
@@ -545,7 +632,9 @@ maybe_route_context(#base_Route{provider = Provider, terminal = Terminal}) ->
     }.
 
 split_turnover_limits_by_available_limiter_api(TurnoverLimits) ->
-    lists:partition(fun(#domain_TurnoverLimit{domain_revision = V}) -> V =:= undefined end, TurnoverLimits).
+    lists:partition(
+        fun(#domain_TurnoverLimit{domain_revision = V}) -> V =:= undefined end, TurnoverLimits
+    ).
 
 prepare_limit_request(TurnoverLimits, IdSegments) ->
     {TurnoverLimitsIdList, LimitChanges} = lists:unzip(

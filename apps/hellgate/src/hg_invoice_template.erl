@@ -47,7 +47,8 @@ get_invoice_template(ID) ->
 
 %% Woody handler
 
--spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) ->
+    term() | no_return().
 handle_function(Func, Args, Opts) ->
     scoper:scope(
         invoice_templating,
@@ -56,12 +57,16 @@ handle_function(Func, Args, Opts) ->
         end
     ).
 
--spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) -> term() | no_return().
+-spec handle_function_(woody:func(), woody:args(), hg_woody_service_wrapper:handler_opts()) ->
+    term() | no_return().
 handle_function_('Create', {Params}, _Opts) ->
     TplID = Params#payproc_InvoiceTemplateCreateParams.template_id,
     _ = set_meta(TplID),
-    Party = get_party(Params#payproc_InvoiceTemplateCreateParams.party_id),
-    Shop = get_shop(Params#payproc_InvoiceTemplateCreateParams.shop_id, Party),
+    _Party = get_party(Params#payproc_InvoiceTemplateCreateParams.party_id),
+    Shop = get_shop(
+        Params#payproc_InvoiceTemplateCreateParams.shop_id,
+        Params#payproc_InvoiceTemplateCreateParams.party_id
+    ),
     ok = validate_create_params(Params, Shop),
     ok = start(TplID, Params),
     get_invoice_template(TplID);
@@ -71,14 +76,14 @@ handle_function_('Get', {TplID}, _Opts) ->
 handle_function_('Update' = Fun, {TplID, Params} = Args, _Opts) ->
     _ = set_meta(TplID),
     Tpl = get_invoice_template(TplID),
-    Party = get_party(Tpl#domain_InvoiceTemplate.owner_id),
-    Shop = get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party),
+    _ = get_party(Tpl#domain_InvoiceTemplate.party_ref),
+    Shop = get_shop(Tpl#domain_InvoiceTemplate.shop_ref, Tpl#domain_InvoiceTemplate.party_ref),
     ok = validate_update_params(Params, Shop),
     call(TplID, Fun, Args);
 handle_function_('Delete' = Fun, {TplID} = Args, _Opts) ->
     Tpl = get_invoice_template(TplID),
-    Party = get_party(Tpl#domain_InvoiceTemplate.owner_id),
-    _ = get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party),
+    _ = get_party(Tpl#domain_InvoiceTemplate.party_ref),
+    _ = get_shop(Tpl#domain_InvoiceTemplate.shop_ref, Tpl#domain_InvoiceTemplate.party_ref),
     _ = set_meta(TplID),
     call(TplID, Fun, Args);
 handle_function_('ComputeTerms', {TplID}, _Opts) ->
@@ -92,13 +97,17 @@ handle_function_('ComputeTerms', {TplID}, _Opts) ->
                 undefined
         end,
     Revision = hg_party:get_party_revision(),
-    {PartyID, Party} = hg_party:checkout(Tpl#domain_InvoiceTemplate.owner_id, Revision),
-    {ShopID, Shop} = hg_party:get_shop(Tpl#domain_InvoiceTemplate.shop_id, Party, Revision),
+    {PartyConfigRef, Party} = hg_party:checkout(Tpl#domain_InvoiceTemplate.party_ref, Revision),
+    {#domain_ShopConfigRef{id = ShopConfigID}, Shop} = hg_party:get_shop(
+        Tpl#domain_InvoiceTemplate.shop_ref,
+        Tpl#domain_InvoiceTemplate.party_ref,
+        Revision
+    ),
     _ = assert_party_shop_operable(Shop, Party),
     VS = #{
         cost => Cost,
-        shop_id => ShopID,
-        party_id => PartyID,
+        shop_id => ShopConfigID,
+        party_config_ref => PartyConfigRef,
         category => Shop#domain_ShopConfig.category,
         currency => hg_invoice_utils:get_shop_currency(Shop)
     },
@@ -113,14 +122,14 @@ assert_party_shop_operable(Shop, Party) ->
     _ = hg_invoice_utils:assert_shop_operable(Shop),
     ok.
 
-get_party(PartyID) ->
-    {PartyID, Party} = hg_party:get_party(PartyID),
+get_party(PartyConfigRef) ->
+    {PartyConfigRef, Party} = hg_party:get_party(PartyConfigRef),
     _ = hg_invoice_utils:assert_party_operable(Party),
     Party.
 
-get_shop(ShopID, Party) ->
-    {ShopID, Shop} = hg_invoice_utils:assert_shop_exists(
-        hg_party:get_shop(ShopID, Party, hg_party:get_party_revision())
+get_shop(ShopConfigRef, PartyConfigRef) ->
+    {ShopConfigRef, Shop} = hg_invoice_utils:assert_shop_exists(
+        hg_party:get_shop(ShopConfigRef, PartyConfigRef, hg_party:get_party_revision())
     ),
     _ = hg_invoice_utils:assert_shop_operable(Shop),
     Shop.
@@ -128,12 +137,16 @@ get_shop(ShopID, Party) ->
 set_meta(ID) ->
     scoper:add_meta(#{invoice_template_id => ID}).
 
-validate_create_params(#payproc_InvoiceTemplateCreateParams{details = Details, mutations = Mutations}, Shop) ->
+validate_create_params(
+    #payproc_InvoiceTemplateCreateParams{details = Details, mutations = Mutations}, Shop
+) ->
     ok = validate_details(Details, Mutations, Shop).
 
 validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = undefined}, _) ->
     ok;
-validate_update_params(#payproc_InvoiceTemplateUpdateParams{details = Details, mutations = Mutations}, Shop) ->
+validate_update_params(
+    #payproc_InvoiceTemplateUpdateParams{details = Details, mutations = Mutations}, Shop
+) ->
     ok = validate_details(Details, Mutations, Shop).
 
 validate_details({cart, #domain_InvoiceCart{}} = Details, Mutations, _) ->
@@ -227,8 +240,8 @@ init(EncodedParams, #{id := ID}) ->
 create_invoice_template(ID, P) ->
     #domain_InvoiceTemplate{
         id = ID,
-        owner_id = P#payproc_InvoiceTemplateCreateParams.party_id,
-        shop_id = P#payproc_InvoiceTemplateCreateParams.shop_id,
+        party_ref = P#payproc_InvoiceTemplateCreateParams.party_id,
+        shop_ref = P#payproc_InvoiceTemplateCreateParams.shop_id,
         invoice_lifetime = P#payproc_InvoiceTemplateCreateParams.invoice_lifetime,
         product = P#payproc_InvoiceTemplateCreateParams.product,
         name = P#payproc_InvoiceTemplateCreateParams.name,

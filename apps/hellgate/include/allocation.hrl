@@ -73,10 +73,10 @@
     body = Body
 }).
 
--define(allocation_trx_target_shop(OwnerID, ShopID),
+-define(allocation_trx_target_shop(PartyConfigRef, ShopConfigRef),
     {shop, #domain_AllocationTransactionTargetShop{
-        owner_id = OwnerID,
-        shop_id = ShopID
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef
     }}
 ).
 

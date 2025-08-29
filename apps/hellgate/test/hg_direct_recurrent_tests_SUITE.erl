@@ -104,21 +104,25 @@ init_per_suite(C) ->
     ]),
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
-    PartyID = hg_utils:unique_id(),
+    PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient = {party_client:create_client(), party_client:create_context()},
-    _ = hg_ct_helper:create_party(PartyID, PartyClient),
+    _ = hg_ct_helper:create_party(PartyConfigRef, PartyClient),
     ok = hg_context:save(hg_context:create()),
-    Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient),
-    Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient),
+    Shop1ConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient
+    ),
+    Shop2ConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient
+    ),
     ok = hg_context:cleanup(),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     C1 = [
         {apps, Apps},
         {root_url, RootUrl},
-        {party_id, PartyID},
-        {shop_id, Shop1ID},
-        {another_shop_id, Shop2ID},
+        {party_config_ref, PartyConfigRef},
+        {shop_config_ref, Shop1ConfigRef},
+        {another_shop_config_ref, Shop2ConfigRef},
         {test_sup, SupPid}
         | C
     ],
@@ -192,7 +196,9 @@ second_recurrent_payment_success_test(C) ->
 -spec another_shop_test(config()) -> test_result().
 another_shop_test(C) ->
     Client = cfg(client, C),
-    Invoice1ID = start_invoice(cfg(another_shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    Invoice1ID = start_invoice(
+        cfg(another_shop_config_ref, C), <<"rubberduck">>, make_due_date(10), 42000, C
+    ),
     %% first payment in recurrent session
     Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
@@ -201,7 +207,9 @@ another_shop_test(C) ->
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
     Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
-    ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment refer to another shop">>},
+    ExpectedError = #payproc_InvalidRecurrentParentPayment{
+        details = <<"Parent payment refer to another shop">>
+    },
     {error, ExpectedError} = start_payment(Invoice2ID, Payment2Params, Client).
 
 -spec not_recurring_first_test(config()) -> test_result().
@@ -216,7 +224,9 @@ not_recurring_first_test(C) ->
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
     Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
-    ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment has no recurrent token">>},
+    ExpectedError = #payproc_InvalidRecurrentParentPayment{
+        details = <<"Parent payment has no recurrent token">>
+    },
     {error, ExpectedError} = start_payment(Invoice2ID, Payment2Params, Client).
 
 -spec cancelled_first_payment_test(config()) -> test_result().
@@ -253,7 +263,9 @@ not_exists_invoice_test(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(<<"not_exists">>, <<"not_exists">>),
     PaymentParams = make_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
-    ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent invoice not found">>},
+    ExpectedError = #payproc_InvalidRecurrentParentPayment{
+        details = <<"Parent invoice not found">>
+    },
     {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
 -spec not_exists_payment_test(config()) -> test_result().
@@ -262,7 +274,9 @@ not_exists_payment_test(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(InvoiceID, <<"not_exists">>),
     PaymentParams = make_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
-    ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment not found">>},
+    ExpectedError = #payproc_InvalidRecurrentParentPayment{
+        details = <<"Parent payment not found">>
+    },
     {error, ExpectedError} = start_payment(InvoiceID, PaymentParams, Client).
 
 %% Internal functions
@@ -323,7 +337,9 @@ make_payment_params(FlowType, MakeRecurrent, RecurrentParent, PmtSys) ->
     make_payment_params(PaymentTool, Session, FlowType, MakeRecurrent, RecurrentParent).
 
 make_payment_params(PaymentTool, Session, FlowType, MakeRecurrent, RecurrentParent) ->
-    make_payment_params(#domain_ClientInfo{}, PaymentTool, Session, FlowType, MakeRecurrent, RecurrentParent).
+    make_payment_params(
+        #domain_ClientInfo{}, PaymentTool, Session, FlowType, MakeRecurrent, RecurrentParent
+    ).
 
 make_payment_params(ClientInfo, PaymentTool, Session, FlowType, MakeRecurrent, RecurrentParent) ->
     Flow =
@@ -360,21 +376,27 @@ make_recurrent_payment_params(MakeRecurrent, RecurrentParent, PmtSys) ->
 
 make_recurrent_payment_params(FlowType, MakeRecurrent, RecurrentParent, PmtSys) ->
     {PaymentTool, _Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
-    make_payment_params(undefined, PaymentTool, undefined, FlowType, MakeRecurrent, RecurrentParent).
+    make_payment_params(
+        undefined, PaymentTool, undefined, FlowType, MakeRecurrent, RecurrentParent
+    ).
 
 make_due_date(LifetimeSeconds) ->
     genlib_time:unow() + LifetimeSeconds.
 
 start_invoice(Product, Due, Amount, C) ->
-    start_invoice(cfg(shop_id, C), Product, Due, Amount, C).
+    start_invoice(cfg(shop_config_ref, C), Product, Due, Amount, C).
 
-start_invoice(ShopID, Product, Due, Amount, C) ->
+start_invoice(ShopConfigRef, Product, Due, Amount, C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     Cash = hg_ct_helper:make_cash(Amount, <<"RUB">>),
-    InvoiceParams = hg_ct_helper:make_invoice_params(PartyID, ShopID, Product, Due, Cash),
+    InvoiceParams = hg_ct_helper:make_invoice_params(
+        PartyConfigRef, ShopConfigRef, Product, Due, Cash
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
-    _Events = await_events(InvoiceID, [?evp(?invoice_created(?invoice_w_status(?invoice_unpaid())))], Client),
+    _Events = await_events(
+        InvoiceID, [?evp(?invoice_created(?invoice_w_status(?invoice_unpaid())))], Client
+    ),
     InvoiceID.
 
 start_payment(InvoiceID, PaymentParams, Client) ->
@@ -428,7 +450,9 @@ do_await_events(_InvoiceID, Filters, _Timeout, _Client, timeout, MatchedEvents) 
 do_await_events(InvoiceID, Filters, Timeout, Client, [], MatchedEvents) ->
     NewEvents = next_event(InvoiceID, Timeout, Client),
     do_await_events(InvoiceID, Filters, Timeout, Client, NewEvents, MatchedEvents);
-do_await_events(InvoiceID, [FilterFn | FTail] = Filters, Timeout, Client, [Ev | EvTail], MatchedEvents) ->
+do_await_events(
+    InvoiceID, [FilterFn | FTail] = Filters, Timeout, Client, [Ev | EvTail], MatchedEvents
+) ->
     case FilterFn(Ev) of
         true ->
             do_await_events(InvoiceID, FTail, Timeout, Client, EvTail, [Ev | MatchedEvents]);
@@ -527,7 +551,9 @@ construct_domain_fixture(TermSet) ->
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
 
-        hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{<<"risk_score">> => <<"low">>}),
+        hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{
+            <<"risk_score">> => <<"low">>
+        }),
 
         hg_ct_fixture:construct_system_account_set(?sas(1)),
         hg_ct_fixture:construct_external_account_set(?eas(1)),
@@ -629,7 +655,9 @@ construct_domain_fixture(TermSet) ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                                payment_system_is = ?pmt_sys(
+                                                                    <<"visa-ref">>
+                                                                )
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}
@@ -659,5 +687,7 @@ construct_domain_fixture(TermSet) ->
         }},
 
         hg_ct_fixture:construct_payment_system(?pmt_sys(<<"visa-ref">>), <<"visa payment system">>),
-        hg_ct_fixture:construct_payment_system(?pmt_sys(<<"mastercard-ref">>), <<"mastercard payment system">>)
+        hg_ct_fixture:construct_payment_system(
+            ?pmt_sys(<<"mastercard-ref">>), <<"mastercard payment system">>
+        )
     ].

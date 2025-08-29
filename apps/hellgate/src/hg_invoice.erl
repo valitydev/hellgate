@@ -31,7 +31,7 @@
 -export_type([payment_id/0]).
 -export_type([payment_st/0]).
 -export_type([party/0]).
--export_type([party_id/0]).
+-export_type([party_config_ref/0]).
 
 %% Public interface
 
@@ -77,7 +77,7 @@
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type allocation() :: dmsl_domain_thrift:'Allocation'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type revision() :: dmt_client:vsn().
 
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
@@ -109,17 +109,17 @@ get_payment(PaymentID, St) ->
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
 get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
-    {PartyID, Party} = hg_party:get_party(get_party_id(St)),
+    {PartyConfigRef, Party} = hg_party:get_party(get_party_config_ref(St)),
     #{
         party => Party,
-        party_id => PartyID,
+        party_config_ref => PartyConfigRef,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     };
-get_payment_opts(#st{invoice = Invoice, party = Party, party_id = PartyID}) ->
+get_payment_opts(#st{invoice = Invoice, party = Party, party_config_ref = PartyConfigRef}) ->
     #{
         party => Party,
-        party_id => PartyID,
+        party_config_ref => PartyConfigRef,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     }.
@@ -127,10 +127,10 @@ get_payment_opts(#st{invoice = Invoice, party = Party, party_id = PartyID}) ->
 -spec get_payment_opts(hg_domain:revision(), st()) ->
     hg_invoice_payment:opts().
 get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
-    {PartyID, Party} = hg_party:checkout(get_party_id(St), Revision),
+    {PartyConfigRef, Party} = hg_party:checkout(get_party_config_ref(St), Revision),
     #{
         party => Party,
-        party_id => PartyID,
+        party_config_ref => PartyConfigRef,
         invoice => Invoice,
         timestamp => hg_datetime:format_now()
     }.
@@ -145,13 +145,13 @@ get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
 ) ->
     invoice().
 create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, _Allocation, Mutations, DomainRevision) ->
-    OwnerID = V#payproc_InvoiceParams.party_id,
-    ShopID = V#payproc_InvoiceParams.shop_id,
+    PartyConfigRef = V#payproc_InvoiceParams.party_id,
+    ShopConfigRef = V#payproc_InvoiceParams.shop_id,
     Cost = V#payproc_InvoiceParams.cost,
     hg_invoice_mutation:apply_mutations(Mutations, #domain_Invoice{
         id = ID,
-        shop_id = ShopID,
-        owner_id = OwnerID,
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef,
         created_at = hg_datetime:format_now(),
         status = ?invoice_unpaid(),
         cost = Cost,
@@ -169,13 +169,17 @@ assert_invoice(Checks, #st{} = St) when is_list(Checks) ->
     lists:foldl(fun assert_invoice/2, St, Checks);
 assert_invoice(operable, #st{party = Party} = St) when Party =/= undefined ->
     assert_party_shop_operable(
-        hg_party:get_shop(get_shop_id(St), Party, hg_party:get_party_revision()),
+        hg_party:get_shop(
+            get_shop_config_ref(St), get_party_config_ref(St), hg_party:get_party_revision()
+        ),
         Party
     ),
     St;
 assert_invoice(unblocked, #st{party = Party} = St) when Party =/= undefined ->
     assert_party_shop_unblocked(
-        hg_party:get_shop(get_shop_id(St), Party, hg_party:get_party_revision()),
+        hg_party:get_shop(
+            get_shop_config_ref(St), get_party_config_ref(St), hg_party:get_party_revision()
+        ),
         Party
     ),
     St;
@@ -313,7 +317,9 @@ handle_repair({changes, Changes, RepairAction, Params}, St) ->
         % Validating that these changes are at least applicable
         validate => should_validate_transitions(Params)
     };
-handle_repair({scenario, _}, #st{activity = Activity}) when Activity =:= invoice orelse Activity =:= undefined ->
+handle_repair({scenario, _}, #st{activity = Activity}) when
+    Activity =:= invoice orelse Activity =:= undefined
+->
     throw({exception, invoice_has_no_active_payment});
 handle_repair({scenario, Scenario}, St = #st{activity = {payment, PaymentID}}) ->
     PaymentSession = get_payment_session(PaymentID, St),
@@ -355,7 +361,9 @@ merge_repair_action({remove, #repair_RemoveAction{}}, Action) ->
 merge_repair_action({_, undefined}, Action) ->
     Action.
 
-should_validate_transitions(#payproc_InvoiceRepairParams{validate_transitions = V}) when is_boolean(V) ->
+should_validate_transitions(#payproc_InvoiceRepairParams{validate_transitions = V}) when
+    is_boolean(V)
+->
     V;
 should_validate_transitions(undefined) ->
     true.
@@ -491,12 +499,18 @@ handle_call({callback, _Tag, _Callback} = Call, St) ->
 handle_call({session_change, _Tag, _SessionChange} = Call, St) ->
     dispatch_to_session(Call, St).
 
--spec dispatch_to_session({callback, tag(), callback()} | {session_change, tag(), session_change()}, st()) ->
+-spec dispatch_to_session(
+    {callback, tag(), callback()} | {session_change, tag(), session_change()}, st()
+) ->
     call_result().
-dispatch_to_session({callback, Tag, {provider, Payload}}, St = #st{activity = {payment, PaymentID}}) ->
+dispatch_to_session(
+    {callback, Tag, {provider, Payload}}, St = #st{activity = {payment, PaymentID}}
+) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_call({callback, Tag, Payload}, PaymentID, PaymentSession, St);
-dispatch_to_session({session_change, _Tag, _SessionChange} = Call, St = #st{activity = {payment, PaymentID}}) ->
+dispatch_to_session(
+    {session_change, _Tag, _SessionChange} = Call, St = #st{activity = {payment, PaymentID}}
+) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_call(Call, PaymentID, PaymentSession, St);
 dispatch_to_session(_Call, _St) ->
@@ -556,7 +570,9 @@ do_register_payment(PaymentID, PaymentParams, St) ->
     _ = assert_no_pending_payment(St),
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
-    {PaymentSession, {Changes, Action}} = hg_invoice_registered_payment:init(PaymentID, PaymentParams, Opts),
+    {PaymentSession, {Changes, Action}} = hg_invoice_registered_payment:init(
+        PaymentID, PaymentParams, Opts
+    ),
     #{
         response => get_payment_state(PaymentSession),
         changes => wrap_payment_changes(PaymentID, Changes, OccurredAt),
@@ -658,7 +674,9 @@ handle_payment_result({done, {Changes, Action}}, PaymentID, PaymentSession, St, 
     end.
 
 collapse_payment_changes(Changes, PaymentSession, ChangeOpts) ->
-    lists:foldl(fun(C, St1) -> merge_payment_change(C, St1, ChangeOpts) end, PaymentSession, Changes).
+    lists:foldl(
+        fun(C, St1) -> merge_payment_change(C, St1, ChangeOpts) end, PaymentSession, Changes
+    ).
 
 wrap_payment_changes(PaymentID, Changes, OccurredAt) ->
     [?payment_ev(PaymentID, C, OccurredAt) || C <- Changes].
@@ -786,7 +804,9 @@ start_chargeback(Params, PaymentID, PaymentSession, PaymentOpts, St) ->
     case get_chargeback_state(ID, PaymentSession) of
         undefined ->
             #payproc_InvoicePaymentChargebackParams{occurred_at = OccurredAt} = Params,
-            CreateResult = hg_invoice_payment:create_chargeback(PaymentSession, PaymentOpts, Params),
+            CreateResult = hg_invoice_payment:create_chargeback(
+                PaymentSession, PaymentOpts, Params
+            ),
             wrap_payment_impact(PaymentID, CreateResult, St, OccurredAt);
         ChargebackState ->
             #{
@@ -861,7 +881,9 @@ merge_change(?invoice_created(Invoice), St, _Opts) ->
     St#st{activity = invoice, invoice = Invoice};
 merge_change(?invoice_status_changed(Status), St = #st{invoice = I}, _Opts) ->
     St#st{invoice = I#domain_Invoice{status = Status}};
-merge_change(?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts) ->
+merge_change(
+    ?payment_ev(PaymentID, Change), St = #st{invoice = #domain_Invoice{id = InvoiceID}}, Opts
+) ->
     PaymentSession = try_get_payment_session(PaymentID, St),
     PaymentSession1 = merge_payment_change(Change, PaymentSession, Opts#{invoice_id => InvoiceID}),
     St1 = set_payment_session(PaymentID, PaymentSession1, St),
@@ -898,14 +920,14 @@ check_non_idle_payments_([{PaymentID, PaymentSession} | Rest], St) ->
     end.
 
 add_party_to_st(St) ->
-    {PartyID, Party} = hg_party:get_party(get_party_id(St)),
-    St#st{party = Party, party_id = PartyID}.
+    {PartyConfigRef, Party} = hg_party:get_party(get_party_config_ref(St)),
+    St#st{party = Party, party_config_ref = PartyConfigRef}.
 
-get_party_id(#st{invoice = #domain_Invoice{owner_id = PartyID}}) ->
-    PartyID.
+get_party_config_ref(#st{invoice = #domain_Invoice{party_ref = PartyConfigRef}}) ->
+    PartyConfigRef.
 
-get_shop_id(#st{invoice = #domain_Invoice{shop_id = ShopID}}) ->
-    ShopID.
+get_shop_config_ref(#st{invoice = #domain_Invoice{shop_ref = ShopConfigRef}}) ->
+    ShopConfigRef.
 
 get_payment_session(PaymentID, St) ->
     case try_get_payment_session(PaymentID, St) of
@@ -970,11 +992,16 @@ get_invoice_event_log(EventType, StatusName, Invoice) ->
 get_invoice_params(Invoice) ->
     #domain_Invoice{
         id = ID,
-        owner_id = PartyID,
         cost = ?cash(Amount, Currency),
-        shop_id = ShopID
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef
     } = Invoice,
-    [{id, ID}, {owner_id, PartyID}, {cost, [{amount, Amount}, {currency, Currency}]}, {shop_id, ShopID}].
+    [
+        {id, ID},
+        {party_ref, PartyConfigRef},
+        {shop_ref, ShopConfigRef},
+        {cost, [{amount, Amount}, {currency, Currency}]}
+    ].
 
 get_message(invoice_created) ->
     "Invoice is created";

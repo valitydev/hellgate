@@ -125,28 +125,30 @@ make_cash(Amount) ->
 make_cash(Amount, Currency) ->
     hg_ct_helper:make_cash(Amount, Currency).
 
-make_invoice_params(PartyID, ShopID, Product, Due, Cost) ->
-    hg_ct_helper:make_invoice_params(PartyID, ShopID, Product, Due, Cost).
+make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, Cost) ->
+    hg_ct_helper:make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, Cost).
 
 -spec start_invoice(_, _, _, _) -> _.
 start_invoice(Product, Due, Amount, C) ->
-    start_invoice(cfg(shop_id, C), Product, Due, Amount, C).
+    start_invoice(cfg(shop_config_ref, C), Product, Due, Amount, C).
 
 -spec start_invoice(_, _, _, _, _) -> _.
-start_invoice(ShopID, Product, Due, Amount, C) ->
+start_invoice(ShopConfigRef, Product, Due, Amount, C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    start_invoice(PartyID, ShopID, Product, Due, Amount, Client).
+    PartyConfigRef = cfg(party_config_ref, C),
+    start_invoice(PartyConfigRef, ShopConfigRef, Product, Due, Amount, Client).
 
 -spec start_invoice(_, _, _, _, _, _) -> _.
-start_invoice(PartyID, ShopID, Product, Due, Amount, Client) ->
+start_invoice(PartyConfigRef, ShopConfigRef, Product, Due, Amount, Client) ->
     % Проверяем, что Party и Shop существуют как объекты конфигурации
     #domain_PartyConfig{} =
-        hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+        hg_domain:get({party_config, PartyConfigRef}),
     #domain_ShopConfig{} =
-        hg_domain:get({shop_config, #domain_ShopConfigRef{id = ShopID}}),
+        hg_domain:get({shop_config, ShopConfigRef}),
     % Создаем параметры инвойса с помощью существующих функций
-    InvoiceParams = make_invoice_params(PartyID, ShopID, Product, Due, make_cash(Amount)),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, Product, Due, make_cash(Amount)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     InvoiceID.
@@ -250,7 +252,9 @@ register_payment(InvoiceID, RegisterPaymentParams, WithRiskScoring, Client) ->
 
 -spec start_payment(_, _, _) -> _.
 start_payment(InvoiceID, PaymentParams, Client) ->
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     _ = start_payment_ev(InvoiceID, Client),
     ?payment_ev(PaymentID, ?cash_flow_changed(_)) =
         next_change(InvoiceID, Client),
@@ -299,7 +303,9 @@ await_payment_capture(InvoiceID, PaymentID, Reason, TrxID, Client) ->
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
     ] = next_changes(InvoiceID, 2, Client),
     TrxID =/= undefined andalso
-        (?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, _Cart, _), ?trx_bound(?trx_info(TrxID)))) =
+        (?payment_ev(
+            PaymentID, ?session_ev(?captured(Reason, Cost, _Cart, _), ?trx_bound(?trx_info(TrxID)))
+        ) =
             next_change(InvoiceID, Client)),
     await_payment_capture_finish(InvoiceID, PaymentID, Reason, Client).
 
@@ -322,7 +328,10 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client) ->
 -spec await_payment_capture_finish(_, _, _, _, _, _) -> _.
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Cart, Client) ->
     [
-        ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded()))),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?captured(Reason, Cost, Cart, _), ?session_finished(?session_succeeded()))
+        ),
         ?payment_ev(PaymentID, ?payment_status_changed(?captured(Reason, Cost, Cart, _))),
         ?invoice_status_changed(?invoice_paid())
     ] = next_changes(InvoiceID, 3, Client),
@@ -340,10 +349,10 @@ await_payment_cash_flow(InvoiceID, PaymentID, Client) ->
     {CashFlow, Route}.
 
 -spec construct_ta_context(_, _, _) -> _.
-construct_ta_context(Party, Shop, Route) ->
+construct_ta_context(PartyConfigRef, ShopConfigRef, Route) ->
     #{
-        party => Party,
-        shop => Shop,
+        party_config_ref => PartyConfigRef,
+        shop_config_ref => ShopConfigRef,
         route => Route
     }.
 
@@ -372,12 +381,14 @@ get_cashflow_volume(Source, Destination, CF, CFContext) ->
     Volume.
 
 -spec convert_transaction_account(_, _) -> _.
-convert_transaction_account({merchant, Type}, #{party := Party, shop := Shop}) ->
+convert_transaction_account({merchant, Type}, #{
+    party_config_ref := PartyConfigRef, shop_config_ref := ShopConfigRef
+}) ->
     {merchant, #domain_MerchantTransactionAccount{
         type = Type,
         owner = #domain_MerchantTransactionAccountOwner{
-            party_id = Party,
-            shop_id = Shop
+            party_ref = PartyConfigRef,
+            shop_ref = ShopConfigRef
         }
     }};
 convert_transaction_account({provider, Type}, #{route := Route}) ->

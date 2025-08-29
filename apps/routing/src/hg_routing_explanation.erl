@@ -35,7 +35,9 @@ get_explanation(
             %% If there's no routes even tried, then no explanation can be provided
             throw(#payproc_RouteNotChosen{});
         [Route | AttemptedRoutes] ->
-            CandidateRoutesWithoutChosenRoute = exclude_chosen_route_from_candidates(CandidateRoutes, Route),
+            CandidateRoutesWithoutChosenRoute = exclude_chosen_route_from_candidates(
+                CandidateRoutes, Route
+            ),
             ChosenRWC = make_route_with_context(Route, RouteScores, RouteLimits),
             AttemptedExplanation = maybe_explain_attempted_routes(
                 AttemptedRoutes, RouteScores, RouteLimits
@@ -79,7 +81,9 @@ maybe_explain_attempted_routes([AttemptedRoute | AttemptedRoutes], RouteScores, 
 
 maybe_explain_candidate_routes([], _RouteScores, _RouteLimits, _ChosenRWC) ->
     [];
-maybe_explain_candidate_routes([CandidateRoute | CandidateRoutes], RouteScores, RouteLimits, ChosenRWC) ->
+maybe_explain_candidate_routes(
+    [CandidateRoute | CandidateRoutes], RouteScores, RouteLimits, ChosenRWC
+) ->
     RouteWithContext = make_route_with_context(CandidateRoute, RouteScores, RouteLimits),
     [
         route_explanation(candidate, RouteWithContext, ChosenRWC)
@@ -148,7 +152,8 @@ candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
     #{scores := ChosenScores}
 ) when RouteScores =:= ChosenScores ->
-    IfEmpty = <<"This route has the same score as the chosen route, but wasn't chosen due to order in ruleset.">>,
+    IfEmpty =
+        <<"This route has the same score as the chosen route, but wasn't chosen due to order in ruleset.">>,
     check_route_limits(RouteLimits, IfEmpty);
 candidate_rejection_explanation(
     #{scores := RouteScores, limits := RouteLimits},
@@ -229,7 +234,9 @@ check_route_scores(
         terminal_priority_rating = Rating1
     }
 ) when Rating0 < Rating1 ->
-    format("Priority of this route was less than in chosen route, where ~p < ~p.", [Rating0, Rating1]);
+    format("Priority of this route was less than in chosen route, where ~p < ~p.", [
+        Rating0, Rating1
+    ]);
 check_route_scores(
     #domain_PaymentRouteScores{
         route_pin = Pin0
@@ -278,8 +285,8 @@ gather_varset(Payment, Opts) ->
         payer = Payer,
         domain_revision = Revision
     } = Payment,
-    PartyID = get_party_id(Opts),
-    {ShopID, #domain_ShopConfig{
+    PartyConfigRef = get_party_config_ref(Opts),
+    {#domain_ShopConfigRef{id = ShopID}, #domain_ShopConfig{
         category = Category
     }} = get_shop(Opts, Revision),
     #payproc_Varset{
@@ -288,15 +295,15 @@ gather_varset(Payment, Opts) ->
         amount = Cost,
         shop_id = ShopID,
         payment_tool = hg_invoice_payment:get_payer_payment_tool(Payer),
-        party_id = PartyID
+        party_ref = PartyConfigRef
     }.
 
-get_party_id(#{party_id := PartyID}) ->
-    PartyID.
+get_party_config_ref(#{party_config_ref := PartyConfigRef}) ->
+    PartyConfigRef.
 
-get_shop(#{party := Party, invoice := Invoice}, Revision) ->
-    #domain_Invoice{shop_id = ShopID} = Invoice,
-    hg_party:get_shop(ShopID, Party, Revision).
+get_shop(#{invoice := Invoice}, Revision) ->
+    #domain_Invoice{shop_ref = ShopConfigRef, party_ref = PartyConfigRef} = Invoice,
+    hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision).
 
 format(Format, Data) ->
     erlang:iolist_to_binary(io_lib:format(Format, Data)).

@@ -219,10 +219,15 @@ init([]) ->
 -type group_name() :: hg_ct_helper:group_name().
 -type test_return() :: _ | no_return().
 
--define(PARTY_ID_WITH_LIMIT, <<"bIg merch limit">>).
--define(PARTY_ID_WITH_SEVERAL_LIMITS, <<"bIg merch limit cascading">>).
--define(PARTY_ID_WITH_SHOP_LIMITS, <<"small merch limit shop">>).
--define(PARTYID_EXTERNAL, <<"DUBTV">>).
+-define(PARTY_CONFIG_REF, #domain_PartyConfigRef{id = <<"bIg merch">>}).
+-define(PARTY_CONFIG_REF_WITH_LIMIT, #domain_PartyConfigRef{id = <<"bIg merch limit">>}).
+-define(PARTY_CONFIG_REF_WITH_SEVERAL_LIMITS, #domain_PartyConfigRef{
+    id = <<"bIg merch limit cascading">>
+}).
+-define(PARTY_CONFIG_REF_WITH_SHOP_LIMITS, #domain_PartyConfigRef{id = <<"small merch limit shop">>}).
+-define(PARTY_CONFIG_REF_EXTERNAL, #domain_PartyConfigRef{id = <<"DUBTV">>}).
+-define(PARTY_CONFIG_REF_DEPRIVED_1, #domain_PartyConfigRef{id = <<"DEPRIVED">>}).
+-define(PARTY_CONFIG_REF_DEPRIVED_2, #domain_PartyConfigRef{id = <<"DEPRIVED2">>}).
 -define(LIMIT_ID, <<"ID">>).
 -define(LIMIT_ID2, <<"ID2">>).
 -define(LIMIT_ID3, <<"ID3">>).
@@ -510,23 +515,34 @@ init_per_suite(C) ->
     ]),
 
     BaseLimitsRevision = hg_limiter_helper:init_per_suite(C),
-    _BaseRevision = hg_domain:insert(construct_domain_fixture()),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
-    PartyID = hg_utils:unique_id(),
+    PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient = {party_client:create_client(), party_client:create_context()},
 
-    Party2ID = hg_utils:unique_id(),
+    Party2ConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient2 = {party_client:create_client(), party_client:create_context()},
 
-    Party3ID = <<"bIg merch">>,
-    _ = hg_ct_helper:create_party(Party3ID, PartyClient),
-    _ = hg_ct_helper:create_party(?PARTYID_EXTERNAL, PartyClient),
+    Party3ConfigRef = ?PARTY_CONFIG_REF,
+    _ = hg_ct_helper:create_party(Party3ConfigRef, PartyClient),
+    _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_EXTERNAL, PartyClient),
+
+    _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_DEPRIVED_1, PartyClient),
+    _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_DEPRIVED_2, PartyClient),
+    _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_WITH_LIMIT, PartyClient),
+    _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_WITH_SEVERAL_LIMITS, PartyClient),
+    _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_WITH_SHOP_LIMITS, PartyClient),
+
+    _BaseRevision = hg_domain:insert(construct_domain_fixture()),
 
     ok = hg_context:save(hg_context:create()),
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    Shop2ID = hg_ct_helper:create_party_and_shop(Party2ID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient2),
+    ShopConfigRef = hg_ct_helper:create_party_and_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
+    Shop2ConfigRef = hg_ct_helper:create_party_and_shop(
+        Party2ConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient2
+    ),
     ok = hg_context:cleanup(),
 
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
@@ -534,12 +550,12 @@ init_per_suite(C) ->
     ok = start_kv_store(SupPid),
     _ = mock_fault_detector(SupPid),
     NewC = [
-        {party_id, PartyID},
+        {party_config_ref, PartyConfigRef},
         {party_client, PartyClient},
-        {party_id_big_merch, Party3ID},
-        {shop_id, ShopID},
-        {another_party_id, Party2ID},
-        {another_shop_id, Shop2ID},
+        {party_config_ref_big_merch, Party3ConfigRef},
+        {shop_config_ref, ShopConfigRef},
+        {another_party_config_ref, Party2ConfigRef},
+        {another_shop_config_ref, Shop2ConfigRef},
         {root_url, RootUrl},
         {apps, Apps},
         {test_sup, SupPid},
@@ -685,7 +701,9 @@ init_per_testcase(Name = payments_w_bank_conditions, C) ->
 init_per_testcase(Name = payment_w_misconfigured_routing_failed, C) ->
     override_domain_fixture(fun payment_w_misconfigured_routing_failed_fixture/2, Name, C);
 init_per_testcase(Name = ineligible_payment_partial_refund, C) ->
-    override_domain_fixture(fun(_, _) -> construct_term_set_for_refund_eligibility_time(1) end, Name, C);
+    override_domain_fixture(
+        fun(_, _) -> construct_term_set_for_refund_eligibility_time(1) end, Name, C
+    );
 init_per_testcase(Name = invalid_permit_partial_capture_in_service, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/2, Name, C);
 init_per_testcase(Name = invalid_permit_partial_capture_in_provider, C) ->
@@ -748,7 +766,9 @@ init_per_testcase_(Name, C) ->
 
 trace_testcase(Name, C) ->
     SpanName = iolist_to_binary([atom_to_binary(?MODULE), ":", atom_to_binary(Name), "/1"]),
-    SpanCtx = otel_tracer:start_span(opentelemetry:get_application_tracer(?MODULE), SpanName, #{kind => internal}),
+    SpanCtx = otel_tracer:start_span(opentelemetry:get_application_tracer(?MODULE), SpanName, #{
+        kind => internal
+    }),
     %% NOTE This also puts otel context to process dictionary
     _ = otel_tracer:set_current_span(SpanCtx),
     [{span_ctx, SpanCtx} | C].
@@ -783,11 +803,13 @@ maybe_end_trace(C) ->
 -spec invoice_creation_idempotency(config()) -> _ | no_return().
 invoice_creation_idempotency(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     InvoiceID = hg_utils:unique_id(),
     ExternalID = <<"123">>,
-    InvoiceParams0 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(100000, <<"RUB">>)),
+    InvoiceParams0 = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(100000, <<"RUB">>)
+    ),
     InvoiceParams1 = InvoiceParams0#payproc_InvoiceParams{
         id = InvoiceID,
         external_id = ExternalID
@@ -804,33 +826,43 @@ invoice_creation_idempotency(C) ->
 -spec invalid_invoice_shop(config()) -> _ | no_return().
 invalid_invoice_shop(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = genlib:unique(),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
+    PartyConfigRef = cfg(party_config_ref, C),
+    ShopConfigRef = #domain_ShopConfigRef{id = hg_utils:unique_id()},
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(10000)
+    ),
     {exception, #payproc_ShopNotFound{}} = hg_client_invoicing:create(InvoiceParams, Client).
 
 -spec invalid_invoice_amount(config()) -> test_return().
 invalid_invoice_amount(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams0 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(-10000)),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    InvoiceParams0 = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(-10000)
+    ),
     {exception, #base_InvalidRequest{
         errors = [<<"Invalid amount">>]
     }} = hg_client_invoicing:create(InvoiceParams0, Client),
-    InvoiceParams1 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(5)),
+    InvoiceParams1 = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(5)
+    ),
     {exception, #payproc_InvoiceTermsViolated{reason = {invoice_unpayable, _}}} =
         hg_client_invoicing:create(InvoiceParams1, Client),
-    InvoiceParams2 = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(42000000000)),
+    InvoiceParams2 = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(42000000000)
+    ),
     {exception, #payproc_InvoiceTermsViolated{reason = {invoice_unpayable, _}}} =
         hg_client_invoicing:create(InvoiceParams2, Client).
 
 -spec invalid_invoice_currency(config()) -> test_return().
 invalid_invoice_currency(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(100, <<"KEK">>)),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(100, <<"KEK">>)
+    ),
     {exception, #base_InvalidRequest{
         errors = [<<"Invalid currency">>]
     }} = hg_client_invoicing:create(InvoiceParams, Client).
@@ -838,56 +870,60 @@ invalid_invoice_currency(C) ->
 -spec invalid_party_status(config()) -> test_return().
 invalid_party_status(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(100000)),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(100000)
+    ),
     TplID = create_invoice_tpl(C),
     InvoiceParamsWithTpl = hg_ct_helper:make_invoice_params_tpl(TplID),
 
-    ok = hg_ct_helper:suspend_party(PartyID),
+    ok = hg_ct_helper:suspend_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = hg_ct_helper:activate_party(PartyID),
+    ok = hg_ct_helper:activate_party(PartyConfigRef),
 
-    ok = hg_ct_helper:block_party(PartyID),
+    ok = hg_ct_helper:block_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = hg_ct_helper:unblock_party(PartyID).
+    ok = hg_ct_helper:unblock_party(PartyConfigRef).
 
 -spec invalid_shop_status(config()) -> test_return().
 invalid_shop_status(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(100000)),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(100000)
+    ),
     TplID = create_invoice_tpl(C),
     InvoiceParamsWithTpl = hg_ct_helper:make_invoice_params_tpl(TplID),
 
-    ok = hg_ct_helper:suspend_shop(ShopID),
+    ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = hg_ct_helper:activate_shop(ShopID),
+    ok = hg_ct_helper:activate_shop(ShopConfigRef),
 
-    ok = hg_ct_helper:block_shop(ShopID),
+    ok = hg_ct_helper:block_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create(InvoiceParams, Client),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:create_with_tpl(InvoiceParamsWithTpl, Client),
-    ok = hg_ct_helper:unblock_shop(ShopID).
+    ok = hg_ct_helper:unblock_shop(ShopConfigRef).
 
 -spec invalid_invoice_template_cost(config()) -> _ | no_return().
 invalid_invoice_template_cost(C) ->
@@ -939,12 +975,16 @@ invalid_invoice_template_id(C) ->
 
     TplID1 = <<"Watsthat">>,
     Params1 = hg_ct_helper:make_invoice_params_tpl(TplID1),
-    {exception, #payproc_InvoiceTemplateNotFound{}} = hg_client_invoicing:create_with_tpl(Params1, Client),
+    {exception, #payproc_InvoiceTemplateNotFound{}} = hg_client_invoicing:create_with_tpl(
+        Params1, Client
+    ),
 
     TplID2 = create_invoice_tpl(C),
     _ = delete_invoice_tpl(TplID2, C),
     Params2 = hg_ct_helper:make_invoice_params_tpl(TplID2),
-    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoicing:create_with_tpl(Params2, Client).
+    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoicing:create_with_tpl(
+        Params2, Client
+    ).
 
 -spec invoice_w_template_idempotency(config()) -> _ | no_return().
 invoice_w_template_idempotency(C) ->
@@ -953,8 +993,8 @@ invoice_w_template_idempotency(C) ->
     TplContext1 = hg_ct_helper:make_invoice_context(<<"default context">>),
     TplID = create_invoice_tpl(C, TplCost1, TplContext1),
     #domain_InvoiceTemplate{
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         context = TplContext1
     } = get_invoice_tpl(TplID, C),
     InvoiceCost1 = FixedCost,
@@ -968,8 +1008,8 @@ invoice_w_template_idempotency(C) ->
     },
     ?invoice_state(#domain_Invoice{
         id = InvoiceID,
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         template_id = TplID,
         cost = InvoiceCost1,
         context = InvoiceContext1,
@@ -982,8 +1022,8 @@ invoice_w_template_idempotency(C) ->
     },
     ?invoice_state(#domain_Invoice{
         id = InvoiceID,
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         template_id = TplID,
         cost = InvoiceCost1,
         context = InvoiceContext1,
@@ -997,15 +1037,15 @@ invoice_w_template_amount_randomization(C) ->
     TplCost1 = {_, FixedCost} = make_tpl_cost(fixed, OriginalAmount, <<"RUB">>),
     TplContext1 = hg_ct_helper:make_invoice_context(<<"default context">>),
     TplClient = cfg(client_tpl, C),
-    PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
     Lifetime = hg_ct_helper:make_lifetime(0, 1, 0),
     Product = <<"rubberduck">>,
     Details = hg_ct_helper:make_invoice_tpl_details(Product, TplCost1),
     TplParams = #payproc_InvoiceTemplateCreateParams{
         template_id = hg_utils:unique_id(),
-        party_id = PartyID,
-        shop_id = ShopID,
+        party_id = PartyConfigRef,
+        shop_id = ShopConfigRef,
         invoice_lifetime = Lifetime,
         product = Product,
         details = Details,
@@ -1024,8 +1064,12 @@ invoice_w_template_amount_randomization(C) ->
     },
     #domain_InvoiceTemplate{id = TplID} = hg_client_invoice_templating:create(TplParams, TplClient),
     InvoiceID = hg_utils:unique_id(),
-    Params = hg_ct_helper:make_invoice_params_tpl(InvoiceID, TplID, FixedCost, hg_ct_helper:make_invoice_context()),
-    ?invoice_state(#domain_Invoice{mutations = Mutations}) = hg_client_invoicing:create_with_tpl(Params, Client),
+    Params = hg_ct_helper:make_invoice_params_tpl(
+        InvoiceID, TplID, FixedCost, hg_ct_helper:make_invoice_context()
+    ),
+    ?invoice_state(#domain_Invoice{mutations = Mutations}) = hg_client_invoicing:create_with_tpl(
+        Params, Client
+    ),
     ?assertMatch(
         [{amount, #domain_InvoiceAmountMutation{original = OriginalAmount, mutated = Mutated}}] when
             Mutated =< OriginalAmount,
@@ -1039,8 +1083,8 @@ invoice_w_template(C) ->
     TplContext1 = hg_ct_helper:make_invoice_context(<<"default context">>),
     TplID = create_invoice_tpl(C, TplCost1, TplContext1),
     #domain_InvoiceTemplate{
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         context = TplContext1
     } = get_invoice_tpl(TplID, C),
     InvoiceCost1 = FixedCost,
@@ -1048,8 +1092,8 @@ invoice_w_template(C) ->
 
     Params1 = hg_ct_helper:make_invoice_params_tpl(TplID, InvoiceCost1, InvoiceContext1),
     ?invoice_state(#domain_Invoice{
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         template_id = TplID,
         cost = InvoiceCost1,
         context = InvoiceContext1
@@ -1057,8 +1101,8 @@ invoice_w_template(C) ->
 
     Params2 = hg_ct_helper:make_invoice_params_tpl(TplID),
     ?invoice_state(#domain_Invoice{
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         template_id = TplID,
         cost = InvoiceCost1,
         context = TplContext1
@@ -1067,8 +1111,8 @@ invoice_w_template(C) ->
     TplCost2 = make_tpl_cost(range, {inclusive, 100, <<"RUB">>}, {inclusive, 10000, <<"RUB">>}),
     _ = update_invoice_tpl(TplID, TplCost2, C),
     ?invoice_state(#domain_Invoice{
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         template_id = TplID,
         cost = InvoiceCost1,
         context = InvoiceContext1
@@ -1077,8 +1121,8 @@ invoice_w_template(C) ->
     TplCost3 = make_tpl_cost(unlim, sale, "146%"),
     _ = update_invoice_tpl(TplID, TplCost3, C),
     ?invoice_state(#domain_Invoice{
-        owner_id = TplPartyID,
-        shop_id = TplShopID,
+        party_ref = TplPartyRef,
+        shop_ref = TplShopRef,
         template_id = TplID,
         cost = InvoiceCost1,
         context = InvoiceContext1
@@ -1087,9 +1131,11 @@ invoice_w_template(C) ->
 -spec invoice_cancellation(config()) -> test_return().
 invoice_cancellation(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    PartyID = cfg(party_id, C),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_cash(10000)),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_cash(10000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invalid_invoice_status(_) = hg_client_invoicing:fulfill(InvoiceID, <<"perfect">>, Client),
     ok = hg_client_invoicing:rescind(InvoiceID, <<"whynot">>, Client).
@@ -1129,7 +1175,9 @@ register_invoice_payment(ShopID, Client, C) ->
 
 register_invoice_payment(Route, ShopID, Client, C) ->
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
             {payment_resource, #payproc_PaymentResourcePayerParams{
@@ -1154,17 +1202,14 @@ register_invoice_payment(Route, ShopID, Client, C) ->
 
 -spec init_operation_limits_group(config()) -> config().
 init_operation_limits_group(C) ->
-    PartyID1 = ?PARTY_ID_WITH_LIMIT,
-    PartyID2 = ?PARTY_ID_WITH_SEVERAL_LIMITS,
-    PartyID3 = ?PARTY_ID_WITH_SHOP_LIMITS,
-    _ = hg_ct_helper:create_party(PartyID1, cfg(party_client, C)),
-    _ = hg_ct_helper:create_party(PartyID2, cfg(party_client, C)),
-    _ = hg_ct_helper:create_party(PartyID3, cfg(party_client, C)),
+    PartyConfigRef1 = ?PARTY_CONFIG_REF_WITH_LIMIT,
+    PartyConfigRef2 = ?PARTY_CONFIG_REF_WITH_SEVERAL_LIMITS,
+    PartyConfigRef3 = ?PARTY_CONFIG_REF_WITH_SHOP_LIMITS,
     [
         {limits, #{
-            party_id => PartyID1,
-            party_id_w_several_limits => PartyID2,
-            party_id_w_shop_limits => PartyID3
+            party_config_ref => PartyConfigRef1,
+            party_config_ref_w_several_limits => PartyConfigRef2,
+            party_config_ref_w_shop_limits => PartyConfigRef3
         }}
         | C
     ].
@@ -1173,20 +1218,22 @@ init_operation_limits_group(C) ->
 payment_limit_success(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
-    ) = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)).
+    ) = create_payment(PartyConfigRef, ShopConfigRef, 10000, Client, ?pmt_sys(<<"visa-ref">>)).
 
 -spec payment_shop_limit_success(config()) -> test_return().
 payment_shop_limit_success(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    PartyID = cfg(party_id_big_merch, C),
+    PartyConfigRef = cfg(party_config_ref_big_merch, C),
     TurnoverLimits = [
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
@@ -1194,20 +1241,24 @@ payment_shop_limit_success(C) ->
             domain_revision = hg_domain:head()
         }
     ],
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
-    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)).
+    ) = create_payment(
+        PartyConfigRef, ShopConfigRef, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)
+    ).
 
 -spec payment_shop_limit_overflow(config()) -> test_return().
 payment_shop_limit_overflow(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    PartyID = cfg(party_id_big_merch, C),
+    PartyConfigRef = cfg(party_config_ref_big_merch, C),
     TurnoverLimits = ordsets:from_list([
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
@@ -1215,11 +1266,15 @@ payment_shop_limit_overflow(C) ->
             domain_revision = hg_domain:head()
         }
     ]),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY + 1,
-    Failure = create_payment_shop_limit_overflow(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)),
+    Failure = create_payment_shop_limit_overflow(
+        PartyConfigRef, ShopConfigRef, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)
+    ),
     ok = payproc_errors:match('PaymentFailure', Failure, fun(
         {authorization_failed, {shop_limit_exceeded, {unknown, _}}}
     ) ->
@@ -1230,7 +1285,7 @@ payment_shop_limit_overflow(C) ->
 payment_shop_limit_more_overflow(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    PartyID = cfg(party_id_big_merch, C),
+    PartyConfigRef = cfg(party_config_ref_big_merch, C),
     TurnoverLimits = ordsets:from_list([
         #domain_TurnoverLimit{
             id = ?SHOPLIMIT_ID,
@@ -1238,16 +1293,22 @@ payment_shop_limit_more_overflow(C) ->
             domain_revision = hg_domain:head()
         }
     ]),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), TurnoverLimits, PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
-    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)),
+    ) = create_payment(
+        PartyConfigRef, ShopConfigRef, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)
+    ),
 
-    Failure = create_payment_shop_limit_overflow(PartyID, ShopID, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)),
+    Failure = create_payment_shop_limit_overflow(
+        PartyConfigRef, ShopConfigRef, PaymentAmount, Client, ?pmt_sys(<<"visa-ref">>)
+    ),
     ok = payproc_errors:match('PaymentFailure', Failure, fun(
         {authorization_failed, {shop_limit_exceeded, {unknown, _}}}
     ) ->
@@ -1258,8 +1319,10 @@ payment_shop_limit_more_overflow(C) ->
 payment_routes_limit_values(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     #payproc_Invoice{
@@ -1267,12 +1330,14 @@ payment_routes_limit_values(C) ->
         payments = [
             #payproc_InvoicePayment{payment = #domain_InvoicePayment{id = PaymentId}}
         ]
-    } = create_payment(PartyID, ShopID, 10000, Client, ?pmt_sys(<<"visa-ref">>)),
+    } = create_payment(PartyConfigRef, ShopConfigRef, 10000, Client, ?pmt_sys(<<"visa-ref">>)),
     Route = ?route(?prv(5), ?trm(12)),
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{
+                    id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                },
                 value = 10000
             }
         ]
@@ -1282,11 +1347,13 @@ payment_routes_limit_values(C) ->
 register_payment_limit_success(C0) ->
     Client = cfg(client, C0),
     PartyClient = cfg(party_client, C0),
-    #{party_id := PartyID} = cfg(limits, C0),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    C1 = [{party_id, PartyID}, {shop_id, ShopID} | C0],
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C0),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
+    C1 = [{party_config_ref, PartyConfigRef}, {shop_config_ref, ShopConfigRef} | C0],
     Route = ?route(?prv(5), ?trm(12)),
-    {InvoiceID, PaymentID} = register_invoice_payment(Route, ShopID, Client, C1),
+    {InvoiceID, PaymentID} = register_invoice_payment(Route, ShopConfigRef, Client, C1),
     ?invoice_state(?invoice_w_status(?invoice_paid())) =
         hg_client_invoicing:get(InvoiceID, Client),
     ?payment_state(?payment_w_status(PaymentID, ?captured())) =
@@ -1297,41 +1364,49 @@ payment_limit_other_shop_success(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID1 = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    ShopID2 = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef1 = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
+    ShopConfigRef2 = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
 
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment1)]
-    ) = create_payment(PartyID, ShopID1, PaymentAmount, Client, PmtSys),
+    ) = create_payment(PartyConfigRef, ShopConfigRef1, PaymentAmount, Client, PmtSys),
 
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment2)]
-    ) = create_payment(PartyID, ShopID2, PaymentAmount, Client, PmtSys).
+    ) = create_payment(PartyConfigRef, ShopConfigRef2, PaymentAmount, Client, PmtSys).
 
 -spec payment_limit_overflow(config()) -> test_return().
 payment_limit_overflow(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
     RootUrl = cfg(root_url, C),
-    #{party_id := PartyID} = cfg(limits, C),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PaymentAmount = ?LIMIT_UPPER_BOUNDARY - 1,
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()) = Invoice,
         [?payment_state(Payment)]
-    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
+    ) = create_payment(PartyConfigRef, ShopConfigRef, PaymentAmount, Client, PmtSys),
 
-    Failure = create_payment_limit_overflow(PartyID, ShopID, 1000, Client, PmtSys),
+    Failure = create_payment_limit_overflow(PartyConfigRef, ShopConfigRef, 1000, Client, PmtSys),
     ok = hg_limiter_helper:assert_payment_limit_amount(
         ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
     ),
-    ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, {rejected, {limit_overflow, _}}}) ->
+    ok = payproc_errors:match('PaymentFailure', Failure, fun(
+        {no_route_found, {rejected, {limit_overflow, _}}}
+    ) ->
         ok
     end).
 
@@ -1347,7 +1422,9 @@ limit_hold_operation_not_supported(C) ->
 
 -spec limit_hold_payment_tool_not_supported(config()) -> test_return().
 limit_hold_payment_tool_not_supported(C) ->
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        crypto_currency, ?crypta(<<"bitcoin-ref">>)
+    ),
     Failure = payment_route_not_found(PaymentTool, Session, C),
     ?assertRouteNotFound(Failure, {rejected, {limit_misconfiguration, _}}, <<"[{">>).
 
@@ -1364,17 +1441,23 @@ payment_route_not_found(C) ->
 payment_route_not_found(PaymentTool, Session, C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     Cash = make_cash(10000, <<"RUB">>),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), Cash),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), Cash
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     _ = start_payment_ev(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})) =
         next_change(InvoiceID, Client),
@@ -1386,22 +1469,26 @@ switch_provider_after_limit_overflow(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id_w_several_limits := PartyID} = cfg(limits, C),
+    #{party_config_ref_w_several_limits := PartyConfigRef} = cfg(limits, C),
     PaymentAmount = 69999,
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()) = Invoice,
         [?payment_state(Payment)]
-    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
+    ) = create_payment(PartyConfigRef, ShopConfigRef, PaymentAmount, Client, PmtSys),
 
     ok = hg_limiter_helper:assert_payment_limit_amount(
         ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
     ),
 
     #domain_InvoicePayment{id = PaymentID} = Payment,
-    InvoiceID = start_invoice(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), PaymentAmount, Client),
+    InvoiceID = start_invoice(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), PaymentAmount, Client
+    ),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
         InvoiceID,
         make_payment_params(PmtSys),
@@ -1418,15 +1505,17 @@ limit_not_found(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id_w_several_limits := PartyID} = cfg(limits, C),
+    #{party_config_ref_w_several_limits := PartyConfigRef} = cfg(limits, C),
     PaymentAmount = 69999,
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()) = Invoice,
         [?payment_state(Payment)]
-    ) = create_payment(PartyID, ShopID, PaymentAmount, Client, PmtSys),
+    ) = create_payment(PartyConfigRef, ShopConfigRef, PaymentAmount, Client, PmtSys),
 
     {exception, _} = hg_limiter_helper:get_payment_limit_amount(<<"WrongID">>, 0, Payment, Invoice).
 
@@ -1435,24 +1524,28 @@ refund_limit_success(C) ->
     PmtSys = ?pmt_sys(<<"visa-ref">>),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_Payment)]
-    ) = create_payment(PartyID, ShopID, 50000, Client, PmtSys),
+    ) = create_payment(PartyConfigRef, ShopConfigRef, 50000, Client, PmtSys),
 
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()) = Invoice,
         [?payment_state(Payment)]
-    ) = create_payment(PartyID, ShopID, 40000, Client, PmtSys),
+    ) = create_payment(PartyConfigRef, ShopConfigRef, 40000, Client, PmtSys),
     ?invoice(InvoiceID) = Invoice,
     ?payment(PaymentID) = Payment,
 
-    Failure = create_payment_limit_overflow(PartyID, ShopID, 50000, Client, PmtSys),
-    ok = payproc_errors:match('PaymentFailure', Failure, fun({no_route_found, {rejected, {limit_overflow, _}}}) ->
+    Failure = create_payment_limit_overflow(PartyConfigRef, ShopConfigRef, 50000, Client, PmtSys),
+    ok = payproc_errors:match('PaymentFailure', Failure, fun(
+        {no_route_found, {rejected, {limit_overflow, _}}}
+    ) ->
         ok
     end),
     % create a refund finally
@@ -1467,7 +1560,7 @@ refund_limit_success(C) ->
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
         [?payment_state(_)]
-    ) = create_payment(PartyID, ShopID, 40000, Client, PmtSys).
+    ) = create_payment(PartyConfigRef, ShopConfigRef, 40000, Client, PmtSys).
 
 -spec payment_partial_capture_limit_success(config()) -> test_return().
 payment_partial_capture_limit_success(C) ->
@@ -1477,11 +1570,15 @@ payment_partial_capture_limit_success(C) ->
 
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(100), make_cash(InitialCost)),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(100), make_cash(InitialCost)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
@@ -1502,15 +1599,19 @@ payment_partial_capture_limit_success(C) ->
     InvoiceState = hg_client_invoicing:get(InvoiceID, Client),
     ?invoice_state(Invoice, [PaymentState]) = InvoiceState,
     ?assertMatch(?invoice_w_status(?invoice_paid()), Invoice),
-    ?assertMatch(?payment_state(?payment_w_status(PaymentID, ?captured(Reason, Cash))), PaymentState),
+    ?assertMatch(
+        ?payment_state(?payment_w_status(PaymentID, ?captured(Reason, Cash))), PaymentState
+    ),
     ?payment_cashflow(CF2) = PaymentState,
     ?assertNotEqual(undefined, CF2),
     ?assertNotEqual(CF1, CF2).
 
 %%----------------- operation_limits helpers
 
-create_payment(PartyID, ShopID, Amount, Client, PmtSys) ->
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(Amount)),
+create_payment(PartyConfigRef, ShopConfigRef, Amount, Client, PmtSys) ->
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(Amount)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
@@ -1518,21 +1619,29 @@ create_payment(PartyID, ShopID, Amount, Client, PmtSys) ->
     _PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     hg_client_invoicing:get(InvoiceID, Client).
 
-create_payment_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(Amount)),
+create_payment_limit_overflow(PartyConfigRef, ShopConfigRef, Amount, Client, PmtSys) ->
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(Amount)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     PaymentParams = make_payment_params(PmtSys),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
     await_payment_rollback(InvoiceID, PaymentID, Client).
 
-create_payment_shop_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(Amount)),
+create_payment_shop_limit_overflow(PartyConfigRef, ShopConfigRef, Amount, Client, PmtSys) ->
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(Amount)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     PaymentParams = make_payment_params(PmtSys),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
     await_payment_shop_limit_rollback(InvoiceID, PaymentID, Client).
 
@@ -1540,12 +1649,16 @@ create_payment_shop_limit_overflow(PartyID, ShopID, Amount, Client, PmtSys) ->
 
 -spec payment_success_ruleset(config()) -> test_return().
 payment_success_ruleset(C) ->
-    PartyID = cfg(party_id_big_merch, C),
+    PartyConfigRef = cfg(party_config_ref_big_merch, C),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(42000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
@@ -1580,9 +1693,13 @@ payment_w_misconfigured_routing_failed(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -1604,7 +1721,10 @@ payment_w_misconfigured_routing_failed_fixture(_Revision, _C) ->
             {delegates, [
                 ?delegate(
                     <<"Inexistent merchant">>,
-                    {condition, {party, #domain_PartyCondition{id = hg_utils:unique_id()}}},
+                    {condition,
+                        {party, #domain_PartyCondition{
+                            party_ref = ?PARTY_CONFIG_REF_DEPRIVED_1
+                        }}},
                     ?ruleset(1)
                 ),
                 ?delegate(
@@ -1639,7 +1759,9 @@ mk_provider_w_term(TerminalRef, TerminalName, ProviderRef, ProviderName, Provide
         }}
     ].
 
-new_merchant_terms_attempt_limit(TermSetHierarchyRef, TargetTermSetHierarchyRef, Attempts, Revision) ->
+new_merchant_terms_attempt_limit(
+    TermSetHierarchyRef, TargetTermSetHierarchyRef, Attempts, Revision
+) ->
     #domain_TermSetHierarchy{term_set = TermsSet} =
         hg_domain:get(Revision, {term_set_hierarchy, TermSetHierarchyRef}),
     #domain_TermSet{payments = PaymentsTerms0} = TermsSet,
@@ -1649,12 +1771,16 @@ new_merchant_terms_attempt_limit(TermSetHierarchyRef, TargetTermSetHierarchyRef,
     [
         {term_set_hierarchy, #domain_TermSetHierarchyObject{
             ref = TargetTermSetHierarchyRef,
-            data = #domain_TermSetHierarchy{term_set = TermsSet#domain_TermSet{payments = PaymentsTerms1}}
+            data = #domain_TermSetHierarchy{
+                term_set = TermsSet#domain_TermSet{payments = PaymentsTerms1}
+            }
         }}
     ].
 
 patch_limit_config_w_invalid_currency(Revision, _C) ->
-    NewRevision = hg_domain:update({limit_config, hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"KEK">>)}),
+    NewRevision = hg_domain:update(
+        {limit_config, hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"KEK">>)}
+    ),
     [
         change_terms_limit_config_version(Revision, NewRevision)
     ].
@@ -1662,7 +1788,9 @@ patch_limit_config_w_invalid_currency(Revision, _C) ->
 patch_limit_config_for_withdrawal(Revision, _C) ->
     NewRevision = hg_domain:update(
         {limit_config,
-            hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal))}
+            hg_limiter_helper:mk_config_object(
+                ?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal)
+            )}
     ),
     [
         change_terms_limit_config_version(Revision, NewRevision)
@@ -1705,7 +1833,9 @@ patch_providers_limits_to_fail_and_overflow(Revision, _C) ->
     %% 4. Second must get rejected due limit overflow.
     NewRevision = hg_domain:update([
         {limit_config,
-            hg_limiter_helper:mk_config_object(?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal))}
+            hg_limiter_helper:mk_config_object(
+                ?LIMIT_ID, <<"RUB">>, hg_limiter_helper:mk_context_type(withdrawal)
+            )}
     ]),
     [
         hg_ct_fixture:construct_payment_routing_ruleset(
@@ -1736,7 +1866,10 @@ patch_providers_limits_to_fail_and_overflow(Revision, _C) ->
     ].
 
 unset_providers_chargebacks_terms(Revision, _C) ->
-    lists:flatten([unset_provider_chargebacks_terms(Revision, ProviderRef) || ProviderRef <- [?prv(2)]]).
+    lists:flatten([
+        unset_provider_chargebacks_terms(Revision, ProviderRef)
+     || ProviderRef <- [?prv(2)]
+    ]).
 
 unset_provider_chargebacks_terms(Revision, ProviderRef) ->
     Provider =
@@ -1748,7 +1881,9 @@ unset_provider_chargebacks_terms(Revision, ProviderRef) ->
             ref = ProviderRef,
             data = Provider#domain_Provider{
                 terms = Terms#domain_ProvisionTermSet{
-                    payments = PaymentsTermSet#domain_PaymentsProvisionTerms{chargebacks = undefined}
+                    payments = PaymentsTermSet#domain_PaymentsProvisionTerms{
+                        chargebacks = undefined
+                    }
                 }
             }
         }}
@@ -1765,10 +1900,14 @@ change_terms_limit_config_version(Revision, LimitConfigRevision) ->
 
 change_terms_limit_config_version(Revision, ProviderRef, TurnoverLimits) ->
     change_provider_payments_provision_terms(ProviderRef, Revision, fun(PaymentsProvisionTerms) ->
-        PaymentsProvisionTerms#domain_PaymentsProvisionTerms{turnover_limits = {value, TurnoverLimits}}
+        PaymentsProvisionTerms#domain_PaymentsProvisionTerms{
+            turnover_limits = {value, TurnoverLimits}
+        }
     end).
 
-change_provider_payments_provision_terms(ProviderID, Revision, Changer) when is_function(Changer, 1) ->
+change_provider_payments_provision_terms(ProviderID, Revision, Changer) when
+    is_function(Changer, 1)
+->
     Provider = #domain_Provider{terms = Terms} = hg_domain:get(Revision, {provider, ProviderID}),
     Terms1 =
         Terms#domain_ProvisionTermSet{
@@ -1805,7 +1944,9 @@ payment_capture_retries_exceeded(C) ->
     Amount = 42000,
     Cost = ?cash(Amount, <<"RUB">>),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    PaymentParams = make_scenario_payment_params([good, temp, temp, temp, temp], ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_scenario_payment_params(
+        [good, temp, temp, temp, temp], ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     Reason = ?timeout_reason(),
     Target = ?captured(Reason, Cost),
@@ -1845,7 +1986,9 @@ payment_partial_capture_success(C) ->
     InvoiceState = hg_client_invoicing:get(InvoiceID, Client),
     ?invoice_state(Invoice, [PaymentState]) = InvoiceState,
     ?assertMatch(?invoice_w_status(?invoice_paid()), Invoice),
-    ?assertMatch(?payment_state(?payment_w_status(PaymentID, ?captured(Reason, Cash))), PaymentState),
+    ?assertMatch(
+        ?payment_state(?payment_w_status(PaymentID, ?captured(Reason, Cash))), PaymentState
+    ),
     ?payment_cashflow(CF2) = PaymentState,
     ?assertNotEqual(undefined, CF2),
     ?assertNotEqual(CF1, CF2).
@@ -1853,21 +1996,28 @@ payment_partial_capture_success(C) ->
 -spec payment_error_in_cancel_session_does_not_cause_payment_failure(config()) -> test_return().
 payment_error_in_cancel_session_does_not_cause_payment_failure(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     PartyPair = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
-    {PartyID, Party} = hg_party:get_party(PartyID),
-    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        PartyConfigRef, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair
+    ),
+    {PartyConfigRef, _Party} = hg_party:get_party(PartyConfigRef),
+    {ShopConfigRef, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef),
     {SettlementID, _GuaranteeID} = hg_invoice_utils:get_shop_account(Shop),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(1000), 42000, C),
-    PaymentParams = make_scenario_payment_params([good, fail, good], {hold, capture}, ?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(1000), 42000, C),
+    PaymentParams = make_scenario_payment_params(
+        [good, fail, good], {hold, capture}, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     ?assertMatch(#{max_available_amount := 40110}, hg_accounting:get_balance(SettlementID)),
     ok = hg_client_invoicing:cancel_payment(InvoiceID, PaymentID, <<"cancel">>, Client),
     ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_started())) =
         next_change(InvoiceID, Client),
     timeout = next_change(InvoiceID, Client),
-    ?assertMatch(#{min_available_amount := 0, max_available_amount := 40110}, hg_accounting:get_balance(SettlementID)),
+    ?assertMatch(
+        #{min_available_amount := 0, max_available_amount := 40110},
+        hg_accounting:get_balance(SettlementID)
+    ),
     ?assertException(
         error,
         {{woody_error, _}, _},
@@ -1878,25 +2028,35 @@ payment_error_in_cancel_session_does_not_cause_payment_failure(C) ->
 -spec payment_error_in_capture_session_does_not_cause_payment_failure(config()) -> test_return().
 payment_error_in_capture_session_does_not_cause_payment_failure(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     PartyPair = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        PartyConfigRef, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair
+    ),
     Amount = 42000,
     Cost = ?cash(Amount, <<"RUB">>),
-    {PartyID, Party} = hg_party:get_party(PartyID),
-    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
+    {PartyConfigRef, _Party} = hg_party:get_party(PartyConfigRef),
+    {ShopConfigRef, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef),
     {SettlementID, _GuaranteeID} = hg_invoice_utils:get_shop_account(Shop),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(1000), Amount, C),
-    PaymentParams = make_scenario_payment_params([good, fail, good], {hold, cancel}, ?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(1000), Amount, C),
+    PaymentParams = make_scenario_payment_params(
+        [good, fail, good], {hold, cancel}, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    ?assertMatch(#{min_available_amount := 0, max_available_amount := 40110}, hg_accounting:get_balance(SettlementID)),
+    ?assertMatch(
+        #{min_available_amount := 0, max_available_amount := 40110},
+        hg_accounting:get_balance(SettlementID)
+    ),
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"capture">>, Client),
     [
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _Allocation)),
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
     ] = next_changes(InvoiceID, 2, Client),
     timeout = next_change(InvoiceID, Client),
-    ?assertMatch(#{min_available_amount := 0, max_available_amount := 40110}, hg_accounting:get_balance(SettlementID)),
+    ?assertMatch(
+        #{min_available_amount := 0, max_available_amount := 40110},
+        hg_accounting:get_balance(SettlementID)
+    ),
     ?assertException(
         error,
         {{woody_error, _}, _},
@@ -1919,7 +2079,10 @@ repair_failed_cancel(InvoiceID, PaymentID, Reason, Client) ->
     ],
     ok = repair_invoice(InvoiceID, Changes, Client),
     [
-        ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))
+        ),
         ?payment_ev(PaymentID, ?payment_status_changed(?cancelled_with_reason(Reason)))
     ] = next_changes(InvoiceID, 2, Client),
     PaymentID.
@@ -1929,15 +2092,21 @@ payment_success_ruleset_provider_available(C) ->
     with_fault_detector(
         mk_fd_stat(?prv(1), {0.5, 0.5}),
         fun() ->
-            PartyID = cfg(party_id_big_merch, C),
+            PartyConfigRef = cfg(party_config_ref_big_merch, C),
             RootUrl = cfg(root_url, C),
             PartyClient = cfg(party_client, C),
             Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-            InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+            ShopConfigRef = hg_ct_helper:create_shop(
+                PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+            ),
+            InvoiceParams = make_invoice_params(
+                PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(42000)
+            ),
             InvoiceID = create_invoice(InvoiceParams, Client),
             ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-            PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+            PaymentID = process_payment(
+                InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+            ),
             PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
             ?invoice_state(
                 ?invoice_w_status(?invoice_paid()),
@@ -1962,17 +2131,23 @@ route_found_provider_lacking_conversion(C) ->
     with_fault_detector(
         mk_fd_stat(?prv(1), {0.9, 0.5}),
         fun() ->
-            PartyID = cfg(party_id_big_merch, C),
+            PartyConfigRef = cfg(party_config_ref_big_merch, C),
             RootUrl = cfg(root_url, C),
             PartyClient = cfg(party_client, C),
             Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-            ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-            InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+            ShopConfigRef = hg_ct_helper:create_shop(
+                PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+            ),
+            InvoiceParams = make_invoice_params(
+                PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(42000)
+            ),
 
             InvoiceID = create_invoice(InvoiceParams, Client),
             ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
-            PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+            PaymentID = process_payment(
+                InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+            ),
             PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
             ?invoice_state(?invoice_w_status(?invoice_paid()), [?payment_state(Payment)]) =
                 hg_client_invoicing:get(InvoiceID, Client),
@@ -1982,12 +2157,16 @@ route_found_provider_lacking_conversion(C) ->
     ).
 
 failed_payment_wo_cascade(C) ->
-    PartyID = cfg(party_id_big_merch, C),
+    PartyConfigRef = cfg(party_config_ref_big_merch, C),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(42000)
+    ),
 
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
@@ -2019,7 +2198,9 @@ payment_w_terminal_w_payment_service_success(C) ->
     BadForm = #{<<"tag">> => <<"666">>},
     _ = assert_invalid_post_request({URL, BadForm}),
     _ = assert_success_post_request({URL, GoodForm}),
-    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
+    ok = await_payment_process_interaction_completion(
+        InvoiceID, PaymentID, UserInteraction, Client
+    ),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?invoice_state(
@@ -2043,18 +2224,24 @@ payment_bank_card_category_condition(C) ->
     Client = cfg(client, C),
     PayCash = 2000,
     InvoiceID = start_invoice(<<"cryptoduck">>, make_due_date(10), PayCash, C),
-    {{bank_card, BC}, Session} = hg_dummy_provider:make_payment_tool(empty_cvv, ?pmt_sys(<<"visa-ref">>)),
+    {{bank_card, BC}, Session} = hg_dummy_provider:make_payment_tool(
+        empty_cvv, ?pmt_sys(<<"visa-ref">>)
+    ),
     BankCard = BC#domain_BankCard{
         category = <<"CORPORATE CARD">>
     },
     PaymentTool = {bank_card, BankCard},
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {CF, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
-    ?cash(200, <<"RUB">>) = get_cashflow_volume({merchant, settlement}, {system, settlement}, CF, CFContext).
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
+    ?cash(200, <<"RUB">>) = get_cashflow_volume(
+        {merchant, settlement}, {system, settlement}, CF, CFContext
+    ).
 
 -spec payment_success_on_second_try(config()) -> test_return().
 payment_success_on_second_try(C) ->
@@ -2073,7 +2260,9 @@ payment_success_on_second_try(C) ->
     _ = assert_success_post_request({URL, GoodForm}),
     %% ensure that callback is now invalid̋
     _ = assert_invalid_post_request({URL, GoodForm}),
-    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
+    ok = await_payment_process_interaction_completion(
+        InvoiceID, PaymentID, UserInteraction, Client
+    ),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
@@ -2081,7 +2270,9 @@ payment_success_on_second_try(C) ->
 payment_success_with_increased_cost(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_increase, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        change_cash_increase, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = execute_cash_changed_payment(InvoiceID, PaymentParams, Client),
     ?invoice_state(
@@ -2098,19 +2289,25 @@ payment_success_with_increased_cost(C) ->
 -spec refund_payment_with_increased_cost(config()) -> test_return().
 refund_payment_with_increased_cost(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
 
     Amount = 42000,
     NewAmount = 2 * Amount,
 
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
 
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_increase, ?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        change_cash_increase, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {_, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
@@ -2124,7 +2321,7 @@ refund_payment_with_increased_cost(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 5, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
@@ -2154,16 +2351,25 @@ refund_payment_with_increased_cost(C) ->
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
-    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context),
-    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(
+        ?merchant_to_system_fixed, Context
+    ),
+    ?assertEqual(
+        maps:get(own_amount, MrcAccount2),
+        maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed
+    ),
     ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
-    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
+    ?assertEqual(
+        MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)
+    ).
 
 -spec payment_success_with_decreased_cost(config()) -> test_return().
 payment_success_with_decreased_cost(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_decrease, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        change_cash_decrease, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = execute_cash_changed_payment(InvoiceID, PaymentParams, Client),
     ?invoice_state(
@@ -2180,19 +2386,25 @@ payment_success_with_decreased_cost(C) ->
 -spec refund_payment_with_decreased_cost(config()) -> test_return().
 refund_payment_with_decreased_cost(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
 
     Amount = 42000,
     NewAmount = Amount div 2,
 
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
 
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(change_cash_decrease, ?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), Amount, C),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        change_cash_decrease, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {_, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
@@ -2206,7 +2418,7 @@ refund_payment_with_decreased_cost(C) ->
         ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
     ] = next_changes(InvoiceID, 5, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
@@ -2236,14 +2448,23 @@ refund_payment_with_decreased_cost(C) ->
     PrvAccount2 = get_deprecated_cashflow_account({provider, settlement}, CF, CFContext),
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF, CFContext),
-    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context),
-    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(
+        ?merchant_to_system_fixed, Context
+    ),
+    ?assertEqual(
+        maps:get(own_amount, MrcAccount2),
+        maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed
+    ),
     ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
-    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
+    ?assertEqual(
+        MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)
+    ).
 
 execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
     PaymentID = hg_invoice_helper:start_payment(InvoiceID, PaymentParams, Client),
-    PaymentID = hg_invoice_helper:await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
+    PaymentID = hg_invoice_helper:await_payment_session_started(
+        InvoiceID, PaymentID, Client, ?processed()
+    ),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
         ?payment_ev(PaymentID, ?cash_changed(_, _)),
@@ -2258,7 +2479,9 @@ execute_cash_changed_payment(InvoiceID, PaymentParams, Client) ->
 payment_fail_after_silent_callback(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberdick">>, make_due_date(20), 42000, C),
-    PaymentID = start_payment(InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client),
+    PaymentID = start_payment(
+        InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client
+    ),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     {URL, Form} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, hg_dummy_provider:construct_silent_callback(Form)}),
@@ -2269,7 +2492,9 @@ payment_session_changed_to_fail(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberdick">>, make_due_date(20), 42000, C),
     %% Payment w/ preauth for suspend w/ user interaction occurrence.
-    PaymentID = start_payment(InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client),
+    PaymentID = start_payment(
+        InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client
+    ),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
 
     Failure = payproc_errors:construct(
@@ -2289,7 +2514,9 @@ payment_session_changed_to_fail(C) ->
     %% from request parameter.
     Tag = user_interaction_callback_tag(UserInteraction),
     ok = hg_dummy_provider:change_payment_session(Tag, Change),
-    {failed, PaymentID, {failure, Failure}} = await_payment_process_failure(InvoiceID, PaymentID, Client),
+    {failed, PaymentID, {failure, Failure}} = await_payment_process_failure(
+        InvoiceID, PaymentID, Client
+    ),
 
     %% Bad session callback tag must not be found again
     ?assertMatch(
@@ -2303,7 +2530,7 @@ payments_w_bank_card_issuer_conditions(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+        cfg(party_config_ref, C),
         ?cat(1),
         <<"RUB">>,
         ?trms(4),
@@ -2322,7 +2549,9 @@ payments_w_bank_card_issuer_conditions(C) ->
     %kaz fail
     SecondInvoice = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 1001, C),
     ?assertEqual(
-        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{
+            errors = [<<"Invalid amount, more than allowed maximum">>]
+        }},
         hg_client_invoicing:start_payment(SecondInvoice, KazPaymentParams, Client)
     ),
     %rus success
@@ -2351,7 +2580,7 @@ payments_w_bank_conditions(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+        cfg(party_config_ref, C),
         ?cat(1),
         <<"RUB">>,
         ?trms(4),
@@ -2369,7 +2598,9 @@ payments_w_bank_conditions(C) ->
     %bank 1 fail
     SecondInvoice = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 1001, C),
     ?assertEqual(
-        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{
+            errors = [<<"Invalid amount, more than allowed maximum">>]
+        }},
         hg_client_invoicing:start_payment(SecondInvoice, TestPaymentParams, Client)
     ),
     %bank 1 /w different wildcard fail
@@ -2380,7 +2611,9 @@ payments_w_bank_conditions(C) ->
     },
     WildPaymentParams = make_payment_params({bank_card, WildBankCard}, Session1, instant),
     ?assertEqual(
-        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{
+            errors = [<<"Invalid amount, more than allowed maximum">>]
+        }},
         hg_client_invoicing:start_payment(ThirdInvoice, WildPaymentParams, Client)
     ),
     %some other bank success
@@ -2399,7 +2632,9 @@ payments_w_bank_conditions(C) ->
     },
     FallbackPaymentParams = make_payment_params({bank_card, FallbackBankCard}, Session3, instant),
     ?assertEqual(
-        {exception, #base_InvalidRequest{errors = [<<"Invalid amount, more than allowed maximum">>]}},
+        {exception, #base_InvalidRequest{
+            errors = [<<"Invalid amount, more than allowed maximum">>]
+        }},
         hg_client_invoicing:start_payment(FifthInvoice, FallbackPaymentParams, Client)
     ).
 
@@ -2421,7 +2656,9 @@ invoice_success_on_third_payment(C) ->
     GoodPost = get_post_request(UserInteraction),
     %% simulate user interaction FTW!
     _ = assert_success_post_request(GoodPost),
-    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID3, UserInteraction, Client),
+    ok = await_payment_process_interaction_completion(
+        InvoiceID, PaymentID3, UserInteraction, Client
+    ),
     PaymentID3 = await_payment_process_finish(InvoiceID, PaymentID3, Client),
     PaymentID3 = await_payment_capture(InvoiceID, PaymentID3, Client).
 
@@ -2432,7 +2669,9 @@ payment_risk_score_check(C) ->
     % Invoice w/ cost < 500000
     InvoiceID1 = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID1)) = hg_client_invoicing:start_payment(InvoiceID1, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID1)) = hg_client_invoicing:start_payment(
+        InvoiceID1, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID1, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID1, Client),
     % low risk score...
@@ -2444,7 +2683,9 @@ payment_risk_score_check(C) ->
     PaymentID1 = await_payment_capture(InvoiceID1, PaymentID1, Client),
     % Invoice w/ 500000 < cost < 100000000
     InvoiceID2 = start_invoice(<<"rubberbucks">>, make_due_date(10), 31337000, C),
-    ?payment_state(?payment(PaymentID2)) = hg_client_invoicing:start_payment(InvoiceID2, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID2)) = hg_client_invoicing:start_payment(
+        InvoiceID2, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID2, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID2, Client),
     % high risk score...
@@ -2456,7 +2697,9 @@ payment_risk_score_check(C) ->
     PaymentID2 = await_payment_capture(InvoiceID2, PaymentID2, Client),
     % Invoice w/ 100000000 =< cost
     InvoiceID3 = start_invoice(<<"rubbersocks">>, make_due_date(10), 100000000, C),
-    ?payment_state(?payment(PaymentID3)) = hg_client_invoicing:start_payment(InvoiceID3, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID3)) = hg_client_invoicing:start_payment(
+        InvoiceID3, PaymentParams, Client
+    ),
     [
         ?payment_ev(PaymentID3, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -2488,13 +2731,17 @@ invalid_payment_adjustment(C) ->
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     %% no way to create adjustment for a payment not yet finished
     ?invalid_payment_status(?pending()) =
-        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client),
+        hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, make_adjustment_params(), Client
+        ),
     _UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_process_timeout(InvoiceID, PaymentID, Client),
     %% no way to create adjustment for a failed payment
     %% Correction. It was changed to failed payment not being in the way of adjustment
     ?adjustment(_AdjustmentID, ?adjustment_pending()) =
-        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client).
+        hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, make_adjustment_params(), Client
+        ).
 
 -spec payment_adjustment_success(config()) -> test_return().
 payment_adjustment_success(C) ->
@@ -2512,7 +2759,9 @@ payment_adjustment_success(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
     %% start a healthy man's payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
@@ -2520,7 +2769,7 @@ payment_adjustment_success(C) ->
         next_change(InvoiceID, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
@@ -2538,8 +2787,14 @@ payment_adjustment_success(C) ->
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))) =
         next_change(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
     ] = next_changes(InvoiceID, 2, Client),
     %% verify that cash deposited correctly everywhere
     #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
@@ -2582,7 +2837,9 @@ payment_adjustment_w_amount_success(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), OriginalAmount, C),
     %% start a healthy man's payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
@@ -2590,7 +2847,7 @@ payment_adjustment_w_amount_success(C) ->
         next_change(InvoiceID, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
@@ -2613,9 +2870,17 @@ payment_adjustment_w_amount_success(C) ->
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))) =
         next_change(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+        ?payment_ev(
+            PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
     ] = next_changes(InvoiceID, 3, Client),
     %% verify that cash deposited correctly everywhere
     #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
@@ -2629,11 +2894,23 @@ payment_adjustment_w_amount_success(C) ->
         OriginalAmount, ?merchant_to_system_share_1, ?system_to_provider_share_initial, ZeroShare
     ),
     {NewOpDiffMrc, NewOpDiffSys, NewOpDiffPrv} = compute_operation_amount_diffs(
-        NewAmount, ?merchant_to_system_share_1, ?system_to_provider_share_actual, ?system_to_external_fixed
+        NewAmount,
+        ?merchant_to_system_share_1,
+        ?system_to_provider_share_actual,
+        ?system_to_external_fixed
     ),
-    ?assertEqual(NewOpDiffMrc - OpDiffMrc, maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1)),
-    ?assertEqual(NewOpDiffPrv - OpDiffPrv, maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)),
-    ?assertEqual(NewOpDiffSys - OpDiffSys, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)),
+    ?assertEqual(
+        NewOpDiffMrc - OpDiffMrc,
+        maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1)
+    ),
+    ?assertEqual(
+        NewOpDiffPrv - OpDiffPrv,
+        maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)
+    ),
+    ?assertEqual(
+        NewOpDiffSys - OpDiffSys,
+        maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)
+    ),
 
     ?payment_state(#domain_InvoicePayment{cost = OriginalCost, changed_cost = NewCost}) =
         hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
@@ -2643,13 +2920,19 @@ payment_adjustment_w_amount_success(C) ->
 payment_adjustment_refunded_success(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_shop(cfg(party_id, C), ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopID = hg_ct_helper:create_shop(
+        cfg(party_config_ref, C), ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 10000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     CashFlow = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
-    _RefundID = execute_payment_refund(InvoiceID, PaymentID, make_refund_params(1000, <<"RUB">>), Client),
+    _RefundID = execute_payment_refund(
+        InvoiceID, PaymentID, make_refund_params(1000, <<"RUB">>), Client
+    ),
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
-    _AdjustmentID = execute_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client),
+    _AdjustmentID = execute_payment_adjustment(
+        InvoiceID, PaymentID, make_adjustment_params(), Client
+    ),
     NewCashFlow = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
     ?assertEqual(
         [
@@ -2679,18 +2962,22 @@ payment_adjustment_refunded_success(C) ->
 -spec payment_adjustment_chargeback_success(config()) -> test_return().
 payment_adjustment_chargeback_success(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     PartyPair = cfg(party_client, C),
     % % Контракт на основе шаблона ?trms(1)
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(3), ?pinst(1), PartyPair),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(3), ?pinst(1), PartyPair
+    ),
     % {ShopID, Shop} = hg_party:get_shop(PartyID, ShopID, PartyClient, , hg_party:get_party_revision()),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 10000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 10000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     CashFlow = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
     Params = make_chargeback_params(?cash(10000, <<"RUB">>)),
     _ChargebackID = execute_payment_chargeback(InvoiceID, PaymentID, Params, Client),
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
-    _AdjustmentID = execute_payment_adjustment(InvoiceID, PaymentID, make_adjustment_params(), Client),
+    _AdjustmentID = execute_payment_adjustment(
+        InvoiceID, PaymentID, make_adjustment_params(), Client
+    ),
     NewCashFlow = get_payment_cashflow_mapped(InvoiceID, PaymentID, Client),
     ?assertEqual(
         [
@@ -2722,9 +3009,9 @@ payment_adjustment_captured_partial(C) ->
     InitialCost = 1000 * 100,
     PartialCost = 700 * 100,
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    ok = hg_ct_helper:shop_set_terms(ShopID, ?trms(1)),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), InitialCost, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    ok = hg_ct_helper:shop_set_terms(ShopConfigRef, ?trms(1)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), InitialCost, C),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}),
     % start payment
     ?payment_state(?payment(PaymentID)) =
@@ -2739,14 +3026,14 @@ payment_adjustment_captured_partial(C) ->
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, Cash, Client),
     PaymentID = await_payment_partial_capture(InvoiceID, PaymentID, Reason, Cash, Client),
     % get balances
-    CFContext = construct_ta_context(cfg(party_id, C), ShopID, Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), ShopConfigRef, Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
     % update terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
     % update merchant fees
-    ok = hg_ct_helper:shop_set_terms(ShopID, ?trms(3)),
+    ok = hg_ct_helper:shop_set_terms(ShopConfigRef, ?trms(3)),
     % make an adjustment
     Params = make_adjustment_params(AdjReason = <<"because punk you that's why">>),
     AdjustmentID = execute_payment_adjustment(InvoiceID, PaymentID, Params, Client),
@@ -2757,28 +3044,40 @@ payment_adjustment_captured_partial(C) ->
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF2, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF2, CFContext),
     Context = #{operation_amount => Cash},
-    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context),
-    #domain_Cash{amount = MrcAmount2} = hg_cashflow:compute_volume(?merchant_to_system_share_3, Context),
+    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(
+        ?merchant_to_system_share_1, Context
+    ),
+    #domain_Cash{amount = MrcAmount2} = hg_cashflow:compute_volume(
+        ?merchant_to_system_share_3, Context
+    ),
     % fees after adjustment are less than before, so own amount is greater
     MrcDiff = MrcAmount1 - MrcAmount2,
     ?assertEqual(MrcDiff, maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1)),
-    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context),
-    #domain_Cash{amount = PrvAmount2} = hg_cashflow:compute_volume(?system_to_provider_share_actual, Context),
+    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(
+        ?system_to_provider_share_initial, Context
+    ),
+    #domain_Cash{amount = PrvAmount2} = hg_cashflow:compute_volume(
+        ?system_to_provider_share_actual, Context
+    ),
     % inversed in opposite of merchant fees
     PrvDiff = PrvAmount2 - PrvAmount1,
     ?assertEqual(PrvDiff, maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)),
-    #domain_Cash{amount = SysAmount2} = hg_cashflow:compute_volume(?system_to_external_fixed, Context),
+    #domain_Cash{amount = SysAmount2} = hg_cashflow:compute_volume(
+        ?system_to_external_fixed, Context
+    ),
     SysDiff = MrcDiff + PrvDiff - SysAmount2,
     ?assertEqual(SysDiff, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
 
 -spec payment_adjustment_captured_from_failed(config()) -> test_return().
 payment_adjustment_captured_from_failed(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    ok = hg_ct_helper:shop_set_terms(ShopID, ?trms(1)),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    ok = hg_ct_helper:shop_set_terms(ShopConfigRef, ?trms(1)),
     Amount = 42000,
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(3), Amount, C),
-    PaymentParams = make_scenario_payment_params([temp, temp, temp, temp], ?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(3), Amount, C),
+    PaymentParams = make_scenario_payment_params(
+        [temp, temp, temp, temp], ?pmt_sys(<<"visa-ref">>)
+    ),
     CaptureAmount = Amount div 2,
     CaptureCost = ?cash(CaptureAmount, <<"RUB">>),
     Captured = {captured, #domain_InvoicePaymentCaptured{cost = CaptureCost}},
@@ -2787,7 +3086,9 @@ payment_adjustment_captured_from_failed(C) ->
     ?payment_state(?payment(PaymentID)) =
         hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invalid_payment_status(?pending()) =
-        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams, Client),
+        hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, AdjustmentParams, Client
+        ),
     PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
     {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
@@ -2795,22 +3096,28 @@ payment_adjustment_captured_from_failed(C) ->
         await_payment_process_failure(InvoiceID, PaymentID, Client, 3),
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client),
     % get balances
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
     % update terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
     % update merchant fees
-    ok = hg_ct_helper:shop_set_terms(ShopID, ?trms(3)),
+    ok = hg_ct_helper:shop_set_terms(ShopConfigRef, ?trms(3)),
 
-    InvalidAdjustmentParams1 = make_status_adjustment_params({processed, #domain_InvoicePaymentProcessed{}}),
+    InvalidAdjustmentParams1 = make_status_adjustment_params(
+        {processed, #domain_InvoicePaymentProcessed{}}
+    ),
     ?invalid_payment_target_status(?processed()) =
-        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, InvalidAdjustmentParams1, Client),
+        hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, InvalidAdjustmentParams1, Client
+        ),
 
     FailedTargetStatus = ?failed({failure, #domain_Failure{code = <<"404">>}}),
     FailedAdjustmentParams = make_status_adjustment_params(FailedTargetStatus),
-    _FailedAdjustmentID = execute_payment_adjustment(InvoiceID, PaymentID, FailedAdjustmentParams, Client),
+    _FailedAdjustmentID = execute_payment_adjustment(
+        InvoiceID, PaymentID, FailedAdjustmentParams, Client
+    ),
 
     ?assertMatch(
         ?payment_state(?payment_w_status(PaymentID, FailedTargetStatus)),
@@ -2818,7 +3125,9 @@ payment_adjustment_captured_from_failed(C) ->
     ),
 
     ?payment_already_has_status(FailedTargetStatus) =
-        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, FailedAdjustmentParams, Client),
+        hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, FailedAdjustmentParams, Client
+        ),
 
     AdjustmentID = execute_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams, Client),
     ?payment_state(Payment) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
@@ -2833,10 +3142,14 @@ payment_adjustment_captured_from_failed(C) ->
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, DCF2, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, DCF2, CFContext),
     Context = #{operation_amount => CaptureCost},
-    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context),
+    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(
+        ?merchant_to_system_share_1, Context
+    ),
     MrcDiff = CaptureAmount - MrcAmount1,
     ?assertEqual(MrcDiff, maps:get(own_amount, MrcAccount2) - maps:get(own_amount, MrcAccount1)),
-    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context),
+    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(
+        ?system_to_provider_share_initial, Context
+    ),
     PrvDiff = PrvAmount1 - CaptureAmount,
     ?assertEqual(PrvDiff, maps:get(own_amount, PrvAccount2) - maps:get(own_amount, PrvAccount1)),
     SysDiff = MrcAmount1 - PrvAmount1,
@@ -2845,27 +3158,29 @@ payment_adjustment_captured_from_failed(C) ->
 -spec payment_adjustment_failed_from_captured(config()) -> test_return().
 payment_adjustment_failed_from_captured(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
-    ok = hg_ct_helper:shop_set_terms(ShopID, ?trms(1)),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    ok = hg_ct_helper:shop_set_terms(ShopConfigRef, ?trms(1)),
     Amount = 100000,
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), Amount, C),
     %% start payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     PaymentID = await_payment_started(InvoiceID, PaymentID, Client),
     {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     % get balances
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
     % update terminal cashflow
     ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(actual)),
     % update merchant fees
-    ok = hg_ct_helper:shop_set_terms(ShopID, ?trms(3)),
+    ok = hg_ct_helper:shop_set_terms(ShopConfigRef, ?trms(3)),
     % make an adjustment
     Failed = ?failed({failure, #domain_Failure{code = <<"404">>}}),
     AdjustmentParams = make_status_adjustment_params(Failed, AdjReason = <<"because i can">>),
@@ -2882,10 +3197,14 @@ payment_adjustment_failed_from_captured(C) ->
     SysAccount2 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
     Context = #{operation_amount => ?cash(Amount, <<"RUB">>)},
-    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context),
+    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(
+        ?merchant_to_system_share_1, Context
+    ),
     MrcDiff = Amount - MrcAmount1,
     ?assertEqual(MrcDiff, maps:get(own_amount, MrcAccount1) - maps:get(own_amount, MrcAccount2)),
-    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context),
+    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(
+        ?system_to_provider_share_initial, Context
+    ),
     PrvDiff = PrvAmount1 - Amount,
     ?assertEqual(PrvDiff, maps:get(own_amount, PrvAccount1) - maps:get(own_amount, PrvAccount2)),
     SysDiff = MrcAmount1 - PrvAmount1,
@@ -2905,12 +3224,14 @@ payment_adjustment_change_amount_and_captured(C) ->
     %% DIFF---|  95500 |  2400 |  -97900 |  0
 
     Client = cfg(client, C),
-    % PartyID = cfg(party_id, C),
+    % PartyID = cfg(party_config_ref, C),
     % {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
     % {ShopID, Shop} = hg_party:get_shop(PartyID, cfg(shop_id, C), hg_party:get_party_revision()),
 
     % reinit terminal cashflow
-    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
+    ok = update_payment_terms_cashflow(
+        ?prv(100), get_payment_adjustment_provider_cashflow(initial)
+    ),
 
     OriginalAmount = 100000,
     NewAmount = 200000,
@@ -2918,7 +3239,9 @@ payment_adjustment_change_amount_and_captured(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), OriginalAmount, C),
     %% start a healthy man's payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
@@ -2927,7 +3250,7 @@ payment_adjustment_change_amount_and_captured(C) ->
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
 
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
@@ -2967,8 +3290,12 @@ payment_adjustment_change_amount_and_captured(C) ->
     MrcAccount2 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
 
     Context0 = #{operation_amount => ?cash(OriginalAmount, <<"RUB">>)},
-    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context0),
-    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context0),
+    #domain_Cash{amount = MrcAmount1} = hg_cashflow:compute_volume(
+        ?merchant_to_system_share_1, Context0
+    ),
+    #domain_Cash{amount = PrvAmount1} = hg_cashflow:compute_volume(
+        ?system_to_provider_share_initial, Context0
+    ),
     MrcDiff0 = OriginalAmount - MrcAmount1,
     PrvDiff0 = PrvAmount1 - OriginalAmount,
     SysDiff0 = MrcAmount1 - PrvAmount1,
@@ -2980,15 +3307,25 @@ payment_adjustment_change_amount_and_captured(C) ->
     AdjustmentParams1 = make_adjustment_params(AdjReason1 = <<"imdrunk">>, undefined, NewAmount),
     ?adjustment(AdjustmentID1, ?adjustment_pending()) =
         Adjustment1 =
-        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams1, Client),
+        hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, AdjustmentParams1, Client
+        ),
     #domain_InvoicePaymentAdjustment{id = AdjustmentID1, reason = AdjReason1} =
         hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID1, Client),
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_created(Adjustment1))) =
         next_change(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_processed()))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_))))
+        ?payment_ev(
+            PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_processed()))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
     ] = next_changes(InvoiceID, 3, Client),
 
     ?payment_state(Payment1) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
@@ -3027,8 +3364,12 @@ payment_adjustment_change_amount_and_captured(C) ->
     ),
 
     Context2 = #{operation_amount => ChangedCost},
-    #domain_Cash{amount = MrcAmount3} = hg_cashflow:compute_volume(?merchant_to_system_share_1, Context2),
-    #domain_Cash{amount = PrvAmount3} = hg_cashflow:compute_volume(?system_to_provider_share_initial, Context2),
+    #domain_Cash{amount = MrcAmount3} = hg_cashflow:compute_volume(
+        ?merchant_to_system_share_1, Context2
+    ),
+    #domain_Cash{amount = PrvAmount3} = hg_cashflow:compute_volume(
+        ?system_to_provider_share_initial, Context2
+    ),
     MrcDiff2 = NewAmount - MrcAmount3,
     PrvDiff2 = PrvAmount3 - NewAmount,
     SysDiff2 = MrcAmount3 - PrvAmount3,
@@ -3050,27 +3391,33 @@ payment_adjustment_change_amount_and_refund_all(C) ->
     %% DIFF---|  95500 |  2400 |  -97900 |  0
 
     Client = cfg(client, C),
-    % PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
+    % PartyID = cfg(party_config_ref, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
     % {PartyClient, PartyCtx} = PartyPair = cfg(party_client, C),
     % {ShopID, Shop} = hg_party:get_shop(PartyID, ShopID, hg_party:get_party_revision()),
-    ok = update_payment_terms_cashflow(?prv(100), get_payment_adjustment_provider_cashflow(initial)),
+    ok = update_payment_terms_cashflow(
+        ?prv(100), get_payment_adjustment_provider_cashflow(initial)
+    ),
 
     OriginalAmount = 100000,
     NewAmount = 200000,
 
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), NewAmount, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), NewAmount, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
 
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), OriginalAmount, C),
     %% start a healthy man's payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {_CF1, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
         next_change(InvoiceID, Client),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
@@ -3095,15 +3442,25 @@ payment_adjustment_change_amount_and_refund_all(C) ->
     AdjustmentParams1 = make_adjustment_params(AdjReason1 = <<"imdrunk">>, undefined, NewAmount),
     ?adjustment(AdjustmentID1, ?adjustment_pending()) =
         Adjustment1 =
-        hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, AdjustmentParams1, Client),
+        hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, AdjustmentParams1, Client
+        ),
     #domain_InvoicePaymentAdjustment{id = AdjustmentID1, reason = AdjReason1} =
         hg_client_invoicing:get_payment_adjustment(InvoiceID, PaymentID, AdjustmentID1, Client),
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_created(Adjustment1))) =
         next_change(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_processed()))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_))))
+        ?payment_ev(
+            PaymentID, ?cash_changed(?cash(OriginalAmount, <<"RUB">>), ?cash(NewAmount, <<"RUB">>))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_processed()))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID1, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
     ] = next_changes(InvoiceID, 3, Client),
 
     ?payment_state(Payment1) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
@@ -3144,17 +3501,24 @@ payment_adjustment_change_amount_and_refund_all(C) ->
 
     Context2 = #{operation_amount => ChangedCost},
 
-    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(?merchant_to_system_fixed, Context2),
-    ?assertEqual(maps:get(own_amount, MrcAccount2), maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed),
+    #domain_Cash{amount = MrcAmountFixed} = hg_cashflow:compute_volume(
+        ?merchant_to_system_fixed, Context2
+    ),
+    ?assertEqual(
+        maps:get(own_amount, MrcAccount2),
+        maps:get(own_amount, MrcAccount1) - NewAmount - MrcAmountFixed
+    ),
     ?assertEqual(maps:get(own_amount, PrvAccount2), maps:get(own_amount, PrvAccount1) + NewAmount),
-    ?assertEqual(MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)).
+    ?assertEqual(
+        MrcAmountFixed, maps:get(own_amount, SysAccount2) - maps:get(own_amount, SysAccount1)
+    ).
 
 -spec status_adjustment_of_partial_refunded_payment(config()) -> test_return().
 status_adjustment_of_partial_refunded_payment(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
@@ -3169,7 +3533,9 @@ status_adjustment_of_partial_refunded_payment(C) ->
     FailedAdjustmentParams = make_status_adjustment_params(FailedTargetStatus),
     {exception, #base_InvalidRequest{
         errors = [<<"Cannot change status of payment with refunds.">>]
-    }} = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, FailedAdjustmentParams, Client).
+    }} = hg_client_invoicing:create_payment_adjustment(
+        InvoiceID, PaymentID, FailedAdjustmentParams, Client
+    ).
 
 -spec registered_payment_adjustment_success(config()) -> _.
 registered_payment_adjustment_success(C) ->
@@ -3186,7 +3552,9 @@ registered_payment_adjustment_success(C) ->
     Client = cfg(client, C),
 
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     Route = ?route(?prv(100), ?trm(1)),
     String = <<"STRING">>,
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
@@ -3198,7 +3566,17 @@ registered_payment_adjustment_success(C) ->
                     client_info = #domain_ClientInfo{}
                 },
                 contact_info = ?contact_info(
-                    String, String, String, String, String, String, String, String, String, String, String
+                    String,
+                    String,
+                    String,
+                    String,
+                    String,
+                    String,
+                    String,
+                    String,
+                    String,
+                    String,
+                    String
                 )
             }},
         route = Route,
@@ -3213,7 +3591,7 @@ registered_payment_adjustment_success(C) ->
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
 
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
     PrvAccount1 = get_deprecated_cashflow_account({provider, settlement}, CF1, CFContext),
     SysAccount1 = get_deprecated_cashflow_account({system, settlement}, CF1, CFContext),
     MrcAccount1 = get_deprecated_cashflow_account({merchant, settlement}, CF1, CFContext),
@@ -3231,8 +3609,14 @@ registered_payment_adjustment_success(C) ->
     ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))) =
         next_change(InvoiceID, Client),
     [
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
     ] = next_changes(InvoiceID, 2, Client),
     %% verify that cash deposited correctly everywhere
     #domain_InvoicePaymentAdjustment{new_cash_flow = DCF2} = Adjustment,
@@ -3250,7 +3634,9 @@ payment_temporary_unavailability_retry_success(C) ->
     Amount = 42000,
     Cost = make_cash(Amount),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    PaymentParams = make_scenario_payment_params([temp, temp, good, temp, temp], ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_scenario_payment_params(
+        [temp, temp, good, temp, temp], ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_sessions_restarts(PaymentID, ?processed(), InvoiceID, Client, 2),
@@ -3259,7 +3645,9 @@ payment_temporary_unavailability_retry_success(C) ->
         ?payment_ev(PaymentID, ?payment_capture_started(Reason, Cost, _, _)),
         ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost), ?session_started()))
     ] = next_changes(InvoiceID, 2, Client),
-    PaymentID = await_sessions_restarts(PaymentID, ?captured(Reason, Cost, undefined), InvoiceID, Client, 2),
+    PaymentID = await_sessions_restarts(
+        PaymentID, ?captured(Reason, Cost, undefined), InvoiceID, Client, 2
+    ),
     PaymentID = await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_paid()),
@@ -3270,7 +3658,9 @@ payment_temporary_unavailability_retry_success(C) ->
 payment_temporary_unavailability_too_many_retries(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_scenario_payment_params([temp, temp, temp, temp], ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = make_scenario_payment_params(
+        [temp, temp, temp, temp], ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     {failed, PaymentID, {failure, Failure}} =
@@ -3311,8 +3701,8 @@ compute_operation_amount_diffs(Amount, MrcSysShare, SysPrvShare, SysExtShare) ->
     SysPrv = compute_operation_amount_share(Amount, SysPrvShare),
     {Amount - MrcSys, MrcSys - SysPrv - SysExt, SysPrv - Amount}.
 
-construct_ta_context(Party, Shop, Route) ->
-    hg_invoice_helper:construct_ta_context(Party, Shop, Route).
+construct_ta_context(PartyConfigRef, ShopConfigRef, Route) ->
+    hg_invoice_helper:construct_ta_context(PartyConfigRef, ShopConfigRef, Route).
 
 get_deprecated_cashflow_account(Type, CF, CFContext) ->
     ID = get_deprecated_cashflow_account_id(Type, CF, CFContext),
@@ -3336,14 +3726,20 @@ get_deprecated_cashflow_account_id(Type, CF, CFContext) ->
 
 -spec invalid_payment_w_deprived_party(config()) -> test_return().
 invalid_payment_w_deprived_party(C) ->
-    PartyID = <<"DEPRIVED ONE-II">>,
+    PartyConfigRef = ?PARTY_CONFIG_REF_DEPRIVED_2,
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     InvoicingClient = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+    ShopConfigRef = hg_ct_helper:create_party_and_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(42000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, InvoicingClient),
-    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, InvoicingClient),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(
+        InvoiceID, InvoicingClient
+    ),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     Exception = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, InvoicingClient),
     {exception, #base_InvalidRequest{}} = Exception.
@@ -3351,17 +3747,25 @@ invalid_payment_w_deprived_party(C) ->
 -spec external_account_posting(config()) -> test_return().
 external_account_posting(C) ->
     % Party создается в инициализации suite
-    PartyID = ?PARTYID_EXTERNAL,
+    PartyConfigRef = ?PARTY_CONFIG_REF_EXTERNAL,
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     InvoicingClient = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubbermoss">>, make_due_date(10), make_cash(42000)),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        PartyConfigRef, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient
+    ),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubbermoss">>, make_due_date(10), make_cash(42000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, InvoicingClient),
-    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, InvoicingClient),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(
+        InvoiceID, InvoicingClient
+    ),
     ?payment_state(
         ?payment(PaymentID)
-    ) = hg_client_invoicing:start_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), InvoicingClient),
+    ) = hg_client_invoicing:start_payment(
+        InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), InvoicingClient
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, InvoicingClient),
     {CF, Route} = await_payment_cash_flow(InvoiceID, PaymentID, InvoicingClient),
@@ -3379,7 +3783,7 @@ external_account_posting(C) ->
             details = <<"Kek">>
         } <- CF
     ],
-    CFContext = construct_ta_context(PartyID, ShopID, Route),
+    CFContext = construct_ta_context(PartyConfigRef, ShopConfigRef, Route),
     AssistAccountID = get_deprecated_cashflow_account_id({external, outcome}, CF, CFContext),
     #domain_ExternalAccountSet{
         accounts = #{?cur(<<"RUB">>) := #domain_ExternalAccount{outcome = AssistAccountID}}
@@ -3388,12 +3792,16 @@ external_account_posting(C) ->
 -spec terminal_cashflow_overrides_provider(config()) -> test_return().
 terminal_cashflow_overrides_provider(C) ->
     % Party создается в инициализации suite
-    PartyID = ?PARTYID_EXTERNAL,
+    PartyConfigRef = ?PARTY_CONFIG_REF_EXTERNAL,
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     InvoicingClient = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(4), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubbermoss">>, make_due_date(10), make_cash(42000)),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        PartyConfigRef, ?cat(4), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient
+    ),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubbermoss">>, make_due_date(10), make_cash(42000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, InvoicingClient),
     _ = next_change(InvoiceID, InvoicingClient),
     ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
@@ -3416,7 +3824,7 @@ terminal_cashflow_overrides_provider(C) ->
             details = <<"Kek">>
         } <- CF
     ],
-    CFContext = construct_ta_context(PartyID, ShopID, Route),
+    CFContext = construct_ta_context(PartyConfigRef, ShopConfigRef, Route),
     AssistAccountID = get_deprecated_cashflow_account_id({external, outcome}, CF, CFContext),
     #domain_ExternalAccountSet{
         accounts = #{?cur(<<"RUB">>) := #domain_ExternalAccount{outcome = AssistAccountID}}
@@ -3429,15 +3837,15 @@ create_chargeback_not_allowed(C) ->
     Cost = 42000,
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(1),
         <<"RUB">>,
         ?trms(1),
         ?pinst(1),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), Cost, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     CBParams = make_chargeback_params(?cash(1000, <<"RUB">>)),
     Result = hg_client_invoicing:create_chargeback(InvoiceID, PaymentID, CBParams, Client),
@@ -3449,15 +3857,15 @@ create_chargeback_provision_terms_not_allowed(C) ->
     Cost = 42000,
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), Cost, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     CBParams = make_chargeback_params(?cash(1000, <<"RUB">>)),
     Result = hg_client_invoicing:create_chargeback(InvoiceID, PaymentID, CBParams, Client),
@@ -3496,7 +3904,9 @@ create_chargeback_idempotency(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3504,14 +3914,21 @@ create_chargeback_idempotency(C) ->
     ] = next_changes(IID, 2, Client),
     ?assertMatch(CB, hg_client_invoicing:create_chargeback(IID, PID, CBParams, Client)),
     NewCBParams = make_chargeback_params(Levy),
-    ?assertMatch(?chargeback_pending(), hg_client_invoicing:create_chargeback(IID, PID, NewCBParams, Client)),
+    ?assertMatch(
+        ?chargeback_pending(), hg_client_invoicing:create_chargeback(IID, PID, NewCBParams, Client)
+    ),
     Settlement0 = hg_accounting:get_balance(SID),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3528,7 +3945,9 @@ cancel_payment_chargeback(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3538,9 +3957,14 @@ cancel_payment_chargeback(C) ->
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3558,7 +3982,9 @@ cancel_partial_payment_chargeback(C) ->
     Paid = Partial - Fee,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback_partial_capture(C, Cost, Partial, CBParams, ?pmt_sys(<<"mastercard-ref">>)),
+    {IID, PID, SID, CB} = start_chargeback_partial_capture(
+        C, Cost, Partial, CBParams, ?pmt_sys(<<"mastercard-ref">>)
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3568,9 +3994,14 @@ cancel_partial_payment_chargeback(C) ->
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Partial - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3598,7 +4029,9 @@ cancel_payment_chargeback_refund(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, _SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3609,9 +4042,14 @@ cancel_payment_chargeback_refund(C) ->
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     RefundOk = hg_client_invoicing:refund_payment(IID, PID, RefundParams, Client),
     ?assertMatch(?chargeback_pending(), RefundError),
@@ -3624,20 +4062,29 @@ reject_payment_chargeback_inconsistent(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, _SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
     ] = next_changes(IID, 2, Client),
     InconsistentParams = make_chargeback_reject_params(?cash(10, <<"USD">>)),
-    Inconsistent = hg_client_invoicing:reject_chargeback(IID, PID, CBID, InconsistentParams, Client),
+    Inconsistent = hg_client_invoicing:reject_chargeback(
+        IID, PID, CBID, InconsistentParams, Client
+    ),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     ?assertMatch(?inconsistent_chargeback_currency(_), Inconsistent).
 
@@ -3650,7 +4097,9 @@ reject_payment_chargeback(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3660,9 +4109,14 @@ reject_payment_chargeback(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3679,7 +4133,9 @@ reject_payment_chargeback_no_fees(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_wallet_payment_params(?pmt_srv(<<"qiwi-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_wallet_payment_params(?pmt_srv(<<"qiwi-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3689,9 +4145,14 @@ reject_payment_chargeback_no_fees(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3708,7 +4169,9 @@ reject_payment_chargeback_new_levy(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3721,9 +4184,14 @@ reject_payment_chargeback_new_levy(C) ->
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(RejectLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(CF1))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 4, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertNotEqual(CF0, CF1),
@@ -3739,7 +4207,9 @@ accept_payment_chargeback_inconsistent(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, _SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3747,14 +4217,23 @@ accept_payment_chargeback_inconsistent(C) ->
     ] = next_changes(IID, 2, Client),
     InconsistentLevyParams = make_chargeback_accept_params(?cash(10, <<"USD">>), undefined),
     InconsistentBodyParams = make_chargeback_accept_params(undefined, ?cash(10, <<"USD">>)),
-    InconsistentLevy = hg_client_invoicing:accept_chargeback(IID, PID, CBID, InconsistentLevyParams, Client),
-    InconsistentBody = hg_client_invoicing:accept_chargeback(IID, PID, CBID, InconsistentBodyParams, Client),
+    InconsistentLevy = hg_client_invoicing:accept_chargeback(
+        IID, PID, CBID, InconsistentLevyParams, Client
+    ),
+    InconsistentBody = hg_client_invoicing:accept_chargeback(
+        IID, PID, CBID, InconsistentBodyParams, Client
+    ),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     ?assertMatch(?inconsistent_chargeback_currency(_), InconsistentLevy),
     ?assertMatch(?inconsistent_chargeback_currency(_), InconsistentBody).
@@ -3766,21 +4245,30 @@ accept_payment_chargeback_exceeded(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, _SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_)))
     ] = next_changes(IID, 2, Client),
     ExceedBody = 200000,
-    ExceedParams = make_chargeback_accept_params(?cash(LevyAmount, <<"RUB">>), ?cash(ExceedBody, <<"RUB">>)),
+    ExceedParams = make_chargeback_accept_params(
+        ?cash(LevyAmount, <<"RUB">>), ?cash(ExceedBody, <<"RUB">>)
+    ),
     Exceeded = hg_client_invoicing:accept_chargeback(IID, PID, CBID, ExceedParams, Client),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     ?assertMatch(?invoice_payment_amount_exceeded(_), Exceeded).
 
@@ -3793,7 +4281,9 @@ accept_payment_chargeback_empty_params(C) ->
     LevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3803,8 +4293,13 @@ accept_payment_chargeback_empty_params(C) ->
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
@@ -3824,7 +4319,9 @@ accept_payment_chargeback_twice(C) ->
     Body = ?cash(BodyAmount, <<"RUB">>),
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams1 = make_chargeback_params(Levy, Body),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams1, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams1, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3834,8 +4331,13 @@ accept_payment_chargeback_twice(C) ->
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted())))
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        )
     ] = next_changes(IID, 2, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     CBParams2 = make_chargeback_params(Levy),
@@ -3849,8 +4351,13 @@ accept_payment_chargeback_twice(C) ->
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID2, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID2, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID2, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID2, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
@@ -3872,7 +4379,9 @@ accept_payment_chargeback_new_body(C) ->
     LevyAmount = 5000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3884,9 +4393,14 @@ accept_payment_chargeback_new_body(C) ->
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_body_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        )
     ] = next_changes(IID, 4, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -3904,7 +4418,9 @@ accept_payment_chargeback_new_levy(C) ->
     NewLevyAmount = 4000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3914,10 +4430,17 @@ accept_payment_chargeback_new_levy(C) ->
     AcceptParams = make_chargeback_accept_params(?cash(NewLevyAmount, <<"RUB">>), undefined),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(?cash(NewLevyAmount, <<"RUB">>)))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(?cash(NewLevyAmount, <<"RUB">>)))
+        ),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 5, Client),
     Settlement1 = hg_accounting:get_balance(SID),
@@ -3933,7 +4456,9 @@ reopen_accepted_payment_chargeback_and_cancel_ok(C) ->
     LevyAmount = 5000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, _SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3942,24 +4467,42 @@ reopen_accepted_payment_chargeback_and_cancel_ok(C) ->
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 3, Client),
     ReopenParams = make_chargeback_reopen_params(Levy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))
+        ),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(CBCF))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 4, Client),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed([]))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?captured()))
     ] = next_changes(IID, 4, Client),
     ok.
@@ -3971,7 +4514,9 @@ reopen_payment_chargeback_inconsistent(C) ->
     LevyAmount = 5000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, _SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -3980,14 +4525,23 @@ reopen_payment_chargeback_inconsistent(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     InconsistentLevyParams = make_chargeback_reopen_params(?cash(10, <<"USD">>), undefined),
     InconsistentBodyParams = make_chargeback_reopen_params(Levy, ?cash(10, <<"USD">>)),
-    InconsistentLevy = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, InconsistentLevyParams, Client),
-    InconsistentBody = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, InconsistentBodyParams, Client),
+    InconsistentLevy = hg_client_invoicing:reopen_chargeback(
+        IID, PID, CBID, InconsistentLevyParams, Client
+    ),
+    InconsistentBody = hg_client_invoicing:reopen_chargeback(
+        IID, PID, CBID, InconsistentBodyParams, Client
+    ),
     ?assertMatch(?inconsistent_chargeback_currency(_), InconsistentLevy),
     ?assertMatch(?inconsistent_chargeback_currency(_), InconsistentBody).
 
@@ -3998,7 +4552,9 @@ reopen_payment_chargeback_exceeded(C) ->
     LevyAmount = 5000,
     Levy = ?cash(LevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, _SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, _SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4007,9 +4563,14 @@ reopen_payment_chargeback_exceeded(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     ExceededParams = make_chargeback_reopen_params(Levy, ?cash(50000, <<"RUB">>)),
     Exceeded = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ExceededParams, Client),
@@ -4026,7 +4587,9 @@ reopen_payment_chargeback_cancel(C) ->
     Levy = ?cash(LevyAmount, <<"RUB">>),
     ReopenLevy = ?cash(ReopenLevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4036,27 +4599,45 @@ reopen_payment_chargeback_cancel(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     CancelParams = make_chargeback_cancel_params(),
     ok = hg_client_invoicing:cancel_chargeback(IID, PID, CBID, CancelParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_cancelled()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_cancelled()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -4079,7 +4660,9 @@ reopen_payment_chargeback_reject(C) ->
     Levy = ?cash(LevyAmount, <<"RUB">>),
     ReopenLevy = ?cash(ReopenLevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4089,27 +4672,45 @@ reopen_payment_chargeback_reject(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
     ok = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_stage_changed(?chargeback_stage_pre_arbitration()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(Levy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 4, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ?assertEqual(Paid - Cost - LevyAmount, maps:get(min_available_amount, Settlement0)),
@@ -4132,7 +4733,9 @@ reopen_payment_chargeback_accept(C) ->
     Levy = ?cash(LevyAmount, <<"RUB">>),
     ReopenLevy = ?cash(ReopenLevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4142,9 +4745,14 @@ reopen_payment_chargeback_accept(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
@@ -4152,16 +4760,26 @@ reopen_payment_chargeback_accept(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
@@ -4185,7 +4803,9 @@ reopen_payment_chargeback_skip_stage_accept(C) ->
     Levy = ?cash(LevyAmount, <<"RUB">>),
     ReopenLevy = ?cash(ReopenLevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4195,9 +4815,14 @@ reopen_payment_chargeback_skip_stage_accept(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     NextStage = ?chargeback_stage_arbitration(),
@@ -4206,16 +4831,26 @@ reopen_payment_chargeback_skip_stage_accept(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(NextStage))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 3, Client),
     Settlement3 = hg_accounting:get_balance(SID),
@@ -4242,7 +4877,9 @@ reopen_payment_chargeback_accept_new_levy(C) ->
     ReopenLevy = ?cash(ReopenLevyAmount, <<"RUB">>),
     AcceptLevy = ?cash(AcceptLevyAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4252,9 +4889,14 @@ reopen_payment_chargeback_accept_new_levy(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
@@ -4262,18 +4904,28 @@ reopen_payment_chargeback_accept_new_levy(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(AcceptLevy, Body),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 5, Client),
     Settlement3 = hg_accounting:get_balance(SID),
@@ -4299,7 +4951,9 @@ reopen_payment_chargeback_arbitration(C) ->
     ReopenLevy = ?cash(ReopenLevyAmount, <<"RUB">>),
     ReopenArbLevy = ?cash(ReopenArbAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4309,9 +4963,14 @@ reopen_payment_chargeback_arbitration(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
@@ -4319,17 +4978,27 @@ reopen_payment_chargeback_arbitration(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 4, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ReopenArbParams = make_chargeback_reopen_params(ReopenArbLevy),
@@ -4337,16 +5006,26 @@ reopen_payment_chargeback_arbitration(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement4 = hg_accounting:get_balance(SID),
     AcceptParams = make_chargeback_accept_params(),
     ok = hg_client_invoicing:accept_chargeback(IID, PID, CBID, AcceptParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+        ),
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PID, ?payment_status_changed(?charged_back()))
     ] = next_changes(IID, 3, Client),
     Settlement5 = hg_accounting:get_balance(SID),
@@ -4376,7 +5055,9 @@ reopen_payment_chargeback_arbitration_reopen_fails(C) ->
     ReopenLevy = ?cash(ReopenLevyAmount, <<"RUB">>),
     ReopenArbLevy = ?cash(ReopenArbAmount, <<"RUB">>),
     CBParams = make_chargeback_params(Levy),
-    {IID, PID, SID, CB} = start_chargeback(C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))),
+    {IID, PID, SID, CB} = start_chargeback(
+        C, Cost, CBParams, make_payment_params(?pmt_sys(<<"visa-ref">>))
+    ),
     CBID = CB#domain_InvoicePaymentChargeback.id,
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_created(CB))),
@@ -4386,9 +5067,14 @@ reopen_payment_chargeback_arbitration_reopen_fails(C) ->
     RejectParams = make_chargeback_reject_params(Levy),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 3, Client),
     Settlement1 = hg_accounting:get_balance(SID),
     ReopenParams = make_chargeback_reopen_params(ReopenLevy),
@@ -4396,17 +5082,27 @@ reopen_payment_chargeback_arbitration_reopen_fails(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(ReopenLevy))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement2 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 4, Client),
     Settlement3 = hg_accounting:get_balance(SID),
     ReopenArbParams = make_chargeback_reopen_params(ReopenArbLevy),
@@ -4414,17 +5110,27 @@ reopen_payment_chargeback_arbitration_reopen_fails(C) ->
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_stage_changed(_))),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_pending()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_pending()))
+        )
     ] = next_changes(IID, 5, Client),
     Settlement4 = hg_accounting:get_balance(SID),
     ok = hg_client_invoicing:reject_chargeback(IID, PID, CBID, RejectParams, Client),
     [
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_levy_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))),
+        ?payment_ev(
+            PID,
+            ?chargeback_ev(CBID, ?chargeback_target_status_changed(?chargeback_status_rejected()))
+        ),
         ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_cash_flow_changed(_))),
-        ?payment_ev(PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected())))
+        ?payment_ev(
+            PID, ?chargeback_ev(CBID, ?chargeback_status_changed(?chargeback_status_rejected()))
+        )
     ] = next_changes(IID, 4, Client),
     Settlement5 = hg_accounting:get_balance(SID),
     Error = hg_client_invoicing:reopen_chargeback(IID, PID, CBID, ReopenArbParams, Client),
@@ -4446,17 +5152,19 @@ reopen_payment_chargeback_arbitration_reopen_fails(C) ->
 
 start_chargeback(C, Cost, CBParams, PaymentParams) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     PartyPair = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
-    {PartyID, Party} = hg_party:get_party(PartyID),
-    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        PartyConfigRef, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair
+    ),
+    {PartyConfigRef, _Party} = hg_party:get_party(PartyConfigRef),
+    {ShopConfigRef, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef),
     {SettlementID, _} = hg_invoice_utils:get_shop_account(Shop),
     Settlement0 = hg_accounting:get_balance(SettlementID),
     % 0.045
     Fee = 1890,
     ?assertEqual(0, maps:get(min_available_amount, Settlement0)),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), Cost, C),
     PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     Settlement1 = hg_accounting:get_balance(SettlementID),
     ?assertEqual(Cost - Fee, maps:get(min_available_amount, Settlement1)),
@@ -4465,17 +5173,19 @@ start_chargeback(C, Cost, CBParams, PaymentParams) ->
 
 start_chargeback_partial_capture(C, Cost, Partial, CBParams, PmtSys) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     Cash = ?cash(Partial, <<"RUB">>),
     PartyPair = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(PartyID, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair),
-    {PartyID, Party} = hg_party:get_party(PartyID),
-    {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        PartyConfigRef, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyPair
+    ),
+    {PartyConfigRef, _Party} = hg_party:get_party(PartyConfigRef),
+    {ShopConfigRef, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef),
     {SettlementID, _} = hg_invoice_utils:get_shop_account(Shop),
     Settlement0 = hg_accounting:get_balance(SettlementID),
     % Fee          = 450, % 0.045
     ?assertEqual(0, maps:get(min_available_amount, Settlement0)),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), Cost, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), Cost, C),
     {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
     PaymentParams = make_payment_params(PaymentTool, Session, {hold, cancel}),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
@@ -4499,36 +5209,36 @@ start_chargeback_partial_capture(C, Cost, Partial, CBParams, PmtSys) ->
 -spec invalid_refund_party_status(config()) -> _ | no_return().
 invalid_refund_party_status(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    ok = hg_ct_helper:suspend_party(PartyID),
+    ok = hg_ct_helper:suspend_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = hg_ct_helper:activate_party(PartyID),
-    ok = hg_ct_helper:block_party(PartyID),
+    ok = hg_ct_helper:activate_party(PartyConfigRef),
+    ok = hg_ct_helper:block_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = hg_ct_helper:unblock_party(PartyID).
+    ok = hg_ct_helper:unblock_party(PartyConfigRef).
 
 -spec invalid_refund_shop_status(config()) -> _ | no_return().
 invalid_refund_shop_status(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
-    ok = hg_ct_helper:suspend_shop(ShopID),
+    ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = hg_ct_helper:activate_shop(ShopID),
-    ok = hg_ct_helper:block_shop(ShopID),
+    ok = hg_ct_helper:activate_shop(ShopConfigRef),
+    ok = hg_ct_helper:block_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, make_refund_params(), Client),
-    ok = hg_ct_helper:unblock_shop(ShopID).
+    ok = hg_ct_helper:unblock_shop(ShopConfigRef).
 
 -spec payment_refund_idempotency(config()) -> _ | no_return().
 payment_refund_idempotency(C) ->
@@ -4537,7 +5247,9 @@ payment_refund_idempotency(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     InvoiceID2 = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     RefundID = <<"1">>,
     ExternalID = <<"42">>,
     RefundParams1 = RefundParams0#payproc_InvoicePaymentRefundParams{
@@ -4575,16 +5287,18 @@ payment_refund_idempotency(C) ->
 payment_refund_success(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, capture}), Client),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = process_payment(
+        InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, capture}), Client
+    ),
     RefundParams = make_refund_params(),
     % not finished yet
     ?invalid_payment_status(?processed()) =
@@ -4602,11 +5316,15 @@ payment_refund_success(C) ->
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID0, Client),
     [
         ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(Failure))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(Failure))))
+        ?payment_ev(
+            PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(Failure)))
+        )
     ] = next_changes(InvoiceID, 2, Client),
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     % create a refund finally
     RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
     #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
@@ -4619,16 +5337,18 @@ payment_refund_success(C) ->
 payment_refund_failure(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_scenario_payment_params([good, good, fail], {hold, capture}, ?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentParams = make_scenario_payment_params(
+        [good, good, fail], {hold, capture}, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     RefundParams = make_refund_params(),
     % not finished yet
@@ -4647,19 +5367,28 @@ payment_refund_failure(C) ->
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID0, Client),
     [
         ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds))))
+        ?payment_ev(
+            PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds)))
+        )
     ] = next_changes(InvoiceID, 2, Client),
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     % create a refund finally
     ?refund_id(RefundID) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID, Client),
     [
-        ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?trx_bound(?trx_info(_TrxID))))),
-        ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))),
+        ?payment_ev(
+            PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?trx_bound(?trx_info(_TrxID))))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))
+        ),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure))),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure))))
     ] = next_changes(InvoiceID, 4, Client),
@@ -4670,8 +5399,8 @@ payment_refund_failure(C) ->
 payment_refund_success_after_callback(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
@@ -4679,21 +5408,29 @@ payment_refund_success_after_callback(C) ->
         PartyClient
     ),
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     % start invoice that will be refunded
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentID = start_payment(InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentID = start_payment(
+        InvoiceID, make_tds_payment_params(instant, ?pmt_sys(<<"visa-ref">>)), Client
+    ),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     %% simulate user interaction
     {URL, GoodForm} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, GoodForm}),
-    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
+    ok = await_payment_process_interaction_completion(
+        InvoiceID, PaymentID, UserInteraction, Client
+    ),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     % create a refund finally
     RefundParams = make_refund_params(),
-    ?refund_id(RefundID) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+    ?refund_id(RefundID) = hg_client_invoicing:refund_payment(
+        InvoiceID, PaymentID, RefundParams, Client
+    ),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID, Client),
     ?payment_ev(
@@ -4726,15 +5463,15 @@ payment_refund_success_after_callback(C) ->
 deadline_doesnt_affect_payment_refund(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
     % ms
     ProcessingDeadline = 4000,
     PaymentParams = set_processing_deadline(
@@ -4759,11 +5496,15 @@ deadline_doesnt_affect_payment_refund(C) ->
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID0, Client),
     [
         ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds))))
+        ?payment_ev(
+            PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds)))
+        )
     ] = next_changes(InvoiceID, 2, Client),
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     % create a refund finally
     RefundID = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
     #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
@@ -4773,15 +5514,15 @@ deadline_doesnt_affect_payment_refund(C) ->
 payment_manual_refund(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     TrxInfo = ?trx_info(<<"test">>, #{}),
     RefundParams = #payproc_InvoicePaymentRefundParams{
@@ -4802,11 +5543,15 @@ payment_manual_refund(C) ->
     [
         ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_created(Refund0, _, TrxInfo))),
         ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_rollback_started(NoFunds))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds))))
+        ?payment_ev(
+            PaymentID, ?refund_ev(RefundID0, ?refund_status_changed(?refund_failed(NoFunds)))
+        )
     ] = next_changes(InvoiceID, 3, Client),
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     % prevent proxy access
     OriginalRevision = hg_domain:head(),
     Fixture = payment_manual_refund_fixture(OriginalRevision),
@@ -4824,20 +5569,22 @@ payment_manual_refund(C) ->
 payment_partial_refunds_success(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     RefundParams0 = make_refund_params(43000, <<"RUB">>),
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 3000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 3000, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     % refund amount exceeds payment amount
     ?invoice_payment_amount_exceeded(_) =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams0, Client),
@@ -4908,15 +5655,15 @@ payment_partial_refunds_success(C) ->
 invalid_currency_payment_partial_refund(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     RefundParams1 = make_refund_params(50, <<"EUR">>),
     ?inconsistent_refund_currency(<<"EUR">>) =
@@ -4927,15 +5674,15 @@ invalid_amount_payment_partial_refund(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     InvoiceAmount = 42000,
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), InvoiceAmount, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), InvoiceAmount, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     RefundParams1 = make_refund_params(50, <<"RUB">>),
     {exception, #base_InvalidRequest{
@@ -4986,18 +5733,20 @@ invalid_amount_partial_capture_and_refund(C) ->
 cant_start_simultaneous_partial_refunds(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     RefundParams = make_refund_params(10000, <<"RUB">>),
-    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
+    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(
+        InvoiceID, PaymentID, RefundParams, Client
+    ),
     ?operation_not_permitted() =
         hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams, Client),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID1, Client),
@@ -5026,15 +5775,15 @@ cant_start_simultaneous_partial_refunds(C) ->
 ineligible_payment_partial_refund(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(100),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = execute_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     RefundParams = make_refund_params(5000, <<"RUB">>),
     ?operation_not_permitted() =
@@ -5044,19 +5793,23 @@ ineligible_payment_partial_refund(C) ->
 retry_temporary_unavailability_refund(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentParams = make_scenario_payment_params([good, good, temp, temp], ?pmt_sys(<<"visa-ref">>)),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentParams = make_scenario_payment_params(
+        [good, good, temp, temp], ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     RefundParams1 = make_refund_params(1000, <<"RUB">>),
-    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
+    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(
+        InvoiceID, PaymentID, RefundParams1, Client
+    ),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID1, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID1, Client),
     PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client, 2),
@@ -5081,30 +5834,38 @@ retry_temporary_unavailability_refund(C) ->
 payment_refund_id_types(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
         ?pinst(2),
         PartyClient
     ),
-    InvoiceID = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
     PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
     TrxInfo = ?trx_info(<<"test">>, #{}),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     % top up merchant account
-    InvoiceID2 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
-    _PaymentID2 = execute_payment(InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID2 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    _PaymentID2 = execute_payment(
+        InvoiceID2, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
     % create refund
     RefundParams = #payproc_InvoicePaymentRefundParams{
         reason = <<"42">>,
         cash = ?cash(5000, <<"RUB">>)
     },
     % 0
-    ManualRefundParams = RefundParams#payproc_InvoicePaymentRefundParams{transaction_info = TrxInfo},
-    ?refund_id(RefundID0) = hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, ManualRefundParams, Client),
-    PaymentID = await_partial_manual_refund_succeeded(InvoiceID, PaymentID, RefundID0, TrxInfo, Client),
+    ManualRefundParams = RefundParams#payproc_InvoicePaymentRefundParams{
+        transaction_info = TrxInfo
+    },
+    ?refund_id(RefundID0) = hg_client_invoicing:refund_payment_manual(
+        InvoiceID, PaymentID, ManualRefundParams, Client
+    ),
+    PaymentID = await_partial_manual_refund_succeeded(
+        InvoiceID, PaymentID, RefundID0, TrxInfo, Client
+    ),
     % 1
     RefundID1 = execute_payment_refund(InvoiceID, PaymentID, RefundParams, Client),
     % 2
@@ -5115,7 +5876,9 @@ payment_refund_id_types(C) ->
         CustomIdManualParams,
         Client
     ),
-    PaymentID = await_partial_manual_refund_succeeded(InvoiceID, PaymentID, RefundID2, TrxInfo, Client),
+    PaymentID = await_partial_manual_refund_succeeded(
+        InvoiceID, PaymentID, RefundID2, TrxInfo, Client
+    ),
     % 3
     CustomIdParams = RefundParams#payproc_InvoicePaymentRefundParams{id = <<"m3">>},
     {exception, #base_InvalidRequest{}} =
@@ -5130,8 +5893,8 @@ payment_refund_id_types(C) ->
 -spec registered_payment_manual_refund_success(config()) -> test_return().
 registered_payment_manual_refund_success(C) ->
     Client = cfg(client, C),
-    ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
+        cfg(party_config_ref, C),
         ?cat(2),
         <<"RUB">>,
         ?trms(2),
@@ -5140,11 +5903,13 @@ registered_payment_manual_refund_success(C) ->
     ),
 
     %% create balance
-    InvoiceID1 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 50000, C),
-    _PaymentID1 = execute_payment(InvoiceID1, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client),
+    InvoiceID1 = start_invoice(ShopConfigRef, <<"rubberduck">>, make_due_date(10), 50000, C),
+    _PaymentID1 = execute_payment(
+        InvoiceID1, make_payment_params(?pmt_sys(<<"visa-ref">>)), Client
+    ),
 
     %% register_payment
-    {InvoiceID, PaymentID} = register_invoice_payment(ShopID, Client, C),
+    {InvoiceID, PaymentID} = register_invoice_payment(ShopConfigRef, Client, C),
 
     RefundParams = make_manual_refund_params(),
     RefundID = execute_payment_manual_refund(InvoiceID, PaymentID, RefundParams, Client),
@@ -5173,7 +5938,9 @@ payment_hold_double_cancellation(C) ->
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 10000, C),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, capture}),
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    ?assertEqual(ok, hg_client_invoicing:cancel_payment(InvoiceID, PaymentID, <<"whynot">>, Client)),
+    ?assertEqual(
+        ok, hg_client_invoicing:cancel_payment(InvoiceID, PaymentID, <<"whynot">>, Client)
+    ),
     Result = hg_client_invoicing:cancel_payment(InvoiceID, PaymentID, <<"whynot">>, Client),
     ?assertMatch({exception, #payproc_InvalidPaymentStatus{}}, Result).
 
@@ -5181,7 +5948,9 @@ payment_hold_double_cancellation(C) ->
 payment_hold_cancellation_captured(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client),
+    PaymentID = process_payment(
+        InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client
+    ),
     ?assertEqual(ok, hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client)),
     Result = hg_client_invoicing:cancel_payment(InvoiceID, PaymentID, <<"whynot">>, Client),
     ?assertMatch({exception, #payproc_InvalidPaymentStatus{}}, Result).
@@ -5203,7 +5972,9 @@ payment_hold_auto_cancellation(C) ->
 payment_hold_capturing(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client),
+    PaymentID = process_payment(
+        InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client
+    ),
     ok = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, <<"ok">>, Client).
 
@@ -5211,7 +5982,9 @@ payment_hold_capturing(C) ->
 payment_hold_double_capturing(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client),
+    PaymentID = process_payment(
+        InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client
+    ),
     ?assertEqual(ok, hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client)),
     Result = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client),
     ?assertMatch({exception, #payproc_InvalidPaymentStatus{}}, Result).
@@ -5220,8 +5993,12 @@ payment_hold_double_capturing(C) ->
 payment_hold_capturing_cancelled(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    PaymentID = process_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client),
-    ?assertEqual(ok, hg_client_invoicing:cancel_payment(InvoiceID, PaymentID, <<"whynot">>, Client)),
+    PaymentID = process_payment(
+        InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>), {hold, cancel}), Client
+    ),
+    ?assertEqual(
+        ok, hg_client_invoicing:cancel_payment(InvoiceID, PaymentID, <<"whynot">>, Client)
+    ),
     Result = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, <<"ok">>, Client),
     ?assertMatch({exception, #payproc_InvalidPaymentStatus{}}, Result).
 
@@ -5316,7 +6093,7 @@ invalid_permit_partial_capture_in_service(C) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+        cfg(party_config_ref, C),
         ?cat(1),
         <<"RUB">>,
         ?trms(5),
@@ -5328,7 +6105,9 @@ invalid_permit_partial_capture_in_service(C) ->
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     Cash = ?cash(10000, <<"RUB">>),
     Reason = <<"ok">>,
-    ?operation_not_permitted() = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, Cash, Client).
+    ?operation_not_permitted() = hg_client_invoicing:capture_payment(
+        InvoiceID, PaymentID, Reason, Cash, Client
+    ).
 
 -spec invalid_permit_partial_capture_in_provider(config()) -> _ | no_return().
 invalid_permit_partial_capture_in_provider(C) ->
@@ -5338,7 +6117,9 @@ invalid_permit_partial_capture_in_provider(C) ->
     PaymentID = process_payment(InvoiceID, PaymentParams, Client),
     Cash = ?cash(10000, <<"RUB">>),
     Reason = <<"ok">>,
-    ?operation_not_permitted() = hg_client_invoicing:capture_payment(InvoiceID, PaymentID, Reason, Cash, Client).
+    ?operation_not_permitted() = hg_client_invoicing:capture_payment(
+        InvoiceID, PaymentID, Reason, Cash, Client
+    ).
 
 -spec payment_hold_auto_capturing(config()) -> _ | no_return().
 payment_hold_auto_capturing(C) ->
@@ -5348,7 +6129,9 @@ payment_hold_auto_capturing(C) ->
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     _ = assert_success_post_request(get_post_request(UserInteraction)),
-    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
+    ok = await_payment_process_interaction_completion(
+        InvoiceID, PaymentID, UserInteraction, Client
+    ),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
     _ = assert_invalid_post_request(get_post_request(UserInteraction)),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, ?timeout_reason(), Client).
@@ -5358,17 +6141,27 @@ rounding_cashflow_volume(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 100000, C),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {CF, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(cfg(party_id, C), cfg(shop_id, C), Route),
-    ?cash(0, <<"RUB">>) = get_cashflow_volume({provider, settlement}, {merchant, settlement}, CF, CFContext),
-    ?cash(1, <<"RUB">>) = get_cashflow_volume({system, settlement}, {provider, settlement}, CF, CFContext),
-    ?cash(1, <<"RUB">>) = get_cashflow_volume({system, settlement}, {system, subagent}, CF, CFContext),
-    ?cash(1, <<"RUB">>) = get_cashflow_volume({system, settlement}, {external, outcome}, CF, CFContext),
+    CFContext = construct_ta_context(cfg(party_config_ref, C), cfg(shop_config_ref, C), Route),
+    ?cash(0, <<"RUB">>) = get_cashflow_volume(
+        {provider, settlement}, {merchant, settlement}, CF, CFContext
+    ),
+    ?cash(1, <<"RUB">>) = get_cashflow_volume(
+        {system, settlement}, {provider, settlement}, CF, CFContext
+    ),
+    ?cash(1, <<"RUB">>) = get_cashflow_volume(
+        {system, settlement}, {system, subagent}, CF, CFContext
+    ),
+    ?cash(1, <<"RUB">>) = get_cashflow_volume(
+        {system, settlement}, {external, outcome}, CF, CFContext
+    ),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client).
 
 get_cashflow_volume(Source, Destination, CF, CFContext) ->
@@ -5379,7 +6172,9 @@ convert_transaction_account(Entity, Context) ->
 
 %%
 
--define(repair_set_timer(T), #repair_ComplexAction{timer = {set_timer, #repair_SetTimerAction{timer = T}}}).
+-define(repair_set_timer(T), #repair_ComplexAction{
+    timer = {set_timer, #repair_SetTimerAction{timer = T}}
+}).
 -define(repair_mark_removal(), #repair_ComplexAction{remove = #repair_RemoveAction{}}).
 
 -spec adhoc_repair_working_failed(config()) -> _ | no_return().
@@ -5397,7 +6192,9 @@ adhoc_repair_working_failed(C) ->
 adhoc_repair_failed_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
@@ -5407,7 +6204,9 @@ adhoc_repair_failed_succeeded(C) ->
     ] = next_changes(InvoiceID, 2, Client),
     % assume no more events here since machine is FUBAR already
     timeout = next_change(InvoiceID, 2000, Client),
-    Change = ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+    Change = ?payment_ev(
+        PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))
+    ),
     ok = repair_invoice(InvoiceID, [Change], ?repair_set_timer({timeout, 0}), undefined, Client),
     Change = next_change(InvoiceID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?processed())) =
@@ -5434,7 +6233,9 @@ adhoc_repair_force_removal(C) ->
 adhoc_repair_invalid_changes_failed(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
@@ -5460,7 +6261,9 @@ adhoc_repair_invalid_changes_failed(C) ->
         {{woody_error, {external, result_unexpected, _}}, _},
         repair_invoice(InvoiceID, InvalidChanges2, Client)
     ),
-    Change = ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+    Change = ?payment_ev(
+        PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))
+    ),
     ?assertEqual(
         ok,
         repair_invoice(InvoiceID, [Change], Client)
@@ -5504,7 +6307,9 @@ adhoc_repair_force_invalid_transition(C) ->
 payment_with_offsite_preauth_success(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(preauth_3ds_offsite, ?pmt_sys(<<"jcb-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        preauth_3ds_offsite, ?pmt_sys(<<"jcb-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
@@ -5532,7 +6337,9 @@ payment_with_offsite_preauth_success(C) ->
 payment_with_offsite_preauth_failed(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(3), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(preauth_3ds_offsite, ?pmt_sys(<<"jcb-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        preauth_3ds_offsite, ?pmt_sys(<<"jcb-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     _UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
@@ -5568,17 +6375,23 @@ repair_fail_routing_succeeded(C) ->
     RootUrl = cfg(root_url, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
 
     %% Invoice
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(10000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
     %% Payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -5593,7 +6406,9 @@ repair_fail_routing_succeeded(C) ->
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{
+                    id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                },
                 value = 10000
             }
         ]
@@ -5603,13 +6418,17 @@ repair_fail_routing_succeeded(C) ->
     ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
 
     %% Check final status
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(
+        InvoiceID, Client
+    ),
 
     %% Check limits rolled back
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{
+                    id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                },
                 value = 0
             }
         ]
@@ -5626,17 +6445,23 @@ repair_fail_cash_flow_building_succeeded(C) ->
     RootUrl = cfg(root_url, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
 
     %% Invoice
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(10000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
     %% Payment
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -5651,7 +6476,9 @@ repair_fail_cash_flow_building_succeeded(C) ->
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{
+                    id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                },
                 value = 10000
             }
         ]
@@ -5661,13 +6488,17 @@ repair_fail_cash_flow_building_succeeded(C) ->
     ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
 
     %% Check final status
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(InvoiceID, Client),
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(
+        InvoiceID, Client
+    ),
 
     %% Check limits rolled back
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{
+                    id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY
+                },
                 value = 0
             }
         ]
@@ -5677,7 +6508,9 @@ repair_fail_cash_flow_building_succeeded(C) ->
 repair_fail_session_on_processed_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
@@ -5696,7 +6529,10 @@ repair_fail_session_on_processed_succeeded(C) ->
     ok = repair_invoice_with_scenario(InvoiceID, {fail_session, Failure}, Client),
 
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
+        ),
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client).
@@ -5719,7 +6555,10 @@ repair_fail_suspended_session_succeeded(C) ->
     ok = repair_invoice_with_scenario(InvoiceID, {fail_session, Failure}, Client),
 
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
+        ),
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client).
@@ -5728,7 +6567,9 @@ repair_fail_suspended_session_succeeded(C) ->
 repair_complex_second_scenario_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     TrxID = hg_utils:construct_complex_id([PaymentID, <<"brovider">>]),
@@ -5745,7 +6586,10 @@ repair_complex_second_scenario_succeeded(C) ->
     ok = repair_invoice_with_scenario(InvoiceID, Scenarios, Client),
 
     [
-        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?processed(), ?session_finished(?session_failed({failure, Failure})))
+        ),
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure})),
         ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure})))
     ] = next_changes(InvoiceID, 3, Client).
@@ -5757,11 +6601,15 @@ repair_fulfill_session_on_refund_succeeded(C) ->
     PaymentParams = make_scenario_payment_params([good, good, error], ?pmt_sys(<<"visa-ref">>)),
     PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     RefundParams1 = make_refund_params(1000, <<"RUB">>),
-    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
+    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(
+        InvoiceID, PaymentID, RefundParams1, Client
+    ),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID1, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID1, Client),
     timeout = next_change(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, {fulfill_session, ?trx_info(PaymentID, #{})}, Client),
+    ok = repair_invoice_with_scenario(
+        InvoiceID, {fulfill_session, ?trx_info(PaymentID, #{})}, Client
+    ),
     PaymentID = await_refund_payment_process_finish(InvoiceID, PaymentID, Client),
     ?payment_state(
         ?payment_w_status(?captured()),
@@ -5775,13 +6623,20 @@ repair_fail_session_on_refund_succeeded(C) ->
     PaymentParams = make_scenario_payment_params([good, good, error], ?pmt_sys(<<"visa-ref">>)),
     PaymentID = execute_payment(InvoiceID, PaymentParams, Client),
     RefundParams1 = make_refund_params(1000, <<"RUB">>),
-    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, RefundParams1, Client),
+    ?refund_id(RefundID1) = hg_client_invoicing:refund_payment(
+        InvoiceID, PaymentID, RefundParams1, Client
+    ),
     PaymentID = await_refund_created(InvoiceID, PaymentID, RefundID1, Client),
     PaymentID = await_refund_session_started(InvoiceID, PaymentID, RefundID1, Client),
     timeout = next_change(InvoiceID, 2000, Client),
-    ok = repair_invoice_with_scenario(InvoiceID, {fail_session, construct_authorization_failure()}, Client),
+    ok = repair_invoice_with_scenario(
+        InvoiceID, {fail_session, construct_authorization_failure()}, Client
+    ),
     [
-        ?payment_ev(PaymentID, ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))),
+        ?payment_ev(
+            PaymentID,
+            ?refund_ev(ID, ?session_ev(?refunded(), ?session_finished(?session_failed(Failure))))
+        ),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_rollback_started(Failure))),
         ?payment_ev(PaymentID, ?refund_ev(ID, ?refund_status_changed(?refund_failed(Failure))))
     ] = next_changes(InvoiceID, 3, Client),
@@ -5794,7 +6649,9 @@ repair_fail_session_on_refund_succeeded(C) ->
 repair_fulfill_session_on_processed_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_no_trx, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure_no_trx, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
@@ -5853,7 +6710,9 @@ repair_fulfill_session_on_captured_succeeded(C) ->
 repair_fulfill_session_with_trx_succeeded(C) ->
     Client = cfg(client, C),
     InvoiceID = start_invoice(<<"rubbercrack">>, make_due_date(10), 42000, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(unexpected_failure_no_trx, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        unexpected_failure_no_trx, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     PaymentID = start_payment(InvoiceID, PaymentParams, Client),
     ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())) =
@@ -5890,14 +6749,12 @@ consistent_account_balances(C) ->
         end
     end,
 
-    {_PartyID, Party} = hg_party:get_party(cfg(party_id, C)),
-    #domain_PartyConfig{shops = Shops} = Party,
+    Shops = hg_party:get_shops_by_party_config_ref(cfg(party_config_ref, C), hg_domain:head()),
     _ = lists:foreach(
-        fun(#domain_ShopConfigRef{id = ShopID}) ->
-            {ShopID, Shop} = hg_party:get_shop(ShopID, Party),
-            {ID1, ID2} = hg_invoice_utils:get_shop_account(Shop),
-            ok = Fun(ID1, Shop),
-            ok = Fun(ID2, Shop)
+        fun({shop_config, #domain_ShopConfigObject{data = Data}}) ->
+            {ID1, ID2} = hg_invoice_utils:get_shop_account(Data),
+            ok = Fun(ID1, Data),
+            ok = Fun(ID2, Data)
         end,
         Shops
     ),
@@ -5938,8 +6795,12 @@ cascade_fixture_pre_shop_create(Revision, C) ->
         payment_cascade_fail_wo_available_attempt_limit_fixture_pre(Revision, C) ++
         payment_cascade_fail_provider_error_fixture_pre(Revision, C).
 
+shop_id_from_config_ref(ConfigRef) ->
+    #domain_ShopConfigRef{id = ShopID} = ConfigRef,
+    ShopID.
+
 cascade_fixture(Revision, C) ->
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
 
     [
         hg_ct_fixture:construct_payment_routing_ruleset(
@@ -5947,46 +6808,109 @@ cascade_fixture(Revision, C) ->
             <<"Multiple routes with failing providers">>,
             {delegates, [
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_CASCADE_SUCCESS_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg(
+                                    {shop_config_ref, ?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID},
+                                    C
+                                )
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_BIG_CASCADE_SUCCESS_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_BIG_CASCADE_SUCCESS_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID))
                 ),
                 ?delegate(
                     ?partycond(
-                        PartyID,
-                        {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID}, C)}
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg(
+                                    {shop_config_ref, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID},
+                                    C
+                                )
+                            )}
                     ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAILURES_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_CASCADE_FAILURES_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAILURES_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_DEADLINE_FAILURES_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_CASCADE_DEADLINE_FAILURES_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_DEADLINE_FAILURES_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID))
                 ),
                 ?delegate(
-                    ?partycond(PartyID, {shop_is, cfg({shop_id, ?PAYMENT_CASCADE_FAIL_UI_ID}, C)}),
+                    ?partycond(
+                        PartyConfigRef,
+                        {shop_is,
+                            shop_id_from_config_ref(
+                                cfg({shop_config_ref, ?PAYMENT_CASCADE_FAIL_UI_ID}, C)
+                            )}
+                    ),
                     ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID))
                 )
             ]}
@@ -6004,20 +6928,22 @@ cascade_fixture(Revision, C) ->
         payment_cascade_deadline_failures_fixture(Revision, C).
 
 init_route_cascading_group(C1) ->
-    PartyID = cfg(party_id, C1),
+    PartyConfigRef = cfg(party_config_ref, C1),
     PartyClient = cfg(party_client, C1),
     Revision = hg_domain:head(),
     ok = hg_context:save(hg_context:create()),
     _ = hg_domain:upsert(cascade_fixture_pre_shop_create(Revision, C1)),
     C2 = [
         {
-            {shop_id, ?PAYMENT_CASCADE_SUCCESS_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
+            {shop_config_ref, ?PAYMENT_CASCADE_SUCCESS_ID},
+            hg_ct_helper:create_shop(
+                PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+            )
         },
         {
-            {shop_id, ?PAYMENT_BIG_CASCADE_SUCCESS_ID},
+            {shop_config_ref, ?PAYMENT_BIG_CASCADE_SUCCESS_ID},
             hg_ct_helper:create_shop(
-                PartyID,
+                PartyConfigRef,
                 ?cat(1),
                 <<"RUB">>,
                 ?trms(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID)),
@@ -6026,9 +6952,9 @@ init_route_cascading_group(C1) ->
             )
         },
         {
-            {shop_id, ?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID},
+            {shop_config_ref, ?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID},
             hg_ct_helper:create_shop(
-                PartyID,
+                PartyConfigRef,
                 ?cat(1),
                 <<"RUB">>,
                 ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID)),
@@ -6037,13 +6963,15 @@ init_route_cascading_group(C1) ->
             )
         },
         {
-            {shop_id, ?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
+            {shop_config_ref, ?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID},
+            hg_ct_helper:create_shop(
+                PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+            )
         },
         {
-            {shop_id, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID},
+            {shop_config_ref, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID},
             hg_ct_helper:create_shop(
-                PartyID,
+                PartyConfigRef,
                 ?cat(1),
                 <<"RUB">>,
                 ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID)),
@@ -6052,17 +6980,21 @@ init_route_cascading_group(C1) ->
             )
         },
         {
-            {shop_id, ?PAYMENT_CASCADE_FAILURES_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
-        },
-        {
-            {shop_id, ?PAYMENT_CASCADE_DEADLINE_FAILURES_ID},
-            hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient)
-        },
-        {
-            {shop_id, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID},
+            {shop_config_ref, ?PAYMENT_CASCADE_FAILURES_ID},
             hg_ct_helper:create_shop(
-                PartyID,
+                PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+            )
+        },
+        {
+            {shop_config_ref, ?PAYMENT_CASCADE_DEADLINE_FAILURES_ID},
+            hg_ct_helper:create_shop(
+                PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+            )
+        },
+        {
+            {shop_config_ref, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID},
+            hg_ct_helper:create_shop(
+                PartyConfigRef,
                 ?cat(1),
                 <<"RUB">>,
                 ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID)),
@@ -6071,9 +7003,9 @@ init_route_cascading_group(C1) ->
             )
         },
         {
-            {shop_id, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID},
+            {shop_config_ref, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID},
             hg_ct_helper:create_shop(
-                PartyID,
+                PartyConfigRef,
                 ?cat(1),
                 <<"RUB">>,
                 ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
@@ -6082,9 +7014,9 @@ init_route_cascading_group(C1) ->
             )
         },
         {
-            {shop_id, ?PAYMENT_CASCADE_FAIL_UI_ID},
+            {shop_config_ref, ?PAYMENT_CASCADE_FAIL_UI_ID},
             hg_ct_helper:create_shop(
-                PartyID,
+                PartyConfigRef,
                 ?cat(1),
                 <<"RUB">>,
                 ?trms(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
@@ -6099,35 +7031,35 @@ init_route_cascading_group(C1) ->
     [{base_limits_domain_revision, Revision} | C2].
 
 init_per_cascade_case(payment_cascade_success, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_SUCCESS_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_fail_wo_route_candidates, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_success_w_refund, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_big_cascade_success, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_BIG_CASCADE_SUCCESS_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_BIG_CASCADE_SUCCESS_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_limit_overflow, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_fail_wo_available_attempt_limit, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_failures, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_FAILURES_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_FAILURES_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_deadline_failures, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_DEADLINE_FAILURES_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_DEADLINE_FAILURES_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_fail_provider_error, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_FAIL_PROVIDER_ERROR_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(payment_cascade_fail_ui, C) ->
-    ShopID = cfg({shop_id, ?PAYMENT_CASCADE_FAIL_UI_ID}, C),
-    [{shop_id, ShopID} | C];
+    ShopConfigRef = cfg({shop_config_ref, ?PAYMENT_CASCADE_FAIL_UI_ID}, C),
+    [{shop_config_ref, ShopConfigRef} | C];
 init_per_cascade_case(_Name, C) ->
     C.
 
@@ -6190,8 +7122,12 @@ payment_cascade_success_fixture(Revision, _C) ->
             ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID)),
             <<"Main with cascading">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID + 2))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID + 1)))
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID + 2))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID + 1))
+                )
             ]}
         )
     ].
@@ -6201,14 +7137,18 @@ payment_cascade_success(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceParams = make_invoice_params(
-        cfg(party_id, C),
-        cfg(shop_id, C),
+        cfg(party_config_ref, C),
+        cfg(shop_config_ref, C),
         <<"rubberduck">>,
         make_due_date(10),
         make_cash(Amount)
     ),
-    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(
+        InvoiceParams, Client
+    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     Context = #base_Content{
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
@@ -6220,7 +7160,9 @@ payment_cascade_success(C) ->
         payer_session_info = PayerSessionInfo,
         context = Context
     },
-    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     Limit = hg_limiter_helper:maybe_uninitialized_limit(
         hg_limiter_helper:get_payment_limit_amount(
@@ -6236,7 +7178,11 @@ payment_cascade_success(C) ->
     ] = next_changes(InvoiceID, 4, Client),
     {Route1, _CashFlow1, TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun(
+        {preauthorization_failed, {card_blocked, _}}
+    ) ->
+        ok
+    end),
     %% Assert payment status IS NOT failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(PaymentInterim)]) =
         hg_client_invoicing:get(InvoiceID, Client),
@@ -6247,7 +7193,10 @@ payment_cascade_success(C) ->
         ?payment_ev(PaymentID, ?cash_flow_changed(_CashFlow2))
     ] =
         next_changes(InvoiceID, 2, Client),
-    ?assertMatch(#domain_PaymentRoute{provider = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID + 1))}, Route2),
+    ?assertMatch(
+        #domain_PaymentRoute{provider = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_ID + 1))},
+        Route2
+    ),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID2)))),
@@ -6277,7 +7226,11 @@ payment_cascade_success(C) ->
     ),
     %% At the end of this scenario limit must be accounted only once.
     _ = hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
+        ?LIMIT_ID4,
+        configured_limit_version(?LIMIT_ID4, C),
+        InitialAccountedAmount + Amount,
+        PaymentFinal,
+        Invoice
     ),
     #payproc_InvoicePaymentExplanation{
         explained_routes = [
@@ -6351,8 +7304,13 @@ payment_cascade_success_w_refund_fixture(Revision, _C) ->
             ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID)),
             <<"Main with cascading">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID + 1))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID)))
+                ?candidate(
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID + 1))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_SUCCESS_W_REFUND_ID))
+                )
             ]}
         )
     ].
@@ -6361,10 +7319,16 @@ payment_cascade_success_w_refund_fixture(Revision, _C) ->
 payment_cascade_success_w_refund(C) ->
     Client = cfg(client, C),
     PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    InvoiceID = start_invoice(cfg(shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
-    {PaymentID, [_FailedRoute, _UsedRoute]} = execute_payment_w_cascade(InvoiceID, PaymentParams, Client, 1),
+    InvoiceID = start_invoice(
+        cfg(shop_config_ref, C), <<"rubberduck">>, make_due_date(10), 42000, C
+    ),
+    {PaymentID, [_FailedRoute, _UsedRoute]} = execute_payment_w_cascade(
+        InvoiceID, PaymentParams, Client, 1
+    ),
     % top up merchant account
-    InvoiceID2 = start_invoice(cfg(shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    InvoiceID2 = start_invoice(
+        cfg(shop_config_ref, C), <<"rubberduck">>, make_due_date(10), 42000, C
+    ),
     {_PaymentID2, _Routes} = execute_payment_w_cascade(InvoiceID2, PaymentParams, Client, 1),
     RefundID = execute_payment_refund(InvoiceID, PaymentID, make_refund_params(), Client),
     #domain_InvoicePaymentRefund{status = ?refund_succeeded()} =
@@ -6493,13 +7457,27 @@ payment_big_cascade_success_fixture(Revision, _C) ->
             <<"Big Main with cascading">>,
             %% 7 route candidates, 6 to fail
             {candidates, [
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 2))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 3))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 4))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 5))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 6))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 7))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 1)))
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 2))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 3))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 4))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 5))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 6))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 7))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 1))
+                )
             ]}
         )
     ]).
@@ -6574,8 +7552,14 @@ payment_cascade_limit_overflow_fixture(Revision, _C) ->
             ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID)),
             <<"Main with cascading">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 2))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 1)))
+                ?candidate(
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 2))
+                ),
+                ?candidate(
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_LIMIT_OVERFLOW_ID + 1))
+                )
             ]}
         )
     ].
@@ -6585,14 +7569,18 @@ payment_cascade_limit_overflow(C) ->
     Client = cfg(client, C),
     Amount = 42000 + ?LIMIT_UPPER_BOUNDARY,
     InvoiceParams = make_invoice_params(
-        cfg(party_id, C),
-        cfg(shop_id, C),
+        cfg(party_config_ref, C),
+        cfg(shop_config_ref, C),
         <<"rubberduck">>,
         make_due_date(10),
         make_cash(Amount)
     ),
-    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(
+        InvoiceParams, Client
+    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     Context = #base_Content{
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
@@ -6604,7 +7592,9 @@ payment_cascade_limit_overflow(C) ->
         payer_session_info = PayerSessionInfo,
         context = Context
     },
-    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     Limit = hg_limiter_helper:maybe_uninitialized_limit(
         hg_limiter_helper:get_payment_limit_amount(
@@ -6620,7 +7610,9 @@ payment_cascade_limit_overflow(C) ->
     ] = next_changes(InvoiceID, 4, Client),
     {Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) ->
+        ok
+    end),
     %% And again but no route found
     [
         ?payment_ev(PaymentID, ?route_changed(Route2, Candidates2)),
@@ -6631,7 +7623,9 @@ payment_cascade_limit_overflow(C) ->
     ?assertNotEqual(Route1, Route2),
     ?assertNot(lists:member(Route1, Candidates2)),
     %% No route found and so we pass original failure from previous attempt
-    ok = payproc_errors:match('PaymentFailure', Failure2, fun({authorization_failed, {unknown, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure2, fun({authorization_failed, {unknown, _}}) ->
+        ok
+    end),
     %% Assert payment status IS failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(FinalPayment)]) =
         hg_client_invoicing:get(InvoiceID, Client),
@@ -6639,7 +7633,11 @@ payment_cascade_limit_overflow(C) ->
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client),
     %% At the end of this scenario limit must not be changed.
     hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount, FinalPayment, Invoice
+        ?LIMIT_ID4,
+        configured_limit_version(?LIMIT_ID4, C),
+        InitialAccountedAmount,
+        FinalPayment,
+        Invoice
     ).
 
 -spec payment_big_cascade_success(config()) -> test_return().
@@ -6647,14 +7645,18 @@ payment_big_cascade_success(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceParams = make_invoice_params(
-        cfg(party_id, C),
-        cfg(shop_id, C),
+        cfg(party_config_ref, C),
+        cfg(shop_config_ref, C),
         <<"rubberduck">>,
         make_due_date(10),
         make_cash(Amount)
     ),
-    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(InvoiceParams, Client),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    ?invoice_state(Invoice = ?invoice(InvoiceID)) = hg_client_invoicing:create(
+        InvoiceParams, Client
+    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     Context = #base_Content{
         type = <<"application/x-erlang-binary">>,
         data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
@@ -6666,7 +7668,9 @@ payment_big_cascade_success(C) ->
         payer_session_info = PayerSessionInfo,
         context = Context
     },
-    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(
+        InvoiceID, PaymentParams, Client
+    ),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     Limit = hg_limiter_helper:maybe_uninitialized_limit(
         hg_limiter_helper:get_payment_limit_amount(
@@ -6703,7 +7707,10 @@ payment_big_cascade_success(C) ->
     ] =
         next_changes(InvoiceID, 2, Client),
     ?assertMatch(
-        #domain_PaymentRoute{provider = ?prv(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 1))}, RouteFinal
+        #domain_PaymentRoute{
+            provider = ?prv(?CASCADE_ID_RANGE(?PAYMENT_BIG_CASCADE_SUCCESS_ID + 1))
+        },
+        RouteFinal
     ),
     PaymentID = await_payment_session_started(InvoiceID, PaymentID, Client, ?processed()),
     PaymentID = await_payment_process_finish(InvoiceID, PaymentID, Client),
@@ -6729,7 +7736,11 @@ payment_big_cascade_success(C) ->
     ),
     %% At the end of this scenario limit must be accounted only once.
     hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
+        ?LIMIT_ID4,
+        configured_limit_version(?LIMIT_ID4, C),
+        InitialAccountedAmount + Amount,
+        PaymentFinal,
+        Invoice
     ).
 
 payment_cascade_fail_provider_error_fixture_pre(Revision, _C) ->
@@ -6828,7 +7839,9 @@ payment_cascade_fail_provider_error(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -6917,7 +7930,9 @@ payment_cascade_fail_ui_fixture(Revision, _C) ->
             ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID)),
             <<"1 fail, 2 with UI, 3 never reached">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + I)))
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_UI_ID + I))
+                )
              || I <- lists:reverse(lists:seq(1, 3))
             ]}
         )
@@ -6928,7 +7943,9 @@ payment_cascade_fail_ui(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(preauth_3ds, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        preauth_3ds, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -6939,7 +7956,9 @@ payment_cascade_fail_ui(C) ->
     ] = next_changes(InvoiceID, 4, Client),
     {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) ->
+        ok
+    end),
     %% And again with UI
     [
         ?payment_ev(PaymentID, ?route_changed(_Route2)),
@@ -6948,7 +7967,9 @@ payment_cascade_fail_ui(C) ->
     UserInteraction = await_payment_process_interaction(InvoiceID, PaymentID, Client),
     {URL, Form} = get_post_request(UserInteraction),
     _ = assert_success_post_request({URL, Form}),
-    ok = await_payment_process_interaction_completion(InvoiceID, PaymentID, UserInteraction, Client),
+    ok = await_payment_process_interaction_completion(
+        InvoiceID, PaymentID, UserInteraction, Client
+    ),
     [
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_TrxID2)))),
         ?payment_ev(
@@ -6960,7 +7981,11 @@ payment_cascade_fail_ui(C) ->
         next_changes(InvoiceID, 3, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2}))) =
         next_change(InvoiceID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure2, fun({preauthorization_failed, {unknown, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure2, fun(
+        {preauthorization_failed, {unknown, _}}
+    ) ->
+        ok
+    end),
     %% Assert payment status IS failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
         hg_client_invoicing:get(InvoiceID, Client),
@@ -7037,8 +8062,14 @@ payment_cascade_fail_wo_route_candidates_fixture(Revision, _C) ->
             ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID)),
             <<"2 routes with failing providers">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID + 1))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID + 2)))
+                ?candidate(
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID + 1))
+                ),
+                ?candidate(
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_ROUTE_CANDIDATES_ID + 2))
+                )
             ]}
         )
     ]).
@@ -7101,7 +8132,9 @@ payment_cascade_fail_wo_available_attempt_limit_fixture(Revision, _C) ->
             data = #domain_Terminal{
                 name = <<"Brominal 1">>,
                 description = <<"Brominal 1">>,
-                provider_ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 1))
+                provider_ref = ?prv(
+                    ?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 1)
+                )
             }
         }},
         {terminal, #domain_TerminalObject{
@@ -7109,7 +8142,9 @@ payment_cascade_fail_wo_available_attempt_limit_fixture(Revision, _C) ->
             data = #domain_Terminal{
                 name = <<"Not-Brominal">>,
                 description = <<"Not-Brominal">>,
-                provider_ref = ?prv(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 2))
+                provider_ref = ?prv(
+                    ?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 2)
+                )
             }
         }},
         hg_ct_fixture:construct_payment_routing_ruleset(
@@ -7117,10 +8152,12 @@ payment_cascade_fail_wo_available_attempt_limit_fixture(Revision, _C) ->
             <<"Main with cascading">>,
             {candidates, [
                 ?candidate(
-                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 2))
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 2))
                 ),
                 ?candidate(
-                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 1))
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAIL_WO_AVAILABLE_ATTEMPT_LIMIT_ID + 1))
                 )
             ]}
         )
@@ -7131,7 +8168,9 @@ payment_cascade_fail_wo_available_attempt_limit(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -7144,7 +8183,11 @@ payment_cascade_fail_wo_available_attempt_limit(C) ->
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
         next_change(InvoiceID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure, fun(
+        {preauthorization_failed, {card_blocked, _}}
+    ) ->
+        ok
+    end),
     %% Assert payment status IS failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
         hg_client_invoicing:get(InvoiceID, Client),
@@ -7210,8 +8253,12 @@ payment_cascade_failures_fixture(Revision, _C) ->
             ?ruleset(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAILURES_ID)),
             <<"Main with cascading">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAILURES_ID + 1))),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAILURES_ID + 2)))
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAILURES_ID + 1))
+                ),
+                ?candidate(
+                    {constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_FAILURES_ID + 2))
+                )
             ]}
         )
     ].
@@ -7221,7 +8268,9 @@ payment_cascade_failures(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -7232,13 +8281,21 @@ payment_cascade_failures(C) ->
     ] = next_changes(InvoiceID, 4, Client),
     {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun(
+        {preauthorization_failed, {card_blocked, _}}
+    ) ->
+        ok
+    end),
     %% And again
     {_Route2, _CashFlow2, _TrxID2, Failure2} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2}))) =
         next_change(InvoiceID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure2, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure2, fun(
+        {preauthorization_failed, {card_blocked, _}}
+    ) ->
+        ok
+    end),
     %% Assert payment status IS failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(Payment)]) =
         hg_client_invoicing:get(InvoiceID, Client),
@@ -7310,7 +8367,10 @@ payment_cascade_deadline_failures_fixture(Revision, _C) ->
                     ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_DEADLINE_FAILURES_ID + 1)),
                     2000
                 ),
-                ?candidate({constant, true}, ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_DEADLINE_FAILURES_ID + 2)))
+                ?candidate(
+                    {constant, true},
+                    ?trm(?CASCADE_ID_RANGE(?PAYMENT_CASCADE_DEADLINE_FAILURES_ID + 2))
+                )
             ]}
         )
     ].
@@ -7320,9 +8380,13 @@ payment_cascade_deadline_failures(C) ->
     Client = cfg(client, C),
     Amount = 42000,
     InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), Amount, C),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        no_preauth, ?pmt_sys(<<"visa-ref">>)
+    ),
     PaymentParams = (make_payment_params(PaymentTool, Session, instant))#payproc_InvoicePaymentParams{
-        processing_deadline = hg_datetime:add_time_span(#base_TimeSpan{seconds = 2}, hg_datetime:format_now())
+        processing_deadline = hg_datetime:add_time_span(
+            #base_TimeSpan{seconds = 2}, hg_datetime:format_now()
+        )
     },
     hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     [
@@ -7333,7 +8397,11 @@ payment_cascade_deadline_failures(C) ->
     ] = next_changes(InvoiceID, 4, Client),
     {_Route1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
-    ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
+    ok = payproc_errors:match('PaymentFailure', Failure1, fun(
+        {preauthorization_failed, {card_blocked, _}}
+    ) ->
+        ok
+    end),
     %% And again
     ?payment_ev(PaymentID, ?route_changed(_Route2)) =
         next_change(InvoiceID, Client),
@@ -7359,12 +8427,16 @@ payment_cascade_deadline_failures(C) ->
 
 -spec payment_tool_contact_info_passed_to_provider(config()) -> test_return().
 payment_tool_contact_info_passed_to_provider(C) ->
-    PartyID = cfg(party_id_big_merch, C),
+    PartyConfigRef = cfg(party_config_ref_big_merch, C),
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(42000)),
+    ShopConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
+    InvoiceParams = make_invoice_params(
+        PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(42000)
+    ),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     PaymentID = process_payment(
@@ -7379,8 +8451,12 @@ payment_tool_contact_info_passed_to_provider(C) ->
 
 make_payment_params_with_contact_info_assertion(PmtSys) ->
     String = <<"STRING">>,
-    ContactInfo = ?contact_info(String, String, String, String, String, String, String, String, String, String, String),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool({assert_contact_info, ContactInfo}, PmtSys),
+    ContactInfo = ?contact_info(
+        String, String, String, String, String, String, String, String, String, String, String
+    ),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(
+        {assert_contact_info, ContactInfo}, PmtSys
+    ),
     #payproc_InvoicePaymentParams{
         payer =
             {payment_resource, #payproc_PaymentResourcePayerParams{
@@ -7450,12 +8526,14 @@ create_invoice_tpl(Config) ->
 
 create_invoice_tpl(Config, Cost, Context) ->
     Client = cfg(client_tpl, Config),
-    PartyID = cfg(party_id, Config),
-    ShopID = cfg(shop_id, Config),
+    PartyConfigRef = cfg(party_config_ref, Config),
+    ShopConfigRef = cfg(shop_config_ref, Config),
     Lifetime = hg_ct_helper:make_lifetime(0, 1, 0),
     Product = <<"rubberduck">>,
     Details = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
-    Params = hg_ct_helper:make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details, Context),
+    Params = hg_ct_helper:make_invoice_tpl_create_params(
+        PartyConfigRef, ShopConfigRef, Lifetime, Product, Details, Context
+    ),
     #domain_InvoiceTemplate{id = TplID} = hg_client_invoice_templating:create(Params, Client),
     TplID.
 
@@ -7622,7 +8700,9 @@ repair_invoice(InvoiceID, Changes, Action, Params, Client) ->
     hg_client_invoicing:repair(InvoiceID, Changes, Action, Params, Client).
 
 create_repair_scenario(fail_pre_processing) ->
-    Failure = payproc_errors:construct('PaymentFailure', {no_route_found, {unknown, ?err_gen_failure()}}),
+    Failure = payproc_errors:construct(
+        'PaymentFailure', {no_route_found, {unknown, ?err_gen_failure()}}
+    ),
     {'fail_pre_processing', #'payproc_InvoiceRepairFailPreProcessing'{failure = Failure}};
 create_repair_scenario(skip_inspector) ->
     {'skip_inspector', #'payproc_InvoiceRepairSkipInspector'{risk_score = low}};
@@ -7633,7 +8713,9 @@ create_repair_scenario(fulfill_session) ->
 create_repair_scenario({fulfill_session, Trx}) ->
     {'fulfill_session', #'payproc_InvoiceRepairFulfillSession'{trx = Trx}};
 create_repair_scenario(Scenarios) when is_list(Scenarios) ->
-    {'complex', #'payproc_InvoiceRepairComplex'{scenarios = [create_repair_scenario(S) || S <- Scenarios]}}.
+    {'complex', #'payproc_InvoiceRepairComplex'{
+        scenarios = [create_repair_scenario(S) || S <- Scenarios]
+    }}.
 
 repair_invoice_with_scenario(InvoiceID, Scenario, Client) ->
     hg_client_invoicing:repair_scenario(InvoiceID, create_repair_scenario(Scenario), Client).
@@ -7641,11 +8723,11 @@ repair_invoice_with_scenario(InvoiceID, Scenario, Client) ->
 start_invoice(Product, Due, Amount, C) ->
     hg_invoice_helper:start_invoice(Product, Due, Amount, C).
 
-start_invoice(ShopID, Product, Due, Amount, C) ->
-    hg_invoice_helper:start_invoice(ShopID, Product, Due, Amount, C).
+start_invoice(ShopConfigRef, Product, Due, Amount, C) ->
+    hg_invoice_helper:start_invoice(ShopConfigRef, Product, Due, Amount, C).
 
-start_invoice(PartyID, ShopID, Product, Due, Amount, Client) ->
-    hg_invoice_helper:start_invoice(PartyID, ShopID, Product, Due, Amount, Client).
+start_invoice(PartyConfigRef, ShopConfigRef, Product, Due, Amount, Client) ->
+    hg_invoice_helper:start_invoice(PartyConfigRef, ShopConfigRef, Product, Due, Amount, Client).
 
 start_payment(InvoiceID, PaymentParams, Client) ->
     hg_invoice_helper:start_payment(InvoiceID, PaymentParams, Client).
@@ -7747,18 +8829,25 @@ await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client) ->
     hg_invoice_helper:await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Client).
 
 await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Cart, Client) ->
-    hg_invoice_helper:await_payment_capture_finish(InvoiceID, PaymentID, Reason, Cost, Cart, Client).
+    hg_invoice_helper:await_payment_capture_finish(
+        InvoiceID, PaymentID, Reason, Cost, Cart, Client
+    ).
 
 await_payment_cancel(InvoiceID, PaymentID, Reason, Client) ->
     [
         ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_started())),
-        ?payment_ev(PaymentID, ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))),
+        ?payment_ev(
+            PaymentID,
+            ?session_ev(?cancelled_with_reason(Reason), ?session_finished(?session_succeeded()))
+        ),
         ?payment_ev(PaymentID, ?payment_status_changed(?cancelled_with_reason(Reason)))
     ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
 
 await_payment_process_timeout(InvoiceID, PaymentID, Client) ->
-    {failed, PaymentID, ?operation_timeout()} = await_payment_process_failure(InvoiceID, PaymentID, Client),
+    {failed, PaymentID, ?operation_timeout()} = await_payment_process_failure(
+        InvoiceID, PaymentID, Client
+    ),
     PaymentID.
 
 await_payment_process_failure(InvoiceID, PaymentID, Client) ->
@@ -7786,7 +8875,10 @@ await_partial_manual_refund_succeeded(InvoiceID, PaymentID, RefundID, TrxInfo, C
         ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo))),
         ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))),
         ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(
+            PaymentID,
+            ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))
+        ),
         ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_status_changed(?refund_succeeded())))
     ] = next_changes(InvoiceID, 5, Client),
     PaymentID.
@@ -7810,7 +8902,10 @@ await_refund_payment_process_finish(InvoiceID, PaymentID, Client, Restarts) ->
     PaymentID = await_sessions_restarts(PaymentID, ?refunded(), InvoiceID, Client, Restarts),
     [
         ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))),
-        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(
+            PaymentID,
+            ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))
+        ),
         ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded())))
     ] = next_changes(InvoiceID, 3, Client),
     PaymentID.
@@ -7819,7 +8914,10 @@ await_refund_payment_complete(InvoiceID, PaymentID, Client) ->
     PaymentID = await_sessions_restarts(PaymentID, ?refunded(), InvoiceID, Client, 0),
     [
         ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?trx_bound(_)))),
-        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))),
+        ?payment_ev(
+            PaymentID,
+            ?refund_ev(_, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))
+        ),
         ?payment_ev(PaymentID, ?refund_ev(_, ?refund_status_changed(?refund_succeeded()))),
         ?payment_ev(PaymentID, ?payment_status_changed(?refunded()))
     ] = next_changes(InvoiceID, 4, Client),
@@ -7827,9 +8925,13 @@ await_refund_payment_complete(InvoiceID, PaymentID, Client) ->
 
 await_sessions_restarts(PaymentID, _Target, _InvoiceID, _Client, 0) ->
     PaymentID;
-await_sessions_restarts(PaymentID, ?refunded() = Target, InvoiceID, Client, Restarts) when Restarts > 0 ->
+await_sessions_restarts(PaymentID, ?refunded() = Target, InvoiceID, Client, Restarts) when
+    Restarts > 0
+->
     [
-        ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(Target, ?session_finished(?session_failed(_))))),
+        ?payment_ev(
+            PaymentID, ?refund_ev(_, ?session_ev(Target, ?session_finished(?session_failed(_))))
+        ),
         ?payment_ev(PaymentID, ?refund_ev(_, ?session_ev(Target, ?session_started())))
     ] = next_changes(InvoiceID, 2, Client),
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1);
@@ -7897,7 +8999,9 @@ execute_payment(InvoiceID, Params, Client) ->
     hg_invoice_helper:execute_payment(InvoiceID, Params, Client).
 
 execute_payment_w_cascade(InvoiceID, Params, Client, CascadeCount) when CascadeCount > 0 ->
-    #payproc_InvoicePayment{payment = _Payment} = hg_client_invoicing:start_payment(InvoiceID, Params, Client),
+    #payproc_InvoicePayment{payment = _Payment} = hg_client_invoicing:start_payment(
+        InvoiceID, Params, Client
+    ),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -7925,17 +9029,25 @@ execute_payment_w_cascade(InvoiceID, Params, Client, CascadeCount) when CascadeC
 
 execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     ?adjustment(AdjustmentID, ?adjustment_pending()) =
-        Adjustment = hg_client_invoicing:create_payment_adjustment(InvoiceID, PaymentID, Params, Client),
+        Adjustment = hg_client_invoicing:create_payment_adjustment(
+            InvoiceID, PaymentID, Params, Client
+        ),
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
         ?payment_ev(
-            PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))
+        ),
+        ?payment_ev(
+            PaymentID,
+            ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
         )
     ] = next_changes(InvoiceID, 3, Client),
     AdjustmentID.
 
-execute_payment_refund(InvoiceID, PaymentID, #payproc_InvoicePaymentRefundParams{cash = undefined} = Params, Client) ->
+execute_payment_refund(
+    InvoiceID, PaymentID, #payproc_InvoicePaymentRefundParams{cash = undefined} = Params, Client
+) ->
     execute_payment_refund_complete(InvoiceID, PaymentID, Params, Client);
 execute_payment_refund(InvoiceID, PaymentID, Params, Client) ->
     ?refund_id(RefundID) = hg_client_invoicing:refund_payment(InvoiceID, PaymentID, Params, Client),
@@ -7945,12 +9057,17 @@ execute_payment_refund(InvoiceID, PaymentID, Params, Client) ->
     RefundID.
 
 execute_payment_manual_refund(InvoiceID, PaymentID, Params, Client) ->
-    ?refund_id(RefundID) = hg_client_invoicing:refund_payment_manual(InvoiceID, PaymentID, Params, Client),
+    ?refund_id(RefundID) = hg_client_invoicing:refund_payment_manual(
+        InvoiceID, PaymentID, Params, Client
+    ),
     [
         ?payment_ev(PaymentID, ?refund_ev(RefundID, ?refund_created(_Refund, _, TrxInfo))),
         ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_started()))),
         ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?trx_bound(TrxInfo)))),
-        ?payment_ev(PaymentID, ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded()))))
+        ?payment_ev(
+            PaymentID,
+            ?refund_ev(RefundID, ?session_ev(?refunded(), ?session_finished(?session_succeeded())))
+        )
     ] = next_changes(InvoiceID, 4, Client),
     _ = await_refund_succeeded(InvoiceID, PaymentID, Client),
     RefundID.
@@ -7971,13 +9088,20 @@ execute_payment_chargeback(InvoiceID, PaymentID, Params, Client) ->
         ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_cash_flow_changed(_)))
     ] = next_changes(InvoiceID, 2, Client),
     AcceptParams = make_chargeback_accept_params(),
-    ok = hg_client_invoicing:accept_chargeback(InvoiceID, PaymentID, ChargebackID, AcceptParams, Client),
+    ok = hg_client_invoicing:accept_chargeback(
+        InvoiceID, PaymentID, ChargebackID, AcceptParams, Client
+    ),
     [
         ?payment_ev(
             PaymentID,
-            ?chargeback_ev(ChargebackID, ?chargeback_target_status_changed(?chargeback_status_accepted()))
+            ?chargeback_ev(
+                ChargebackID, ?chargeback_target_status_changed(?chargeback_status_accepted())
+            )
         ),
-        ?payment_ev(PaymentID, ?chargeback_ev(ChargebackID, ?chargeback_status_changed(?chargeback_status_accepted()))),
+        ?payment_ev(
+            PaymentID,
+            ?chargeback_ev(ChargebackID, ?chargeback_status_changed(?chargeback_status_accepted()))
+        ),
         ?payment_ev(PaymentID, ?payment_status_changed(?charged_back()))
     ] = next_changes(InvoiceID, 3, Client),
     ChargebackID.
@@ -7986,7 +9110,7 @@ payment_risk_score_check(Cat, C, PmtSys) ->
     Client = cfg(client, C),
     PartyClient = cfg(party_client, C),
     ShopID = hg_ct_helper:create_battle_ready_shop(
-        cfg(party_id, C),
+        cfg(party_config_ref, C),
         ?cat(Cat),
         <<"RUB">>,
         ?trms(2),
@@ -7996,7 +9120,9 @@ payment_risk_score_check(Cat, C, PmtSys) ->
     InvoiceID1 = start_invoice(ShopID, <<"rubberduck">>, make_due_date(10), 42000, C),
     % Invoice
     PaymentParams = make_payment_params(PmtSys),
-    ?payment_state(?payment(PaymentID1)) = hg_client_invoicing:start_payment(InvoiceID1, PaymentParams, Client),
+    ?payment_state(?payment(PaymentID1)) = hg_client_invoicing:start_payment(
+        InvoiceID1, PaymentParams, Client
+    ),
     ?payment_ev(PaymentID1, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID1, Client),
     % default low risk score...
@@ -8038,11 +9164,15 @@ construct_domain_fixture() ->
             payment_methods =
                 {decisions, [
                     #domain_PaymentMethodDecision{
-                        if_ = ?partycond(<<"DEPRIVED ONE">>, undefined),
+                        if_ = ?partycond(
+                            ?PARTY_CONFIG_REF_DEPRIVED_1, undefined
+                        ),
                         then_ = {value, ordsets:new()}
                     },
                     #domain_PaymentMethodDecision{
-                        if_ = ?partycond(<<"DEPRIVED ONE-II">>, undefined),
+                        if_ = ?partycond(
+                            ?PARTY_CONFIG_REF_DEPRIVED_2, undefined
+                        ),
                         then_ = {value, ordsets:new()}
                     },
                     #domain_PaymentMethodDecision{
@@ -8056,7 +9186,10 @@ construct_domain_fixture() ->
                                     ?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>)),
                                     ?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>)),
                                     ?pmt(bank_card, ?bank_card_no_cvv(<<"visa-ref">>)),
-                                    ?pmt(bank_card, ?token_bank_card(<<"visa-ref">>, <<"applepay-ref">>)),
+                                    ?pmt(
+                                        bank_card,
+                                        ?token_bank_card(<<"visa-ref">>, <<"applepay-ref">>)
+                                    ),
                                     ?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
                                     ?pmt(mobile, ?mob(<<"mts-ref">>))
                                 ])}
@@ -8069,7 +9202,8 @@ construct_domain_fixture() ->
                             {condition,
                                 {payment_tool,
                                     {crypto_currency, #domain_CryptoCurrencyCondition{
-                                        definition = {crypto_currency_is, ?crypta(<<"bitcoin-ref">>)}
+                                        definition =
+                                            {crypto_currency_is, ?crypta(<<"bitcoin-ref">>)}
                                     }}}},
                         then_ =
                             {value,
@@ -8280,7 +9414,9 @@ construct_domain_fixture() ->
                                         {bank_card, #domain_BankCardCondition{
                                             definition =
                                                 {payment_system, #domain_PaymentSystemCondition{
-                                                    payment_system_is = ?pmt_sys(<<"mastercard-ref">>)
+                                                    payment_system_is = ?pmt_sys(
+                                                        <<"mastercard-ref">>
+                                                    )
                                                 }}
                                         }}}},
                             then_ = {value, ?hold_lifetime(120)}
@@ -8352,14 +9488,22 @@ construct_domain_fixture() ->
         hg_ct_fixture:construct_payment_method(?pmt(digital_wallet, ?pmt_srv(<<"qiwi-ref">>))),
         hg_ct_fixture:construct_payment_method(?pmt(payment_terminal, ?pmt_srv(<<"euroset-ref">>))),
         hg_ct_fixture:construct_payment_method(?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>))),
-        hg_ct_fixture:construct_payment_method(?pmt(bank_card, ?token_bank_card(<<"visa-ref">>, <<"applepay-ref">>))),
+        hg_ct_fixture:construct_payment_method(
+            ?pmt(bank_card, ?token_bank_card(<<"visa-ref">>, <<"applepay-ref">>))
+        ),
 
         hg_ct_fixture:construct_proxy(?prx(1), <<"Dummy proxy">>),
         hg_ct_fixture:construct_proxy(?prx(2), <<"Inspector proxy">>),
 
-        hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{<<"risk_score">> => <<"low">>}),
-        hg_ct_fixture:construct_inspector(?insp(2), <<"Skipper">>, ?prx(2), #{<<"risk_score">> => <<"high">>}),
-        hg_ct_fixture:construct_inspector(?insp(3), <<"Fatalist">>, ?prx(2), #{<<"risk_score">> => <<"fatal">>}),
+        hg_ct_fixture:construct_inspector(?insp(1), <<"Rejector">>, ?prx(2), #{
+            <<"risk_score">> => <<"low">>
+        }),
+        hg_ct_fixture:construct_inspector(?insp(2), <<"Skipper">>, ?prx(2), #{
+            <<"risk_score">> => <<"high">>
+        }),
+        hg_ct_fixture:construct_inspector(?insp(3), <<"Fatalist">>, ?prx(2), #{
+            <<"risk_score">> => <<"fatal">>
+        }),
         hg_ct_fixture:construct_inspector(
             ?insp(4),
             <<"Offliner">>,
@@ -8407,17 +9551,20 @@ construct_domain_fixture() ->
             {delegates, [
                 ?delegate(
                     <<"Important merch">>,
-                    {condition, {party, #domain_PartyCondition{id = <<"bIg merch">>}}},
+                    {condition, {party, #domain_PartyCondition{party_ref = ?PARTY_CONFIG_REF}}},
                     ?ruleset(1)
                 ),
                 ?delegate(
                     <<"Provider with turnover limit">>,
-                    {condition, {party, #domain_PartyCondition{id = ?PARTY_ID_WITH_LIMIT}}},
+                    {condition, {party, #domain_PartyCondition{party_ref = ?PARTY_CONFIG_REF_WITH_LIMIT}}},
                     ?ruleset(4)
                 ),
                 ?delegate(
                     <<"Provider cascading with turnover limit">>,
-                    {condition, {party, #domain_PartyCondition{id = ?PARTY_ID_WITH_SEVERAL_LIMITS}}},
+                    {condition,
+                        {party, #domain_PartyCondition{
+                            party_ref = ?PARTY_CONFIG_REF_WITH_SEVERAL_LIMITS
+                        }}},
                     ?ruleset(6)
                 ),
                 ?delegate(<<"Common">>, {constant, true}, ?ruleset(1))
@@ -8447,7 +9594,9 @@ construct_domain_fixture() ->
                 ?candidate({constant, true}, ?trm(7))
             ]}
         ),
-        hg_ct_fixture:construct_payment_routing_ruleset(?ruleset(3), <<"Prohibitions">>, {candidates, []}),
+        hg_ct_fixture:construct_payment_routing_ruleset(
+            ?ruleset(3), <<"Prohibitions">>, {candidates, []}
+        ),
 
         {payment_institution, #domain_PaymentInstitutionObject{
             ref = ?pinst(1),
@@ -8593,7 +9742,7 @@ construct_domain_fixture() ->
                             if_ =
                                 {condition,
                                     {party, #domain_PartyCondition{
-                                        id = ?PARTYID_EXTERNAL
+                                        party_ref = ?PARTY_CONFIG_REF_EXTERNAL
                                     }}},
                             then_ = {value, ?eas(2)}
                         },
@@ -8661,7 +9810,10 @@ construct_domain_fixture() ->
                                     ?pmt(bank_card, ?bank_card(<<"jcb-ref">>)),
                                     ?pmt(bank_card, ?bank_card_no_cvv(<<"visa-ref">>)),
                                     ?pmt(crypto_currency, ?crypta(<<"bitcoin-ref">>)),
-                                    ?pmt(bank_card, ?token_bank_card(<<"visa-ref">>, <<"applepay-ref">>))
+                                    ?pmt(
+                                        bank_card,
+                                        ?token_bank_card(<<"visa-ref">>, <<"applepay-ref">>)
+                                    )
                                 ])},
                         cash_limit =
                             {value,
@@ -8676,7 +9828,8 @@ construct_domain_fixture() ->
                                         {condition,
                                             {payment_tool,
                                                 {digital_wallet, #domain_DigitalWalletCondition{
-                                                    definition = {payment_service_is, ?pmt_srv(<<"qiwi-ref">>)}
+                                                    definition =
+                                                        {payment_service_is, ?pmt_srv(<<"qiwi-ref">>)}
                                                 }}}},
                                     then_ =
                                         {value, [
@@ -8699,7 +9852,9 @@ construct_domain_fixture() ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                            payment_system_is = ?pmt_sys(
+                                                                <<"visa-ref">>
+                                                            )
                                                         }}
                                                 }}}},
                                     then_ =
@@ -8723,7 +9878,9 @@ construct_domain_fixture() ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is = ?pmt_sys(<<"mastercard-ref">>)
+                                                            payment_system_is = ?pmt_sys(
+                                                                <<"mastercard-ref">>
+                                                            )
                                                         }}
                                                 }}}},
                                     then_ =
@@ -8747,7 +9904,9 @@ construct_domain_fixture() ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is = ?pmt_sys(<<"jcb-ref">>)
+                                                            payment_system_is = ?pmt_sys(
+                                                                <<"jcb-ref">>
+                                                            )
                                                         }}
                                                 }}}},
                                     then_ =
@@ -8771,8 +9930,12 @@ construct_domain_fixture() ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is = ?pmt_sys(<<"visa-ref">>),
-                                                            token_service_is = ?token_srv(<<"applepay-ref">>),
+                                                            payment_system_is = ?pmt_sys(
+                                                                <<"visa-ref">>
+                                                            ),
+                                                            token_service_is = ?token_srv(
+                                                                <<"applepay-ref">>
+                                                            ),
                                                             tokenization_method_is = dpan
                                                         }}
                                                 }}}},
@@ -8795,7 +9958,8 @@ construct_domain_fixture() ->
                                         {condition,
                                             {payment_tool,
                                                 {crypto_currency, #domain_CryptoCurrencyCondition{
-                                                    definition = {crypto_currency_is, ?crypta(<<"bitcoin-ref">>)}
+                                                    definition =
+                                                        {crypto_currency_is, ?crypta(<<"bitcoin-ref">>)}
                                                 }}}},
                                     then_ =
                                         {value, [
@@ -8822,7 +9986,9 @@ construct_domain_fixture() ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                                payment_system_is = ?pmt_sys(
+                                                                    <<"visa-ref">>
+                                                                )
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}
@@ -8943,7 +10109,9 @@ construct_domain_fixture() ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                                payment_system_is = ?pmt_sys(
+                                                                    <<"visa-ref">>
+                                                                )
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(5)}
@@ -8955,7 +10123,9 @@ construct_domain_fixture() ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(<<"mastercard-ref">>)
+                                                                payment_system_is = ?pmt_sys(
+                                                                    <<"mastercard-ref">>
+                                                                )
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(120)}
@@ -9276,7 +10446,9 @@ construct_domain_fixture() ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                                payment_system_is = ?pmt_sys(
+                                                                    <<"visa-ref">>
+                                                                )
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}
@@ -9413,13 +10585,21 @@ construct_domain_fixture() ->
         {terminal, ?terminal_obj(?trm(14), ?prv(7))},
 
         hg_ct_fixture:construct_payment_system(?pmt_sys(<<"visa-ref">>), <<"visa payment system">>),
-        hg_ct_fixture:construct_payment_system(?pmt_sys(<<"mastercard-ref">>), <<"mastercard payment system">>),
+        hg_ct_fixture:construct_payment_system(
+            ?pmt_sys(<<"mastercard-ref">>), <<"mastercard payment system">>
+        ),
         hg_ct_fixture:construct_payment_system(?pmt_sys(<<"jcb-ref">>), <<"jcb payment system">>),
         hg_ct_fixture:construct_mobile_operator(?mob(<<"mts-ref">>), <<"mts mobile operator">>),
-        hg_ct_fixture:construct_payment_service(?pmt_srv(<<"qiwi-ref">>), <<"qiwi payment service">>),
-        hg_ct_fixture:construct_payment_service(?pmt_srv(<<"euroset-ref">>), <<"euroset payment service">>),
+        hg_ct_fixture:construct_payment_service(
+            ?pmt_srv(<<"qiwi-ref">>), <<"qiwi payment service">>
+        ),
+        hg_ct_fixture:construct_payment_service(
+            ?pmt_srv(<<"euroset-ref">>), <<"euroset payment service">>
+        ),
         hg_ct_fixture:construct_crypto_currency(?crypta(<<"bitcoin-ref">>), <<"bitcoin currency">>),
-        hg_ct_fixture:construct_tokenized_service(?token_srv(<<"applepay-ref">>), <<"applepay tokenized service">>)
+        hg_ct_fixture:construct_tokenized_service(
+            ?token_srv(<<"applepay-ref">>), <<"applepay tokenized service">>
+        )
     ].
 
 construct_term_set_for_refund_eligibility_time(Seconds) ->
@@ -9534,7 +10714,9 @@ get_payment_adjustment_fixture(Revision) ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                                payment_system_is = ?pmt_sys(
+                                                                    <<"visa-ref">>
+                                                                )
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(10)}
@@ -9684,17 +10866,23 @@ get_cashflow_rounding_fixture(Revision, _C) ->
                                 ?cfpost(
                                     {provider, settlement},
                                     {merchant, settlement},
-                                    ?share_with_rounding_method(1, 200000, operation_amount, round_half_towards_zero)
+                                    ?share_with_rounding_method(
+                                        1, 200000, operation_amount, round_half_towards_zero
+                                    )
                                 ),
                                 ?cfpost(
                                     {system, settlement},
                                     {provider, settlement},
-                                    ?share_with_rounding_method(1, 200000, operation_amount, round_half_away_from_zero)
+                                    ?share_with_rounding_method(
+                                        1, 200000, operation_amount, round_half_away_from_zero
+                                    )
                                 ),
                                 ?cfpost(
                                     {system, settlement},
                                     {system, subagent},
-                                    ?share_with_rounding_method(1, 200000, operation_amount, round_half_away_from_zero)
+                                    ?share_with_rounding_method(
+                                        1, 200000, operation_amount, round_half_away_from_zero
+                                    )
                                 ),
                                 ?cfpost(
                                     {system, settlement},
@@ -10049,7 +11237,9 @@ construct_term_set_for_partial_capture_provider_permit(Revision, _C) ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                            payment_system_is = ?pmt_sys(
+                                                                <<"visa-ref">>
+                                                            )
                                                         }}
                                                 }}}},
                                     then_ =
@@ -10073,7 +11263,9 @@ construct_term_set_for_partial_capture_provider_permit(Revision, _C) ->
                                                 {bank_card, #domain_BankCardCondition{
                                                     definition =
                                                         {payment_system, #domain_PaymentSystemCondition{
-                                                            payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                            payment_system_is = ?pmt_sys(
+                                                                <<"visa-ref">>
+                                                            )
                                                         }}
                                                 }}}},
                                     then_ =
@@ -10119,7 +11311,9 @@ construct_term_set_for_partial_capture_provider_permit(Revision, _C) ->
                                                     {bank_card, #domain_BankCardCondition{
                                                         definition =
                                                             {payment_system, #domain_PaymentSystemCondition{
-                                                                payment_system_is = ?pmt_sys(<<"visa-ref">>)
+                                                                payment_system_is = ?pmt_sys(
+                                                                    <<"visa-ref">>
+                                                                )
                                                             }}
                                                     }}}},
                                         then_ = {value, ?hold_lifetime(12)}

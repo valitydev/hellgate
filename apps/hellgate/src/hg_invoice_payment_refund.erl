@@ -78,11 +78,11 @@
 %% Internal types
 
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
--type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type payment_id() :: dmsl_domain_thrift:'InvoicePaymentID'().
 -type domain_refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
@@ -116,11 +116,11 @@
 
 -type injected_context() :: #{
     party := party(),
-    party_id := party_id(),
+    party_config_ref := party_config_ref(),
     invoice := invoice(),
     payment := payment(),
     shop := shop(),
-    shop_id := shop_id(),
+    shop_config_ref := shop_config_ref(),
     invoice_id := invoice_id(),
     payment_id := payment_id(),
     repair_scenario => repair_scenario(),
@@ -129,7 +129,7 @@
 
 -type options() :: #{
     party => party(),
-    party_id => party_id(),
+    party_config_ref => party_config_ref(),
     invoice => invoice(),
     timestamp => hg_datetime:timestamp(),
 
@@ -251,7 +251,9 @@ do_deduce_activity(#{status := pending, failure := _Failure}) ->
     failure;
 do_deduce_activity(#{status := pending, sessions := []}) ->
     new;
-do_deduce_activity(#{status := pending, session_status := finished, session_result := {succeeded, _}}) ->
+do_deduce_activity(#{
+    status := pending, session_status := finished, session_result := {succeeded, _}
+}) ->
     accounter;
 do_deduce_activity(#{status := pending, session_status := finished, session_result := {failed, _}}) ->
     failure;
@@ -275,13 +277,13 @@ do_process(finished, _Refund) ->
 
 process_refund_cashflow(Refund) ->
     Action = hg_machine_action:set_timeout(0, hg_machine_action:new()),
-    PartyID = get_injected_party_id(Refund),
-    ShopID = get_injected_shop_id(Refund),
+    PartyConfigRef = get_injected_party_config_ref(Refund),
+    ShopConfigRef = get_injected_shop_config_ref(Refund),
     Shop = get_injected_shop(Refund),
     hold_refund_limits(Refund),
 
     #{{merchant, settlement} := SettlementID} = hg_accounting:collect_merchant_account_map(
-        PartyID, {ShopID, Shop}, #{}
+        PartyConfigRef, {ShopConfigRef, Shop}, #{}
     ),
     _ = prepare_refund_cashflow(Refund),
     % NOTE we assume that posting involving merchant settlement account MUST be present in the cashflow
@@ -371,16 +373,19 @@ rollback_refund_limits(Refund) ->
 get_limits(Refund) ->
     Revision = revision(Refund),
     ProviderTerms = get_provider_terms(
-        Revision, get_injected_payment(Refund), get_injected_invoice(Refund), get_injected_party(Refund), Refund
+        Revision,
+        get_injected_payment(Refund),
+        get_injected_invoice(Refund),
+        Refund
     ),
     get_turnover_limits(ProviderTerms).
 
-get_provider_terms(Revision, Payment, Invoice, Party, Refund) ->
+get_provider_terms(Revision, Payment, Invoice, Refund) ->
     Route = route(Refund),
-    #domain_Invoice{shop_id = ShopID} = Invoice,
-    ShopObj = hg_party:get_shop(ShopID, Party, Revision),
+    #domain_Invoice{shop_ref = ShopConfigRef, party_ref = PartyConfigRef} = Invoice,
+    ShopObj = hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
     VS0 = construct_payment_flow(Payment),
-    VS1 = collect_validation_varset(get_injected_party_id(Refund), ShopObj, Payment, VS0),
+    VS1 = collect_validation_varset(get_injected_party_config_ref(Refund), ShopObj, Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
 construct_payment_flow(Payment) ->
@@ -396,7 +401,9 @@ reconstruct_payment_flow(?invoice_payment_flow_hold(_OnHoldExpiration, HeldUntil
     Seconds = hg_datetime:parse_ts(HeldUntil) - hg_datetime:parse_ts(CreatedAt),
     #{flow => {hold, ?hold_lifetime(Seconds)}}.
 
-collect_validation_varset(PartyID, {ShopID, Shop}, Payment, VS) ->
+collect_validation_varset(
+    PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Payment, VS
+) ->
     #domain_ShopConfig{
         category = Category
     } = Shop,
@@ -405,8 +412,8 @@ collect_validation_varset(PartyID, {ShopID, Shop}, Payment, VS) ->
         payer = Payer
     } = Payment,
     VS#{
-        party_id => PartyID,
-        shop_id => ShopID,
+        party_config_ref => PartyConfigRef,
+        shop_id => ShopConfigID,
         category => Category,
         currency => Currency,
         cost => Cost,
@@ -493,18 +500,18 @@ get_initial_retry_strategy() ->
 inject_context(Options, Refund) ->
     Invoice = maps:get(invoice, Options),
     Payment = maps:get(payment, Options),
-    #domain_Invoice{id = InvoiceID, shop_id = ShopID} = Invoice,
+    #domain_Invoice{id = InvoiceID, shop_ref = ShopConfigRef} = Invoice,
     #domain_InvoicePayment{id = PaymentID, domain_revision = Revision} = Payment,
     Party = maps:get(party, Options),
-    PartyID = maps:get(party_id, Options),
-    {ShopID, Shop} = hg_party:get_shop(ShopID, Party, Revision),
+    PartyConfigRef = maps:get(party_config_ref, Options),
+    {ShopConfigRef, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
     Context = genlib_map:compact(#{
         party => Party,
-        party_id => PartyID,
+        shop => Shop,
+        party_config_ref => PartyConfigRef,
+        shop_config_ref => ShopConfigRef,
         invoice => Invoice,
         payment => Payment,
-        shop => Shop,
-        shop_id => ShopID,
         invoice_id => InvoiceID,
         payment_id => PaymentID,
         repair_scenario => maps:get(repair_scenario, Options, undefined),
@@ -512,16 +519,17 @@ inject_context(Options, Refund) ->
     }),
     Refund#{injected_context => Context}.
 
-get_injected_party(#{injected_context := #{party := V}}) -> V.
-get_injected_party_id(#{injected_context := #{party_id := V}}) -> V.
+get_injected_party_config_ref(#{injected_context := #{party_config_ref := V}}) -> V.
 get_injected_invoice(#{injected_context := #{invoice := V}}) -> V.
 get_injected_payment(#{injected_context := #{payment := V}}) -> V.
 get_injected_shop(#{injected_context := #{shop := V}}) -> V.
-get_injected_shop_id(#{injected_context := #{shop_id := V}}) -> V.
+get_injected_shop_config_ref(#{injected_context := #{shop_config_ref := V}}) -> V.
 get_injected_invoice_id(#{injected_context := #{invoice_id := V}}) -> V.
 get_injected_payment_id(#{injected_context := #{payment_id := V}}) -> V.
-get_injected_repair_scenario(#{injected_context := Context}) -> maps:get(repair_scenario, Context, undefined).
-get_injected_payment_info(#{injected_context := Context}) -> maps:get(payment_info, Context, undefined).
+get_injected_repair_scenario(#{injected_context := Context}) ->
+    maps:get(repair_scenario, Context, undefined).
+get_injected_payment_info(#{injected_context := Context}) ->
+    maps:get(payment_info, Context, undefined).
 
 %% Event utils
 
@@ -555,10 +563,14 @@ apply_event(?refund_created(Refund, Cashflow, TransactionInfo), undefined, Conte
     });
 apply_event(?refund_status_changed(Status = {StatusTag, _}), Refund, _Context) ->
     DomainRefund = refund(Refund),
-    Refund#{status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}};
+    Refund#{
+        status := StatusTag, refund := DomainRefund#domain_InvoicePaymentRefund{status = Status}
+    };
 apply_event(?refund_rollback_started(Failure), Refund, _Context) ->
     Refund#{failure => Failure};
-apply_event(?session_ev(?refunded(), Event = ?session_started()), Refund = #{session_context := Context}, _) ->
+apply_event(
+    ?session_ev(?refunded(), Event = ?session_started()), Refund = #{session_context := Context}, _
+) ->
     Session = hg_session:apply_event(Event, undefined, Context),
     add_refund_session(Session, Refund);
 apply_event(?session_ev(?refunded(), Event), Refund = #{session_context := Context}, _) ->
