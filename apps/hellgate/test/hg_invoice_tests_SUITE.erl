@@ -2690,7 +2690,7 @@ payment_adjustment_w_amount_success(C) ->
         OriginalAmount, ?merchant_to_system_share_1, ?system_to_provider_share_initial, ZeroShare
     ),
     {NewOpDiffMrc, NewOpDiffSys, NewOpDiffPrv} = compute_operation_amount_diffs(
-        NewAmount, ?merchant_to_system_share_1, system_to_provider_share_actual, ?system_to_external_fixed
+        NewAmount, ?merchant_to_system_share_1, ?system_to_provider_share_actual, ?system_to_external_fixed
     ),
     ?assertEqual(
         NewOpDiffMrc - OpDiffMrc,
@@ -3437,21 +3437,15 @@ external_account_posting(C) ->
     RootUrl = cfg(root_url, C),
     PartyClient = cfg(party_client, C),
     InvoicingClient = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    ShopConfigRef = hg_ct_helper:create_battle_ready_shop(
-        PartyConfigRef, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient
-    ),
-    InvoiceParams = make_invoice_params(
-        PartyConfigRef, ShopConfigRef, <<"rubbermoss">>, make_due_date(10), make_cash(42000)
-    ),
+    ShopConfigRef =
+        hg_ct_helper:create_battle_ready_shop(PartyConfigRef, ?cat(2), <<"RUB">>, ?trms(2), ?pinst(2), PartyClient),
+    InvoiceParams =
+        make_invoice_params(PartyConfigRef, ShopConfigRef, <<"rubbermoss">>, make_due_date(10), make_cash(42000)),
     InvoiceID = create_invoice(InvoiceParams, InvoicingClient),
-    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(
-        InvoiceID, InvoicingClient
-    ),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, InvoicingClient),
     ?payment_state(
         ?payment(PaymentID)
-    ) = hg_client_invoicing:start_payment(
-        InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), InvoicingClient
-    ),
+    ) = hg_client_invoicing:start_payment(InvoiceID, make_payment_params(?pmt_sys(<<"visa-ref">>)), InvoicingClient),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, InvoicingClient),
     {CF, Route} = await_payment_cash_flow(InvoiceID, PaymentID, InvoicingClient),
