@@ -15,16 +15,12 @@ generic_prototype() ->
     Cart = ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(30, <<"RUB">>))]),
     ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>)),
             ?allocation_trx_details(Cart)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_fixed(?cash(10, <<"RUB">>))
@@ -32,9 +28,7 @@ generic_prototype() ->
             ?allocation_trx_details(Cart)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_share(15, 100)
@@ -57,38 +51,28 @@ calculate_test() ->
         [
             ?allocation_trx(
                 <<"1">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_details(Cart)
             ),
             ?allocation_trx(
                 <<"2">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
                 ?cash(20, <<"RUB">>),
                 ?allocation_trx_details(Cart),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(10, <<"RUB">>)
                 )
             ),
             ?allocation_trx(
                 <<"3">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
                 ?cash(25, <<"RUB">>),
                 ?allocation_trx_details(Cart),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(5, <<"RUB">>),
                     ?allocation_trx_fee_share(15, 100)
@@ -96,9 +80,7 @@ calculate_test() ->
             ),
             ?allocation_trx(
                 <<"4">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                 ?cash(15, <<"RUB">>)
             )
         ],
@@ -110,23 +92,17 @@ calculate_without_generating_agg_trx_test() ->
     Cart = ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(30, <<"RUB">>))]),
     AllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>)),
             ?allocation_trx_details(Cart)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
             ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>)),
             ?allocation_trx_details(Cart)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
             ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>)),
             ?allocation_trx_details(Cart)
         )
@@ -141,25 +117,19 @@ calculate_without_generating_agg_trx_test() ->
         [
             ?allocation_trx(
                 <<"1">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_details(Cart)
             ),
             ?allocation_trx(
                 <<"2">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_details(Cart)
             ),
             ?allocation_trx(
                 <<"3">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_details(Cart)
             )
@@ -172,9 +142,7 @@ calculate_amount_exceeded_error_1_test() ->
     Cart = ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(30, <<"RUB">>))]),
     AllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(50, <<"RUB">>),
                 ?allocation_trx_prototype_fee_share(1, 2)
@@ -182,9 +150,7 @@ calculate_amount_exceeded_error_1_test() ->
             ?allocation_trx_details(Cart)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(50, <<"RUB">>),
                 ?allocation_trx_prototype_fee_share(1, 2)
@@ -192,9 +158,7 @@ calculate_amount_exceeded_error_1_test() ->
             ?allocation_trx_details(Cart)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(50, <<"RUB">>),
                 ?allocation_trx_prototype_fee_share(1, 2)
@@ -231,9 +195,7 @@ subtract_one_transaction_1_test() ->
     AllocationPrototype = generic_prototype(),
     RefundAllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>))
         )
     ]),
@@ -254,30 +216,22 @@ subtract_one_transaction_1_test() ->
         [
             ?allocation_trx(
                 <<"2">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
                 ?cash(20, <<"RUB">>),
                 ?allocation_trx_details(Cart),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(10, <<"RUB">>)
                 )
             ),
             ?allocation_trx(
                 <<"3">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
                 ?cash(25, <<"RUB">>),
                 ?allocation_trx_details(Cart),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(5, <<"RUB">>),
                     ?allocation_trx_fee_share(15, 100)
@@ -285,9 +239,7 @@ subtract_one_transaction_1_test() ->
             ),
             ?allocation_trx(
                 <<"4">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                 ?cash(15, <<"RUB">>)
             )
         ],
@@ -300,9 +252,7 @@ subtract_one_transaction_2_test() ->
     AllocationPrototype = generic_prototype(),
     RefundAllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_fixed(?cash(10, <<"RUB">>))
@@ -327,23 +277,17 @@ subtract_one_transaction_2_test() ->
         [
             ?allocation_trx(
                 <<"1">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_details(Cart)
             ),
             ?allocation_trx(
                 <<"3">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
                 ?cash(25, <<"RUB">>),
                 ?allocation_trx_details(Cart),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(5, <<"RUB">>),
                     ?allocation_trx_fee_share(15, 100)
@@ -351,9 +295,7 @@ subtract_one_transaction_2_test() ->
             ),
             ?allocation_trx(
                 <<"4">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                 ?cash(5, <<"RUB">>)
             )
         ],
@@ -366,9 +308,7 @@ subtract_one_transaction_3_test() ->
     AllocationPrototype = generic_prototype(),
     RefundAllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_share(15, 100)
@@ -393,32 +333,24 @@ subtract_one_transaction_3_test() ->
         [
             ?allocation_trx(
                 <<"1">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_details(Cart)
             ),
             ?allocation_trx(
                 <<"2">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
                 ?cash(20, <<"RUB">>),
                 ?allocation_trx_details(Cart),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(10, <<"RUB">>)
                 )
             ),
             ?allocation_trx(
                 <<"4">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                 ?cash(10, <<"RUB">>)
             )
         ],
@@ -434,16 +366,12 @@ subtract_partial_transaction_test() ->
     ]),
     AllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>)),
             ?allocation_trx_details(Cart1)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_fixed(?cash(10, <<"RUB">>))
@@ -451,9 +379,7 @@ subtract_partial_transaction_test() ->
             ?allocation_trx_details(Cart0)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_share(15, 100)
@@ -463,9 +389,7 @@ subtract_partial_transaction_test() ->
     ]),
     RefundAllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(18, <<"RUB">>)),
             ?allocation_trx_details(
                 ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(18, <<"RUB">>))])
@@ -489,38 +413,28 @@ subtract_partial_transaction_test() ->
         [
             ?allocation_trx(
                 <<"1">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
                 ?cash(12, <<"RUB">>),
                 ?allocation_trx_details(Cart1)
             ),
             ?allocation_trx(
                 <<"2">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
                 ?cash(20, <<"RUB">>),
                 ?allocation_trx_details(Cart0),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(10, <<"RUB">>)
                 )
             ),
             ?allocation_trx(
                 <<"3">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
                 ?cash(25, <<"RUB">>),
                 ?allocation_trx_details(Cart0),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(5, <<"RUB">>),
                     ?allocation_trx_fee_share(15, 100)
@@ -528,9 +442,7 @@ subtract_partial_transaction_test() ->
             ),
             ?allocation_trx(
                 <<"4">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                 ?cash(15, <<"RUB">>)
             )
         ],
@@ -546,16 +458,12 @@ consecutive_subtract_of_partial_transaction_test() ->
     ]),
     AllocationPrototype = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(30, <<"RUB">>)),
             ?allocation_trx_details(Cart1)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_fixed(?cash(10, <<"RUB">>))
@@ -563,9 +471,7 @@ consecutive_subtract_of_partial_transaction_test() ->
             ?allocation_trx_details(Cart0)
         ),
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
             ?allocation_trx_prototype_body_total(
                 ?cash(30, <<"RUB">>),
                 ?allocation_trx_prototype_fee_share(15, 100)
@@ -575,9 +481,7 @@ consecutive_subtract_of_partial_transaction_test() ->
     ]),
     RefundAllocationPrototype0 = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(18, <<"RUB">>)),
             ?allocation_trx_details(
                 ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(18, <<"RUB">>))])
@@ -586,9 +490,7 @@ consecutive_subtract_of_partial_transaction_test() ->
     ]),
     RefundAllocationPrototype1 = ?allocation_prototype([
         ?allocation_trx_prototype(
-            ?allocation_trx_target_shop(
-                ?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)
-            ),
+            ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY1">>), ?SHOP_CONFIG_REF(<<"SHOP1">>)),
             ?allocation_trx_prototype_body_amount(?cash(12, <<"RUB">>)),
             ?allocation_trx_details(
                 ?invoice_cart([?invoice_line(<<"STRING">>, 1, ?cash(12, <<"RUB">>))])
@@ -622,30 +524,22 @@ consecutive_subtract_of_partial_transaction_test() ->
         [
             ?allocation_trx(
                 <<"2">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY2">>), ?SHOP_CONFIG_REF(<<"SHOP2">>)),
                 ?cash(20, <<"RUB">>),
                 ?allocation_trx_details(Cart0),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(10, <<"RUB">>)
                 )
             ),
             ?allocation_trx(
                 <<"3">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY3">>), ?SHOP_CONFIG_REF(<<"SHOP3">>)),
                 ?cash(25, <<"RUB">>),
                 ?allocation_trx_details(Cart0),
                 ?allocation_trx_body_total(
-                    ?allocation_trx_target_shop(
-                        ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                    ),
+                    ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                     ?cash(30, <<"RUB">>),
                     ?cash(5, <<"RUB">>),
                     ?allocation_trx_fee_share(15, 100)
@@ -653,9 +547,7 @@ consecutive_subtract_of_partial_transaction_test() ->
             ),
             ?allocation_trx(
                 <<"4">>,
-                ?allocation_trx_target_shop(
-                    ?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)
-                ),
+                ?allocation_trx_target_shop(?PARTY_CONFIG_REF(<<"PARTY0">>), ?SHOP_CONFIG_REF(<<"SHOP0">>)),
                 ?cash(15, <<"RUB">>)
             )
         ],

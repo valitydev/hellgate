@@ -269,9 +269,9 @@ update_invalid_party_status(C) ->
     Client = cfg(client, C),
     PartyConfigRef = cfg(party_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
-    Diff = make_invoice_tpl_update_params(#{
-        details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))
-    }),
+    Diff = make_invoice_tpl_update_params(
+        #{details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))}
+    ),
     ok = hg_ct_helper:suspend_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
@@ -289,9 +289,9 @@ update_invalid_shop_status(C) ->
     Client = cfg(client, C),
     ShopConfigRef = cfg(shop_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
-    Diff = make_invoice_tpl_update_params(#{
-        details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))
-    }),
+    Diff = make_invoice_tpl_update_params(
+        #{details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))}
+    ),
     ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}

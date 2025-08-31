@@ -1354,9 +1354,7 @@ payment_limit_overflow(C) ->
     ok = payproc_errors:match(
         'PaymentFailure',
         Failure,
-        fun({no_route_found, {rejected, {limit_overflow, _}}}) ->
-            ok
-        end
+        fun({no_route_found, {rejected, {limit_overflow, _}}}) -> ok end
     ).
 
 -spec limit_hold_currency_error(config()) -> test_return().
@@ -6772,9 +6770,7 @@ payment_cascade_limit_overflow(C) ->
     ?assertNotEqual(Route1, Route2),
     ?assertNot(lists:member(Route1, Candidates2)),
     %% No route found and so we pass original failure from previous attempt
-    ok = payproc_errors:match('PaymentFailure', Failure2, fun({authorization_failed, {unknown, _}}) ->
-        ok
-    end),
+    ok = payproc_errors:match('PaymentFailure', Failure2, fun({authorization_failed, {unknown, _}}) -> ok end),
     %% Assert payment status IS failed
     ?invoice_state(?invoice_w_status(_), [?payment_state(FinalPayment)]) =
         hg_client_invoicing:get(InvoiceID, Client),
@@ -7996,7 +7992,10 @@ await_sessions_restarts(
         )
     ) =
         next_change(InvoiceID, Client),
-    ?payment_ev(PaymentID, ?session_ev(?captured(Reason, Cost, Cart, _), ?session_started())) =
+    ?payment_ev(
+        PaymentID,
+        ?session_ev(?captured(Reason, Cost, Cart, _), ?session_started())
+    ) =
         next_change(InvoiceID, Client),
     await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts - 1);
 await_sessions_restarts(PaymentID, Target, InvoiceID, Client, Restarts) when Restarts > 0 ->
@@ -8074,7 +8073,9 @@ execute_payment_adjustment(InvoiceID, PaymentID, Params, Client) ->
     [
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_created(Adjustment))),
         ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_processed()))),
-        ?payment_ev(PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_))))
+        ?payment_ev(
+            PaymentID, ?adjustment_ev(AdjustmentID, ?adjustment_status_changed(?adjustment_captured(_)))
+        )
     ] = next_changes(InvoiceID, 3, Client),
     AdjustmentID.
 

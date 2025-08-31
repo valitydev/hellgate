@@ -72,9 +72,8 @@ collect_allocation_cash_flow(
         fun(?allocation_trx(_ID, Target, Amount), Acc) ->
             ?allocation_trx_target_shop(PartyConfigRef, ShopConfigRef) = Target,
             {PartyConfigRef, TargetParty} = hg_party:get_party(PartyConfigRef),
-            {#domain_ShopConfigRef{id = ShopConfigID} = ShopConfigRef, TargetShop} = hg_party:get_shop(
-                ShopConfigRef, PartyConfigRef, Revision
-            ),
+            {#domain_ShopConfigRef{id = ShopConfigID} = ShopConfigRef, TargetShop} =
+                hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
             VS1 = VS0#{
                 party_config_ref => PartyConfigRef,
                 shop_id => ShopConfigID,
@@ -85,9 +84,7 @@ collect_allocation_cash_flow(
             construct_transaction_cashflow(
                 Amount,
                 AllocationPaymentInstitution,
-                Context#{
-                    party => {PartyConfigRef, TargetParty}, shop => {ShopConfigRef, TargetShop}
-                }
+                Context#{party => {PartyConfigRef, TargetParty}, shop => {ShopConfigRef, TargetShop}}
             ) ++ Acc
         end,
         [],

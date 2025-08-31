@@ -35,9 +35,7 @@
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
 -define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
 -define(dummy_party_config_ref, #domain_PartyConfigRef{id = <<"dummy_party_id">>}).
--define(party_config_ref_for_ruleset_w_no_delegates, #domain_PartyConfigRef{
-    id = <<"dummy_party_id_1">>
-}).
+-define(party_config_ref_for_ruleset_w_no_delegates, #domain_PartyConfigRef{id = <<"dummy_party_id_1">>}).
 -define(shop_id_for_ruleset_w_priority_distribution_1, <<"dummy_shop_id">>).
 -define(shop_id_for_ruleset_w_priority_distribution_2, <<"dummy_another_shop_id">>).
 -define(assert_set_equal(S1, S2), ?assertEqual(lists:sort(S1), lists:sort(S2))).
@@ -226,9 +224,7 @@ mock_party_management(SupPid) ->
                     {
                         ?ruleset(2),
                         ?base_routing_rule_domain_revision,
-                        #payproc_Varset{
-                            party_ref = ?party_config_ref_for_ruleset_w_no_delegates
-                        }
+                        #payproc_Varset{party_ref = ?party_config_ref_for_ruleset_w_no_delegates}
                     }
                 ) ->
                     {ok, #domain_RoutingRuleset{

@@ -396,9 +396,7 @@ reconstruct_payment_flow(?invoice_payment_flow_hold(_OnHoldExpiration, HeldUntil
     Seconds = hg_datetime:parse_ts(HeldUntil) - hg_datetime:parse_ts(CreatedAt),
     #{flow => {hold, ?hold_lifetime(Seconds)}}.
 
-collect_validation_varset(
-    PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Payment, VS
-) ->
+collect_validation_varset(PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Payment, VS) ->
     #domain_ShopConfig{
         category = Category
     } = Shop,

@@ -36,12 +36,9 @@ handle_function_('Create', {InvoiceParams}, _Opts) ->
     InvoiceID = InvoiceParams#payproc_InvoiceParams.id,
     _ = set_invoicing_meta(InvoiceID),
     PartyConfigRef = InvoiceParams#payproc_InvoiceParams.party_id,
-    #domain_ShopConfigRef{id = ShopConfigID} =
-        ShopConfigRef = InvoiceParams#payproc_InvoiceParams.shop_id,
+    #domain_ShopConfigRef{id = ShopConfigID} = ShopConfigRef = InvoiceParams#payproc_InvoiceParams.shop_id,
     {PartyConfigRef, Party} = hg_party:get_party(PartyConfigRef),
-    {ShopConfigRef, Shop} = assert_shop_exists(
-        hg_party:get_shop(ShopConfigRef, PartyConfigRef, DomainRevision)
-    ),
+    {ShopConfigRef, Shop} = assert_shop_exists(hg_party:get_shop(ShopConfigRef, PartyConfigRef, DomainRevision)),
     _ = assert_party_shop_operable(Shop, Party),
     ok = validate_invoice_mutations(InvoiceParams),
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
@@ -58,9 +55,7 @@ handle_function_('CreateWithTemplate', {Params}, _Opts) ->
     InvoiceID = Params#payproc_InvoiceWithTemplateParams.id,
     _ = set_invoicing_meta(InvoiceID),
     TplID = Params#payproc_InvoiceWithTemplateParams.template_id,
-    {_Party, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, InvoiceParams} = make_invoice_params(
-        Params
-    ),
+    {_Party, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, InvoiceParams} = make_invoice_params(Params),
     ok = validate_invoice_mutations(InvoiceParams),
     {Cost, Mutations} = maybe_make_mutations(InvoiceParams),
     VS = #{
@@ -106,9 +101,8 @@ handle_function_('ComputeTerms', {InvoiceID}, _Opts) ->
     St = get_state(InvoiceID),
     DomainRevision = hg_domain:head(),
     {PartyConfigRef, Party} = hg_party:get_party(get_party_config_ref(St)),
-    {#domain_ShopConfigRef{id = ShopConfigID}, Shop} = assert_shop_exists(
-        hg_party:get_shop(get_shop_config_ref(St), PartyConfigRef, DomainRevision)
-    ),
+    {#domain_ShopConfigRef{id = ShopConfigID}, Shop} =
+        assert_shop_exists(hg_party:get_shop(get_shop_config_ref(St), PartyConfigRef, DomainRevision)),
     _ = assert_party_shop_operable(Shop, Party),
     VS = #{
         cost => get_cost(St),
@@ -302,9 +296,7 @@ make_invoice_params(Params) ->
     } = hg_invoice_template:get(TplID),
     DomainRevision = hg_domain:head(),
     {PartyConfigRef, Party} = hg_party:get_party(PartyConfigRef),
-    {ShopConfigRef, Shop} = assert_shop_exists(
-        hg_party:get_shop(ShopConfigRef, PartyConfigRef, DomainRevision)
-    ),
+    {ShopConfigRef, Shop} = assert_shop_exists(hg_party:get_shop(ShopConfigRef, PartyConfigRef, DomainRevision)),
     _ = assert_party_shop_operable(Shop, Party),
     Cart = make_invoice_cart(Cost, TplDetails, Shop),
     InvoiceDetails = #domain_InvoiceDetails{

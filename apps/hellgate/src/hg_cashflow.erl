@@ -80,9 +80,7 @@ construct_final_account(AccountType, AccountMap) ->
         transaction_account = construct_transaction_account(AccountType, AccountMap)
     }.
 
-construct_transaction_account({merchant, MerchantFlowAccount}, #{
-    merchant := {PartyConfigRef, ShopConfigRef}
-}) ->
+construct_transaction_account({merchant, MerchantFlowAccount}, #{merchant := {PartyConfigRef, ShopConfigRef}}) ->
     AccountOwner = #domain_MerchantTransactionAccountOwner{
         party_ref = PartyConfigRef,
         shop_ref = ShopConfigRef

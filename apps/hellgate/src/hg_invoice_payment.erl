@@ -815,9 +815,7 @@ collect_partial_refund_varset(undefined) ->
 
 collect_validation_varset(St, Opts) ->
     Revision = get_payment_revision(St),
-    collect_validation_varset(
-        get_party_config_ref(Opts), get_shop_obj(Opts, Revision), get_payment(St), #{}
-    ).
+    collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), get_payment(St), #{}).
 
 collect_validation_varset(PartyConfigRef, ShopObj, Payment, VS) ->
     Cost = #domain_Cash{currency = Currency} = get_payment_cost(Payment),
@@ -827,9 +825,7 @@ collect_validation_varset(PartyConfigRef, ShopObj, Payment, VS) ->
         payment_tool => get_payment_tool(Payment)
     }.
 
-collect_validation_varset_(
-    PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Currency, VS
-) ->
+collect_validation_varset_(PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Currency, VS) ->
     #domain_ShopConfig{
         category = Category
     } = Shop,
@@ -2057,9 +2053,7 @@ process_cash_flow_building(Action, St) ->
     Payment = get_payment(St),
     Timestamp = get_payment_created_at(Payment),
     VS0 = reconstruct_payment_flow(Payment, #{}),
-    VS1 = collect_validation_varset(
-        get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0
-    ),
+    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     ProviderTerms = get_provider_terminal_terms(Route, VS1, Revision),
     Allocation = get_allocation(St),
     Context = #{
@@ -2489,9 +2483,7 @@ get_provider_terms(St, Revision) ->
     Route = get_route(St),
     Payment = get_payment(St),
     VS0 = reconstruct_payment_flow(Payment, #{}),
-    VS1 = collect_validation_varset(
-        get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0
-    ),
+    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
 filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
@@ -2542,9 +2534,7 @@ hold_shop_limits(Opts, St) ->
     PartyConfigRef = get_party_config_ref(Opts),
     {ShopConfigRef, Shop} = get_shop_obj(Opts, Revision),
     TurnoverLimits = get_shop_turnover_limits(Shop),
-    ok = hg_limiter:hold_shop_limits(
-        TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
-    ).
+    ok = hg_limiter:hold_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment).
 
 commit_shop_limits(Opts, St) ->
     Payment = get_payment(St),
@@ -2553,9 +2543,7 @@ commit_shop_limits(Opts, St) ->
     PartyConfigRef = get_party_config_ref(Opts),
     {ShopConfigRef, Shop} = get_shop_obj(Opts, Revision),
     TurnoverLimits = get_shop_turnover_limits(Shop),
-    ok = hg_limiter:commit_shop_limits(
-        TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
-    ).
+    ok = hg_limiter:commit_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment).
 
 check_shop_limits(Opts, St) ->
     Payment = get_payment(St),
@@ -2978,9 +2966,7 @@ get_varset(St, InitialValue) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     VS0 = reconstruct_payment_flow(Payment, InitialValue),
-    VS1 = collect_validation_varset(
-        get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0
-    ),
+    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     VS1.
 
 %%

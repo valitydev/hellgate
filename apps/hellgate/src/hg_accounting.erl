@@ -115,9 +115,7 @@ collect_account_map(#{
     collect_external_account_map(Payment, VS, Revision, Map2).
 
 -spec collect_merchant_account_map(party_config_ref(), {shop_config_ref(), shop()}, map()) -> map().
-collect_merchant_account_map(
-    PartyConfigRef, {ShopConfigRef, #domain_ShopConfig{account = Account}}, Acc
-) ->
+collect_merchant_account_map(PartyConfigRef, {ShopConfigRef, #domain_ShopConfig{account = Account}}, Acc) ->
     Acc#{
         merchant => {PartyConfigRef, ShopConfigRef},
         {merchant, settlement} => Account#domain_ShopAccount.settlement,

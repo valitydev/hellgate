@@ -108,17 +108,13 @@ check_limits(TurnoverLimits, Invoice, Payment, Route, Iter) ->
             {error, {limit_overflow, IDs, Limits}}
     end.
 
--spec check_shop_limits(
-    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()
-) ->
+-spec check_shop_limits([turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()) ->
     ok
     | {error, {limit_overflow, [binary()]}}.
 check_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     Context = gen_limit_shop_context(Invoice, Payment),
     Limits = get_limit_values(
-        Context,
-        TurnoverLimits,
-        make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment)
+        Context, TurnoverLimits, make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment)
     ),
     try
         check_limits_(Limits, Context)
@@ -177,21 +173,13 @@ batch_hold_limits(Context, TurnoverLimits, OperationIdSegments) ->
     _ = hg_limiter_client:hold_batch(LimitRequest, Context),
     ok.
 
--spec hold_shop_limits(
-    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()
-) -> ok.
+-spec hold_shop_limits([turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()) -> ok.
 hold_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     Context = gen_limit_shop_context(Invoice, Payment),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
-        TurnoverLimits
-    ),
-    ok = legacy_hold_shop_limits(
-        Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
-    ),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
+    ok = legacy_hold_shop_limits(Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment),
     ok = batch_hold_limits(
-        Context,
-        BatchTurnoverLimits,
-        make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment)
+        Context, BatchTurnoverLimits, make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment)
     ).
 
 legacy_hold_shop_limits(Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
@@ -242,9 +230,7 @@ legacy_commit_payment_limits(Clock, Context, TurnoverLimits, Invoice, Payment, R
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     commit(LimitChanges, Clock, Context).
 
--spec commit_shop_limits(
-    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()
-) -> ok.
+-spec commit_shop_limits([turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment()) -> ok.
 commit_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     Context = gen_limit_shop_context(Invoice, Payment),
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
@@ -252,15 +238,11 @@ commit_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payme
     ok = legacy_commit_shop_limits(
         Clock, Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
     ),
-    OperationIdSegments = make_shop_operation_segments(
-        PartyConfigRef, ShopConfigRef, Invoice, Payment
-    ),
+    OperationIdSegments = make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment),
     ok = batch_commit_limits(Context, BatchTurnoverLimits, OperationIdSegments),
     ok = log_limit_changes(TurnoverLimits, Clock, Context).
 
-legacy_commit_shop_limits(
-    Clock, Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment
-) ->
+legacy_commit_shop_limits(Clock, Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment) ->
     ChangeIDs = [construct_shop_change_id(PartyConfigRef, ShopConfigRef, Invoice, Payment)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     ok = commit(LimitChanges, Clock, Context).
@@ -312,27 +294,23 @@ legacy_rollback_payment_limits(Context, TurnoverLimits, Invoice, Payment, Route,
     rollback(LimitChanges, get_latest_clock(), Context, Flags).
 
 -spec rollback_shop_limits(
-    [turnover_limit()], party_config_ref(), shop_config_ref(), invoice(), payment(), [
-        handling_flag()
-    ]
-) ->
-    ok.
+    [turnover_limit()],
+    party_config_ref(),
+    shop_config_ref(),
+    invoice(),
+    payment(),
+    [handling_flag()]
+) -> ok.
 rollback_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags) ->
     Context = gen_limit_shop_context(Invoice, Payment),
-    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(
-        TurnoverLimits
-    ),
+    {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_rollback_shop_limits(
         Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags
     ),
-    OperationIdSegments = make_shop_operation_segments(
-        PartyConfigRef, ShopConfigRef, Invoice, Payment
-    ),
+    OperationIdSegments = make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment),
     ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
 
-legacy_rollback_shop_limits(
-    Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags
-) ->
+legacy_rollback_shop_limits(Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags) ->
     ChangeIDs = [construct_shop_change_id(PartyConfigRef, ShopConfigRef, Invoice, Payment)],
     LimitChanges = gen_limit_changes(TurnoverLimits, ChangeIDs),
     rollback(LimitChanges, get_latest_clock(), Context, Flags).
@@ -541,10 +519,7 @@ mk_limit_log_attributes(#limiter_LimitContext{
     payment_processing = #context_payproc_Context{op = Op, invoice = CtxInvoice}
 }) ->
     #context_payproc_Invoice{
-        invoice = #domain_Invoice{
-            party_ref = PartyConfigRef,
-            shop_ref = ShopConfigRef
-        },
+        invoice = #domain_Invoice{party_ref = PartyConfigRef, shop_ref = ShopConfigRef},
         payment = #context_payproc_InvoicePayment{
             payment = Payment,
             refund = Refund,

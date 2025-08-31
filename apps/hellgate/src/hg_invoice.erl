@@ -169,17 +169,13 @@ assert_invoice(Checks, #st{} = St) when is_list(Checks) ->
     lists:foldl(fun assert_invoice/2, St, Checks);
 assert_invoice(operable, #st{party = Party} = St) when Party =/= undefined ->
     assert_party_shop_operable(
-        hg_party:get_shop(
-            get_shop_config_ref(St), get_party_config_ref(St), hg_party:get_party_revision()
-        ),
+        hg_party:get_shop(get_shop_config_ref(St), get_party_config_ref(St), hg_party:get_party_revision()),
         Party
     ),
     St;
 assert_invoice(unblocked, #st{party = Party} = St) when Party =/= undefined ->
     assert_party_shop_unblocked(
-        hg_party:get_shop(
-            get_shop_config_ref(St), get_party_config_ref(St), hg_party:get_party_revision()
-        ),
+        hg_party:get_shop(get_shop_config_ref(St), get_party_config_ref(St), hg_party:get_party_revision()),
         Party
     ),
     St;

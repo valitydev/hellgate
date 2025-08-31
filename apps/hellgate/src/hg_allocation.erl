@@ -85,14 +85,10 @@ assert_allocatable(_Allocation, _PaymentAllocationServiceTerms, _Party, _Shop, _
     {error, allocation_not_allowed}.
 
 -spec construct_target(target_map()) -> target().
-construct_target(#{
-    party_config_ref := PartyConfigRef,
-    shop_config_ref := ShopConfigRef
-}) ->
+construct_target(#{party_config_ref := PartyConfigRef, shop_config_ref := ShopConfigRef}) ->
     ?allocation_trx_target_shop(PartyConfigRef, ShopConfigRef).
 
--spec calculate(allocation_prototype(), party_config_ref(), shop_config_ref(), cash()) ->
-    allocation().
+-spec calculate(allocation_prototype(), party_config_ref(), shop_config_ref(), cash()) -> allocation().
 calculate(AllocationPrototype, PartyConfigRef, ShopConfigRef, Cost) ->
     FeeTarget = construct_target(#{
         party_config_ref => PartyConfigRef,

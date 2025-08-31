@@ -519,9 +519,7 @@ construct_chargeback_plan_id(State, Opts) ->
         genlib:to_binary(Stage)
     ]).
 
-collect_validation_varset(
-    PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Payment, Body
-) ->
+collect_validation_varset(PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Payment, Body) ->
     #domain_InvoicePayment{cost = #domain_Cash{currency = Currency}} = Payment,
     #domain_ShopConfig{
         category = Category
