@@ -96,9 +96,8 @@ init_per_suite(C) ->
     PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     Client = {party_client:create_client(), party_client:create_context()},
     ok = hg_context:save(hg_context:create()),
-    ShopConfigRef = hg_ct_helper:create_party_and_shop(
-        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), Client
-    ),
+    ShopConfigRef =
+        hg_ct_helper:create_party_and_shop(PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), Client),
     ok = hg_context:cleanup(),
     [
         {party_config_ref, PartyConfigRef},
@@ -211,9 +210,7 @@ create_invoice_template_with_mutations(C) ->
     Lifetime = make_lifetime(0, 0, 2),
     #domain_InvoiceTemplate{id = TplID, mutations = Mutations} =
         create_invoice_tpl_w_mutations(C, Product, Lifetime, Cost, Mutations),
-    #domain_InvoiceTemplate{mutations = Mutations} = hg_client_invoice_templating:get(
-        TplID, Client
-    ).
+    #domain_InvoiceTemplate{mutations = Mutations} = hg_client_invoice_templating:get(TplID, Client).
 
 create_cost(Cost, C) ->
     Product = <<"rubberduck">>,
@@ -272,13 +269,9 @@ update_invalid_party_status(C) ->
     Client = cfg(client, C),
     PartyConfigRef = cfg(party_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
-    Diff = make_invoice_tpl_update_params(
-        #{
-            details => hg_ct_helper:make_invoice_tpl_details(
-                <<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>)
-            )
-        }
-    ),
+    Diff = make_invoice_tpl_update_params(#{
+        details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))
+    }),
     ok = hg_ct_helper:suspend_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
@@ -296,13 +289,9 @@ update_invalid_shop_status(C) ->
     Client = cfg(client, C),
     ShopConfigRef = cfg(shop_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
-    Diff = make_invoice_tpl_update_params(
-        #{
-            details => hg_ct_helper:make_invoice_tpl_details(
-                <<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>)
-            )
-        }
-    ),
+    Diff = make_invoice_tpl_update_params(#{
+        details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))
+    }),
     ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
@@ -375,16 +364,11 @@ update_invoice_template(C) ->
         } = hg_client_invoice_templating:update(TplID, Diff1, Client),
 
     Tpl2 = update_cost(make_cost(fixed, 42, <<"RUB">>), Tpl1, Client),
-    Tpl3 = update_cost(
-        make_cost(range, {inclusive, 42, <<"RUB">>}, {inclusive, 42, <<"RUB">>}), Tpl2, Client
-    ),
-    _ = update_cost(
-        make_cost(range, {inclusive, 42, <<"RUB">>}, {inclusive, 100, <<"RUB">>}), Tpl3, Client
-    ).
+    Tpl3 = update_cost(make_cost(range, {inclusive, 42, <<"RUB">>}, {inclusive, 42, <<"RUB">>}), Tpl2, Client),
+    _ = update_cost(make_cost(range, {inclusive, 42, <<"RUB">>}, {inclusive, 100, <<"RUB">>}), Tpl3, Client).
 
 update_cost(Cost, Tpl, Client) ->
-    {product, #domain_InvoiceTemplateProduct{product = Product}} =
-        Tpl#domain_InvoiceTemplate.details,
+    {product, #domain_InvoiceTemplateProduct{product = Product}} = Tpl#domain_InvoiceTemplate.details,
     NewDetails = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
     TplNext = Tpl#domain_InvoiceTemplate{details = NewDetails},
     TplNext = hg_client_invoice_templating:update(
@@ -491,16 +475,10 @@ delete_invoice_template(C) ->
     Client = cfg(client, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
     ok = hg_client_invoice_templating:delete(TplID, Client),
-    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoice_templating:get(
-        TplID, Client
-    ),
+    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoice_templating:get(TplID, Client),
     Diff = make_invoice_tpl_update_params(#{}),
-    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoice_templating:update(
-        TplID, Diff, Client
-    ),
-    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoice_templating:delete(
-        TplID, Client
-    ).
+    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoice_templating:update(TplID, Diff, Client),
+    {exception, #payproc_InvoiceTemplateRemoved{}} = hg_client_invoice_templating:delete(TplID, Client).
 
 -spec terms_retrieval(config()) -> _.
 terms_retrieval(C) ->
@@ -552,9 +530,7 @@ create_invoice_tpl(Config, Product, Lifetime, Cost) ->
     ShopConfigRef = cfg(shop_config_ref, Config),
     PartyConfigRef = cfg(party_config_ref, Config),
     Details = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
-    Params = make_invoice_tpl_create_params(
-        PartyConfigRef, ShopConfigRef, Lifetime, Product, Details
-    ),
+    Params = make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef, Lifetime, Product, Details),
     hg_client_invoice_templating:create(Params, Client).
 
 create_invoice_tpl_w_mutations(Config, Product, Lifetime, Cost, Mutations) ->
@@ -581,9 +557,7 @@ update_invalid_cost(Cost, currency, TplID, Client) ->
 update_invalid_cost(Cost, Error, TplID, Client) ->
     Details = hg_ct_helper:make_invoice_tpl_details(<<"RNGName">>, Cost),
     Diff = make_invoice_tpl_update_params(#{details => Details}),
-    {exception, #base_InvalidRequest{errors = [Error]}} = hg_client_invoice_templating:update(
-        TplID, Diff, Client
-    ),
+    {exception, #base_InvalidRequest{errors = [Error]}} = hg_client_invoice_templating:update(TplID, Diff, Client),
     ok.
 
 create_invalid_cost(Cost, amount, Config) ->
@@ -593,9 +567,7 @@ create_invalid_cost(Cost, currency, Config) ->
 create_invalid_cost(Cost, Error, Config) ->
     Product = <<"rubberduck">>,
     Lifetime = make_lifetime(0, 0, 2),
-    {exception, #base_InvalidRequest{errors = [Error]}} = create_invoice_tpl(
-        Config, Product, Lifetime, Cost
-    ),
+    {exception, #base_InvalidRequest{errors = [Error]}} = create_invoice_tpl(Config, Product, Lifetime, Cost),
     ok.
 
 make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef) ->

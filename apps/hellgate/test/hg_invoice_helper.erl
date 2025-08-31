@@ -146,9 +146,7 @@ start_invoice(PartyConfigRef, ShopConfigRef, Product, Due, Amount, Client) ->
     #domain_ShopConfig{} =
         hg_domain:get({shop_config, ShopConfigRef}),
     % Создаем параметры инвойса с помощью существующих функций
-    InvoiceParams = make_invoice_params(
-        PartyConfigRef, ShopConfigRef, Product, Due, make_cash(Amount)
-    ),
+    InvoiceParams = make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, make_cash(Amount)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
     InvoiceID.
@@ -374,9 +372,10 @@ get_cashflow_volume(Source, Destination, CF, CFContext) ->
     Volume.
 
 -spec convert_transaction_account(_, _) -> _.
-convert_transaction_account({merchant, Type}, #{
-    party_config_ref := PartyConfigRef, shop_config_ref := ShopConfigRef
-}) ->
+convert_transaction_account(
+    {merchant, Type},
+    #{party_config_ref := PartyConfigRef, shop_config_ref := ShopConfigRef}
+) ->
     {merchant, #domain_MerchantTransactionAccount{
         type = Type,
         owner = #domain_MerchantTransactionAccountOwner{

@@ -2859,7 +2859,8 @@ construct_proxy_shop(
         Shop = #domain_ShopConfig{
             location = Location,
             category = ShopCategoryRef
-        }}
+        }
+    }
 ) ->
     ShopCategory = hg_domain:get({category, ShopCategoryRef}),
     #proxy_provider_Shop{

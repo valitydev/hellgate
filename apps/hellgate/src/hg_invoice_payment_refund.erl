@@ -371,7 +371,7 @@ rollback_refund_limits(Refund) ->
 get_limits(Refund) ->
     Revision = revision(Refund),
     ProviderTerms = get_provider_terms(
-        Revision, get_injected_payment(Refund), get_injected_invoice(Refund), get_injected_party(Refund), Refund
+        Revision, get_injected_payment(Refund), get_injected_invoice(Refund), Refund
     ),
     get_turnover_limits(ProviderTerms).
 

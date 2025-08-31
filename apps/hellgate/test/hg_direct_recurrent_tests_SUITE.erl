@@ -196,9 +196,7 @@ second_recurrent_payment_success_test(C) ->
 -spec another_shop_test(config()) -> test_result().
 another_shop_test(C) ->
     Client = cfg(client, C),
-    Invoice1ID = start_invoice(
-        cfg(another_shop_config_ref, C), <<"rubberduck">>, make_due_date(10), 42000, C
-    ),
+    Invoice1ID = start_invoice(cfg(another_shop_config_ref, C), <<"rubberduck">>, make_due_date(10), 42000, C),
     %% first payment in recurrent session
     Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
@@ -378,9 +376,7 @@ start_invoice(ShopConfigRef, Product, Due, Amount, C) ->
     Client = cfg(client, C),
     PartyConfigRef = cfg(party_config_ref, C),
     Cash = hg_ct_helper:make_cash(Amount, <<"RUB">>),
-    InvoiceParams = hg_ct_helper:make_invoice_params(
-        PartyConfigRef, ShopConfigRef, Product, Due, Cash
-    ),
+    InvoiceParams = hg_ct_helper:make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, Cash),
     InvoiceID = create_invoice(InvoiceParams, Client),
     _Events = await_events(InvoiceID, [?evp(?invoice_created(?invoice_w_status(?invoice_unpaid())))], Client),
     InvoiceID.
