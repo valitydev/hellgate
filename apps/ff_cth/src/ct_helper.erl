@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -export([cfg/2]).
+-export([cfg_with_default/3]).
 -export([cfg/3]).
 
 -export([start_apps/1]).
@@ -44,6 +45,13 @@ cfg(Key, Config) ->
     case lists:keyfind(Key, 1, Config) of
         {Key, V} -> V;
         _ -> error({'ct config entry missing', Key})
+    end.
+
+-spec cfg_with_default(atom(), config(), term()) -> term().
+cfg_with_default(Key, Config, Default) ->
+    case lists:keyfind(Key, 1, Config) of
+        {Key, V} -> V;
+        _ -> Default
     end.
 
 -spec cfg(atom(), _, config()) -> config().

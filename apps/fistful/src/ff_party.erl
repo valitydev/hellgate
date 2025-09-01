@@ -11,8 +11,8 @@
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 
--type id() :: dmsl_domain_thrift:'PartyID'().
--type wallet_id() :: dmsl_domain_thrift:'WalletConfigID'().
+-type id() :: dmsl_base_thrift:'ID'().
+-type wallet_id() :: dmsl_base_thrift:'ID'().
 -type wallet() :: dmsl_domain_thrift:'WalletConfig'().
 -type terms() :: dmsl_domain_thrift:'TermSet'().
 -type account_id() :: dmsl_domain_thrift:'AccountID'().
@@ -98,7 +98,7 @@
 -type bound_type() :: 'exclusive' | 'inclusive'.
 -type cash_range() :: {{bound_type(), cash()}, {bound_type(), cash()}}.
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 
 -type currency_validation_error() ::
     {terms_violation, {not_allowed_currency, {currency_ref(), ordsets:ordset(currency_ref())}}}.
@@ -126,7 +126,7 @@
 
 %%
 
--spec get_party(party_id()) -> {ok, party()} | {error, notfound}.
+-spec get_party(id()) -> {ok, party()} | {error, notfound}.
 get_party(PartyID) ->
     checkout(PartyID, get_party_revision()).
 
@@ -134,7 +134,7 @@ get_party(PartyID) ->
 get_party_revision() ->
     ff_domain_config:head().
 
--spec checkout(party_id(), domain_revision()) -> {ok, party()} | {error, notfound}.
+-spec checkout(id(), domain_revision()) -> {ok, party()} | {error, notfound}.
 checkout(PartyID, Revision) ->
     case ff_domain_config:object(Revision, {party_config, #domain_PartyConfigRef{id = PartyID}}) of
         {error, notfound} = Error ->
@@ -143,22 +143,27 @@ checkout(PartyID, Revision) ->
             Party
     end.
 
--spec get_wallet(wallet_id(), party()) -> wallet() | {error, notfound}.
-get_wallet(ID, Party) ->
-    get_wallet(ID, Party, get_party_revision()).
+-spec get_wallet(wallet_id(), party_ref()) -> {ok, wallet()} | {error, notfound}.
+get_wallet(ID, PartyConfigRef) ->
+    get_wallet(ID, PartyConfigRef, get_party_revision()).
 
--spec get_wallet(wallet_id(), party(), domain_revision()) -> {ok, wallet()} | {error, notfound}.
-get_wallet(ID, #domain_PartyConfig{wallets = Wallets}, Revision) ->
+-spec get_wallet(wallet_id(), party_ref(), domain_revision()) -> {ok, wallet()} | {error, notfound}.
+get_wallet(ID, PartyConfigRef, Revision) ->
     Ref = #domain_WalletConfigRef{id = ID},
-    case lists:member(Ref, Wallets) of
-        true ->
-            ff_domain_config:object(Revision, {wallet_config, Ref});
-        false ->
+    case ff_domain_config:object(Revision, {wallet_config, Ref}) of
+        {ok, #domain_WalletConfig{party_ref = PartyConfigRef}} = Result ->
+            Result;
+        _ ->
             {error, notfound}
     end.
 
 -spec build_account_for_wallet(wallet(), domain_revision()) -> ff_account:account().
-build_account_for_wallet(#domain_WalletConfig{party_id = PartyID} = Wallet, DomainRevision) ->
+build_account_for_wallet(
+    #domain_WalletConfig{
+        party_ref = #domain_PartyConfigRef{id = PartyID}
+    } = Wallet,
+    DomainRevision
+) ->
     {SettlementID, Currency} = get_wallet_account(Wallet),
     Realm = get_wallet_realm(Wallet, DomainRevision),
     ff_account:build(PartyID, Realm, SettlementID, Currency).
@@ -442,7 +447,12 @@ validate_wallet_terms_currency(CurrencyID, Terms) ->
     {ok, valid}
     | {error, invalid_wallet_terms_error()}
     | {error, cash_range_validation_error()}.
-validate_wallet_limits(Terms, #domain_WalletConfig{party_id = PartyID} = Wallet) ->
+validate_wallet_limits(
+    Terms,
+    #domain_WalletConfig{
+        party_ref = #domain_PartyConfigRef{id = PartyID}
+    } = Wallet
+) ->
     do(fun() ->
         #domain_TermSet{wallets = WalletTerms} = Terms,
         valid = unwrap(validate_wallet_limits_terms_is_reduced(WalletTerms)),

@@ -14,6 +14,7 @@
 -export([create_party/0]).
 -export([await_wallet_balance/2]).
 -export([get_wallet_balance/1]).
+-export([get_wallet/1]).
 
 -export([await_final_withdrawal_status/1]).
 -export([create_destination/2]).
@@ -119,6 +120,10 @@ get_wallet_balance(ID) ->
     {SettlementID, Currency} = ff_party:get_wallet_account(WalletConfig),
     {ok, {Amounts, Currency}} = ff_accounting:balance(SettlementID, Currency),
     {ff_indef:current(Amounts), ff_indef:to_range(Amounts), Currency}.
+
+-spec get_wallet(_ID) -> _WalletConfig.
+get_wallet(ID) ->
+    ct_domain_config:get({wallet_config, #domain_WalletConfigRef{id = ID}}).
 
 %%----------------------------------------------------------------------
 

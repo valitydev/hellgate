@@ -28,7 +28,7 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-f55c065
+    image: ghcr.io/valitydev/dominant-v2:sha-eddc131
     command: /opt/dmt/bin/dmt foreground
     healthcheck:
       test: "/opt/dmt/bin/dmt ping"
@@ -56,7 +56,7 @@ services:
       retries: 20
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-9eb96a7
+    image: ghcr.io/valitydev/limiter:sha-7b27571
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       machinegun:
@@ -91,7 +91,7 @@ services:
       disable: true
 
   liminator:
-    image: ghcr.io/valitydev/liminator:sha-672e804
+    image: ghcr.io/valitydev/liminator:sha-e284ad2
     restart: unless-stopped
     entrypoint:
       - java
@@ -112,7 +112,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-7649525
+    image: ghcr.io/valitydev/party-management:sha-51e92f7
     command: /opt/party-management/bin/party-management foreground
     depends_on:
       db:

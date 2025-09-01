@@ -20,7 +20,7 @@
 %%
 
 -type destination() :: dmsl_wthd_domain_thrift:'Destination'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_id() :: dmsl_base_thrift:'ID'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type currency() :: dmsl_domain_thrift:'Currency'().
 -type domain_quote() :: dmsl_wthd_provider_thrift:'Quote'().

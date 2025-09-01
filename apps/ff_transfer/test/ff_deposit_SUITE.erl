@@ -23,7 +23,7 @@
 -export([create_currency_validation_error_test/1]).
 -export([create_source_notfound_test/1]).
 -export([create_wallet_notfound_test/1]).
--export([create_party_notfound_test/1]).
+-export([create_party_mismatch_test/1]).
 -export([preserve_revisions_test/1]).
 -export([create_ok_test/1]).
 -export([unknown_test/1]).
@@ -51,7 +51,7 @@ groups() ->
             create_currency_validation_error_test,
             create_source_notfound_test,
             create_wallet_notfound_test,
-            create_party_notfound_test,
+            create_party_mismatch_test,
             preserve_revisions_test,
             create_ok_test,
             unknown_test
@@ -226,8 +226,8 @@ create_wallet_notfound_test(C) ->
     Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     ?assertMatch({error, {wallet, notfound}}, Result).
 
--spec create_party_notfound_test(config()) -> test_return().
-create_party_notfound_test(C) ->
+-spec create_party_mismatch_test(config()) -> test_return().
+create_party_mismatch_test(C) ->
     #{
         wallet_id := WalletID,
         source_id := SourceID
@@ -242,7 +242,7 @@ create_party_notfound_test(C) ->
         external_id => genlib:unique()
     },
     Result = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
-    ?assertMatch({error, {party, notfound}}, Result).
+    ?assertMatch({error, {wallet, notfound}}, Result).
 
 -spec preserve_revisions_test(config()) -> test_return().
 preserve_revisions_test(C) ->

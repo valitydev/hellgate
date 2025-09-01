@@ -234,8 +234,14 @@ create(Params) ->
         Source = ff_source_machine:source(Machine),
         CreatedAt = ff_time:now(),
         DomainRevision = ff_domain_config:head(),
-        Party = unwrap(party, ff_party:checkout(PartyID, DomainRevision)),
-        Wallet = unwrap(wallet, ff_party:get_wallet(WalletID, Party, DomainRevision)),
+        Wallet = unwrap(
+            wallet,
+            ff_party:get_wallet(
+                WalletID,
+                #domain_PartyConfigRef{id = PartyID},
+                DomainRevision
+            )
+        ),
         {_Amount, Currency} = Body,
         Varset = genlib_map:compact(#{
             currency => ff_dmsl_codec:marshal(currency_ref, Currency),
@@ -350,8 +356,11 @@ do_process_transfer(p_transfer_prepare, Deposit) ->
     {continue, Events};
 do_process_transfer(p_transfer_commit, Deposit) ->
     {ok, Events} = ff_pipeline:with(p_transfer, Deposit, fun ff_postings_transfer:commit/1),
-    {ok, Party} = ff_party:checkout(party_id(Deposit), domain_revision(Deposit)),
-    {ok, Wallet} = ff_party:get_wallet(wallet_id(Deposit), Party, domain_revision(Deposit)),
+    {ok, Wallet} = ff_party:get_wallet(
+        wallet_id(Deposit),
+        #domain_PartyConfigRef{id = party_id(Deposit)},
+        domain_revision(Deposit)
+    ),
     ok = ff_party:wallet_log_balance(wallet_id(Deposit), Wallet),
     {continue, Events};
 do_process_transfer(p_transfer_cancel, Deposit) ->
@@ -376,8 +385,11 @@ process_limit_check(Deposit) ->
     Body = body(Deposit),
     WalletID = wallet_id(Deposit),
     DomainRevision = domain_revision(Deposit),
-    {ok, Party} = ff_party:checkout(party_id(Deposit), DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(
+        WalletID,
+        #domain_PartyConfigRef{id = party_id(Deposit)},
+        DomainRevision
+    ),
     {_Amount, Currency} = Body,
     Varset = genlib_map:compact(#{
         currency => ff_dmsl_codec:marshal(currency_ref, Currency),
@@ -413,8 +425,11 @@ make_final_cash_flow(Deposit) ->
     SourceID = source_id(Deposit),
     Body = body(Deposit),
     DomainRevision = domain_revision(Deposit),
-    {ok, Party} = ff_party:checkout(party_id(Deposit), DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {ok, Wallet} = ff_party:get_wallet(
+        WalletID,
+        #domain_PartyConfigRef{id = party_id(Deposit)},
+        DomainRevision
+    ),
     WalletRealm = ff_party:get_wallet_realm(Wallet, DomainRevision),
     {AccountID, Currency} = ff_party:get_wallet_account(Wallet),
     WalletAccount = ff_account:build(party_id(Deposit), WalletRealm, AccountID, Currency),

@@ -414,8 +414,7 @@ create(Params) ->
         Quote = maps:get(quote, Params, undefined),
         ResourceDescriptor = quote_resource_descriptor(Quote),
         DomainRevision = ensure_domain_revision_defined(quote_domain_revision(Quote)),
-        Party = unwrap(party, ff_party:checkout(PartyID, DomainRevision)),
-        Wallet = unwrap(wallet, ff_party:get_wallet(WalletID, Party, DomainRevision)),
+        Wallet = unwrap(wallet, fetch_wallet(WalletID, PartyID, DomainRevision)),
         accessible = unwrap(wallet, ff_party:is_wallet_accessible(Wallet)),
         Destination = unwrap(destination, get_destination(DestinationID)),
         ResourceParams = ff_destination:resource(Destination),
@@ -731,8 +730,7 @@ do_process_transfer(p_transfer_commit, Withdrawal) ->
     Tr = ff_withdrawal_route_attempt_utils:get_current_p_transfer(attempts(Withdrawal)),
     {ok, Events} = ff_postings_transfer:commit(Tr),
     DomainRevision = final_domain_revision(Withdrawal),
-    {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(wallet_id(Withdrawal), Party, DomainRevision),
+    {ok, Wallet} = fetch_wallet(wallet_id(Withdrawal), party_id(Withdrawal), DomainRevision),
     ok = ff_party:wallet_log_balance(wallet_id(Withdrawal), Wallet),
     {continue, [{p_transfer, Ev} || Ev <- Events]};
 do_process_transfer(p_transfer_cancel, Withdrawal) ->
@@ -827,8 +825,7 @@ make_routing_varset_and_context(Withdrawal) ->
     DomainRevision = final_domain_revision(Withdrawal),
     WalletID = wallet_id(Withdrawal),
     PartyID = party_id(Withdrawal),
-    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {ok, Wallet} = fetch_wallet(WalletID, PartyID, DomainRevision),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
     Resource = destination_resource(Withdrawal),
     VarsetParams = genlib_map:compact(#{
@@ -870,8 +867,7 @@ process_limit_check(Withdrawal) ->
     DomainRevision = final_domain_revision(Withdrawal),
     WalletID = wallet_id(Withdrawal),
     PartyID = party_id(Withdrawal),
-    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {ok, Wallet} = fetch_wallet(WalletID, PartyID, DomainRevision),
     {ok, Destination} = get_destination(destination_id(Withdrawal)),
     Resource = destination_resource(Withdrawal),
     VarsetParams = genlib_map:compact(#{
@@ -912,8 +908,7 @@ process_session_creation(Withdrawal) ->
     } = params(Withdrawal),
 
     DomainRevision = final_domain_revision(Withdrawal),
-    {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {ok, Wallet} = fetch_wallet(WalletID, party_id(Withdrawal), DomainRevision),
     {AccountID, Currency} = ff_party:get_wallet_account(Wallet),
     WalletRealm = ff_party:get_wallet_realm(Wallet, DomainRevision),
     WalletAccount = ff_account:build(party_id(Withdrawal), WalletRealm, AccountID, Currency),
@@ -982,8 +977,7 @@ handle_child_result({undefined, Events} = Result, Withdrawal) ->
             {continue, Events};
         false ->
             DomainRevision = final_domain_revision(Withdrawal),
-            {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
-            {ok, Wallet} = ff_party:get_wallet(wallet_id(Withdrawal), Party, DomainRevision),
+            {ok, Wallet} = fetch_wallet(wallet_id(Withdrawal), party_id(Withdrawal), DomainRevision),
             ok = ff_party:wallet_log_balance(wallet_id(Withdrawal), Wallet),
             Result
     end;
@@ -1002,8 +996,8 @@ make_final_cash_flow(Withdrawal) ->
 make_final_cash_flow(DomainRevision, Withdrawal) ->
     Body = body(Withdrawal),
     WalletID = wallet_id(Withdrawal),
-    {ok, Party} = ff_party:checkout(party_id(Withdrawal), DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+
+    {ok, Wallet} = fetch_wallet(WalletID, party_id(Withdrawal), DomainRevision),
     {AccountID, Currency} = ff_party:get_wallet_account(Wallet),
     WalletRealm = ff_party:get_wallet_realm(Wallet, DomainRevision),
     WalletAccount = ff_account:build(party_id(Withdrawal), WalletRealm, AccountID, Currency),
@@ -1170,8 +1164,7 @@ get_quote(#{destination_id := DestinationID, body := Body, wallet_id := WalletID
     do(fun() ->
         Destination = unwrap(destination, get_destination(DestinationID)),
         DomainRevision = ff_domain_config:head(),
-        Party = unwrap(party, ff_party:checkout(PartyID, DomainRevision)),
-        Wallet = unwrap(wallet, ff_party:get_wallet(WalletID, Party, DomainRevision)),
+        Wallet = unwrap(wallet, fetch_wallet(WalletID, PartyID, DomainRevision)),
         Resource = unwrap(
             destination_resource,
             create_resource(ff_destination:resource(Destination), undefined, Wallet, DomainRevision)
@@ -1207,8 +1200,7 @@ get_quote(Params) ->
         body := Body
     } = Params,
     DomainRevision = ff_domain_config:head(),
-    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+    {ok, Wallet} = fetch_wallet(WalletID, PartyID, DomainRevision),
     Timestamp = ff_time:now(),
     VarsetParams = genlib_map:compact(#{
         body => Body,
@@ -1240,8 +1232,7 @@ get_quote_(Params) ->
             domain_revision := DomainRevision
         } = Params,
         Resource = maps:get(resource, Params, undefined),
-        Party = unwrap(party, ff_party:checkout(PartyID, DomainRevision)),
-        Wallet = unwrap(wallet, ff_party:get_wallet(WalletID, Party, DomainRevision)),
+        Wallet = unwrap(wallet, fetch_wallet(WalletID, PartyID, DomainRevision)),
 
         %% TODO: don't apply turnover limits here
         [Route | _] = unwrap(route, ff_withdrawal_routing:prepare_routes(Varset, Wallet, DomainRevision)),
@@ -1272,6 +1263,10 @@ build_session_quote(undefined) ->
     undefined;
 build_session_quote(Quote) ->
     maps:with([cash_from, cash_to, created_at, expires_on, quote_data], Quote).
+
+-spec fetch_wallet(wallet_id(), party_id(), domain_revision()) -> {ok, wallet()} | {error, notfound}.
+fetch_wallet(WalletID, PartyID, DomainRevision) ->
+    ff_party:get_wallet(WalletID, #domain_PartyConfigRef{id = PartyID}, DomainRevision).
 
 -spec quote_resource_descriptor(quote() | undefined) -> resource_descriptor().
 quote_resource_descriptor(undefined) ->
@@ -1867,8 +1862,8 @@ get_attempt_limit(Withdrawal) ->
     } = Withdrawal,
     DomainRevision = final_domain_revision(Withdrawal),
     PartyID = party_id(Withdrawal),
-    {ok, Party} = ff_party:checkout(PartyID, DomainRevision),
-    {ok, Wallet} = ff_party:get_wallet(WalletID, Party, DomainRevision),
+
+    {ok, Wallet} = fetch_wallet(WalletID, party_id(Withdrawal), DomainRevision),
     {ok, Destination} = get_destination(DestinationID),
     VarsetParams = genlib_map:compact(#{
         body => Body,

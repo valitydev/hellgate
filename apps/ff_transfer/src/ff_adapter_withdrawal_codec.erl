@@ -244,8 +244,8 @@ marshal(
         session_id = SesID,
         body = marshal(body, Cash),
         destination = marshal(resource, Resource),
-        sender = Sender,
-        receiver = Receiver,
+        sender = #domain_PartyConfigRef{id = Sender},
+        receiver = #domain_PartyConfigRef{id = Receiver},
         auth_data = maybe_marshal(auth_data, DestAuthData),
         quote = maybe_marshal(quote, maps:get(quote, Withdrawal, undefined))
     };

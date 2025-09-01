@@ -13,11 +13,11 @@
     currency => dmsl_domain_thrift:'CurrencyRef'(),
     cost => dmsl_domain_thrift:'Cash'(),
     payment_tool => dmsl_domain_thrift:'PaymentTool'(),
-    party_id => dmsl_domain_thrift:'PartyID'(),
-    shop_id => dmsl_domain_thrift:'ShopID'(),
+    party_id => dmsl_base_thrift:'ID'(),
+    shop_id => dmsl_base_thrift:'ID'(),
     risk_score => dmsl_domain_thrift:'RiskScore'(),
     flow => instant | {hold, dmsl_domain_thrift:'HoldLifetime'()},
-    wallet_id => dmsl_domain_thrift:'WalletConfigID'(),
+    wallet_id => dmsl_base_thrift:'ID'(),
     bin_data => dmsl_domain_thrift:'BinData'()
 }.
 
@@ -32,9 +32,14 @@ encode(Varset) ->
         wallet_id = genlib_map:get(wallet_id, Varset),
         payment_tool = PaymentTool,
         payment_method = encode_payment_method(PaymentTool),
-        party_id = genlib_map:get(party_id, Varset),
+        party_ref = encode_party_ref(genlib_map:get(party_id, Varset)),
         bin_data = genlib_map:get(bin_data, Varset)
     }.
+
+encode_party_ref(undefined) ->
+    undefined;
+encode_party_ref(PartyID) ->
+    #domain_PartyConfigRef{id = PartyID}.
 
 -spec encode_payment_method(ff_destination:resource_params() | undefined) ->
     dmsl_domain_thrift:'PaymentMethodRef'() | undefined.
