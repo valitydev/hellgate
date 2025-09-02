@@ -515,6 +515,7 @@ init_per_suite(C) ->
     ]),
 
     BaseLimitsRevision = hg_limiter_helper:init_per_suite(C),
+    _ = logger:error("BaseLimitsRevision: ~p", [BaseLimitsRevision]),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -534,7 +535,7 @@ init_per_suite(C) ->
     _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_WITH_SEVERAL_LIMITS, PartyClient),
     _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_WITH_SHOP_LIMITS, PartyClient),
 
-    _BaseRevision = hg_domain:insert(construct_domain_fixture()),
+    _BaseRevision = hg_domain:insert(construct_domain_fixture(BaseLimitsRevision)),
 
     ok = hg_context:save(hg_context:create()),
     ShopConfigRef = hg_ct_helper:create_party_and_shop(
@@ -1348,6 +1349,11 @@ payment_limit_overflow(C) ->
     ) = create_payment(PartyConfigRef, ShopConfigRef, PaymentAmount, Client, PmtSys),
 
     Failure = create_payment_limit_overflow(PartyConfigRef, ShopConfigRef, 1000, Client, PmtSys),
+    _ = logger:error("configured_limit_version(?LIMIT_ID, C): ~p", [configured_limit_version(?LIMIT_ID, C)]),
+    Res = dmt_client:checkout_object(
+        configured_limit_version(?LIMIT_ID, C), {limit_config, #domain_LimitConfigRef{id = ?LIMIT_ID}}
+    ),
+    _ = logger:error("dmt_client:checkout_object({limit_config, #domain_LimitConfigRef{id = ?LIMIT_ID}}: ~p", [Res]),
     ok = hg_limiter_helper:assert_payment_limit_amount(
         ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
     ),
@@ -8158,8 +8164,8 @@ get_payment_cashflow_mapped(InvoiceID, PaymentID, Client) ->
     ].
 
 %
--spec construct_domain_fixture() -> [hg_domain:object()].
-construct_domain_fixture() ->
+-spec construct_domain_fixture(hg_domain:revision()) -> [hg_domain:object()].
+construct_domain_fixture(BaseLimitsRevision) ->
     TestTermSet = #domain_TermSet{
         payments = #domain_PaymentsServiceTerms{
             currencies =
@@ -9444,7 +9450,7 @@ construct_domain_fixture() ->
                                 #domain_TurnoverLimit{
                                     id = ?LIMIT_ID,
                                     upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                    domain_revision = hg_domain:head()
+                                    domain_revision = BaseLimitsRevision
                                 }
                             ]}
                     }
@@ -9497,7 +9503,7 @@ construct_domain_fixture() ->
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID2,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                domain_revision = hg_domain:head()
+                                domain_revision = BaseLimitsRevision
                             }
                         ]}
                 }
@@ -9542,7 +9548,7 @@ construct_domain_fixture() ->
                             #domain_TurnoverLimit{
                                 id = ?LIMIT_ID3,
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                domain_revision = hg_domain:head()
+                                domain_revision = BaseLimitsRevision
                             }
                         ]}
                 }

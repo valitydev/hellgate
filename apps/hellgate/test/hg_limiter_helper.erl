@@ -48,7 +48,7 @@ get_amount(#limiter_Limit{amount = Amount}) ->
 
 -spec assert_payment_limit_amount(_, _, _, _, _) -> _.
 assert_payment_limit_amount(LimitID, Version, AssertAmount, Payment, Invoice) ->
-Result  = get_payment_limit_amount(LimitID, Version, Payment, Invoice),
+    Result = get_payment_limit_amount(LimitID, Version, Payment, Invoice),
     Limit = maybe_uninitialized_limit(Result),
     #limiter_Limit{amount = CurrentAmount} = Limit,
     ?assertEqual(AssertAmount, CurrentAmount, {LimitID, Result}).
