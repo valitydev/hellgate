@@ -17,7 +17,7 @@
 -type account_id() :: dmsl_domain_thrift:'AccountID'().
 -type account_map() :: #{
     account() => account_id(),
-    merchant := {party_id(), shop_id()},
+    merchant := {party_config_ref(), shop_config_ref()},
     provider := route()
 }.
 -type context() :: dmsl_domain_thrift:'CashFlowContext'().
@@ -27,8 +27,8 @@
 -type cash_volume() :: dmsl_domain_thrift:'CashVolume'().
 -type final_cash_flow_account() :: dmsl_domain_thrift:'FinalCashFlowAccount'().
 
--type shop_id() :: dmsl_domain_thrift:'ShopID'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type route() :: hg_route:payment_route().
 
 %%
@@ -80,10 +80,10 @@ construct_final_account(AccountType, AccountMap) ->
         transaction_account = construct_transaction_account(AccountType, AccountMap)
     }.
 
-construct_transaction_account({merchant, MerchantFlowAccount}, #{merchant := {PartyID, ShopID}}) ->
+construct_transaction_account({merchant, MerchantFlowAccount}, #{merchant := {PartyConfigRef, ShopConfigRef}}) ->
     AccountOwner = #domain_MerchantTransactionAccountOwner{
-        party_id = PartyID,
-        shop_id = ShopID
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef
     },
     {merchant, #domain_MerchantTransactionAccount{
         type = MerchantFlowAccount,

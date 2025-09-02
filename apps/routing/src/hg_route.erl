@@ -33,7 +33,7 @@
 
 -type t() :: #route{}.
 -type payment_route() :: dmsl_domain_thrift:'PaymentRoute'().
--type route_rejection_reason() :: {atom(), _DescOrAttrs} | {atom(), _DescOrAttrs1, _DescOrAttrs2}.
+-type route_rejection_reason() :: {atom(), term()} | {atom(), term(), term()}.
 -type rejected_route() :: {provider_ref(), terminal_ref(), route_rejection_reason()}.
 -type provider_ref() :: dmsl_domain_thrift:'ProviderRef'().
 -type terminal_ref() :: dmsl_domain_thrift:'TerminalRef'().
@@ -80,7 +80,7 @@ new(ProviderRef, TerminalRef, undefined, Priority, Pin) ->
 new(ProviderRef, TerminalRef, Weight, Priority, Pin) ->
     new(ProviderRef, TerminalRef, Weight, Priority, Pin, #domain_RouteFaultDetectorOverrides{}).
 
--spec new(provider_ref(), terminal_ref(), integer(), integer(), pin(), fd_overrides() | undefined) -> t().
+-spec new(provider_ref(), terminal_ref(), integer(), integer(), pin(), fd_overrides()) -> t().
 new(ProviderRef, TerminalRef, Weight, Priority, Pin, FdOverrides) ->
     #route{
         provider_ref = ProviderRef,

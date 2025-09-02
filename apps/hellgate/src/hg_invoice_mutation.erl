@@ -164,8 +164,8 @@ calc_deviation(MaxDeviation, PrecisionFactor) ->
 
 -define(invoice_w_cart(Amount, Cart, Mutations), #domain_Invoice{
     id = <<"invoice">>,
-    shop_id = <<"shop_id">>,
-    owner_id = <<"owner_id">>,
+    shop_ref = #domain_ShopConfigRef{id = <<"shop_ref">>},
+    party_ref = #domain_PartyConfigRef{id = <<"party_ref">>},
     created_at = <<"1970-01-01T00:00:00Z">>,
     domain_revision = 1223,
     status = {unpaid, #domain_InvoiceUnpaid{}},

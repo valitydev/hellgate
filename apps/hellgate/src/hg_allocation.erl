@@ -22,11 +22,11 @@
 
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
--type party_id() :: dmsl_payproc_thrift:'PartyID'().
--type shop_id() :: dmsl_payproc_thrift:'ShopID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 -type target_map() :: #{
-    party_id => party_id(),
-    shop_id => shop_id()
+    party_config_ref => party_config_ref(),
+    shop_config_ref => shop_config_ref()
 }.
 
 -type sub_errors() ::
@@ -85,14 +85,14 @@ assert_allocatable(_Allocation, _PaymentAllocationServiceTerms, _Party, _Shop, _
     {error, allocation_not_allowed}.
 
 -spec construct_target(target_map()) -> target().
-construct_target(#{party_id := PartyID, shop_id := ShopID}) ->
-    ?allocation_trx_target_shop(PartyID, ShopID).
+construct_target(#{party_config_ref := PartyConfigRef, shop_config_ref := ShopConfigRef}) ->
+    ?allocation_trx_target_shop(PartyConfigRef, ShopConfigRef).
 
--spec calculate(allocation_prototype(), party_id(), shop_id(), cash()) -> allocation().
-calculate(AllocationPrototype, PartyID, ShopID, Cost) ->
+-spec calculate(allocation_prototype(), party_config_ref(), shop_config_ref(), cash()) -> allocation().
+calculate(AllocationPrototype, PartyConfigRef, ShopConfigRef, Cost) ->
     FeeTarget = construct_target(#{
-        party_id => PartyID,
-        shop_id => ShopID
+        party_config_ref => PartyConfigRef,
+        shop_config_ref => ShopConfigRef
     }),
     calculate(AllocationPrototype, FeeTarget, Cost).
 

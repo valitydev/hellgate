@@ -42,7 +42,7 @@
 -type config() :: hg_ct_helper:config().
 -type test_case_name() :: hg_ct_helper:test_case_name().
 
--define(MISSING_SHOP_ID, <<"42">>).
+-define(MISSING_SHOP_CONFIG_REF, #domain_ShopConfigRef{id = <<"42">>}).
 
 -define(invoice_tpl(ID), #domain_InvoiceTemplate{id = ID}).
 
@@ -93,15 +93,16 @@ init_per_suite(C) ->
     ]),
     _ = hg_domain:insert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
-    PartyID = hg_utils:unique_id(),
+    PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     Client = {party_client:create_client(), party_client:create_context()},
     ok = hg_context:save(hg_context:create()),
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), Client),
+    ShopConfigRef =
+        hg_ct_helper:create_party_and_shop(PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), Client),
     ok = hg_context:cleanup(),
     [
-        {party_id, PartyID},
+        {party_config_ref, PartyConfigRef},
         {party_client, Client},
-        {shop_id, ShopID},
+        {shop_config_ref, ShopConfigRef},
         {root_url, RootUrl},
         {apps, Apps}
         | C
@@ -129,42 +130,42 @@ end_per_testcase(_Name, _C) ->
 -spec create_invalid_shop(config()) -> _.
 create_invalid_shop(C) ->
     Client = cfg(client, C),
-    ShopID = ?MISSING_SHOP_ID,
-    PartyID = cfg(party_id, C),
-    Params = make_invoice_tpl_create_params(PartyID, ShopID),
+    ShopConfigRef = ?MISSING_SHOP_CONFIG_REF,
+    PartyConfigRef = cfg(party_config_ref, C),
+    Params = make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef),
     {exception, #payproc_ShopNotFound{}} = hg_client_invoice_templating:create(Params, Client).
 
 -spec create_invalid_party_status(config()) -> _.
 create_invalid_party_status(C) ->
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
 
-    ok = hg_ct_helper:suspend_party(PartyID),
+    ok = hg_ct_helper:suspend_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = create_invoice_tpl(C),
-    ok = hg_ct_helper:activate_party(PartyID),
+    ok = hg_ct_helper:activate_party(PartyConfigRef),
 
-    ok = hg_ct_helper:block_party(PartyID),
+    ok = hg_ct_helper:block_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = create_invoice_tpl(C),
-    ok = hg_ct_helper:unblock_party(PartyID).
+    ok = hg_ct_helper:unblock_party(PartyConfigRef).
 
 -spec create_invalid_shop_status(config()) -> _.
 create_invalid_shop_status(C) ->
-    ShopID = cfg(shop_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
 
-    ok = hg_ct_helper:suspend_shop(ShopID),
+    ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = create_invoice_tpl(C),
-    ok = hg_ct_helper:activate_shop(ShopID),
+    ok = hg_ct_helper:activate_shop(ShopConfigRef),
 
-    ok = hg_ct_helper:block_shop(ShopID),
+    ok = hg_ct_helper:block_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = create_invoice_tpl(C),
-    ok = hg_ct_helper:unblock_shop(ShopID).
+    ok = hg_ct_helper:unblock_shop(ShopConfigRef).
 
 -spec create_invalid_cost_fixed_amount(config()) -> _.
 create_invalid_cost_fixed_amount(C) ->
@@ -240,68 +241,68 @@ make_mutations(Deviation) ->
 
 -spec get_invoice_template_anyhow(config()) -> _.
 get_invoice_template_anyhow(C) ->
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
     InvoiceTpl = ?invoice_tpl(TplID) = create_invoice_tpl(C),
 
-    ok = hg_ct_helper:suspend_party(PartyID),
+    ok = hg_ct_helper:suspend_party(PartyConfigRef),
     InvoiceTpl = hg_client_invoice_templating:get(TplID, Client),
-    ok = hg_ct_helper:activate_party(PartyID),
+    ok = hg_ct_helper:activate_party(PartyConfigRef),
 
-    ok = hg_ct_helper:block_party(PartyID),
+    ok = hg_ct_helper:block_party(PartyConfigRef),
     InvoiceTpl = hg_client_invoice_templating:get(TplID, Client),
-    ok = hg_ct_helper:unblock_party(PartyID),
+    ok = hg_ct_helper:unblock_party(PartyConfigRef),
 
-    ok = hg_ct_helper:suspend_shop(ShopID),
+    ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     InvoiceTpl = hg_client_invoice_templating:get(TplID, Client),
-    ok = hg_ct_helper:activate_shop(ShopID),
+    ok = hg_ct_helper:activate_shop(ShopConfigRef),
 
-    ok = hg_ct_helper:block_shop(ShopID),
+    ok = hg_ct_helper:block_shop(ShopConfigRef),
     InvoiceTpl = hg_client_invoice_templating:get(TplID, Client),
-    ok = hg_ct_helper:unblock_shop(ShopID),
+    ok = hg_ct_helper:unblock_shop(ShopConfigRef),
 
     InvoiceTpl = hg_client_invoice_templating:get(TplID, Client).
 
 -spec update_invalid_party_status(config()) -> _.
 update_invalid_party_status(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
     Diff = make_invoice_tpl_update_params(
         #{details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))}
     ),
-    ok = hg_ct_helper:suspend_party(PartyID),
+    ok = hg_ct_helper:suspend_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoice_templating:update(TplID, Diff, Client),
-    ok = hg_ct_helper:activate_party(PartyID),
+    ok = hg_ct_helper:activate_party(PartyConfigRef),
 
-    ok = hg_ct_helper:block_party(PartyID),
+    ok = hg_ct_helper:block_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoice_templating:update(TplID, Diff, Client),
-    ok = hg_ct_helper:unblock_party(PartyID).
+    ok = hg_ct_helper:unblock_party(PartyConfigRef).
 
 -spec update_invalid_shop_status(config()) -> _.
 update_invalid_shop_status(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
     Diff = make_invoice_tpl_update_params(
         #{details => hg_ct_helper:make_invoice_tpl_details(<<"teddy bear">>, make_cost(fixed, 42, <<"RUB">>))}
     ),
-    ok = hg_ct_helper:suspend_shop(ShopID),
+    ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoice_templating:update(TplID, Diff, Client),
-    ok = hg_ct_helper:activate_shop(ShopID),
+    ok = hg_ct_helper:activate_shop(ShopConfigRef),
 
-    ok = hg_ct_helper:block_shop(ShopID),
+    ok = hg_ct_helper:block_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoice_templating:update(TplID, Diff, Client),
-    ok = hg_ct_helper:unblock_shop(ShopID).
+    ok = hg_ct_helper:unblock_shop(ShopConfigRef).
 
 -spec update_invalid_cost_fixed_amount(config()) -> _.
 update_invalid_cost_fixed_amount(C) ->
@@ -340,8 +341,8 @@ update_invalid_cost_range(C) ->
 -spec update_invoice_template(config()) -> _.
 update_invoice_template(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
     NewProduct = <<"teddy bear">>,
     CostUnlim = make_cost(unlim, sale, "50%"),
@@ -355,8 +356,8 @@ update_invoice_template(C) ->
     Tpl1 =
         #domain_InvoiceTemplate{
             id = TplID,
-            owner_id = PartyID,
-            shop_id = ShopID,
+            party_ref = PartyConfigRef,
+            shop_ref = ShopConfigRef,
             product = NewProduct,
             details = NewDetails,
             invoice_lifetime = NewLifetime
@@ -379,8 +380,8 @@ update_cost(Cost, Tpl, Client) ->
 -spec update_with_cart(config()) -> _.
 update_with_cart(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
     NewDetails =
         {cart, #domain_InvoiceCart{
@@ -404,8 +405,8 @@ update_with_cart(C) ->
     }),
     #domain_InvoiceTemplate{
         id = TplID,
-        owner_id = PartyID,
-        shop_id = ShopID,
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef,
         details = NewDetails
     } = hg_client_invoice_templating:update(TplID, Diff, Client),
     #domain_InvoiceTemplate{} = hg_client_invoice_templating:get(TplID, Client).
@@ -434,40 +435,40 @@ update_with_mutations(C) ->
 -spec delete_invalid_party_status(config()) -> _.
 delete_invalid_party_status(C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
 
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
 
-    ok = hg_ct_helper:suspend_party(PartyID),
+    ok = hg_ct_helper:suspend_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoice_templating:delete(TplID, Client),
-    ok = hg_ct_helper:activate_party(PartyID),
+    ok = hg_ct_helper:activate_party(PartyConfigRef),
 
-    ok = hg_ct_helper:block_party(PartyID),
+    ok = hg_ct_helper:block_party(PartyConfigRef),
     {exception, #payproc_InvalidPartyStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoice_templating:delete(TplID, Client),
-    ok = hg_ct_helper:unblock_party(PartyID).
+    ok = hg_ct_helper:unblock_party(PartyConfigRef).
 
 -spec delete_invalid_shop_status(config()) -> _.
 delete_invalid_shop_status(C) ->
     Client = cfg(client, C),
-    ShopID = cfg(shop_id, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
 
     ?invoice_tpl(TplID) = create_invoice_tpl(C),
 
-    ok = hg_ct_helper:suspend_shop(ShopID),
+    ok = hg_ct_helper:suspend_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {suspension, {suspended, _}}
     }} = hg_client_invoice_templating:delete(TplID, Client),
-    ok = hg_ct_helper:activate_shop(ShopID),
+    ok = hg_ct_helper:activate_shop(ShopConfigRef),
 
-    ok = hg_ct_helper:block_shop(ShopID),
+    ok = hg_ct_helper:block_shop(ShopConfigRef),
     {exception, #payproc_InvalidShopStatus{
         status = {blocking, {blocked, _}}
     }} = hg_client_invoice_templating:delete(TplID, Client),
-    ok = hg_ct_helper:unblock_shop(ShopID).
+    ok = hg_ct_helper:unblock_shop(ShopConfigRef).
 
 -spec delete_invoice_template(config()) -> _.
 delete_invoice_template(C) ->
@@ -519,28 +520,28 @@ terms_retrieval(C) ->
 
 create_invoice_tpl(Config) ->
     Client = cfg(client, Config),
-    ShopID = cfg(shop_id, Config),
-    PartyID = cfg(party_id, Config),
-    Params = make_invoice_tpl_create_params(PartyID, ShopID),
+    ShopConfigRef = cfg(shop_config_ref, Config),
+    PartyConfigRef = cfg(party_config_ref, Config),
+    Params = make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef),
     hg_client_invoice_templating:create(Params, Client).
 
 create_invoice_tpl(Config, Product, Lifetime, Cost) ->
     Client = cfg(client, Config),
-    ShopID = cfg(shop_id, Config),
-    PartyID = cfg(party_id, Config),
+    ShopConfigRef = cfg(shop_config_ref, Config),
+    PartyConfigRef = cfg(party_config_ref, Config),
     Details = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
-    Params = make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details),
+    Params = make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef, Lifetime, Product, Details),
     hg_client_invoice_templating:create(Params, Client).
 
 create_invoice_tpl_w_mutations(Config, Product, Lifetime, Cost, Mutations) ->
     Client = cfg(client, Config),
-    ShopID = cfg(shop_id, Config),
-    PartyID = cfg(party_id, Config),
+    ShopConfigRef = cfg(shop_config_ref, Config),
+    PartyConfigRef = cfg(party_config_ref, Config),
     Details = hg_ct_helper:make_invoice_tpl_details(Product, Cost),
     Params = hg_ct_helper:make_invoice_tpl_create_params(
         hg_utils:unique_id(),
-        PartyID,
-        ShopID,
+        PartyConfigRef,
+        ShopConfigRef,
         Lifetime,
         Product,
         Details,
@@ -569,11 +570,11 @@ create_invalid_cost(Cost, Error, Config) ->
     {exception, #base_InvalidRequest{errors = [Error]}} = create_invoice_tpl(Config, Product, Lifetime, Cost),
     ok.
 
-make_invoice_tpl_create_params(PartyID, ShopID) ->
+make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef) ->
     Lifetime = make_lifetime(0, 0, 2),
     Product = <<"rubberduck">>,
     Details = hg_ct_helper:make_invoice_tpl_details(Product, make_cost(fixed, 5000, <<"RUB">>)),
-    make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details).
+    make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef, Lifetime, Product, Details).
 
 make_cost(Type, P1, P2) ->
     hg_ct_helper:make_invoice_tpl_cost(Type, P1, P2).

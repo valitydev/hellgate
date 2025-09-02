@@ -1,6 +1,7 @@
 -module(hg_varset).
 
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 -export([prepare_varset/1]).
 
@@ -11,11 +12,11 @@
     currency => dmsl_domain_thrift:'CurrencyRef'(),
     cost => dmsl_domain_thrift:'Cash'(),
     payment_tool => dmsl_domain_thrift:'PaymentTool'(),
-    party_id => dmsl_domain_thrift:'PartyID'(),
-    shop_id => dmsl_domain_thrift:'ShopID'(),
+    party_config_ref => dmsl_domain_thrift:'PartyConfigRef'(),
+    shop_id => dmsl_base_thrift:'ID'(),
     risk_score => hg_inspector:risk_score(),
     flow => instant | {hold, dmsl_domain_thrift:'HoldLifetime'()},
-    wallet_id => dmsl_domain_thrift:'WalletID'()
+    wallet_id => dmsl_base_thrift:'ID'()
 }.
 
 -spec prepare_varset(varset()) -> dmsl_payproc_thrift:'Varset'().
@@ -26,6 +27,6 @@ prepare_varset(Varset) ->
         amount = genlib_map:get(cost, Varset),
         wallet_id = genlib_map:get(wallet_id, Varset),
         payment_tool = genlib_map:get(payment_tool, Varset),
-        party_id = genlib_map:get(party_id, Varset),
+        party_ref = genlib_map:get(party_config_ref, Varset),
         shop_id = genlib_map:get(shop_id, Varset)
     }.

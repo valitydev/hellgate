@@ -278,8 +278,8 @@ gather_varset(Payment, Opts) ->
         payer = Payer,
         domain_revision = Revision
     } = Payment,
-    PartyID = get_party_id(Opts),
-    {ShopID, #domain_ShopConfig{
+    PartyConfigRef = get_party_config_ref(Opts),
+    {#domain_ShopConfigRef{id = ShopID}, #domain_ShopConfig{
         category = Category
     }} = get_shop(Opts, Revision),
     #payproc_Varset{
@@ -288,15 +288,15 @@ gather_varset(Payment, Opts) ->
         amount = Cost,
         shop_id = ShopID,
         payment_tool = hg_invoice_payment:get_payer_payment_tool(Payer),
-        party_id = PartyID
+        party_ref = PartyConfigRef
     }.
 
-get_party_id(#{party_id := PartyID}) ->
-    PartyID.
+get_party_config_ref(#{party_config_ref := PartyConfigRef}) ->
+    PartyConfigRef.
 
-get_shop(#{party := Party, invoice := Invoice}, Revision) ->
-    #domain_Invoice{shop_id = ShopID} = Invoice,
-    hg_party:get_shop(ShopID, Party, Revision).
+get_shop(#{invoice := Invoice}, Revision) ->
+    #domain_Invoice{shop_ref = ShopConfigRef, party_ref = PartyConfigRef} = Invoice,
+    hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision).
 
 format(Format, Data) ->
     erlang:iolist_to_binary(io_lib:format(Format, Data)).
