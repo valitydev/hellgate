@@ -34,8 +34,8 @@
 
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
 -define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
--define(dummy_party_id, <<"dummy_party_id">>).
--define(party_id_for_ruleset_w_no_delegates, <<"dummy_party_id_1">>).
+-define(dummy_party_config_ref, #domain_PartyConfigRef{id = <<"dummy_party_id">>}).
+-define(party_config_ref_for_ruleset_w_no_delegates, #domain_PartyConfigRef{id = <<"dummy_party_id_1">>}).
 -define(shop_id_for_ruleset_w_priority_distribution_1, <<"dummy_shop_id">>).
 -define(shop_id_for_ruleset_w_priority_distribution_2, <<"dummy_another_shop_id">>).
 -define(assert_set_equal(S1, S2), ?assertEqual(lists:sort(S1), lists:sort(S2))).
@@ -91,7 +91,7 @@ init_per_suite(C) ->
         hellgate,
         {cowboy, CowboySpec}
     ]),
-    PartyID = hg_utils:unique_id(),
+    PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient = party_client:create_client(),
     {ok, SupPid} = hg_mock_helper:start_sup(),
     FDConfig = genlib_app:env(hellgate, fault_detector),
@@ -104,7 +104,7 @@ init_per_suite(C) ->
         {apps, Apps},
         {suite_test_sup, SupPid},
         {party_client, PartyClient},
-        {party_id, PartyID}
+        {party_config_ref, PartyConfigRef}
         | C
     ].
 
@@ -224,7 +224,7 @@ mock_party_management(SupPid) ->
                     {
                         ?ruleset(2),
                         ?base_routing_rule_domain_revision,
-                        #payproc_Varset{party_id = ?party_id_for_ruleset_w_no_delegates}
+                        #payproc_Varset{party_ref = ?party_config_ref_for_ruleset_w_no_delegates}
                     }
                 ) ->
                     {ok, #domain_RoutingRuleset{
@@ -457,7 +457,7 @@ no_route_found_for_payment(_C) ->
         currency => Currency0,
         cost => ?PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(-1),
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         flow => instant
     },
 
@@ -515,7 +515,7 @@ gather_route_success(_C) ->
         currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         flow => instant,
         risk_score => low
     },
@@ -556,7 +556,7 @@ rejected_by_table_prohibitions(_C) ->
         currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         flow => instant,
         risk_score => low
     },
@@ -599,7 +599,7 @@ empty_candidate_ok(_C) ->
         currency => Currency,
         cost => ?cash(101010, <<"RUB">>),
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         flow => instant
     },
 
@@ -618,7 +618,7 @@ empty_candidate_ok(_C) ->
 -spec ruleset_misconfig(config()) -> test_return().
 ruleset_misconfig(_C) ->
     VS = #{
-        party_id => ?party_id_for_ruleset_w_no_delegates,
+        party_config_ref => ?party_config_ref_for_ruleset_w_no_delegates,
         flow => instant
     },
 
@@ -651,7 +651,7 @@ routes_selected_with_risk_score(_C, RiskScore, ProviderRefs) ->
         currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         flow => instant,
         risk_score => RiskScore
     },
@@ -716,7 +716,7 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
         currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         flow => instant,
         risk_score => low
     },
@@ -756,7 +756,7 @@ terminal_priority_for_shop(ShopID, _C) ->
         currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         shop_id => ShopID,
         flow => instant
     },
@@ -781,7 +781,7 @@ gather_pinned_route(_C) ->
         currency => Currency,
         cost => ?PROVIDER_MIN_ALLOWED,
         payment_tool => PaymentTool,
-        party_id => ?dummy_party_id,
+        party_config_ref => ?dummy_party_config_ref,
         flow => instant
     },
     Revision = ?pinned_route_revision,

@@ -449,12 +449,12 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 
 -type invoice_id() :: dmsl_domain_thrift:'InvoiceID'().
 -type invoice_template_id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
 -type termset_ref() :: dmsl_domain_thrift:'TermSetHierarchyRef'().
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 -type turnover_limits() :: ordsets:ordset(turnover_limit()).
--type shop_id() :: dmsl_domain_thrift:'ShopID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 -type category() :: dmsl_domain_thrift:'CategoryRef'().
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type invoice_tpl_id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
@@ -474,8 +474,8 @@ create_client_w_context(RootUrl, WoodyCtx) ->
 -type payment_inst_ref() :: dmsl_domain_thrift:'PaymentInstitutionRef'().
 -type allocation_prototype() :: dmsl_domain_thrift:'AllocationPrototype'().
 
--spec create_party(party_id(), party_client()) -> party().
-create_party(PartyID, _Client) ->
+-spec create_party(party_config_ref(), party_client()) -> party().
+create_party(PartyConfigRef, _Client) ->
     % Создаем Party как объект конфигурации
     PartyConfig = #domain_PartyConfig{
         contact_info = #domain_PartyContactInfo{
@@ -490,24 +490,22 @@ create_party(PartyID, _Client) ->
         suspension =
             {active, #domain_Active{
                 since = hg_datetime:format_now()
-            }},
-        shops = [],
-        wallets = []
+            }}
     },
 
     % Вставляем Party в домен
     _ = hg_domain:upsert(
         {party_config, #domain_PartyConfigObject{
-            ref = #domain_PartyConfigRef{id = PartyID},
+            ref = PartyConfigRef,
             data = PartyConfig
         }}
     ),
 
     PartyConfig.
 
--spec suspend_party(party_id()) -> ok.
-suspend_party(PartyID) ->
-    change_party(PartyID, fun(PartyConfig) ->
+-spec suspend_party(party_config_ref()) -> ok.
+suspend_party(PartyConfigRef) ->
+    change_party(PartyConfigRef, fun(PartyConfig) ->
         PartyConfig#domain_PartyConfig{
             suspension =
                 {suspended, #domain_Suspended{
@@ -516,9 +514,9 @@ suspend_party(PartyID) ->
         }
     end).
 
--spec activate_party(party_id()) -> ok.
-activate_party(PartyID) ->
-    change_party(PartyID, fun(PartyConfig) ->
+-spec activate_party(party_config_ref()) -> ok.
+activate_party(PartyConfigRef) ->
+    change_party(PartyConfigRef, fun(PartyConfig) ->
         PartyConfig#domain_PartyConfig{
             suspension =
                 {active, #domain_Active{
@@ -527,9 +525,9 @@ activate_party(PartyID) ->
         }
     end).
 
--spec block_party(party_id()) -> ok.
-block_party(PartyID) ->
-    change_party(PartyID, fun(PartyConfig) ->
+-spec block_party(party_config_ref()) -> ok.
+block_party(PartyConfigRef) ->
+    change_party(PartyConfigRef, fun(PartyConfig) ->
         PartyConfig#domain_PartyConfig{
             block =
                 {blocked, #domain_Blocked{
@@ -539,9 +537,9 @@ block_party(PartyID) ->
         }
     end).
 
--spec unblock_party(party_id()) -> ok.
-unblock_party(PartyID) ->
-    change_party(PartyID, fun(PartyConfig) ->
+-spec unblock_party(party_config_ref()) -> ok.
+unblock_party(PartyConfigRef) ->
+    change_party(PartyConfigRef, fun(PartyConfig) ->
         PartyConfig#domain_PartyConfig{
             block =
                 {unblocked, #domain_Unblocked{
@@ -551,28 +549,28 @@ unblock_party(PartyID) ->
         }
     end).
 
-change_party(PartyID, Fun) ->
-    PartyConfig0 = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+change_party(PartyConfigRef, Fun) ->
+    PartyConfig0 = hg_domain:get({party_config, PartyConfigRef}),
     PartyConfig1 = Fun(PartyConfig0),
     _ = hg_domain:upsert(
         {party_config, #domain_PartyConfigObject{
-            ref = #domain_PartyConfigRef{id = PartyID},
+            ref = PartyConfigRef,
             data = PartyConfig1
         }}
     ),
     ok.
 
 -spec create_shop(
-    party_id(),
+    party_config_ref(),
     category(),
     currency(),
     termset_ref(),
     payment_inst_ref(),
     undefined | turnover_limits(),
     party_client()
-) -> shop_id().
-create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimits, _Client) ->
-    ShopID = hg_utils:unique_id(),
+) -> shop_config_ref().
+create_shop(PartyConfigRef, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimits, _Client) ->
+    ShopConfigRef = #domain_ShopConfigRef{id = hg_utils:unique_id()},
 
     % Создаем счета
     SettlementID = hg_accounting:create_account(Currency),
@@ -600,37 +598,31 @@ create_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, TurnoverLimit
         },
         payment_institution = PaymentInstRef,
         terms = TermsRef,
-        party_id = PartyID,
+        party_ref = PartyConfigRef,
         turnover_limits = TurnoverLimits
     },
 
     % Вставляем Shop в домен
     _ = hg_domain:upsert(
         {shop_config, #domain_ShopConfigObject{
-            ref = #domain_ShopConfigRef{id = ShopID},
+            ref = ShopConfigRef,
             data = ShopConfig
         }}
     ),
 
-    change_party(PartyID, fun(PartyConfig) ->
-        PartyConfig#domain_PartyConfig{
-            shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
-        }
-    end),
+    ShopConfigRef.
 
-    ShopID.
-
--spec shop_set_terms(shop_id(), _) -> ok.
-shop_set_terms(ShopID, TermsRef) ->
-    change_shop(ShopID, fun(ShopConfig) ->
+-spec shop_set_terms(shop_config_ref(), _) -> ok.
+shop_set_terms(ShopConfigRef, TermsRef) ->
+    change_shop(ShopConfigRef, fun(ShopConfig) ->
         ShopConfig#domain_ShopConfig{
             terms = TermsRef
         }
     end).
 
--spec suspend_shop(shop_id()) -> ok.
-suspend_shop(ShopID) ->
-    change_shop(ShopID, fun(ShopConfig) ->
+-spec suspend_shop(shop_config_ref()) -> ok.
+suspend_shop(ShopConfigRef) ->
+    change_shop(ShopConfigRef, fun(ShopConfig) ->
         ShopConfig#domain_ShopConfig{
             suspension =
                 {suspended, #domain_Suspended{
@@ -639,9 +631,9 @@ suspend_shop(ShopID) ->
         }
     end).
 
--spec activate_shop(shop_id()) -> ok.
-activate_shop(ShopID) ->
-    change_shop(ShopID, fun(ShopConfig) ->
+-spec activate_shop(shop_config_ref()) -> ok.
+activate_shop(ShopConfigRef) ->
+    change_shop(ShopConfigRef, fun(ShopConfig) ->
         ShopConfig#domain_ShopConfig{
             suspension =
                 {active, #domain_Active{
@@ -650,9 +642,9 @@ activate_shop(ShopID) ->
         }
     end).
 
--spec block_shop(party_id()) -> ok.
-block_shop(ShopID) ->
-    change_shop(ShopID, fun(ShopConfig) ->
+-spec block_shop(shop_config_ref()) -> ok.
+block_shop(ShopConfigRef) ->
+    change_shop(ShopConfigRef, fun(ShopConfig) ->
         ShopConfig#domain_ShopConfig{
             block =
                 {blocked, #domain_Blocked{
@@ -662,9 +654,9 @@ block_shop(ShopID) ->
         }
     end).
 
--spec unblock_shop(party_id()) -> ok.
-unblock_shop(ShopID) ->
-    change_shop(ShopID, fun(ShopConfig) ->
+-spec unblock_shop(shop_config_ref()) -> ok.
+unblock_shop(ShopConfigRef) ->
+    change_shop(ShopConfigRef, fun(ShopConfig) ->
         ShopConfig#domain_ShopConfig{
             block =
                 {unblocked, #domain_Unblocked{
@@ -674,27 +666,27 @@ unblock_shop(ShopID) ->
         }
     end).
 
-change_shop(ShopID, Fun) ->
-    ShopConfig0 = hg_domain:get({shop_config, #domain_ShopConfigRef{id = ShopID}}),
+change_shop(ShopConfigRef, Fun) ->
+    ShopConfig0 = hg_domain:get({shop_config, ShopConfigRef}),
     ShopConfig1 = Fun(ShopConfig0),
     _ = hg_domain:upsert(
         {shop_config, #domain_ShopConfigObject{
-            ref = #domain_ShopConfigRef{id = ShopID},
+            ref = ShopConfigRef,
             data = ShopConfig1
         }}
     ),
     ok.
 
 -spec create_party_and_shop(
-    party_id(),
+    party_config_ref(),
     category(),
     currency(),
     termset_ref(),
     payment_inst_ref(),
     party_client()
-) -> shop_id().
-create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Client) ->
-    ShopID = hg_utils:unique_id(),
+) -> shop_config_ref().
+create_party_and_shop(PartyConfigRef, Category, Currency, TermsRef, PaymentInstRef, _Client) ->
+    ShopConfigRef = #domain_ShopConfigRef{id = hg_utils:unique_id()},
 
     % Создаем Party как объект конфигурации
     PartyConfig = #domain_PartyConfig{
@@ -710,15 +702,13 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
         suspension =
             {active, #domain_Active{
                 since = hg_datetime:format_now()
-            }},
-        shops = [],
-        wallets = []
+            }}
     },
 
     % Вставляем Party в домен
     _ = hg_domain:upsert(
         {party_config, #domain_PartyConfigObject{
-            ref = #domain_PartyConfigRef{id = PartyID},
+            ref = PartyConfigRef,
             data = PartyConfig
         }}
     ),
@@ -749,47 +739,40 @@ create_party_and_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _Cl
         },
         terms = TermsRef,
         payment_institution = PaymentInstRef,
-        party_id = PartyID
+        party_ref = PartyConfigRef
     },
 
     % Вставляем Shop в домен
     _ = hg_domain:upsert(
         {shop_config, #domain_ShopConfigObject{
-            ref = #domain_ShopConfigRef{id = ShopID},
+            ref = ShopConfigRef,
             data = ShopConfig
         }}
     ),
 
-    change_party(PartyID, fun(PartyConfig0) ->
-        PartyConfig0#domain_PartyConfig{
-            shops = [#domain_ShopConfigRef{id = ShopID}]
-        }
-    end),
-
-    ShopID.
+    ShopConfigRef.
 
 -spec create_shop(
-    party_id(),
+    party_config_ref(),
     category(),
     currency(),
     termset_ref(),
     payment_inst_ref(),
     party_client()
-) -> shop_id().
-create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, Client) ->
-    create_shop(PartyID, Category, Currency, TemplateRef, PaymentInstRef, undefined, Client).
+) -> shop_config_ref().
+create_shop(PartyConfigRef, Category, Currency, TemplateRef, PaymentInstRef, Client) ->
+    create_shop(PartyConfigRef, Category, Currency, TemplateRef, PaymentInstRef, undefined, Client).
 
 -spec create_battle_ready_shop(
-    party_id(),
+    party_config_ref(),
     category(),
     currency(),
     termset_ref(),
     payment_inst_ref(),
     party_client()
-) -> shop_id().
-create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, _PartyPair) ->
-    ShopID = hg_utils:unique_id(),
-    PartyConfig = hg_domain:get({party_config, #domain_PartyConfigRef{id = PartyID}}),
+) -> shop_config_ref().
+create_battle_ready_shop(PartyConfigRef, Category, Currency, TermsRef, PaymentInstRef, _PartyPair) ->
+    ShopConfigRef = #domain_ShopConfigRef{id = hg_utils:unique_id()},
 
     % Создаем счета
     SettlementID = hg_accounting:create_account(Currency),
@@ -817,52 +800,53 @@ create_battle_ready_shop(PartyID, Category, Currency, TermsRef, PaymentInstRef, 
         },
         payment_institution = PaymentInstRef,
         terms = TermsRef,
-        party_id = PartyID
+        party_ref = PartyConfigRef
     },
 
     % Вставляем Shop в домен
     _ = hg_domain:upsert(
         {shop_config, #domain_ShopConfigObject{
-            ref = #domain_ShopConfigRef{id = ShopID},
+            ref = ShopConfigRef,
             data = ShopConfig
         }}
     ),
 
-    change_party(PartyID, fun(PartyConfig0) ->
-        PartyConfig0#domain_PartyConfig{
-            shops = [#domain_ShopConfigRef{id = ShopID} | PartyConfig#domain_PartyConfig.shops]
-        }
-    end),
+    ShopConfigRef.
 
-    ShopID.
+-spec make_invoice_params(party_config_ref(), shop_config_ref(), binary(), cash()) ->
+    invoice_params().
+make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Cost) ->
+    make_invoice_params(PartyConfigRef, ShopConfigRef, Product, make_due_date(), Cost).
 
--spec make_invoice_params(party_id(), shop_id(), binary(), cash()) -> invoice_params().
-make_invoice_params(PartyID, ShopID, Product, Cost) ->
-    make_invoice_params(PartyID, ShopID, Product, make_due_date(), Cost).
-
--spec make_invoice_params(party_id(), shop_id(), binary(), timestamp(), cash()) -> invoice_params().
-make_invoice_params(PartyID, ShopID, Product, Due, Cost) ->
+-spec make_invoice_params(party_config_ref(), shop_config_ref(), binary(), timestamp(), cash()) ->
+    invoice_params().
+make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, Cost) ->
     InvoiceID = hg_utils:unique_id(),
-    make_invoice_params(InvoiceID, PartyID, ShopID, Product, Due, Cost).
+    make_invoice_params(InvoiceID, PartyConfigRef, ShopConfigRef, Product, Due, Cost).
 
--spec make_invoice_params(invoice_id(), party_id(), shop_id(), binary(), timestamp(), cash()) -> invoice_params().
-make_invoice_params(InvoiceID, PartyID, ShopID, Product, Due, Cost) ->
-    make_invoice_params(InvoiceID, PartyID, ShopID, Product, Due, Cost, undefined).
+-spec make_invoice_params(
+    invoice_id(), party_config_ref(), shop_config_ref(), binary(), timestamp(), cash()
+) ->
+    invoice_params().
+make_invoice_params(InvoiceID, PartyConfigRef, ShopConfigRef, Product, Due, Cost) ->
+    make_invoice_params(InvoiceID, PartyConfigRef, ShopConfigRef, Product, Due, Cost, undefined).
 
 -spec make_invoice_params(
     invoice_id(),
-    party_id(),
-    shop_id(),
+    party_config_ref(),
+    shop_config_ref(),
     binary(),
     timestamp(),
     cash(),
     allocation_prototype() | undefined
 ) -> invoice_params().
-make_invoice_params(InvoiceID, PartyID, ShopID, Product, Due, Cost, AllocationPrototype) ->
+make_invoice_params(
+    InvoiceID, PartyConfigRef, ShopConfigRef, Product, Due, Cost, AllocationPrototype
+) ->
     #payproc_InvoiceParams{
         id = InvoiceID,
-        party_id = PartyID,
-        shop_id = ShopID,
+        party_id = PartyConfigRef,
+        shop_id = ShopConfigRef,
         details = make_invoice_details(Product),
         due = hg_datetime:format_ts(Due),
         cost = Cost,
@@ -878,12 +862,15 @@ make_invoice_params_tpl(TplID) ->
 make_invoice_params_tpl(TplID, Cost) ->
     make_invoice_params_tpl(TplID, Cost, undefined).
 
--spec make_invoice_params_tpl(invoice_tpl_id(), undefined | cash(), undefined | context()) -> invoice_params_tpl().
+-spec make_invoice_params_tpl(invoice_tpl_id(), undefined | cash(), undefined | context()) ->
+    invoice_params_tpl().
 make_invoice_params_tpl(TplID, Cost, Context) ->
     InvoiceID = hg_utils:unique_id(),
     make_invoice_params_tpl(InvoiceID, TplID, Cost, Context).
 
--spec make_invoice_params_tpl(invoice_id(), invoice_tpl_id(), undefined | cash(), undefined | context()) ->
+-spec make_invoice_params_tpl(
+    invoice_id(), invoice_tpl_id(), undefined | cash(), undefined | context()
+) ->
     invoice_params_tpl().
 make_invoice_params_tpl(InvoiceID, TplID, Cost, Context) ->
     #payproc_InvoiceWithTemplateParams{
@@ -893,50 +880,69 @@ make_invoice_params_tpl(InvoiceID, TplID, Cost, Context) ->
         context = Context
     }.
 
--spec make_invoice_tpl_create_params(party_id(), shop_id(), lifetime_interval(), binary(), invoice_tpl_details()) ->
+-spec make_invoice_tpl_create_params(
+    party_config_ref(), shop_config_ref(), lifetime_interval(), binary(), invoice_tpl_details()
+) ->
     invoice_tpl_create_params().
-make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details) ->
-    make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details, make_invoice_context()).
+make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef, Lifetime, Product, Details) ->
+    make_invoice_tpl_create_params(
+        PartyConfigRef, ShopConfigRef, Lifetime, Product, Details, make_invoice_context()
+    ).
 
 -spec make_invoice_tpl_create_params(
-    party_id(),
-    shop_id(),
+    party_config_ref(),
+    shop_config_ref(),
     lifetime_interval(),
     binary(),
     invoice_tpl_details(),
     context()
 ) -> invoice_tpl_create_params().
-make_invoice_tpl_create_params(PartyID, ShopID, Lifetime, Product, Details, Context) ->
+make_invoice_tpl_create_params(PartyConfigRef, ShopConfigRef, Lifetime, Product, Details, Context) ->
     InvoiceTemplateID = hg_utils:unique_id(),
-    make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Product, Details, Context).
+    make_invoice_tpl_create_params(
+        InvoiceTemplateID, PartyConfigRef, ShopConfigRef, Lifetime, Product, Details, Context
+    ).
 
 -spec make_invoice_tpl_create_params(
     invoice_template_id(),
-    party_id(),
-    shop_id(),
+    party_config_ref(),
+    shop_config_ref(),
     lifetime_interval(),
     binary(),
     invoice_tpl_details(),
     context()
 ) -> invoice_tpl_create_params().
-make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Product, Details, Context) ->
-    make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Product, Details, Context, undefined).
+make_invoice_tpl_create_params(
+    InvoiceTemplateID, PartyConfigRef, ShopConfigRef, Lifetime, Product, Details, Context
+) ->
+    make_invoice_tpl_create_params(
+        InvoiceTemplateID,
+        PartyConfigRef,
+        ShopConfigRef,
+        Lifetime,
+        Product,
+        Details,
+        Context,
+        undefined
+    ).
 
 -spec make_invoice_tpl_create_params(
     invoice_template_id(),
-    party_id(),
-    shop_id(),
+    party_config_ref(),
+    shop_config_ref(),
     lifetime_interval(),
     binary(),
     invoice_tpl_details(),
     context(),
     [mutation()] | undefined
 ) -> invoice_tpl_create_params().
-make_invoice_tpl_create_params(InvoiceTemplateID, PartyID, ShopID, Lifetime, Product, Details, Context, Mutations) ->
+make_invoice_tpl_create_params(
+    InvoiceTemplateID, PartyConfigRef, ShopConfigRef, Lifetime, Product, Details, Context, Mutations
+) ->
     #payproc_InvoiceTemplateCreateParams{
         template_id = InvoiceTemplateID,
-        party_id = PartyID,
-        shop_id = ShopID,
+        party_id = PartyConfigRef,
+        shop_id = ShopConfigRef,
         invoice_lifetime = Lifetime,
         product = Product,
         details = Details,

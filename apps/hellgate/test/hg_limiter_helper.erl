@@ -48,8 +48,10 @@ get_amount(#limiter_Limit{amount = Amount}) ->
 
 -spec assert_payment_limit_amount(_, _, _, _, _) -> _.
 assert_payment_limit_amount(LimitID, Version, AssertAmount, Payment, Invoice) ->
-    Limit = maybe_uninitialized_limit(get_payment_limit_amount(LimitID, Version, Payment, Invoice)),
-    ?assertMatch(#limiter_Limit{amount = AssertAmount}, Limit).
+    Result = get_payment_limit_amount(LimitID, Version, Payment, Invoice),
+    Limit = maybe_uninitialized_limit(Result),
+    #limiter_Limit{amount = CurrentAmount} = Limit,
+    ?assertEqual(AssertAmount, CurrentAmount, {LimitID, Result}).
 
 -spec maybe_uninitialized_limit({ok, _} | {exception, _}) -> _Limit.
 maybe_uninitialized_limit({ok, Limit}) ->

@@ -172,7 +172,7 @@
 -type cash() :: dmsl_domain_thrift:'Cash'().
 -type cart() :: dmsl_domain_thrift:'InvoiceCart'().
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type payer() :: dmsl_domain_thrift:'Payer'().
 -type payer_params() :: dmsl_payproc_thrift:'PayerParams'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
@@ -209,7 +209,7 @@
 -type payment_session() :: dmsl_payproc_thrift:'InvoicePaymentSession'().
 -type failure() :: dmsl_domain_thrift:'OperationFailure'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
--type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 -type payment_tool() :: dmsl_domain_thrift:'PaymentTool'().
 -type recurrent_paytool_service_terms() :: dmsl_domain_thrift:'RecurrentPaytoolsServiceTerms'().
 -type session() :: hg_session:t().
@@ -218,7 +218,7 @@
 
 -type opts() :: #{
     party => party(),
-    party_id => party_id(),
+    party_config_ref => party_config_ref(),
     invoice => invoice(),
     timestamp => hg_datetime:timestamp()
 }.
@@ -416,19 +416,19 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt}) ->
         processing_deadline = Deadline
     } = Params,
     Revision = hg_domain:head(),
-    PartyID = get_party_id(Opts),
+    PartyConfigRef = get_party_config_ref(Opts),
     ShopObj = get_shop_obj(Opts, Revision),
     Invoice = get_invoice(Opts),
     Cost = #domain_Cash{currency = Currency} = get_invoice_cost(Invoice),
     {ok, Payer, VS0} = construct_payer(PayerParams),
-    VS1 = collect_validation_varset_(PartyID, ShopObj, Currency, VS0),
+    VS1 = collect_validation_varset_(PartyConfigRef, ShopObj, Currency, VS0),
     Payment1 = construct_payment(
         PaymentID,
         CreatedAt,
         Cost,
         Payer,
         FlowParams,
-        PartyID,
+        PartyConfigRef,
         ShopObj,
         VS1,
         Revision,
@@ -497,8 +497,8 @@ construct_payment(
     Cost,
     Payer,
     FlowParams,
-    PartyID,
-    {ShopID, Shop} = ShopObj,
+    PartyConfigRef,
+    {ShopConfigRef, Shop} = ShopObj,
     VS0,
     Revision,
     MakeRecurrent
@@ -529,8 +529,8 @@ construct_payment(
     #domain_InvoicePayment{
         id = PaymentID,
         created_at = CreatedAt,
-        owner_id = PartyID,
-        shop_id = ShopID,
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef,
         domain_revision = Revision,
         status = ?pending(),
         cost = Cost,
@@ -588,7 +588,7 @@ validate_hold_lifetime(undefined, _PaymentTool) ->
     payer(),
     recurrent_paytool_service_terms(),
     payment_tool(),
-    {shop_id(), shop()},
+    {shop_config_ref(), shop()},
     payment(),
     make_recurrent()
 ) -> ok | no_return().
@@ -631,7 +631,7 @@ validate_recurrent_terms(RecurrentTerms, PaymentTool) ->
         end,
     ok.
 
--spec validate_recurrent_parent({shop_id(), shop()}, st()) -> ok | no_return().
+-spec validate_recurrent_parent({shop_config_ref(), shop()}, st()) -> ok | no_return().
 validate_recurrent_parent(ShopObj, ParentPayment) ->
     ok = validate_recurrent_token_present(ParentPayment),
     ok = validate_recurrent_parent_shop(ShopObj, ParentPayment),
@@ -646,10 +646,10 @@ validate_recurrent_token_present(PaymentState) ->
             throw_invalid_recurrent_parent(<<"Parent payment has no recurrent token">>)
     end.
 
--spec validate_recurrent_parent_shop({shop_id(), shop()}, st()) -> ok | no_return().
-validate_recurrent_parent_shop({ShopID, _}, PaymentState) ->
-    PaymentShopID = get_payment_shop_id(get_payment(PaymentState)),
-    case ShopID =:= PaymentShopID of
+-spec validate_recurrent_parent_shop({shop_config_ref(), shop()}, st()) -> ok | no_return().
+validate_recurrent_parent_shop({ShopConfigRef, _}, PaymentState) ->
+    PaymentShopConfigRef = get_payment_shop_config_ref(get_payment(PaymentState)),
+    case ShopConfigRef =:= PaymentShopConfigRef of
         true ->
             ok;
         false ->
@@ -815,23 +815,23 @@ collect_partial_refund_varset(undefined) ->
 
 collect_validation_varset(St, Opts) ->
     Revision = get_payment_revision(St),
-    collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), get_payment(St), #{}).
+    collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), get_payment(St), #{}).
 
-collect_validation_varset(PartyID, ShopObj, Payment, VS) ->
+collect_validation_varset(PartyConfigRef, ShopObj, Payment, VS) ->
     Cost = #domain_Cash{currency = Currency} = get_payment_cost(Payment),
-    VS0 = collect_validation_varset_(PartyID, ShopObj, Currency, VS),
+    VS0 = collect_validation_varset_(PartyConfigRef, ShopObj, Currency, VS),
     VS0#{
         cost => Cost,
         payment_tool => get_payment_tool(Payment)
     }.
 
-collect_validation_varset_(PartyID, {ShopID, Shop}, Currency, VS) ->
+collect_validation_varset_(PartyConfigRef, {#domain_ShopConfigRef{id = ShopConfigID}, Shop}, Currency, VS) ->
     #domain_ShopConfig{
         category = Category
     } = Shop,
     VS#{
-        party_id => PartyID,
-        shop_id => ShopID,
+        party_config_ref => PartyConfigRef,
+        shop_id => ShopConfigID,
         category => Category,
         currency => Currency
     }.
@@ -2053,7 +2053,7 @@ process_cash_flow_building(Action, St) ->
     Payment = get_payment(St),
     Timestamp = get_payment_created_at(Payment),
     VS0 = reconstruct_payment_flow(Payment, #{}),
-    VS1 = collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
+    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     ProviderTerms = get_provider_terminal_terms(Route, VS1, Revision),
     Allocation = get_allocation(St),
     Context = #{
@@ -2483,7 +2483,7 @@ get_provider_terms(St, Revision) ->
     Route = get_route(St),
     Payment = get_payment(St),
     VS0 = reconstruct_payment_flow(Payment, #{}),
-    VS1 = collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
+    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
 filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
@@ -2531,40 +2531,40 @@ hold_shop_limits(Opts, St) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
-    PartyID = get_party_id(Opts),
-    {ShopID, Shop} = get_shop_obj(Opts, Revision),
+    PartyConfigRef = get_party_config_ref(Opts),
+    {ShopConfigRef, Shop} = get_shop_obj(Opts, Revision),
     TurnoverLimits = get_shop_turnover_limits(Shop),
-    ok = hg_limiter:hold_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment).
+    ok = hg_limiter:hold_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment).
 
 commit_shop_limits(Opts, St) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
-    PartyID = get_party_id(Opts),
-    {ShopID, Shop} = get_shop_obj(Opts, Revision),
+    PartyConfigRef = get_party_config_ref(Opts),
+    {ShopConfigRef, Shop} = get_shop_obj(Opts, Revision),
     TurnoverLimits = get_shop_turnover_limits(Shop),
-    ok = hg_limiter:commit_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment).
+    ok = hg_limiter:commit_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment).
 
 check_shop_limits(Opts, St) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
-    PartyID = get_party_id(Opts),
-    {ShopID, Shop} = get_shop_obj(Opts, Revision),
+    PartyConfigRef = get_party_config_ref(Opts),
+    {ShopConfigRef, Shop} = get_shop_obj(Opts, Revision),
     TurnoverLimits = get_shop_turnover_limits(Shop),
-    hg_limiter:check_shop_limits(TurnoverLimits, PartyID, ShopID, Invoice, Payment).
+    hg_limiter:check_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment).
 
 rollback_shop_limits(Opts, St, Flags) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     Invoice = get_invoice(Opts),
-    PartyID = get_party_id(Opts),
-    {ShopID, Shop} = get_shop_obj(Opts, Revision),
+    PartyConfigRef = get_party_config_ref(Opts),
+    {ShopConfigRef, Shop} = get_shop_obj(Opts, Revision),
     TurnoverLimits = get_shop_turnover_limits(Shop),
     ok = hg_limiter:rollback_shop_limits(
         TurnoverLimits,
-        PartyID,
-        ShopID,
+        PartyConfigRef,
+        ShopConfigRef,
         Invoice,
         Payment,
         Flags
@@ -2842,15 +2842,17 @@ construct_proxy_invoice(
     }.
 
 construct_proxy_shop(
-    {ShopID,
+    {
+        #domain_ShopConfigRef{id = ShopConfigID},
         Shop = #domain_ShopConfig{
             location = Location,
             category = ShopCategoryRef
-        }}
+        }
+    }
 ) ->
     ShopCategory = hg_domain:get({category, ShopCategoryRef}),
     #proxy_provider_Shop{
-        id = ShopID,
+        id = ShopConfigID,
         category = ShopCategory,
         name = Shop#domain_ShopConfig.name,
         description = Shop#domain_ShopConfig.description,
@@ -2873,21 +2875,21 @@ construct_proxy_capture(?captured(_, Cost)) ->
 
 %%
 
-get_party_obj(#{party := Party, party_id := PartyID}) ->
-    {PartyID, Party}.
+get_party_obj(#{party := Party, party_config_ref := PartyConfigRef}) ->
+    {PartyConfigRef, Party}.
 
 get_party(#{party := Party}) ->
     Party.
 
-get_party_id(#{party_id := PartyID}) ->
-    PartyID.
+get_party_config_ref(#{party_config_ref := PartyConfigRef}) ->
+    PartyConfigRef.
 
-get_shop(#{party := Party, invoice := Invoice}, Revision) ->
-    {_, Shop} = hg_party:get_shop(get_invoice_shop_id(Invoice), Party, Revision),
+get_shop(Opts, Revision) ->
+    {_, Shop} = get_shop_obj(Opts, Revision),
     Shop.
 
-get_shop_obj(#{party := Party, invoice := Invoice}, Revision) ->
-    hg_party:get_shop(get_invoice_shop_id(Invoice), Party, Revision).
+get_shop_obj(#{invoice := Invoice, party_config_ref := PartyConfigRef}, Revision) ->
+    hg_party:get_shop(get_invoice_shop_config_ref(Invoice), PartyConfigRef, Revision).
 
 get_payment_institution_ref(Opts, Revision) ->
     Shop = get_shop(Opts, Revision),
@@ -2903,8 +2905,8 @@ get_invoice_id(#domain_Invoice{id = ID}) ->
 get_invoice_cost(#domain_Invoice{cost = Cost}) ->
     Cost.
 
-get_invoice_shop_id(#domain_Invoice{shop_id = ShopID}) ->
-    ShopID.
+get_invoice_shop_config_ref(#domain_Invoice{shop_ref = ShopConfigRef}) ->
+    ShopConfigRef.
 
 get_payment_id(#domain_InvoicePayment{id = ID}) ->
     ID.
@@ -2917,8 +2919,8 @@ get_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
 get_payment_flow(#domain_InvoicePayment{flow = Flow}) ->
     Flow.
 
-get_payment_shop_id(#domain_InvoicePayment{shop_id = ShopID}) ->
-    ShopID.
+get_payment_shop_config_ref(#domain_InvoicePayment{shop_ref = ShopConfigRef}) ->
+    ShopConfigRef.
 
 get_payment_tool(#domain_InvoicePayment{payer = Payer}) ->
     get_payer_payment_tool(Payer).
@@ -2964,7 +2966,7 @@ get_varset(St, InitialValue) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     VS0 = reconstruct_payment_flow(Payment, InitialValue),
-    VS1 = collect_validation_varset(get_party_id(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
+    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     VS1.
 
 %%
@@ -3356,15 +3358,15 @@ latest_adjustment_id(#st{adjustments = Adjustments}) ->
 get_routing_attempt_limit(
     St = #st{
         payment = #domain_InvoicePayment{
-            owner_id = PartyID,
-            shop_id = ShopID,
+            party_ref = PartyConfigRef,
+            shop_ref = ShopConfigRef,
             domain_revision = Revision
         }
     }
 ) ->
-    {PartyID, Party} = hg_party:checkout(PartyID, Revision),
-    ShopObj = {_, Shop} = hg_party:get_shop(ShopID, Party, Revision),
-    VS = collect_validation_varset(PartyID, ShopObj, get_payment(St), #{}),
+    {PartyConfigRef, _Party} = hg_party:checkout(PartyConfigRef, Revision),
+    ShopObj = {_, Shop} = hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
+    VS = collect_validation_varset(PartyConfigRef, ShopObj, get_payment(St), #{}),
     Terms = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS),
     #domain_TermSet{payments = PaymentTerms} = Terms,
     log_cascade_attempt_context(PaymentTerms, St),

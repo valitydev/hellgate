@@ -104,21 +104,25 @@ init_per_suite(C) ->
     ]),
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
-    PartyID = hg_utils:unique_id(),
+    PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient = {party_client:create_client(), party_client:create_context()},
-    _ = hg_ct_helper:create_party(PartyID, PartyClient),
+    _ = hg_ct_helper:create_party(PartyConfigRef, PartyClient),
     ok = hg_context:save(hg_context:create()),
-    Shop1ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient),
-    Shop2ID = hg_ct_helper:create_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient),
+    Shop1ConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient
+    ),
+    Shop2ConfigRef = hg_ct_helper:create_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient
+    ),
     ok = hg_context:cleanup(),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     C1 = [
         {apps, Apps},
         {root_url, RootUrl},
-        {party_id, PartyID},
-        {shop_id, Shop1ID},
-        {another_shop_id, Shop2ID},
+        {party_config_ref, PartyConfigRef},
+        {shop_config_ref, Shop1ConfigRef},
+        {another_shop_config_ref, Shop2ConfigRef},
         {test_sup, SupPid}
         | C
     ],
@@ -192,7 +196,7 @@ second_recurrent_payment_success_test(C) ->
 -spec another_shop_test(config()) -> test_result().
 another_shop_test(C) ->
     Client = cfg(client, C),
-    Invoice1ID = start_invoice(cfg(another_shop_id, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    Invoice1ID = start_invoice(cfg(another_shop_config_ref, C), <<"rubberduck">>, make_due_date(10), 42000, C),
     %% first payment in recurrent session
     Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
@@ -366,13 +370,13 @@ make_due_date(LifetimeSeconds) ->
     genlib_time:unow() + LifetimeSeconds.
 
 start_invoice(Product, Due, Amount, C) ->
-    start_invoice(cfg(shop_id, C), Product, Due, Amount, C).
+    start_invoice(cfg(shop_config_ref, C), Product, Due, Amount, C).
 
-start_invoice(ShopID, Product, Due, Amount, C) ->
+start_invoice(ShopConfigRef, Product, Due, Amount, C) ->
     Client = cfg(client, C),
-    PartyID = cfg(party_id, C),
+    PartyConfigRef = cfg(party_config_ref, C),
     Cash = hg_ct_helper:make_cash(Amount, <<"RUB">>),
-    InvoiceParams = hg_ct_helper:make_invoice_params(PartyID, ShopID, Product, Due, Cash),
+    InvoiceParams = hg_ct_helper:make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, Cash),
     InvoiceID = create_invoice(InvoiceParams, Client),
     _Events = await_events(InvoiceID, [?evp(?invoice_created(?invoice_w_status(?invoice_unpaid())))], Client),
     InvoiceID.

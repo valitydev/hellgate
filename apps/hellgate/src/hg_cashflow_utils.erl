@@ -10,8 +10,8 @@
 -type cash_flow_context() :: #{
     operation := refund | payment,
     provision_terms := dmsl_domain_thrift:'PaymentsProvisionTerms'(),
-    party := {party_id(), party()},
-    shop := {shop_id(), shop()},
+    party := {party_config_ref(), party()},
+    shop := {shop_config_ref(), shop()},
     route := route(),
     payment := payment(),
     provider := provider(),
@@ -29,9 +29,9 @@
 -export([collect_cashflow/2]).
 
 -type party() :: dmsl_domain_thrift:'PartyConfig'().
--type party_id() :: dmsl_domain_thrift:'PartyID'().
+-type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
--type shop_id() :: dmsl_domain_thrift:'ShopConfigID'().
+-type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
 -type route() :: dmsl_domain_thrift:'PaymentRoute'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
 -type refund() :: dmsl_domain_thrift:'InvoicePaymentRefund'().
@@ -70,12 +70,13 @@ collect_allocation_cash_flow(
 ) ->
     lists:foldl(
         fun(?allocation_trx(_ID, Target, Amount), Acc) ->
-            ?allocation_trx_target_shop(PartyID, ShopID) = Target,
-            {PartyID, TargetParty} = hg_party:get_party(PartyID),
-            {ShopID, TargetShop} = hg_party:get_shop(ShopID, TargetParty, Revision),
+            ?allocation_trx_target_shop(PartyConfigRef, ShopConfigRef) = Target,
+            {PartyConfigRef, TargetParty} = hg_party:get_party(PartyConfigRef),
+            {#domain_ShopConfigRef{id = ShopConfigID} = ShopConfigRef, TargetShop} =
+                hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
             VS1 = VS0#{
-                party_id => PartyID,
-                shop_id => ShopID,
+                party_config_ref => PartyConfigRef,
+                shop_id => ShopConfigID,
                 cost => Amount
             },
             AllocationPaymentInstitution =
@@ -83,7 +84,7 @@ collect_allocation_cash_flow(
             construct_transaction_cashflow(
                 Amount,
                 AllocationPaymentInstitution,
-                Context#{party => {PartyID, TargetParty}, shop => {ShopID, TargetShop}}
+                Context#{party => {PartyConfigRef, TargetParty}, shop => {ShopConfigRef, TargetShop}}
             ) ++ Acc
         end,
         [],
@@ -161,7 +162,7 @@ get_selector_value(Name, Selector) ->
     hg_accounting:collect_account_context().
 make_collect_account_context(PaymentInstitution, #{
     payment := Payment,
-    party := {PartyID, _},
+    party := {PartyConfigRef, _},
     shop := Shop,
     route := Route,
     provider := Provider,
@@ -170,7 +171,7 @@ make_collect_account_context(PaymentInstitution, #{
 }) ->
     #{
         payment => Payment,
-        party_id => PartyID,
+        party_config_ref => PartyConfigRef,
         shop => Shop,
         route => Route,
         payment_institution => PaymentInstitution,

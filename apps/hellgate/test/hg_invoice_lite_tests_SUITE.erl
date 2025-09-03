@@ -99,17 +99,19 @@ init_per_suite(C) ->
     RootUrl = maps:get(hellgate_root_url, Ret),
     _ = hg_limiter_helper:init_per_suite(C),
     _ = hg_domain:insert(construct_domain_fixture()),
-    PartyID = hg_utils:unique_id(),
+    PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient = {party_client:create_client(), party_client:create_context()},
     ok = hg_context:save(hg_context:create()),
-    ShopID = hg_ct_helper:create_party_and_shop(PartyID, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+    ShopConfigRef = hg_ct_helper:create_party_and_shop(
+        PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient
+    ),
     ok = hg_context:cleanup(),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
     _ = unlink(SupPid),
     ok = hg_invoice_helper:start_kv_store(SupPid),
     NewC = [
-        {party_id, PartyID},
-        {shop_id, ShopID},
+        {party_config_ref, PartyConfigRef},
+        {shop_config_ref, ShopConfigRef},
         {root_url, RootUrl},
         {test_sup, SupPid},
         {apps, Apps}
@@ -433,13 +435,13 @@ payment_w_crypto_currency_success(C) ->
     PaymentParams = make_payment_params(PaymentTool, Session, instant),
     ?payment_state(#domain_InvoicePayment{
         id = PaymentID,
-        owner_id = PartyID,
-        shop_id = ShopID
+        party_ref = PartyConfigRef,
+        shop_ref = ShopConfigRef
     }) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))) =
         next_change(InvoiceID, Client),
     {CF, Route} = await_payment_cash_flow(InvoiceID, PaymentID, Client),
-    CFContext = construct_ta_context(PartyID, ShopID, Route),
+    CFContext = construct_ta_context(PartyConfigRef, ShopConfigRef, Route),
     ?cash(PayCash, <<"RUB">>) = get_cashflow_volume({provider, settlement}, {merchant, settlement}, CF, CFContext),
     ?cash(36, <<"RUB">>) = get_cashflow_volume({system, settlement}, {provider, settlement}, CF, CFContext),
     ?cash(90, <<"RUB">>) = get_cashflow_volume({merchant, settlement}, {system, settlement}, CF, CFContext).
@@ -478,9 +480,9 @@ payment_has_optional_fields(C) ->
     ?payment_route(Route) = InvoicePayment,
     ?payment_cashflow(CashFlow) = InvoicePayment,
     ?payment_last_trx(TrxInfo) = InvoicePayment,
-    PartyID = cfg(party_id, C),
-    ShopID = cfg(shop_id, C),
-    #domain_InvoicePayment{owner_id = PartyID, shop_id = ShopID} = Payment,
+    PartyConfigRef = cfg(party_config_ref, C),
+    ShopConfigRef = cfg(shop_config_ref, C),
+    #domain_InvoicePayment{party_ref = PartyConfigRef, shop_ref = ShopConfigRef} = Payment,
     false = Route =:= undefined,
     false = CashFlow =:= undefined,
     false = TrxInfo =:= undefined.
@@ -569,8 +571,8 @@ await_payment_capture(InvoiceID, PaymentID, Client) ->
 await_payment_cash_flow(InvoiceID, PaymentID, Client) ->
     hg_invoice_helper:await_payment_cash_flow(InvoiceID, PaymentID, Client).
 
-construct_ta_context(PartyID, ShopID, Route) ->
-    hg_invoice_helper:construct_ta_context(PartyID, ShopID, Route).
+construct_ta_context(PartyConfigRef, ShopConfigRef, Route) ->
+    hg_invoice_helper:construct_ta_context(PartyConfigRef, ShopConfigRef, Route).
 
 get_cashflow_volume(Source, Destination, CF, CFContext) ->
     hg_invoice_helper:get_cashflow_volume(Source, Destination, CF, CFContext).
