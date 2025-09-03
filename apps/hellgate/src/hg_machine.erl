@@ -86,11 +86,14 @@
 -export([thrift_call/8]).
 -export([repair/3]).
 -export([get_history/2]).
+-export([get_history/3]).
 -export([get_history/4]).
 -export([get_history/5]).
 -export([get_machine/5]).
+-export([get_machine/6]).
 
 -export([call_automaton/3]).
+-export([call_automaton/4]).
 
 %% Dispatch
 
@@ -173,17 +176,26 @@ repair(Ns, Id, Args) ->
 
 -spec get_history(ns(), id()) -> {ok, history()} | {error, notfound} | no_return().
 get_history(Ns, Id) ->
-    get_history(Ns, Id, undefined, undefined, forward).
+    get_history(Ns, Id, #{}).
+
+-spec get_history(ns(), id(), map()) -> {ok, history()} | {error, notfound} | no_return().
+get_history(Ns, Id, Opts) ->
+    get_history(Ns, Id, undefined, undefined, forward, Opts).
 
 -spec get_history(ns(), id(), undefined | event_id(), undefined | non_neg_integer()) ->
     {ok, history()} | {error, notfound} | no_return().
 get_history(Ns, Id, AfterID, Limit) ->
-    get_history(Ns, Id, AfterID, Limit, forward).
+    get_history(Ns, Id, AfterID, Limit, forward, #{}).
 
 -spec get_history(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
     {ok, history()} | {error, notfound} | no_return().
 get_history(Ns, Id, AfterID, Limit, Direction) ->
-    case get_machine(Ns, Id, AfterID, Limit, Direction) of
+    get_history(Ns, Id, AfterID, Limit, Direction, #{}).
+
+-spec get_history(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction(), map()) ->
+    {ok, history()} | {error, notfound} | no_return().
+get_history(Ns, Id, AfterID, Limit, Direction, Opts) ->
+    case get_machine(Ns, Id, AfterID, Limit, Direction, Opts) of
         {ok, #{history := History}} ->
             {ok, History};
         Error ->
@@ -193,9 +205,14 @@ get_history(Ns, Id, AfterID, Limit, Direction) ->
 -spec get_machine(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
     {ok, machine()} | {error, notfound} | no_return().
 get_machine(Ns, Id, AfterID, Limit, Direction) ->
+    get_machine(Ns, Id, AfterID, Limit, Direction, #{}).
+
+-spec get_machine(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction(), map()) ->
+    {ok, machine()} | {error, notfound} | no_return().
+get_machine(Ns, Id, AfterID, Limit, Direction, Opts) ->
     Range = #mg_stateproc_HistoryRange{'after' = AfterID, limit = Limit, direction = Direction},
     Descriptor = prepare_descriptor(Ns, Id, Range),
-    case call_automaton('GetMachine', {Descriptor}) of
+    case call_automaton('GetMachine', {Descriptor}, Opts) of
         {ok, #mg_stateproc_Machine{} = Machine} ->
             {ok, unmarshal_machine(Machine)};
         Error ->
@@ -227,10 +244,14 @@ do_call(Ns, Id, Args, After, Limit, Direction) ->
     end.
 
 call_automaton(Function, Args) ->
-    call_automaton(Function, Args, application:get_env(hellgate, backend, machinegun)).
+    call_automaton(Function, Args, #{}).
 
--spec call_automaton(woody:func(), woody:args(), backend()) -> term().
-call_automaton(Function, Args, machinegun) ->
+-spec call_automaton(woody:func(), woody:args(), map()) -> term().
+call_automaton(Function, Args, Opts) ->
+    call_automaton(Function, Args, Opts, application:get_env(hellgate, backend, machinegun)).
+
+-spec call_automaton(woody:func(), woody:args(), map(), backend()) -> term().
+call_automaton(Function, Args, _Opts, machinegun) ->
     case hg_woody_wrapper:call(automaton, Function, Args) of
         {ok, _} = Result ->
             Result;
@@ -245,9 +266,9 @@ call_automaton(Function, Args, machinegun) ->
         {exception, #mg_stateproc_RepairFailed{reason = Reason}} ->
             {error, {repair, {failed, Reason}}}
     end;
-call_automaton(Function, Args, progressor) ->
-    hg_progressor:call_automaton(Function, Args);
-call_automaton(Function, Args, hybrid) ->
+call_automaton(Function, Args, Opts, progressor) ->
+    hg_progressor:call_automaton(Function, Args, Opts);
+call_automaton(Function, Args, _Opts, hybrid) ->
     hg_hybrid:call_automaton(Function, Args).
 
 %%
