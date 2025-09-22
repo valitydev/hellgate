@@ -41,7 +41,8 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
         context = Context,
         transaction_info = TransactionInfo,
         risk_score = RiskScore,
-        occurred_at = OccurredAt
+        occurred_at = OccurredAt,
+        recurrent_token = RecToken
     } = Params,
     CreatedAt1 = genlib:define(OccurredAt, CreatedAt0),
     Revision = hg_domain:head(),
@@ -93,7 +94,10 @@ init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
             [
                 ?route_changed(Route),
                 ?cash_flow_changed(FinalCashflow),
-                hg_session:wrap_event(?processed(), hg_session:create()),
+                hg_session:wrap_event(?processed(), hg_session:create())
+            ] ++
+            maybe_rec_token_event_list(RecToken) ++
+            [
                 hg_session:wrap_event(?processed(), ?trx_bound(TransactionInfo)),
                 hg_session:wrap_event(?processed(), ?session_finished(?session_succeeded())),
                 ?payment_status_changed(?processed()),
@@ -180,6 +184,11 @@ maybe_risk_score_event_list(undefined) ->
     [];
 maybe_risk_score_event_list(RiskScore) ->
     [?risk_score_changed(RiskScore)].
+
+maybe_rec_token_event_list(undefined) ->
+    [];
+maybe_rec_token_event_list(RecToken) ->
+    [?rec_token_acquired(RecToken)].
 
 get_merchant_payment_terms(Revision, Shop, VS) ->
     TermSet = hg_invoice_utils:compute_shop_terms(Revision, Shop, VS),
