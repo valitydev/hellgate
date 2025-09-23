@@ -2,6 +2,7 @@
 
 -include("hg_ct_domain.hrl").
 -include("hg_ct_json.hrl").
+-include("hg_ct_invoice.hrl").
 
 -include("invoice_events.hrl").
 -include("payment_events.hrl").
@@ -18,6 +19,7 @@
 
 -export([first_recurrent_payment_success_test/1]).
 -export([second_recurrent_payment_success_test/1]).
+-export([register_parent_payment_test/1]).
 -export([another_shop_test/1]).
 -export([not_recurring_first_test/1]).
 -export([cancelled_first_payment_test/1]).
@@ -34,13 +36,6 @@
 
 %% Macro helpers
 
--define(invoice(ID), #domain_Invoice{id = ID}).
--define(payment(ID), #domain_InvoicePayment{id = ID}).
--define(invoice_state(Invoice), #payproc_Invoice{invoice = Invoice}).
--define(invoice_state(Invoice, Payments), #payproc_Invoice{invoice = Invoice, payments = Payments}).
--define(payment_state(Payment), #payproc_InvoicePayment{payment = Payment}).
--define(invoice_w_status(Status), #domain_Invoice{status = Status}).
--define(payment_w_status(ID, Status), #domain_InvoicePayment{id = ID, status = Status}).
 -define(evp(Pattern), fun(EvpPattern) ->
     case EvpPattern of
         Pattern -> true;
@@ -73,6 +68,7 @@ groups() ->
         {basic_operations, [parallel], [
             first_recurrent_payment_success_test,
             second_recurrent_payment_success_test,
+            register_parent_payment_test,
             another_shop_test,
             not_recurring_first_test,
             cancelled_first_payment_test,
@@ -193,6 +189,51 @@ second_recurrent_payment_success_test(C) ->
         [?payment_state(?payment_w_status(Payment2ID, ?captured()))]
     ) = hg_client_invoicing:get(Invoice2ID, Client).
 
+-define(recurrent_token, <<"recurrent_token">>).
+
+-spec register_parent_payment_test(config()) -> test_result().
+register_parent_payment_test(C) ->
+    Client = cfg(client, C),
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    %% first payment in recurrent session
+    Route = ?route(?prv(1), ?trm(1)),
+    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = #payproc_RegisterInvoicePaymentParams{
+        payer_params =
+            {payment_resource, #payproc_PaymentResourcePayerParams{
+                resource = #domain_DisposablePaymentResource{
+                    payment_tool = PaymentTool,
+                    payment_session_id = Session,
+                    client_info = #domain_ClientInfo{}
+                },
+                contact_info = ?contact_info()
+            }},
+        route = Route,
+        transaction_info = ?trx_info(<<"1">>, #{}),
+        recurrent_token = ?recurrent_token
+    },
+    Payment1ID = register_payment(Invoice1ID, PaymentParams, false, Client),
+    Payment1ID = await_payment_session_started(Invoice1ID, Payment1ID, Client, ?processed()),
+
+    [
+        ?payment_ev(PaymentID, ?rec_token_acquired(?recurrent_token)),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(_)))),
+        ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_finished(?session_succeeded()))),
+        ?payment_ev(PaymentID, ?payment_status_changed(?processed()))
+    ] = hg_invoice_helper:next_changes(Invoice1ID, 4, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+
+    %% second recurrent payment
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(?payment_w_status(Payment2ID, ?captured()))]
+    ) = hg_client_invoicing:get(Invoice2ID, Client).
+
 -spec another_shop_test(config()) -> test_result().
 another_shop_test(C) ->
     Client = cfg(client, C),
@@ -286,6 +327,12 @@ start_proxies(Proxies) ->
             Proxies
         )
     ).
+
+register_payment(InvoiceID, RegisterPaymentParams, WithRiskScoring, Client) ->
+    hg_invoice_helper:register_payment(InvoiceID, RegisterPaymentParams, WithRiskScoring, Client).
+
+await_payment_session_started(InvoiceID, PaymentID, Client, Target) ->
+    hg_invoice_helper:await_payment_session_started(InvoiceID, PaymentID, Client, Target).
 
 setup_proxies(Proxies) ->
     _ = hg_domain:upsert(Proxies),
