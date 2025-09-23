@@ -5,6 +5,7 @@
 
 %% automaton call wrapper
 -export([call_automaton/2]).
+-export([call_automaton/3]).
 
 %% processor call wrapper
 -export([process/3]).
@@ -19,12 +20,17 @@
 -define(EMPTY_CONTENT, #mg_stateproc_Content{data = {bin, <<>>}}).
 
 -spec call_automaton(woody:func(), woody:args()) -> term().
-call_automaton('Start', {NS, ID, Args}) ->
+call_automaton('Start', Args) ->
+    call_automaton('Start', Args, #{}).
+
+-spec call_automaton(woody:func(), woody:args(), map()) -> term().
+call_automaton('Start', {NS, ID, Args}, Opts) ->
     Req = #{
         ns => erlang:binary_to_atom(NS),
         id => ID,
         args => maybe_unmarshal(term, Args),
-        context => get_context()
+        context => get_context(),
+        options => Opts
     },
     case progressor:init(Req) of
         {ok, ok} = Result ->
@@ -34,7 +40,7 @@ call_automaton('Start', {NS, ID, Args}) ->
         {error, {exception, _, _} = Exception} ->
             handle_exception(Exception)
     end;
-call_automaton('Call', {MachineDesc, Args}) ->
+call_automaton('Call', {MachineDesc, Args}, Opts) ->
     #mg_stateproc_MachineDescriptor{
         ns = NS,
         ref = {id, ID},
@@ -45,7 +51,8 @@ call_automaton('Call', {MachineDesc, Args}) ->
         id => ID,
         args => maybe_unmarshal(term, Args),
         context => get_context(),
-        range => unmarshal(history_range, HistoryRange)
+        range => unmarshal(history_range, HistoryRange),
+        options => Opts
     },
     case progressor:call(Req) of
         {ok, _Response} = Ok ->
@@ -57,7 +64,7 @@ call_automaton('Call', {MachineDesc, Args}) ->
         {error, {exception, _, _} = Exception} ->
             handle_exception(Exception)
     end;
-call_automaton('GetMachine', {MachineDesc}) ->
+call_automaton('GetMachine', {MachineDesc}, Opts) ->
     #mg_stateproc_MachineDescriptor{
         ns = NS,
         ref = {id, ID},
@@ -66,7 +73,8 @@ call_automaton('GetMachine', {MachineDesc}) ->
     Req = #{
         ns => erlang:binary_to_atom(NS),
         id => ID,
-        range => unmarshal(history_range, HistoryRange)
+        range => unmarshal(history_range, HistoryRange),
+        options => Opts
     },
     case progressor:get(Req) of
         {ok, Process} ->
@@ -77,7 +85,7 @@ call_automaton('GetMachine', {MachineDesc}) ->
         {error, {exception, _, _} = Exception} ->
             handle_exception(Exception)
     end;
-call_automaton('Repair', {MachineDesc, Args}) ->
+call_automaton('Repair', {MachineDesc, Args}, Opts) ->
     #mg_stateproc_MachineDescriptor{
         ns = NS,
         ref = {id, ID}
@@ -86,7 +94,8 @@ call_automaton('Repair', {MachineDesc, Args}) ->
         ns => erlang:binary_to_atom(NS),
         id => ID,
         args => maybe_unmarshal(term, Args),
-        context => get_context()
+        context => get_context(),
+        options => Opts
     },
     case progressor:repair(Req) of
         {ok, _Response} = Ok ->

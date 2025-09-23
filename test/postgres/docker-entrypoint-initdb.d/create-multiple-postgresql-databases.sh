@@ -11,6 +11,7 @@ function create_user_and_database() {
     \c $database;
     CREATE USER $database;
     ALTER USER $database WITH ENCRYPTED PASSWORD '$POSTGRES_PASSWORD';
+    ALTER ROLE $database WITH REPLICATION;
     GRANT ALL ON SCHEMA public TO $database;
     GRANT ALL PRIVILEGES ON DATABASE $database TO $database;
 EOSQL
