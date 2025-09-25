@@ -325,7 +325,7 @@ rollback_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_rollback_refund_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Refund),
     OperationIdSegments = make_refund_operation_segments(Invoice, Payment, Refund),
-    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
+    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments, []).
 
 legacy_rollback_refund_limits(Context, TurnoverLimits, Invoice, Payment, Refund) ->
     ChangeIDs = [construct_refund_change_id(Invoice, Payment, Refund)],
