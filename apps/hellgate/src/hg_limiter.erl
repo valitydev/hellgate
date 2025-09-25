@@ -50,6 +50,10 @@
     id = ShopID
 }).
 
+%% Very specific errors to crutch around
+-define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
+-define(OPERATION_NOT_FOUND, #base_InvalidRequest{errors = [<<"OperationNotFound">>]}).
+
 -spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
 get_turnover_limits(undefined) ->
     [];
@@ -279,7 +283,13 @@ rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags) ->
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_rollback_payment_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter, Flags),
     OperationIdSegments = make_route_operation_segments(Invoice, Payment, Route, Iter),
-    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
+    IgnoreError = lists:member(ignore_not_found, Flags) orelse lists:member(ignore_business_error, Flags),
+    try
+        ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments)
+    catch
+        error:(?OPERATION_NOT_FOUND) when IgnoreError =:= true ->
+            ok
+    end.
 
 batch_rollback_limits(_Context, [], _OperationIdSegments) ->
     ok;
@@ -341,9 +351,6 @@ process_changes(LimitChangesQueues, WithFun, Clock, Context, Flags) ->
         end,
         LimitChangesQueues
     ).
-
-%% Very specific error to crutch around
--define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
 
 process_changes_try_wrap([LimitChange], WithFun, Clock, Context, Flags) ->
     IgnoreNotFound = lists:member(ignore_not_found, Flags),
