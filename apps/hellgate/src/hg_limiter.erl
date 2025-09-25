@@ -283,19 +283,19 @@ rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags) ->
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_rollback_payment_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter, Flags),
     OperationIdSegments = make_route_operation_segments(Invoice, Payment, Route, Iter),
+    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments, Flags).
+
+batch_rollback_limits(_Context, [], _OperationIdSegments, _Flags) ->
+    ok;
+batch_rollback_limits(Context, TurnoverLimits, OperationIdSegments, Flags) ->
+    {LimitRequest, _} = prepare_limit_request(TurnoverLimits, OperationIdSegments),
     IgnoreError = lists:member(ignore_not_found, Flags) orelse lists:member(ignore_business_error, Flags),
     try
-        ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments)
+        ok = hg_limiter_client:rollback_batch(LimitRequest, Context)
     catch
         error:(?OPERATION_NOT_FOUND) when IgnoreError =:= true ->
             ok
     end.
-
-batch_rollback_limits(_Context, [], _OperationIdSegments) ->
-    ok;
-batch_rollback_limits(Context, TurnoverLimits, OperationIdSegments) ->
-    {LimitRequest, _} = prepare_limit_request(TurnoverLimits, OperationIdSegments),
-    hg_limiter_client:rollback_batch(LimitRequest, Context).
 
 legacy_rollback_payment_limits(Context, TurnoverLimits, Invoice, Payment, Route, Iter, Flags) ->
     ChangeIDs = [
@@ -312,7 +312,7 @@ rollback_shop_limits(TurnoverLimits, Party, Shop, Invoice, Payment, Flags) ->
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_rollback_shop_limits(Context, LegacyTurnoverLimits, Party, Shop, Invoice, Payment, Flags),
     OperationIdSegments = make_shop_operation_segments(Party, Shop, Invoice, Payment),
-    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
+    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments, Flags).
 
 legacy_rollback_shop_limits(Context, TurnoverLimits, Party, Shop, Invoice, Payment, Flags) ->
     ChangeIDs = [construct_shop_change_id(Party, Shop, Invoice, Payment)],
