@@ -23,7 +23,8 @@
     status => status(),
     metadata => metadata(),
     external_id => id(),
-    validation => withdrawal_validation()
+    validation => withdrawal_validation(),
+    contact_info => contact_info()
 }.
 
 -opaque withdrawal() :: #{
@@ -35,7 +36,8 @@
     domain_revision => domain_revision(),
     route => route(),
     metadata => metadata(),
-    external_id => id()
+    external_id => id(),
+    contact_info => contact_info()
 }.
 
 -type params() :: #{
@@ -46,7 +48,8 @@
     body := body(),
     external_id => id(),
     quote => quote(),
-    metadata => metadata()
+    metadata => metadata(),
+    contact_info => contact_info()
 }.
 
 -type status() ::
@@ -57,6 +60,11 @@
 -type withdrawal_validation() :: #{
     sender => validation_result(),
     receiver => validation_result()
+}.
+
+-type contact_info() :: #{
+    phone_number => binary(),
+    email => binary()
 }.
 
 -type validation_result() ::
@@ -219,6 +227,7 @@
 -export([params/1]).
 -export([activity/1]).
 -export([validation/1]).
+-export([contact_info/1]).
 
 %% API
 
@@ -402,6 +411,12 @@ validation(#{validation := WithdrawalValidation}) ->
 validation(_) ->
     undefined.
 
+-spec contact_info(withdrawal_state()) -> contact_info() | undefined.
+contact_info(#{contact_info := ContactInfo}) ->
+    ContactInfo;
+contact_info(_) ->
+    undefined.
+
 %% API
 
 -spec create(params()) ->
@@ -451,7 +466,8 @@ create(Params) ->
                     created_at => CreatedAt,
                     domain_revision => DomainRevision,
                     external_id => maps:get(external_id, Params, undefined),
-                    metadata => maps:get(metadata, Params, undefined)
+                    metadata => maps:get(metadata, Params, undefined),
+                    contact_info => maps:get(contact_info, Params, undefined)
                 })},
             {status_changed, pending},
             {resource_got, Resource}

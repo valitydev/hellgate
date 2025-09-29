@@ -233,6 +233,10 @@ create_withdrawal_ok_test(_C) ->
     ExternalID = genlib:bsuuid(),
     Context = ff_entity_context_codec:marshal(#{<<"NS">> => #{}}),
     Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
+    ContactInfo = #fistful_base_ContactInfo{
+        phone_number = <<"1234567890">>,
+        email = <<"test@mail.com">>
+    },
     Params = #wthd_WithdrawalParams{
         id = WithdrawalID,
         party_id = PartyID,
@@ -240,7 +244,8 @@ create_withdrawal_ok_test(_C) ->
         destination_id = DestinationID,
         body = Cash,
         metadata = Metadata,
-        external_id = ExternalID
+        external_id = ExternalID,
+        contact_info = ContactInfo
     },
     {ok, WithdrawalState} = call_withdrawal('Create', {Params, Context}),
 
@@ -259,6 +264,7 @@ create_withdrawal_ok_test(_C) ->
         ff_withdrawal:created_at(Expected),
         ff_codec:unmarshal(timestamp_ms, WithdrawalState#wthd_WithdrawalState.created_at)
     ),
+    ?assertEqual(ContactInfo, WithdrawalState#wthd_WithdrawalState.contact_info),
 
     succeeded = ct_objects:await_final_withdrawal_status(WithdrawalID),
     {ok, FinalWithdrawalState} = call_withdrawal('Get', {WithdrawalID, #'fistful_base_EventRange'{}}),

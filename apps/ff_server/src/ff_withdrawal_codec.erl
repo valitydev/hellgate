@@ -43,7 +43,8 @@ marshal_withdrawal_params(Params) ->
         body = marshal(cash, maps:get(body, Params)),
         quote = maybe_marshal(quote, maps:get(quote, Params, undefined)),
         external_id = maybe_marshal(id, maps:get(external_id, Params, undefined)),
-        metadata = maybe_marshal(ctx, maps:get(metadata, Params, undefined))
+        metadata = maybe_marshal(ctx, maps:get(metadata, Params, undefined)),
+        contact_info = maybe_marshal(contact_info, maps:get(contact_info, Params, undefined))
     }.
 
 -spec unmarshal_withdrawal_params(fistful_wthd_thrift:'WithdrawalParams'()) -> ff_withdrawal:params().
@@ -56,7 +57,8 @@ unmarshal_withdrawal_params(Params) ->
         body => unmarshal(cash, Params#wthd_WithdrawalParams.body),
         quote => maybe_unmarshal(quote, Params#wthd_WithdrawalParams.quote),
         external_id => maybe_unmarshal(id, Params#wthd_WithdrawalParams.external_id),
-        metadata => maybe_unmarshal(ctx, Params#wthd_WithdrawalParams.metadata)
+        metadata => maybe_unmarshal(ctx, Params#wthd_WithdrawalParams.metadata),
+        contact_info => maybe_unmarshal(contact_info, Params#wthd_WithdrawalParams.contact_info)
     }).
 
 -spec marshal_withdrawal_state(ff_withdrawal:withdrawal_state(), ff_entity_context:context()) ->
@@ -84,7 +86,8 @@ marshal_withdrawal_state(WithdrawalState, Context) ->
         context = marshal(ctx, Context),
         metadata = marshal(ctx, ff_withdrawal:metadata(WithdrawalState)),
         quote = maybe_marshal(quote_state, ff_withdrawal:quote(WithdrawalState)),
-        withdrawal_validation = maybe_marshal(withdrawal_validation, ff_withdrawal:validation(WithdrawalState))
+        withdrawal_validation = maybe_marshal(withdrawal_validation, ff_withdrawal:validation(WithdrawalState)),
+        contact_info = maybe_marshal(contact_info, ff_withdrawal:contact_info(WithdrawalState))
     }.
 
 -spec marshal_event(ff_withdrawal_machine:event()) -> fistful_wthd_thrift:'Event'().
@@ -149,7 +152,8 @@ marshal(withdrawal, Withdrawal) ->
         domain_revision = maybe_marshal(domain_revision, ff_withdrawal:domain_revision(Withdrawal)),
         created_at = maybe_marshal(timestamp_ms, ff_withdrawal:created_at(Withdrawal)),
         metadata = maybe_marshal(ctx, ff_withdrawal:metadata(Withdrawal)),
-        quote = maybe_marshal(quote_state, ff_withdrawal:quote(Withdrawal))
+        quote = maybe_marshal(quote_state, ff_withdrawal:quote(Withdrawal)),
+        contact_info = maybe_marshal(contact_info, ff_withdrawal:contact_info(Withdrawal))
     };
 marshal(route, Route) ->
     #{
@@ -211,6 +215,11 @@ marshal(withdrawal_validation, WithdrawalValidation) ->
     #wthd_WithdrawalValidation{
         sender = maybe_marshal({list, validation_result}, maps:get(sender, WithdrawalValidation, undefined)),
         receiver = maybe_marshal({list, validation_result}, maps:get(receiver, WithdrawalValidation, undefined))
+    };
+marshal(contact_info, ContactInfo) ->
+    #fistful_base_ContactInfo{
+        phone_number = maps:get(phone_number, ContactInfo, undefined),
+        email = maps:get(email, ContactInfo, undefined)
     };
 marshal(ctx, Ctx) ->
     maybe_marshal(context, Ctx);
@@ -277,7 +286,8 @@ unmarshal(withdrawal, #wthd_Withdrawal{} = Withdrawal) ->
         external_id => maybe_unmarshal(id, Withdrawal#wthd_Withdrawal.external_id),
         domain_revision => maybe_unmarshal(domain_revision, Withdrawal#wthd_Withdrawal.domain_revision),
         created_at => maybe_unmarshal(timestamp_ms, Withdrawal#wthd_Withdrawal.created_at),
-        metadata => maybe_unmarshal(ctx, Withdrawal#wthd_Withdrawal.metadata)
+        metadata => maybe_unmarshal(ctx, Withdrawal#wthd_Withdrawal.metadata),
+        contact_info => maybe_unmarshal(contact_info, Withdrawal#wthd_Withdrawal.contact_info)
     });
 unmarshal(route, Route) ->
     genlib_map:compact(#{
@@ -330,6 +340,11 @@ unmarshal(quote, Quote) ->
         domain_revision => maybe_unmarshal(domain_revision, Quote#wthd_Quote.domain_revision),
         operation_timestamp => maybe_unmarshal(timestamp_ms, Quote#wthd_Quote.operation_timestamp)
     });
+unmarshal(contact_info, ContactInfo) ->
+    genlib_map:compact(#{
+        phone_number => ContactInfo#fistful_base_ContactInfo.phone_number,
+        email => ContactInfo#fistful_base_ContactInfo.email
+    });
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);
 unmarshal(T, V) ->
@@ -378,7 +393,11 @@ withdrawal_symmetry_test() ->
             provider_id_legacy = <<"mocketbank">>
         },
         domain_revision = 1,
-        created_at = <<"2099-01-01T00:00:00.123Z">>
+        created_at = <<"2099-01-01T00:00:00.123Z">>,
+        contact_info = #fistful_base_ContactInfo{
+            phone_number = <<"1234567890">>,
+            email = <<"test@mail.com">>
+        }
     },
     ?assertEqual(In, marshal(withdrawal, unmarshal(withdrawal, In))).
 
@@ -393,7 +412,11 @@ withdrawal_params_symmetry_test() ->
         wallet_id = genlib:unique(),
         destination_id = genlib:unique(),
         party_id = genlib:unique(),
-        external_id = undefined
+        external_id = undefined,
+        contact_info = #fistful_base_ContactInfo{
+            phone_number = <<"1234567890">>,
+            email = <<"test@mail.com">>
+        }
     },
     ?assertEqual(In, marshal_withdrawal_params(unmarshal_withdrawal_params(In))).
 
