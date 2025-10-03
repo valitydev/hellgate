@@ -52,7 +52,7 @@
 
 %% Very specific errors to crutch around
 -define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
--define(OPERATION_NOT_FOUND, #base_InvalidRequest{errors = [<<"OperationNotFound">>]}).
+-define(OPERATION_NOT_FOUND, {invalid_request, [<<"OperationNotFound">>]}).
 
 -spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
 get_turnover_limits(undefined) ->
