@@ -42,6 +42,18 @@
     terminal = TerminalRef
 }).
 
+-define(party(PartyID), #domain_Party{
+    id = PartyID
+}).
+
+-define(shop(ShopID), #domain_Shop{
+    id = ShopID
+}).
+
+%% Very specific errors to crutch around
+-define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
+-define(OPERATION_NOT_FOUND, #base_InvalidRequest{errors = [<<"OperationNotFound">>]}).
+
 -spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
 get_turnover_limits(undefined) ->
     [];
@@ -277,13 +289,19 @@ rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags) ->
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_rollback_payment_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Route, Iter, Flags),
     OperationIdSegments = make_route_operation_segments(Invoice, Payment, Route, Iter),
-    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
+    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments, Flags).
 
-batch_rollback_limits(_Context, [], _OperationIdSegments) ->
+batch_rollback_limits(_Context, [], _OperationIdSegments, _Flags) ->
     ok;
-batch_rollback_limits(Context, TurnoverLimits, OperationIdSegments) ->
+batch_rollback_limits(Context, TurnoverLimits, OperationIdSegments, Flags) ->
     {LimitRequest, _} = prepare_limit_request(TurnoverLimits, OperationIdSegments),
-    hg_limiter_client:rollback_batch(LimitRequest, Context).
+    IgnoreError = lists:member(ignore_not_found, Flags) orelse lists:member(ignore_business_error, Flags),
+    try
+        ok = hg_limiter_client:rollback_batch(LimitRequest, Context)
+    catch
+        error:(?OPERATION_NOT_FOUND) when IgnoreError =:= true ->
+            ok
+    end.
 
 legacy_rollback_payment_limits(Context, TurnoverLimits, Invoice, Payment, Route, Iter, Flags) ->
     ChangeIDs = [
@@ -308,7 +326,7 @@ rollback_shop_limits(TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Pay
         Context, LegacyTurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags
     ),
     OperationIdSegments = make_shop_operation_segments(PartyConfigRef, ShopConfigRef, Invoice, Payment),
-    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
+    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments, Flags).
 
 legacy_rollback_shop_limits(Context, TurnoverLimits, PartyConfigRef, ShopConfigRef, Invoice, Payment, Flags) ->
     ChangeIDs = [construct_shop_change_id(PartyConfigRef, ShopConfigRef, Invoice, Payment)],
@@ -321,7 +339,7 @@ rollback_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     {LegacyTurnoverLimits, BatchTurnoverLimits} = split_turnover_limits_by_available_limiter_api(TurnoverLimits),
     ok = legacy_rollback_refund_limits(Context, LegacyTurnoverLimits, Invoice, Payment, Refund),
     OperationIdSegments = make_refund_operation_segments(Invoice, Payment, Refund),
-    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments).
+    ok = batch_rollback_limits(Context, BatchTurnoverLimits, OperationIdSegments, []).
 
 legacy_rollback_refund_limits(Context, TurnoverLimits, Invoice, Payment, Refund) ->
     ChangeIDs = [construct_refund_change_id(Invoice, Payment, Refund)],
@@ -347,9 +365,6 @@ process_changes(LimitChangesQueues, WithFun, Clock, Context, Flags) ->
         end,
         LimitChangesQueues
     ).
-
-%% Very specific error to crutch around
--define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
 
 process_changes_try_wrap([LimitChange], WithFun, Clock, Context, Flags) ->
     IgnoreNotFound = lists:member(ignore_not_found, Flags),
