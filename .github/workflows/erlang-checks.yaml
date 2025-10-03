@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'master'
+      - 'master-v1'
       - 'epic/**'
   pull_request:
     branches: ['**']
