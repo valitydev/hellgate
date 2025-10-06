@@ -5747,11 +5747,12 @@ repair_fail_routing_not_existent_operation(C) ->
     RootUrl = cfg(root_url, C),
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
     PartyClient = cfg(party_client, C),
-    #{party_id := PartyID} = cfg(limits, C),
-    ShopID = hg_ct_helper:create_shop(PartyID, ?cat(8), <<"RUB">>, ?tmpl(1), ?pinst(1), PartyClient),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
 
     %% Invoice
-    InvoiceParams = make_invoice_params(PartyID, ShopID, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
+    InvoiceParams =
+        make_invoice_params(PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
     InvoiceID = create_invoice(InvoiceParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
 
