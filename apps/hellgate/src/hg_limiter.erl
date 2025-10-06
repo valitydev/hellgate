@@ -7,7 +7,7 @@
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
 
--type turnover_selector() :: dmsl_domain_thrift:'TurnoverLimitSelector'().
+-type turnover_terms_container() :: dmsl_domain_thrift:'PaymentsProvisionTerms'() | dmsl_domain_thrift:'ShopConfig'().
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
@@ -54,13 +54,33 @@
 -define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
 -define(OPERATION_NOT_FOUND, {invalid_request, [<<"OperationNotFound">>]}).
 
--spec get_turnover_limits(turnover_selector() | undefined) -> [turnover_limit()].
-get_turnover_limits(undefined) ->
+-spec get_turnover_limits(turnover_terms_container()) -> [turnover_limit()].
+
+get_turnover_limits(#domain_ShopConfig{turnover_limits = undefined}) ->
     [];
-get_turnover_limits({value, Limits}) ->
+get_turnover_limits(#domain_ShopConfig{turnover_limits = Limits}) ->
+    ok = assert_turnover_limits_exist_in_domain(Limits),
+    ordsets:to_list(Limits);
+get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = undefined}) ->
+    [];
+get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = {value, Limits}}) ->
+    ok = assert_turnover_limits_exist_in_domain(Limits),
     Limits;
-get_turnover_limits(Ambiguous) ->
+get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = Ambiguous}) ->
     error({misconfiguration, {'Could not reduce selector to a value', Ambiguous}}).
+
+assert_turnover_limits_exist_in_domain(Limits) ->
+    try
+        _ = [
+            hg_domain:get(Ver, {limit_config, #domain_LimitConfigRef{id = ID}})
+         || #domain_TurnoverLimit{id = ID, domain_revision = Ver} <- Limits,
+            Ver =/= undefined
+        ],
+        ok
+    catch
+        error:{object_not_found, {Revision, {limit_config, #domain_LimitConfigRef{id = LimitID}}}} ->
+            error({misconfiguration, {'Limit config not found', {Revision, LimitID}}})
+    end.
 
 -spec get_limit_values([turnover_limit()], invoice(), payment(), route(), pos_integer()) -> [turnover_limit_value()].
 get_limit_values(TurnoverLimits, Invoice, Payment, Route, Iter) ->

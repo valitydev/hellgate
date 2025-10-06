@@ -422,8 +422,7 @@ get_resource_payment_tool(#domain_DisposablePaymentResource{payment_tool = Payme
     PaymentTool.
 
 get_turnover_limits(ProviderTerms) ->
-    TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
-    hg_limiter:get_turnover_limits(TurnoverLimitSelector).
+    hg_limiter:get_turnover_limits(ProviderTerms).
 
 prepare_refund_cashflow(Refund) ->
     hg_accounting:hold(construct_refund_plan_id(Refund), make_batch(Refund)).

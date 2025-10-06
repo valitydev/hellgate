@@ -2570,10 +2570,8 @@ rollback_shop_limits(Opts, St, Flags) ->
         Flags
     ).
 
-get_shop_turnover_limits(#domain_ShopConfig{turnover_limits = undefined}) ->
-    [];
-get_shop_turnover_limits(#domain_ShopConfig{turnover_limits = T}) ->
-    ordsets:to_list(T).
+get_shop_turnover_limits(ShopConfig) ->
+    hg_limiter:get_turnover_limits(ShopConfig).
 
 %%
 
@@ -2662,8 +2660,7 @@ rollback_unused_payment_limits(St) ->
     rollback_payment_limits(UnUsedRoutes, get_iter(St), St, [ignore_business_error, ignore_not_found]).
 
 get_turnover_limits(ProviderTerms) ->
-    TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
-    hg_limiter:get_turnover_limits(TurnoverLimitSelector).
+    hg_limiter:get_turnover_limits(ProviderTerms).
 
 commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     Opts = get_opts(St),
@@ -3469,9 +3466,8 @@ get_limit_values(St) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms),
-            TurnoverLimitValues = hg_limiter:get_limit_values(
-                TurnoverLimits, Invoice, Payment, PaymentRoute, Iter
-            ),
+            TurnoverLimitValues =
+                hg_limiter:get_limit_values(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter),
             Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
