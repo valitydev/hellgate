@@ -23,7 +23,7 @@
 
 -export_type([turnover_limit_value/0]).
 
--export([get_turnover_limits/1]).
+-export([get_turnover_limits/2]).
 -export([check_limits/5]).
 -export([check_shop_limits/5]).
 -export([hold_payment_limits/5]).
@@ -54,33 +54,43 @@
 -define(POSTING_PLAN_NOT_FOUND(ID), #base_InvalidRequest{errors = [<<"Posting plan not found: ", ID/binary>>]}).
 -define(OPERATION_NOT_FOUND, {invalid_request, [<<"OperationNotFound">>]}).
 
--spec get_turnover_limits(turnover_terms_container()) -> [turnover_limit()].
+-spec get_turnover_limits(turnover_terms_container(), strict | lenient) -> [turnover_limit()].
 
-get_turnover_limits(#domain_ShopConfig{turnover_limits = undefined}) ->
+get_turnover_limits(#domain_ShopConfig{turnover_limits = undefined}, _Mode) ->
     [];
-get_turnover_limits(#domain_ShopConfig{turnover_limits = Limits}) ->
-    ok = assert_turnover_limits_exist_in_domain(Limits),
-    ordsets:to_list(Limits);
-get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = undefined}) ->
+get_turnover_limits(#domain_ShopConfig{turnover_limits = Limits}, Mode) ->
+    ordsets:to_list(filter_existing_turnover_limits(Limits, Mode));
+get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = undefined}, _Mode) ->
     [];
-get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = {value, Limits}}) ->
-    ok = assert_turnover_limits_exist_in_domain(Limits),
-    Limits;
-get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = Ambiguous}) ->
+get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = {value, Limits}}, Mode) ->
+    filter_existing_turnover_limits(Limits, Mode);
+get_turnover_limits(#domain_PaymentsProvisionTerms{turnover_limits = Ambiguous}, _Mode) ->
     error({misconfiguration, {'Could not reduce selector to a value', Ambiguous}}).
 
-assert_turnover_limits_exist_in_domain(Limits) ->
-    try
-        _ = [
-            hg_domain:get(Ver, {limit_config, #domain_LimitConfigRef{id = ID}})
-         || #domain_TurnoverLimit{id = ID, domain_revision = Ver} <- Limits,
-            Ver =/= undefined
-        ],
-        ok
-    catch
-        error:{object_not_found, {Revision, {limit_config, #domain_LimitConfigRef{id = LimitID}}}} ->
-            error({misconfiguration, {'Limit config not found', {Revision, LimitID}}})
-    end.
+-define(LIMIT_NOT_FOUND(Revision, LimitID),
+    {object_not_found, {Revision, {limit_config, #domain_LimitConfigRef{id = LimitID}}}}
+).
+filter_existing_turnover_limits(Limits, Mode) ->
+    %% When mode is strict and limit-config does not exist it raises a
+    %% misconfiguration error.
+    %% Otherwise it filters out non existent one.
+    lists:filter(
+        fun
+            (#domain_TurnoverLimit{domain_revision = undefined}) ->
+                true;
+            (#domain_TurnoverLimit{id = ID, domain_revision = Ver}) ->
+                try
+                    _ = hg_domain:get(Ver, {limit_config, #domain_LimitConfigRef{id = ID}}),
+                    true
+                catch
+                    error:?LIMIT_NOT_FOUND(_Revision, _LimitID) when Mode =:= lenient ->
+                        false;
+                    error:?LIMIT_NOT_FOUND(Revision, LimitID) when Mode =:= strict ->
+                        error({misconfiguration, {'Limit config not found', {Revision, LimitID}}})
+                end
+        end,
+        Limits
+    ).
 
 -spec get_limit_values([turnover_limit()], invoice(), payment(), route(), pos_integer()) -> [turnover_limit_value()].
 get_limit_values(TurnoverLimits, Invoice, Payment, Route, Iter) ->

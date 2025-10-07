@@ -5759,17 +5759,18 @@ repair_fail_routing_not_existent_operation(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    %% routing broken
+    %% Routing broken: limit holds fail with misconfiguration error
     timeout = next_change(InvoiceID, 2000, Client),
 
-    ?assertException(
-        error,
-        {
-            {woody_error,
-                {external, result_unexpected, <<"error:{misconfiguration,{'Limit config not found',", _/binary>>}},
-            _
-        },
-        repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client)
+    %% Repair with rollback limits
+    ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
+
+    %% Check final status
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(InvoiceID, Client),
+
+    %% Check duplicate repair
+    {exception, {base_InvalidRequest, [<<"No need to repair">>]}} = repair_invoice_with_scenario(
+        InvoiceID, fail_pre_processing, Client
     ).
 
 %% fail cash_flow_building before accounting hold
