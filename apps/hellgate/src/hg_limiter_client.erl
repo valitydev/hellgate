@@ -30,8 +30,8 @@
 
 -spec get(limit_id(), limit_version() | undefined, clock(), context()) -> limit() | no_return().
 get(LimitID, Version, Clock, Context) ->
-    Args = {LimitID, Version, Clock, Context},
     Opts = hg_woody_wrapper:get_service_options(limiter),
+    Args = {LimitID, Version, Clock, Context},
     case hg_woody_wrapper:call(limiter, 'GetVersioned', Args, Opts) of
         {ok, Limit} ->
             Limit;

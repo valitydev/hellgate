@@ -181,6 +181,7 @@
 -export([repair_fulfill_session_on_captured_succeeded/1]).
 
 -export([repair_fail_routing_succeeded/1]).
+-export([repair_fail_routing_not_existent_operation/1]).
 -export([repair_fail_cash_flow_building_succeeded/1]).
 
 -export([consistent_account_balances/1]).
@@ -472,6 +473,7 @@ groups() ->
         ]},
         {repair_preproc_w_limits, [], [
             repair_fail_routing_succeeded,
+            repair_fail_routing_not_existent_operation,
             repair_fail_cash_flow_building_succeeded
         ]},
         {route_cascading, [parallel], [
@@ -515,7 +517,6 @@ init_per_suite(C) ->
     ]),
 
     BaseLimitsRevision = hg_limiter_helper:init_per_suite(C),
-    _ = logger:error("BaseLimitsRevision: ~p", [BaseLimitsRevision]),
 
     RootUrl = maps:get(hellgate_root_url, Ret),
 
@@ -724,6 +725,8 @@ init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
         fun override_check_limits/5
     ),
     init_per_testcase_(Name, C);
+init_per_testcase(Name = repair_fail_routing_not_existent_operation, C) ->
+    init_per_testcase_(Name, override_terms_limit_reference(?prv(5), C));
 init_per_testcase(Name = repair_fail_cash_flow_building_succeeded, C) ->
     meck:expect(
         hg_cashflow_utils,
@@ -756,6 +759,27 @@ override_domain_fixture(Fixture, C) ->
 override_domain_fixture(Fixture, Name, C) ->
     init_per_testcase_(Name, override_domain_fixture(Fixture, C)).
 
+override_terms_limit_reference(ProviderRef, C) ->
+    override_domain_fixture(
+        fun(Revision, _C) ->
+            [
+                change_provider_payments_provision_terms(ProviderRef, Revision, fun(PaymentsProvisionTerms) ->
+                    PaymentsProvisionTerms#domain_PaymentsProvisionTerms{
+                        turnover_limits =
+                            {value, [
+                                #domain_TurnoverLimit{
+                                    id = <<"NOT_EXISTENT_LIMIT_ID">>,
+                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY,
+                                    domain_revision = Revision
+                                }
+                            ]}
+                    }
+                end)
+            ]
+        end,
+        C
+    ).
+
 init_per_testcase_(Name, C) ->
     ApiClient = hg_ct_helper:create_client(cfg(root_url, C)),
     Client = hg_client_invoicing:start_link(ApiClient),
@@ -773,6 +797,8 @@ trace_testcase(Name, C) ->
 -spec end_per_testcase(test_case_name(), config()) -> _.
 end_per_testcase(repair_fail_routing_succeeded, C) ->
     meck:unload(hg_limiter),
+    end_per_testcase(default, C);
+end_per_testcase(repair_fail_routing_not_existent_operation, C) ->
     end_per_testcase(default, C);
 end_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
     meck:unload(hg_cashflow_utils),
@@ -1349,11 +1375,6 @@ payment_limit_overflow(C) ->
     ) = create_payment(PartyConfigRef, ShopConfigRef, PaymentAmount, Client, PmtSys),
 
     Failure = create_payment_limit_overflow(PartyConfigRef, ShopConfigRef, 1000, Client, PmtSys),
-    _ = logger:error("configured_limit_version(?LIMIT_ID, C): ~p", [configured_limit_version(?LIMIT_ID, C)]),
-    Res = dmt_client:checkout_object(
-        configured_limit_version(?LIMIT_ID, C), {limit_config, #domain_LimitConfigRef{id = ?LIMIT_ID}}
-    ),
-    _ = logger:error("dmt_client:checkout_object({limit_config, #domain_LimitConfigRef{id = ?LIMIT_ID}}: ~p", [Res]),
     ok = hg_limiter_helper:assert_payment_limit_amount(
         ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
     ),
@@ -5709,6 +5730,43 @@ repair_fail_routing_succeeded(C) ->
             }
         ]
     } = hg_client_invoicing:get_limit_values(InvoiceID, PaymentID, Client),
+
+    %% Check duplicate repair
+    {exception, {base_InvalidRequest, [<<"No need to repair">>]}} = repair_invoice_with_scenario(
+        InvoiceID, fail_pre_processing, Client
+    ).
+
+-spec repair_fail_routing_not_existent_operation(config()) -> test_return().
+repair_fail_routing_not_existent_operation(C) ->
+    RootUrl = cfg(root_url, C),
+    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
+    PartyClient = cfg(party_client, C),
+    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
+    ShopConfigRef = hg_ct_helper:create_shop(PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
+
+    %% Invoice
+    InvoiceParams =
+        make_invoice_params(PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
+
+    %% Payment
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
+    [
+        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
+        ?payment_ev(PaymentID, ?shop_limit_initiated()),
+        ?payment_ev(PaymentID, ?shop_limit_applied()),
+        ?payment_ev(PaymentID, ?risk_score_changed(_))
+    ] = next_changes(InvoiceID, 4, Client),
+    %% Routing broken: limit holds fail with misconfiguration error
+    timeout = next_change(InvoiceID, 2000, Client),
+
+    %% Repair with rollback limits
+    ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
+
+    %% Check final status
+    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(InvoiceID, Client),
 
     %% Check duplicate repair
     {exception, {base_InvalidRequest, [<<"No need to repair">>]}} = repair_invoice_with_scenario(
