@@ -2607,7 +2607,7 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
     {lists:reverse(Routes1), Rejected}.
 
 do_reject_route(LimiterError, Route, TurnoverLimits, {LimitHeldRoutes, RejectedRoutes}) ->
-    LimitsIDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
+    LimitsIDs = [T#domain_TurnoverLimit.ref#domain_LimitConfigRef.id || T <- TurnoverLimits],
     RejectedRoute = hg_route:to_rejected_route(Route, {'LimitHoldError', LimitsIDs, LimiterError}),
     {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}.
 
