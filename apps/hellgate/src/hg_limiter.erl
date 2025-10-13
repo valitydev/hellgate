@@ -63,17 +63,16 @@ filter_existing_turnover_limits(Limits, Mode) ->
     %% misconfiguration error.
     %% Otherwise it filters out non existent one.
     lists:filter(
-        fun
-            (#domain_TurnoverLimit{ref = ?ref(ID), domain_revision = Ver}) ->
-                try
-                    _ = hg_domain:get(Ver, {limit_config, ?ref(ID)}),
-                    true
-                catch
-                    error:?LIMIT_NOT_FOUND(_Revision, ?ref(_LimitID)) when Mode =:= lenient ->
-                        false;
-                    error:?LIMIT_NOT_FOUND(Revision, ?ref(LimitID)) when Mode =:= strict ->
-                        error({misconfiguration, {'Limit config not found', {Revision, LimitID}}})
-                end
+        fun(#domain_TurnoverLimit{ref = ?ref(ID), domain_revision = Ver}) ->
+            try
+                _ = hg_domain:get(Ver, {limit_config, ?ref(ID)}),
+                true
+            catch
+                error:?LIMIT_NOT_FOUND(_Revision, ?ref(_LimitID)) when Mode =:= lenient ->
+                    false;
+                error:?LIMIT_NOT_FOUND(Revision, ?ref(LimitID)) when Mode =:= strict ->
+                    error({misconfiguration, {'Limit config not found', {Revision, LimitID}}})
+            end
         end,
         Limits
     ).
