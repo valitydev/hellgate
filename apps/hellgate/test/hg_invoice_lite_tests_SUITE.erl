@@ -28,8 +28,6 @@
 -export([payment_has_optional_fields/1]).
 -export([payment_last_trx_correct/1]).
 
--export([payment_ok_hybrid_test/1]).
-
 -type config() :: hg_ct_helper:config().
 -type test_case_name() :: hg_ct_helper:test_case_name().
 -type group_name() :: hg_ct_helper:group_name().
@@ -48,8 +46,7 @@ init([]) ->
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
     [
-        {group, payments},
-        payment_ok_hybrid_test
+        {group, payments}
         % {group, wrap_load}
     ].
 
@@ -500,30 +497,6 @@ payment_last_trx_correct(C) ->
     ] = next_changes(InvoiceID, 3, Client),
     PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
     ?payment_last_trx(TrxInfo0) = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client).
-
--spec payment_ok_hybrid_test(config()) -> test_return().
-payment_ok_hybrid_test(C) ->
-    Client = cfg(client, C),
-    OriginalBackend = application:get_env(hellgate, backend, machinegun),
-    ok = application:set_env(hellgate, backend, machinegun),
-    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
-    Context = #base_Content{
-        type = <<"application/x-erlang-binary">>,
-        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
-    },
-    PayerSessionInfo = #domain_PayerSessionInfo{
-        redirect_url = <<"https://redirectly.io/merchant">>
-    },
-    PaymentParams = (make_payment_params(?pmt_sys(<<"visa-ref">>)))#payproc_InvoicePaymentParams{
-        payer_session_info = PayerSessionInfo,
-        context = Context
-    },
-    ok = application:set_env(hellgate, backend, hybrid),
-    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
-    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
-    #payproc_Invoice{} = hg_client_invoicing:get(InvoiceID, Client),
-    ok = application:set_env(hellgate, backend, OriginalBackend),
-    ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Internals

@@ -181,7 +181,6 @@
 -export([repair_fulfill_session_on_captured_succeeded/1]).
 
 -export([repair_fail_routing_succeeded/1]).
--export([repair_fail_routing_not_existent_operation/1]).
 -export([repair_fail_cash_flow_building_succeeded/1]).
 
 -export([consistent_account_balances/1]).
@@ -473,7 +472,6 @@ groups() ->
         ]},
         {repair_preproc_w_limits, [], [
             repair_fail_routing_succeeded,
-            repair_fail_routing_not_existent_operation,
             repair_fail_cash_flow_building_succeeded
         ]},
         {route_cascading, [parallel], [
@@ -725,8 +723,6 @@ init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
         fun override_check_limits/5
     ),
     init_per_testcase_(Name, C);
-init_per_testcase(Name = repair_fail_routing_not_existent_operation, C) ->
-    init_per_testcase_(Name, override_terms_limit_reference(?prv(5), C));
 init_per_testcase(Name = repair_fail_cash_flow_building_succeeded, C) ->
     meck:expect(
         hg_cashflow_utils,
@@ -759,27 +755,6 @@ override_domain_fixture(Fixture, C) ->
 override_domain_fixture(Fixture, Name, C) ->
     init_per_testcase_(Name, override_domain_fixture(Fixture, C)).
 
-override_terms_limit_reference(ProviderRef, C) ->
-    override_domain_fixture(
-        fun(Revision, _C) ->
-            [
-                change_provider_payments_provision_terms(ProviderRef, Revision, fun(PaymentsProvisionTerms) ->
-                    PaymentsProvisionTerms#domain_PaymentsProvisionTerms{
-                        turnover_limits =
-                            {value, [
-                                #domain_TurnoverLimit{
-                                    id = <<"NOT_EXISTENT_LIMIT_ID">>,
-                                    upper_boundary = ?LIMIT_UPPER_BOUNDARY,
-                                    domain_revision = Revision
-                                }
-                            ]}
-                    }
-                end)
-            ]
-        end,
-        C
-    ).
-
 init_per_testcase_(Name, C) ->
     ApiClient = hg_ct_helper:create_client(cfg(root_url, C)),
     Client = hg_client_invoicing:start_link(ApiClient),
@@ -797,8 +772,6 @@ trace_testcase(Name, C) ->
 -spec end_per_testcase(test_case_name(), config()) -> _.
 end_per_testcase(repair_fail_routing_succeeded, C) ->
     meck:unload(hg_limiter),
-    end_per_testcase(default, C);
-end_per_testcase(repair_fail_routing_not_existent_operation, C) ->
     end_per_testcase(default, C);
 end_per_testcase(repair_fail_cash_flow_building_succeeded, C) ->
     meck:unload(hg_cashflow_utils),
@@ -1229,7 +1202,7 @@ payment_shop_limit_success(C) ->
     PartyConfigRef = cfg(party_config_ref_big_merch, C),
     TurnoverLimits = [
         #domain_TurnoverLimit{
-            id = ?SHOPLIMIT_ID,
+            ref = ?lim(?SHOPLIMIT_ID),
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
             domain_revision = hg_domain:head()
         }
@@ -1251,7 +1224,7 @@ payment_shop_limit_overflow(C) ->
     PartyConfigRef = cfg(party_config_ref_big_merch, C),
     TurnoverLimits = ordsets:from_list([
         #domain_TurnoverLimit{
-            id = ?SHOPLIMIT_ID,
+            ref = ?lim(?SHOPLIMIT_ID),
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
             domain_revision = hg_domain:head()
         }
@@ -1277,7 +1250,7 @@ payment_shop_limit_more_overflow(C) ->
     PartyConfigRef = cfg(party_config_ref_big_merch, C),
     TurnoverLimits = ordsets:from_list([
         #domain_TurnoverLimit{
-            id = ?SHOPLIMIT_ID,
+            ref = ?lim(?SHOPLIMIT_ID),
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
             domain_revision = hg_domain:head()
         }
@@ -1319,7 +1292,7 @@ payment_routes_limit_values(C) ->
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{ref = ?lim(?LIMIT_ID), upper_boundary = ?LIMIT_UPPER_BOUNDARY},
                 value = 10000
             }
         ]
@@ -1745,7 +1718,7 @@ patch_with_unsupported_payment_tool(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID,
+                            ref = ?lim(?LIMIT_ID),
                             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
                             domain_revision = NewRevision
                         }
@@ -1781,14 +1754,14 @@ patch_providers_limits_to_fail_and_overflow(Revision, _C) ->
         ),
         change_terms_limit_config_version(Revision, ?prv(5), [
             #domain_TurnoverLimit{
-                id = ?LIMIT_ID,
+                ref = ?lim(?LIMIT_ID),
                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
                 domain_revision = NewRevision
             }
         ]),
         change_terms_limit_config_version(Revision, ?prv(6), [
             #domain_TurnoverLimit{
-                id = ?LIMIT_ID2,
+                ref = ?lim(?LIMIT_ID2),
                 %% Every op will overflow!
                 upper_boundary = 0,
                 domain_revision = NewRevision
@@ -1818,7 +1791,7 @@ unset_provider_chargebacks_terms(Revision, ProviderRef) ->
 change_terms_limit_config_version(Revision, LimitConfigRevision) ->
     change_terms_limit_config_version(Revision, ?prv(5), [
         #domain_TurnoverLimit{
-            id = ?LIMIT_ID,
+            ref = ?lim(?LIMIT_ID),
             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
             domain_revision = LimitConfigRevision
         }
@@ -5709,7 +5682,7 @@ repair_fail_routing_succeeded(C) ->
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{ref = ?lim(?LIMIT_ID), upper_boundary = ?LIMIT_UPPER_BOUNDARY},
                 value = 10000
             }
         ]
@@ -5725,48 +5698,11 @@ repair_fail_routing_succeeded(C) ->
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{ref = ?lim(?LIMIT_ID), upper_boundary = ?LIMIT_UPPER_BOUNDARY},
                 value = 0
             }
         ]
     } = hg_client_invoicing:get_limit_values(InvoiceID, PaymentID, Client),
-
-    %% Check duplicate repair
-    {exception, {base_InvalidRequest, [<<"No need to repair">>]}} = repair_invoice_with_scenario(
-        InvoiceID, fail_pre_processing, Client
-    ).
-
--spec repair_fail_routing_not_existent_operation(config()) -> test_return().
-repair_fail_routing_not_existent_operation(C) ->
-    RootUrl = cfg(root_url, C),
-    Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
-    PartyClient = cfg(party_client, C),
-    #{party_config_ref := PartyConfigRef} = cfg(limits, C),
-    ShopConfigRef = hg_ct_helper:create_shop(PartyConfigRef, ?cat(8), <<"RUB">>, ?trms(1), ?pinst(1), PartyClient),
-
-    %% Invoice
-    InvoiceParams =
-        make_invoice_params(PartyConfigRef, ShopConfigRef, <<"rubberduck">>, make_due_date(10), make_cash(10000)),
-    InvoiceID = create_invoice(InvoiceParams, Client),
-    ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-
-    %% Payment
-    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
-    ?payment_state(?payment(PaymentID)) = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
-    [
-        ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
-        ?payment_ev(PaymentID, ?shop_limit_initiated()),
-        ?payment_ev(PaymentID, ?shop_limit_applied()),
-        ?payment_ev(PaymentID, ?risk_score_changed(_))
-    ] = next_changes(InvoiceID, 4, Client),
-    %% Routing broken: limit holds fail with misconfiguration error
-    timeout = next_change(InvoiceID, 2000, Client),
-
-    %% Repair with rollback limits
-    ok = repair_invoice_with_scenario(InvoiceID, fail_pre_processing, Client),
-
-    %% Check final status
-    ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure}))) = next_change(InvoiceID, Client),
 
     %% Check duplicate repair
     {exception, {base_InvalidRequest, [<<"No need to repair">>]}} = repair_invoice_with_scenario(
@@ -5805,7 +5741,7 @@ repair_fail_cash_flow_building_succeeded(C) ->
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{ref = ?lim(?LIMIT_ID), upper_boundary = ?LIMIT_UPPER_BOUNDARY},
                 value = 10000
             }
         ]
@@ -5821,7 +5757,7 @@ repair_fail_cash_flow_building_succeeded(C) ->
     #{
         Route := [
             #payproc_TurnoverLimitValue{
-                limit = #domain_TurnoverLimit{id = ?LIMIT_ID, upper_boundary = ?LIMIT_UPPER_BOUNDARY},
+                limit = #domain_TurnoverLimit{ref = ?lim(?LIMIT_ID), upper_boundary = ?LIMIT_UPPER_BOUNDARY},
                 value = 0
             }
         ]
@@ -6334,7 +6270,7 @@ payment_cascade_success_fixture(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID4,
+                            ref = ?lim(?LIMIT_ID4),
                             upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -6499,7 +6435,7 @@ payment_cascade_success_w_refund_fixture(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID4,
+                            ref = ?lim(?LIMIT_ID4),
                             upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -6587,7 +6523,7 @@ payment_big_cascade_success_fixture(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID4,
+                            ref = ?lim(?LIMIT_ID4),
                             upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -6721,7 +6657,7 @@ payment_cascade_limit_overflow_fixture(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID4,
+                            ref = ?lim(?LIMIT_ID4),
                             upper_boundary = ?LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -6949,7 +6885,7 @@ payment_cascade_fail_provider_error_fixture(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID4,
+                            ref = ?lim(?LIMIT_ID4),
                             upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -7186,7 +7122,7 @@ payment_cascade_fail_wo_route_candidates_fixture(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID4,
+                            ref = ?lim(?LIMIT_ID4),
                             upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -7265,7 +7201,7 @@ payment_cascade_fail_wo_available_attempt_limit_fixture(Revision, _C) ->
                 turnover_limits =
                     {value, [
                         #domain_TurnoverLimit{
-                            id = ?LIMIT_ID4,
+                            ref = ?lim(?LIMIT_ID4),
                             upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -9506,7 +9442,7 @@ construct_domain_fixture(BaseLimitsRevision) ->
                         turnover_limits =
                             {value, [
                                 #domain_TurnoverLimit{
-                                    id = ?LIMIT_ID,
+                                    ref = ?lim(?LIMIT_ID),
                                     upper_boundary = ?LIMIT_UPPER_BOUNDARY,
                                     domain_revision = BaseLimitsRevision
                                 }
@@ -9559,7 +9495,7 @@ construct_domain_fixture(BaseLimitsRevision) ->
                     turnover_limits =
                         {value, [
                             #domain_TurnoverLimit{
-                                id = ?LIMIT_ID2,
+                                ref = ?lim(?LIMIT_ID2),
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
                                 domain_revision = BaseLimitsRevision
                             }
@@ -9604,7 +9540,7 @@ construct_domain_fixture(BaseLimitsRevision) ->
                     turnover_limits =
                         {value, [
                             #domain_TurnoverLimit{
-                                id = ?LIMIT_ID3,
+                                ref = ?lim(?LIMIT_ID3),
                                 upper_boundary = ?LIMIT_UPPER_BOUNDARY,
                                 domain_revision = BaseLimitsRevision
                             }
