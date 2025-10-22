@@ -76,9 +76,7 @@ init_per_suite(C) ->
     ct_helper:makeup_cfg(
         [
             ct_helper:test_case_name(init),
-            ct_payment_system:setup(#{
-                setup_dominant => fun ff_limiter_helper:init_per_suite/1
-            })
+            ct_payment_system:setup()
         ],
         C
     ).
@@ -282,7 +280,7 @@ limit_hold_currency_error(C) ->
 limit_hold_operation_error(C) ->
     mock_limiter_trm_hold_batch(?trm(1800), fun(_LimitRequest, _Context) ->
         {exception, #limiter_OperationContextNotSupported{
-            context_type = {withdrawal_processing, #limiter_config_LimitContextTypeWithdrawalProcessing{}}
+            context_type = {withdrawal_processing, #limiter_LimitContextTypeWithdrawalProcessing{}}
         }}
     end),
     limit_hold_error(C).

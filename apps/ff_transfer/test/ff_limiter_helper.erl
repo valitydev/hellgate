@@ -16,8 +16,6 @@
 -type config() :: ct_suite:ct_config().
 -type id() :: binary().
 
--define(PLACEHOLDER_UNINITIALIZED_LIMIT_ID, <<"uninitialized limit">>).
-
 -spec init_per_suite(config()) -> _.
 init_per_suite(Config) ->
     SenderScopes = [{sender, #limiter_config_LimitScopeEmptyDetails{}}],
@@ -49,14 +47,17 @@ get_limit(LimitID, Version, Withdrawal, Config) ->
             withdrawal = #context_withdrawal_Withdrawal{withdrawal = MarshaledWithdrawal}
         }
     },
-    maybe_uninitialized_limit(ff_ct_limiter_client:get(LimitID, Version, Context, ct_helper:get_woody_ctx(Config))).
+    maybe_uninitialized_limit(
+        LimitID,
+        ff_ct_limiter_client:get(LimitID, Version, Context, ct_helper:get_woody_ctx(Config))
+    ).
 
--spec maybe_uninitialized_limit({ok, _} | {exception, _}) -> _Limit.
-maybe_uninitialized_limit({ok, Limit}) ->
+-spec maybe_uninitialized_limit(limproto_limiter_thrift:'LimitID'(), {ok, _} | {exception, _}) -> _Limit.
+maybe_uninitialized_limit(_LimitID, {ok, Limit}) ->
     Limit;
-maybe_uninitialized_limit({exception, _}) ->
+maybe_uninitialized_limit(LimitID, {exception, _}) ->
     #limiter_Limit{
-        id = ?PLACEHOLDER_UNINITIALIZED_LIMIT_ID,
+        id = LimitID,
         amount = 0,
         creation_time = undefined,
         description = undefined
@@ -75,7 +76,6 @@ limiter_mk_config_object_num(LimitID, Scopes) ->
         ref = #domain_LimitConfigRef{id = LimitID},
         data = #limiter_config_LimitConfig{
             processor_type = <<"TurnoverProcessor">>,
-            created_at = <<"2000-01-01T00:00:00Z">>,
             started_at = <<"2000-01-01T00:00:00Z">>,
             shard_size = 12,
             time_range_type = {calendar, {month, #limiter_config_TimeRangeTypeCalendarMonth{}}},
@@ -94,7 +94,6 @@ limiter_mk_config_object_amount(LimitID) ->
         ref = #domain_LimitConfigRef{id = LimitID},
         data = #limiter_config_LimitConfig{
             processor_type = <<"TurnoverProcessor">>,
-            created_at = <<"2000-01-01T00:00:00Z">>,
             started_at = <<"2000-01-01T00:00:00Z">>,
             shard_size = 12,
             time_range_type = {calendar, {month, #limiter_config_TimeRangeTypeCalendarMonth{}}},

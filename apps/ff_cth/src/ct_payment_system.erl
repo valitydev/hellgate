@@ -83,7 +83,7 @@ start_processing_apps(Options) ->
         dmt_client,
         party_client,
         {fistful, [
-            {machinery_backend, hybrid},
+            {machinery_backend, progressor},
             {services, services(Options)}
         ]},
         ff_server,
@@ -150,11 +150,12 @@ start_optional_apps(_) ->
 
 setup_dominant(Config0, Options) ->
     Config1 = setup_dominant_internal(Config0, Options),
-    DomainConfig = domain_config(Config1, Options),
+    Config2 = ff_limiter_helper:init_per_suite(Config1),
+    DomainConfig = domain_config(Config2, Options),
     _ = ct_domain_config:upsert(DomainConfig),
     DomainConfigUpdate = domain_config_add_version(Options),
     _ = ct_domain_config:upsert(DomainConfigUpdate),
-    Config1.
+    Config2.
 
 setup_dominant_internal(Config, #{setup_dominant := Func}) when is_function(Func, 1) ->
     Func(Config);
@@ -197,7 +198,6 @@ do_set_env([Key | Path], Value, Env) ->
 services(Options) ->
     Default = #{
         ff_withdrawal_adapter_host => "http://fistful-server:8022/v1/ff_withdrawal_adapter_host",
-        automaton => "http://machinegun:8022/v1/automaton",
         accounter => "http://shumway:8022/accounter",
         partymgmt => "http://party-management:8022/v1/processing/partymgmt",
         binbase => "http://localhost:8222/binbase",

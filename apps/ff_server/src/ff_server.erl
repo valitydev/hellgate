@@ -53,7 +53,6 @@ init([]) ->
     Port = genlib_app:env(?MODULE, port, 8022),
     HealthCheck = genlib_app:env(?MODULE, health_check, #{}),
     WoodyOptsEnv = genlib_app:env(?MODULE, woody_opts, #{}),
-    RouteOptsEnv = genlib_app:env(?MODULE, route_opts, #{}),
 
     PartyClient = party_client:create_client(),
     DefaultTimeout = genlib_app:env(?MODULE, default_woody_handling_timeout, ?DEFAULT_HANDLING_TIMEOUT),
@@ -64,17 +63,14 @@ init([]) ->
 
     {ok, Ip} = inet:parse_address(IpEnv),
     WoodyOpts = maps:with([net_opts, handler_limits], WoodyOptsEnv),
-    EventHandlerOpts = genlib_app:env(?MODULE, scoper_event_handler_options, #{}),
-    RouteOpts = RouteOptsEnv#{event_handler => {ff_woody_event_handler, EventHandlerOpts}},
 
     %% NOTE See 'sys.config'
     %% TODO Refactor after namespaces params moved from progressor'
     %% application env.
-    {Backends, MachineHandlers, ModernizerHandlers} =
-        lists:unzip3([
-            contruct_backend_childspec(B, N, H, S, PartyClient)
-         || {B, N, H, S} <- get_namespaces_params(genlib_app:env(fistful, machinery_backend))
-        ]),
+    Backends = [
+        contruct_backend_childspec(N, H, S, PartyClient)
+     || {N, H, S} <- get_namespaces_params()
+    ],
     ok = application:set_env(fistful, backends, maps:from_list(Backends)),
 
     Services =
@@ -102,8 +98,6 @@ init([]) ->
                 event_handler => ff_woody_event_handler,
                 additional_routes =>
                     get_prometheus_routes() ++
-                    machinery_mg_backend:get_routes(MachineHandlers, RouteOpts) ++
-                    machinery_modernizer_mg_backend:get_routes(ModernizerHandlers, RouteOpts) ++
                     [erl_health_handle:get_route(enable_health_logging(HealthCheck))]
             }
         )
@@ -138,77 +132,24 @@ get_handler(Service, Handler, WrapperOpts) ->
     }
 }).
 
--spec get_namespaces_params(BackendMode) ->
-    [{BackendMode, machinery:namespace(), MachineryImpl :: module(), Schema :: module()}]
-when
-    BackendMode :: machinegun | progressor | hybrid.
-get_namespaces_params(machinegun = BackendMode) ->
-    [
-        {BackendMode, 'ff/source_v1', ff_source_machine, ff_source_machinery_schema},
-        {BackendMode, 'ff/destination_v2', ff_destination_machine, ff_destination_machinery_schema},
-        {BackendMode, 'ff/deposit_v1', ff_deposit_machine, ff_deposit_machinery_schema},
-        {BackendMode, 'ff/withdrawal_v2', ff_withdrawal_machine, ff_withdrawal_machinery_schema},
-        {BackendMode, 'ff/withdrawal/session_v2', ff_withdrawal_session_machine, ff_withdrawal_session_machinery_schema}
-    ];
-get_namespaces_params(BackendMode) when BackendMode == progressor orelse BackendMode == hybrid ->
+-spec get_namespaces_params() ->
+    [{machinery:namespace(), MachineryImpl :: module(), Schema :: module()}].
+get_namespaces_params() ->
     {ok, Namespaces} = application:get_env(progressor, namespaces),
     lists:map(
         fun({_, ?PROCESSOR_OPT_PATTERN(NS, Handler, Schema)}) ->
-            {BackendMode, NS, Handler, Schema}
+            {NS, Handler, Schema}
         end,
         maps:to_list(Namespaces)
-    );
-get_namespaces_params(UnknownBackendMode) ->
-    erlang:error({unknown_backend_mode, UnknownBackendMode}).
+    ).
 
-contruct_backend_childspec(BackendMode, NS, Handler, Schema, PartyClient) ->
-    {
-        construct_machinery_backend_spec(BackendMode, NS, Handler, Schema, PartyClient),
-        construct_machinery_handler_spec(NS, Handler, Schema, PartyClient),
-        construct_machinery_modernizer_spec(NS, Schema)
-    }.
-
-construct_machinery_backend_spec(hybrid, NS, Handler, Schema, PartyClient) ->
-    {_, Primary} = construct_machinery_backend_spec(progressor, NS, Handler, Schema, PartyClient),
-    {_, Fallback} = construct_machinery_backend_spec(machinegun, NS, Handler, Schema, PartyClient),
-    {NS,
-        {machinery_hybrid_backend, #{
-            primary_backend => Primary,
-            fallback_backend => Fallback
-        }}};
-construct_machinery_backend_spec(progressor, NS, Handler, Schema, PartyClient) ->
+contruct_backend_childspec(NS, Handler, Schema, PartyClient) ->
     {NS,
         {machinery_prg_backend, #{
             namespace => NS,
             handler => {fistful, #{handler => Handler, party_client => PartyClient}},
             schema => Schema
-        }}};
-construct_machinery_backend_spec(machinegun, NS, _Handler, Schema, _PartyClient) ->
-    {NS,
-        {machinery_mg_backend, #{
-            schema => Schema,
-            client => get_service_client(automaton)
         }}}.
-
-get_service_client(ServiceID) ->
-    case genlib_app:env(fistful, services, #{}) of
-        #{ServiceID := V} ->
-            ff_woody_client:new(V);
-        #{} ->
-            erlang:error({unknown_service, ServiceID})
-    end.
-
-construct_machinery_handler_spec(NS, Handler, Schema, PartyClient) ->
-    {{fistful, #{handler => Handler, party_client => PartyClient}}, #{
-        path => ff_string:join(["/v1/stateproc/", NS]),
-        backend_config => #{schema => Schema}
-    }}.
-
-construct_machinery_modernizer_spec(NS, Schema) ->
-    #{
-        path => ff_string:join(["/v1/modernizer/", NS]),
-        backend_config => #{schema => Schema}
-    }.
 
 wrap_handler(Handler, WrapperOpts) ->
     FullOpts = maps:merge(#{handler => Handler}, WrapperOpts),
