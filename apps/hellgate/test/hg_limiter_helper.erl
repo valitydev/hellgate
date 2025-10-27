@@ -108,7 +108,6 @@ mk_config_object(LimitID, Currency, ContextType, Scopes) ->
         ref = #domain_LimitConfigRef{id = LimitID},
         data = #limiter_config_LimitConfig{
             processor_type = <<"TurnoverProcessor">>,
-            created_at = <<"2000-01-01T00:00:00Z">>,
             started_at = <<"2000-01-01T00:00:00Z">>,
             shard_size = 12,
             time_range_type = {calendar, {month, #limiter_config_TimeRangeTypeCalendarMonth{}}},

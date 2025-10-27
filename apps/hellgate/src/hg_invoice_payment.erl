@@ -2512,7 +2512,7 @@ get_limit_overflow_routes(Routes, VS, Iter, St) ->
         fun(Route, {RoutesNoOverflowIn, RejectedIn, LimitsIn}) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
-            TurnoverLimits = get_turnover_limits(ProviderTerms),
+            TurnoverLimits = get_turnover_limits(ProviderTerms, strict),
             case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter) of
                 {ok, Limits} ->
                     {[Route | RoutesNoOverflowIn], RejectedIn, LimitsIn#{PaymentRoute => Limits}};
@@ -2570,10 +2570,8 @@ rollback_shop_limits(Opts, St, Flags) ->
         Flags
     ).
 
-get_shop_turnover_limits(#domain_ShopConfig{turnover_limits = undefined}) ->
-    [];
-get_shop_turnover_limits(#domain_ShopConfig{turnover_limits = T}) ->
-    ordsets:to_list(T).
+get_shop_turnover_limits(ShopConfig) ->
+    hg_limiter:get_turnover_limits(ShopConfig, strict).
 
 %%
 
@@ -2588,7 +2586,7 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
         fun(Route, {LimitHeldRoutes, RejectedRoutes} = Acc) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
-            TurnoverLimits = get_turnover_limits(ProviderTerms),
+            TurnoverLimits = get_turnover_limits(ProviderTerms, strict),
             try
                 ok = hg_limiter:hold_payment_limits(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter),
                 {[Route | LimitHeldRoutes], RejectedRoutes}
@@ -2609,7 +2607,7 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
     {lists:reverse(Routes1), Rejected}.
 
 do_reject_route(LimiterError, Route, TurnoverLimits, {LimitHeldRoutes, RejectedRoutes}) ->
-    LimitsIDs = [T#domain_TurnoverLimit.id || T <- TurnoverLimits],
+    LimitsIDs = [T#domain_TurnoverLimit.ref#domain_LimitConfigRef.id || T <- TurnoverLimits],
     RejectedRoute = hg_route:to_rejected_route(Route, {'LimitHoldError', LimitsIDs, LimiterError}),
     {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}.
 
@@ -2622,7 +2620,7 @@ rollback_payment_limits(Routes, Iter, St, Flags) ->
     lists:foreach(
         fun(Route) ->
             ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
-            TurnoverLimits = get_turnover_limits(ProviderTerms),
+            TurnoverLimits = get_turnover_limits(ProviderTerms, strict),
             ok = hg_limiter:rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags)
         end,
         Routes
@@ -2632,7 +2630,7 @@ rollback_broken_payment_limits(St) ->
     Opts = get_opts(St),
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
-    LimitValues = get_limit_values(St),
+    LimitValues = get_limit_values_(St, lenient),
     Iter = maps:size(LimitValues),
     maps:fold(
         fun
@@ -2661,9 +2659,8 @@ rollback_unused_payment_limits(St) ->
     UnUsedRoutes = Routes -- [Route],
     rollback_payment_limits(UnUsedRoutes, get_iter(St), St, [ignore_business_error, ignore_not_found]).
 
-get_turnover_limits(ProviderTerms) ->
-    TurnoverLimitSelector = ProviderTerms#domain_PaymentsProvisionTerms.turnover_limits,
-    hg_limiter:get_turnover_limits(TurnoverLimitSelector).
+get_turnover_limits(ProviderTerms, Mode) ->
+    hg_limiter:get_turnover_limits(ProviderTerms, Mode).
 
 commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     Opts = get_opts(St),
@@ -2673,7 +2670,7 @@ commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     Invoice = get_invoice(Opts),
     Route = get_route(St),
     ProviderTerms = get_provider_terms(St, Revision),
-    TurnoverLimits = get_turnover_limits(ProviderTerms),
+    TurnoverLimits = get_turnover_limits(ProviderTerms, strict),
     Iter = get_iter(St),
     hg_limiter:commit_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, CapturedCash).
 
@@ -3450,8 +3447,11 @@ accrue_status_timing(Name, Opts, #st{timings = Timings}) ->
     EventTime = define_event_timestamp(Opts),
     hg_timings:mark(Name, EventTime, hg_timings:accrue(Name, started, EventTime, Timings)).
 
--spec get_limit_values(st()) -> route_limit_context().
-get_limit_values(St) ->
+-spec get_limit_values(st(), opts()) -> route_limit_context().
+get_limit_values(St, Opts) ->
+    get_limit_values_(St#st{opts = Opts}, strict).
+
+get_limit_values_(St, Mode) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
     Ctx = build_routing_context(PaymentInstitution, VS, Revision, St),
     Payment = get_payment(St),
@@ -3468,19 +3468,14 @@ get_limit_values(St) ->
         fun(Route, Acc) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
-            TurnoverLimits = get_turnover_limits(ProviderTerms),
-            TurnoverLimitValues = hg_limiter:get_limit_values(
-                TurnoverLimits, Invoice, Payment, PaymentRoute, Iter
-            ),
+            TurnoverLimits = get_turnover_limits(ProviderTerms, Mode),
+            TurnoverLimitValues =
+                hg_limiter:get_limit_values(TurnoverLimits, Invoice, Payment, PaymentRoute, Iter),
             Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
         hg_routing_ctx:considered_candidates(Ctx)
     ).
-
--spec get_limit_values(st(), opts()) -> route_limit_context().
-get_limit_values(St, Opts) ->
-    get_limit_values(St#st{opts = Opts}).
 
 try_accrue_waiting_timing(Opts, #st{payment = Payment, timings = Timings}) ->
     case get_payment_flow(Payment) of

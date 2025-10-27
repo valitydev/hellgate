@@ -27,36 +27,26 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-4fb87ed-epic-fix_remove
+    image: ghcr.io/valitydev/dominant-v2:sha-90f5fa2
     command: /opt/dmt/bin/dmt foreground
+    volumes:
+      - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: "/opt/dmt/bin/dmt ping"
       interval: 5s
       timeout: 3s
       retries: 12
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
-
-  machinegun:
-    image: ghcr.io/valitydev/mg2:sha-436f723
-    command: /opt/machinegun/bin/machinegun foreground
-    volumes:
-      - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
-      - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
-    healthcheck:
-      test: "/opt/machinegun/bin/machinegun ping"
-      interval: 5s
-      timeout: 1s
-      retries: 20
 
   bender:
-    image: ghcr.io/valitydev/bender:sha-a3b227f
+    image: ghcr.io/valitydev/bender:sha-bc14c2e
     command: /opt/bender/bin/bender foreground
+    volumes:
+      - ./test/bender/sys.config:/opt/bender/releases/1.0.0/sys.config
     depends_on:
-      machinegun:
+      db:
         condition: service_healthy
     healthcheck:
       test: "/opt/bender/bin/bender ping"
@@ -65,13 +55,9 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-7b27571
+    image: ghcr.io/valitydev/limiter:sha-2a3f78d
     command: /opt/limiter/bin/limiter foreground
     depends_on:
-      machinegun:
-        condition: service_healthy
-      shumway:
-        condition: service_started
       liminator:
         condition: service_healthy
     healthcheck:
@@ -81,7 +67,7 @@ services:
       retries: 20
 
   shumway:
-    image: ghcr.io/valitydev/shumway:sha-658587c
+    image: ghcr.io/valitydev/shumway:sha-d198581
     restart: unless-stopped
     depends_on:
       db:
@@ -121,8 +107,10 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-51e92f7
+    image: ghcr.io/valitydev/party-management:sha-53d780a
     command: /opt/party-management/bin/party-management foreground
+    volumes:
+      - ./test/party-management/sys.config:/opt/party-management/releases/0.1/sys.config
     depends_on:
       db:
         condition: service_healthy
@@ -135,8 +123,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    volumes:
-      - ./test/party-management/sys.config:/opt/party-management/releases/0.1/sys.config
 
   db:
     image: postgres:15-bookworm
@@ -144,7 +130,7 @@ services:
         -c max_connections=1000
         -c wal_level=logical
     environment:
-      POSTGRES_MULTIPLE_DATABASES: "hellgate,dmt,party_management,shumway,liminator"
+      POSTGRES_MULTIPLE_DATABASES: "hellgate,bender,dmt,party_management,shumway,liminator"
       POSTGRES_PASSWORD: "postgres"
     volumes:
       - ./test/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d

@@ -179,7 +179,7 @@ check_route_limits([TurnoverLimitValue | Rest]) ->
     case TurnoverLimitValue of
         #payproc_TurnoverLimitValue{
             limit = #domain_TurnoverLimit{
-                id = LimitID,
+                ref = #domain_LimitConfigRef{id = LimitID},
                 upper_boundary = UpperBoundary
             },
             value = Value
