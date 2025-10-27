@@ -3,22 +3,27 @@
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 -export([call_automaton/2]).
+-export([call_automaton/3]).
 
 -spec call_automaton(woody:func(), woody:args()) -> term().
-call_automaton('Start' = Func, {NS, ID, _} = Args) ->
+call_automaton(Func, Args) ->
+    call_automaton(Func, Args, #{}).
+
+-spec call_automaton(woody:func(), woody:args(), map()) -> term().
+call_automaton('Start' = Func, {NS, ID, _} = Args, Opts) ->
     MachineDesc = prepare_descriptor(NS, ID),
-    case hg_machine:call_automaton('GetMachine', {MachineDesc}, machinegun) of
+    case hg_machine:call_automaton('GetMachine', {MachineDesc}, #{}, machinegun) of
         {ok, Machine} ->
             ok = migrate(unmarshal(machine, Machine), unmarshal(descriptor, MachineDesc)),
             {error, exists};
         {error, notfound} ->
-            hg_progressor:call_automaton(Func, Args)
+            hg_progressor:call_automaton(Func, Args, Opts)
     end;
-call_automaton(Func, Args) ->
+call_automaton(Func, Args, Opts) ->
     MachineDesc = extract_descriptor(Args),
-    case hg_progressor:call_automaton(Func, Args) of
+    case hg_progressor:call_automaton(Func, Args, Opts) of
         {error, notfound} ->
-            maybe_retry_call_backend(maybe_migrate_machine(MachineDesc), Func, Args);
+            maybe_retry_call_backend(maybe_migrate_machine(MachineDesc), Func, Args, Opts);
         Result ->
             Result
     end.
@@ -26,16 +31,16 @@ call_automaton(Func, Args) ->
 %% Internal functions
 
 maybe_migrate_machine(MachineDesc) ->
-    case hg_machine:call_automaton('GetMachine', {MachineDesc}, machinegun) of
+    case hg_machine:call_automaton('GetMachine', {MachineDesc}, #{}, machinegun) of
         {error, notfound} = Error ->
             Error;
         {ok, Machine} ->
             migrate(unmarshal(machine, Machine), unmarshal(descriptor, MachineDesc))
     end.
 
-maybe_retry_call_backend(ok, Func, Args) ->
-    hg_progressor:call_automaton(Func, Args);
-maybe_retry_call_backend({error, _Reason} = Error, _Func, _Args) ->
+maybe_retry_call_backend(ok, Func, Args, Opts) ->
+    hg_progressor:call_automaton(Func, Args, Opts);
+maybe_retry_call_backend({error, _Reason} = Error, _Func, _Args, _Opts) ->
     erlang:error(Error).
 
 migrate(MigrateArgs, Req0) ->
