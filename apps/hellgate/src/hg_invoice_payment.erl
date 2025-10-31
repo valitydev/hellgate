@@ -2496,14 +2496,6 @@ get_provider_payment_terms(St, Revision) ->
     VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
 
-get_provider_terms(St, Revision) ->
-    Opts = get_opts(St),
-    Route = get_route(St),
-    Payment = get_payment(St),
-    VS0 = reconstruct_payment_flow(Payment, #{}),
-    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
-    hg_routing:get_provision_terms(Route, VS1, Revision).
-
 filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
     {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx0), VS, Iter, St),
     Ctx1 = reject_routes(limit_misconfiguration, RejectedRoutes, Ctx0),
@@ -3051,7 +3043,7 @@ merge_change(
     Opts
 ) ->
     _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
-    #domain_ProvisionTermSet{skipped_recurrent = Terms} = get_provider_terms(St, get_payment_revision(St)),
+    #domain_ProvisionTermSet{skipped_recurrent = Terms} = hg_routing:get_provision_terms(Route, #{}, get_payment_revision(St)),
     Skip =
         case Terms of
             undefined ->
