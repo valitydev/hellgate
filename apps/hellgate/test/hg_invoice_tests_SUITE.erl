@@ -692,38 +692,38 @@ init_per_testcase(Name, C) when
     Fixture = get_payment_adjustment_fixture(Revision),
     _ = hg_domain:upsert(Fixture),
     [{original_domain_revision, Revision} | init_per_testcase_(Name, C)];
-init_per_testcase(Name = rounding_cashflow_volume, C) ->
+init_per_testcase(rounding_cashflow_volume = Name, C) ->
     override_domain_fixture(fun get_cashflow_rounding_fixture/2, Name, C);
-init_per_testcase(Name = payments_w_bank_card_issuer_conditions, C) ->
+init_per_testcase(payments_w_bank_card_issuer_conditions = Name, C) ->
     override_domain_fixture(fun payments_w_bank_card_issuer_conditions_fixture/2, Name, C);
-init_per_testcase(Name = payments_w_bank_conditions, C) ->
+init_per_testcase(payments_w_bank_conditions = Name, C) ->
     override_domain_fixture(fun payments_w_bank_conditions_fixture/2, Name, C);
-init_per_testcase(Name = payment_w_misconfigured_routing_failed, C) ->
+init_per_testcase(payment_w_misconfigured_routing_failed = Name, C) ->
     override_domain_fixture(fun payment_w_misconfigured_routing_failed_fixture/2, Name, C);
-init_per_testcase(Name = ineligible_payment_partial_refund, C) ->
+init_per_testcase(ineligible_payment_partial_refund = Name, C) ->
     override_domain_fixture(fun(_, _) -> construct_term_set_for_refund_eligibility_time(1) end, Name, C);
-init_per_testcase(Name = invalid_permit_partial_capture_in_service, C) ->
+init_per_testcase(invalid_permit_partial_capture_in_service = Name, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_service_permit/2, Name, C);
-init_per_testcase(Name = invalid_permit_partial_capture_in_provider, C) ->
+init_per_testcase(invalid_permit_partial_capture_in_provider = Name, C) ->
     override_domain_fixture(fun construct_term_set_for_partial_capture_provider_permit/2, Name, C);
-init_per_testcase(Name = limit_hold_currency_error, C) ->
+init_per_testcase(limit_hold_currency_error = Name, C) ->
     override_domain_fixture(fun patch_limit_config_w_invalid_currency/2, Name, C);
-init_per_testcase(Name = limit_hold_operation_not_supported, C) ->
+init_per_testcase(limit_hold_operation_not_supported = Name, C) ->
     override_domain_fixture(fun patch_limit_config_for_withdrawal/2, Name, C);
-init_per_testcase(Name = limit_hold_payment_tool_not_supported, C) ->
+init_per_testcase(limit_hold_payment_tool_not_supported = Name, C) ->
     override_domain_fixture(fun patch_with_unsupported_payment_tool/2, Name, C);
-init_per_testcase(Name = limit_hold_two_routes_failure, C) ->
+init_per_testcase(limit_hold_two_routes_failure = Name, C) ->
     override_domain_fixture(fun patch_providers_limits_to_fail_and_overflow/2, Name, C);
-init_per_testcase(Name = create_chargeback_provision_terms_not_allowed, C) ->
+init_per_testcase(create_chargeback_provision_terms_not_allowed = Name, C) ->
     override_domain_fixture(fun unset_providers_chargebacks_terms/2, Name, C);
-init_per_testcase(Name = repair_fail_routing_succeeded, C) ->
+init_per_testcase(repair_fail_routing_succeeded = Name, C) ->
     meck:expect(
         hg_limiter,
         check_limits,
         fun override_check_limits/5
     ),
     init_per_testcase_(Name, C);
-init_per_testcase(Name = repair_fail_cash_flow_building_succeeded, C) ->
+init_per_testcase(repair_fail_cash_flow_building_succeeded = Name, C) ->
     meck:expect(
         hg_cashflow_utils,
         collect_cashflow,
@@ -1283,9 +1283,9 @@ payment_routes_limit_values(C) ->
     Client = hg_client_invoicing:start_link(hg_ct_helper:create_client(RootUrl)),
 
     #payproc_Invoice{
-        invoice = #domain_Invoice{id = InvoiceId},
+        invoice = #domain_Invoice{id = InvoiceID},
         payments = [
-            #payproc_InvoicePayment{payment = #domain_InvoicePayment{id = PaymentId}}
+            #payproc_InvoicePayment{payment = #domain_InvoicePayment{id = PaymentID}}
         ]
     } = create_payment(PartyConfigRef, ShopConfigRef, 10000, Client, ?pmt_sys(<<"visa-ref">>)),
     Route = ?route(?prv(5), ?trm(12)),
@@ -1296,7 +1296,7 @@ payment_routes_limit_values(C) ->
                 value = 10000
             }
         ]
-    } = hg_client_invoicing:get_limit_values(InvoiceId, PaymentId, Client).
+    } = hg_client_invoicing:get_limit_values(InvoiceID, PaymentID, Client).
 
 -spec register_payment_limit_success(config()) -> test_return().
 register_payment_limit_success(C0) ->

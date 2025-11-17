@@ -65,7 +65,7 @@ maybe_uninitialized_limit({exception, _}) ->
     }.
 
 -spec get_payment_limit_amount(_, _, _, _) -> _.
-get_payment_limit_amount(LimitId, Version, Payment, Invoice) ->
+get_payment_limit_amount(LimitID, Version, Payment, Invoice) ->
     Context = #limiter_LimitContext{
         payment_processing = #context_payproc_Context{
             op = {invoice_payment, #context_payproc_OperationInvoicePayment{}},
@@ -79,7 +79,7 @@ get_payment_limit_amount(LimitId, Version, Payment, Invoice) ->
     },
     LimitRequest = #limiter_LimitRequest{
         operation_id = ?PLACEHOLDER_OPERATION_GET_LIMIT_VALUES,
-        limit_changes = [#limiter_LimitChange{id = LimitId, version = Version}]
+        limit_changes = [#limiter_LimitChange{id = LimitID, version = Version}]
     },
     try hg_limiter_client:get_values(LimitRequest, Context) of
         [L] ->

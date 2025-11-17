@@ -117,16 +117,16 @@
 %%
 
 -spec start(ns(), id(), term()) -> {ok, term()} | {error, exists | term()} | no_return().
-start(Ns, ID, Args) ->
-    call_automaton('Start', {Ns, ID, wrap_args(Args)}).
+start(NS, ID, Args) ->
+    call_automaton('Start', {NS, ID, wrap_args(Args)}).
 
 -spec thrift_call(ns(), id(), service_name(), function_ref(), args()) -> response() | {error, notfound | failed}.
-thrift_call(Ns, Id, Service, FunRef, Args) ->
-    thrift_call(Ns, Id, Service, FunRef, Args, undefined, undefined, forward).
+thrift_call(NS, ID, Service, FunRef, Args) ->
+    thrift_call(NS, ID, Service, FunRef, Args, undefined, undefined, forward).
 
--spec thrift_call(Ns, Id, Service, FunRef, Args, After, Limit, Direction) -> Result when
-    Ns :: ns(),
-    Id :: id(),
+-spec thrift_call(NS, ID, Service, FunRef, Args, After, Limit, Direction) -> Result when
+    NS :: ns(),
+    ID :: id(),
     Service :: service_name(),
     FunRef :: function_ref(),
     Args :: args(),
@@ -134,10 +134,10 @@ thrift_call(Ns, Id, Service, FunRef, Args) ->
     Limit :: integer() | undefined,
     Direction :: forward | backward,
     Result :: response() | {error, notfound | failed}.
-thrift_call(Ns, Id, Service, FunRef, Args, After, Limit, Direction) ->
+thrift_call(NS, ID, Service, FunRef, Args, After, Limit, Direction) ->
     EncodedArgs = marshal_thrift_args(Service, FunRef, Args),
     Call = {thrift_call, Service, FunRef, EncodedArgs},
-    case do_call(Ns, Id, Call, After, Limit, Direction) of
+    case do_call(NS, ID, Call, After, Limit, Direction) of
         {ok, Response} ->
             % should be specific to a processing interface already
             unmarshal_thrift_response(Service, FunRef, Response);
@@ -146,19 +146,19 @@ thrift_call(Ns, Id, Service, FunRef, Args, After, Limit, Direction) ->
     end.
 
 -spec call(ns(), id(), Args :: term()) -> response() | {error, notfound | failed}.
-call(Ns, Id, Args) ->
-    call(Ns, Id, Args, undefined, undefined, forward).
+call(NS, ID, Args) ->
+    call(NS, ID, Args, undefined, undefined, forward).
 
--spec call(Ns, Id, Args, After, Limit, Direction) -> Result when
-    Ns :: ns(),
-    Id :: id(),
+-spec call(NS, ID, Args, After, Limit, Direction) -> Result when
+    NS :: ns(),
+    ID :: id(),
     Args :: args(),
     After :: event_id() | undefined,
     Limit :: integer() | undefined,
     Direction :: forward | backward,
     Result :: response() | {error, notfound | failed}.
-call(Ns, Id, Args, After, Limit, Direction) ->
-    case do_call(Ns, Id, {schemaless_call, Args}, After, Limit, Direction) of
+call(NS, ID, Args, After, Limit, Direction) ->
+    case do_call(NS, ID, {schemaless_call, Args}, After, Limit, Direction) of
         {ok, Response} ->
             unmarshal_schemaless_response(Response);
         {error, _} = Error ->
@@ -167,23 +167,23 @@ call(Ns, Id, Args, After, Limit, Direction) ->
 
 -spec repair(ns(), id(), term()) ->
     {ok, term()} | {error, notfound | failed | working | {repair, {failed, binary()}}} | no_return().
-repair(Ns, Id, Args) ->
-    Descriptor = prepare_descriptor(Ns, Id, #mg_stateproc_HistoryRange{}),
+repair(NS, ID, Args) ->
+    Descriptor = prepare_descriptor(NS, ID, #mg_stateproc_HistoryRange{}),
     call_automaton('Repair', {Descriptor, wrap_args(Args)}).
 
 -spec get_history(ns(), id()) -> {ok, history()} | {error, notfound} | no_return().
-get_history(Ns, Id) ->
-    get_history(Ns, Id, undefined, undefined, forward).
+get_history(NS, ID) ->
+    get_history(NS, ID, undefined, undefined, forward).
 
 -spec get_history(ns(), id(), undefined | event_id(), undefined | non_neg_integer()) ->
     {ok, history()} | {error, notfound} | no_return().
-get_history(Ns, Id, AfterID, Limit) ->
-    get_history(Ns, Id, AfterID, Limit, forward).
+get_history(NS, ID, AfterID, Limit) ->
+    get_history(NS, ID, AfterID, Limit, forward).
 
 -spec get_history(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
     {ok, history()} | {error, notfound} | no_return().
-get_history(Ns, Id, AfterID, Limit, Direction) ->
-    case get_machine(Ns, Id, AfterID, Limit, Direction) of
+get_history(NS, ID, AfterID, Limit, Direction) ->
+    case get_machine(NS, ID, AfterID, Limit, Direction) of
         {ok, #{history := History}} ->
             {ok, History};
         Error ->
@@ -192,9 +192,9 @@ get_history(Ns, Id, AfterID, Limit, Direction) ->
 
 -spec get_machine(ns(), id(), undefined | event_id(), undefined | non_neg_integer(), direction()) ->
     {ok, machine()} | {error, notfound} | no_return().
-get_machine(Ns, Id, AfterID, Limit, Direction) ->
+get_machine(NS, ID, AfterID, Limit, Direction) ->
     Range = #mg_stateproc_HistoryRange{'after' = AfterID, limit = Limit, direction = Direction},
-    Descriptor = prepare_descriptor(Ns, Id, Range),
+    Descriptor = prepare_descriptor(NS, ID, Range),
     case call_automaton('GetMachine', {Descriptor}) of
         {ok, #mg_stateproc_Machine{} = Machine} ->
             {ok, unmarshal_machine(Machine)};
@@ -204,21 +204,21 @@ get_machine(Ns, Id, AfterID, Limit, Direction) ->
 
 %%
 
--spec do_call(Ns, Id, Args, After, Limit, Direction) -> Result when
-    Ns :: ns(),
-    Id :: id(),
+-spec do_call(NS, ID, Args, After, Limit, Direction) -> Result when
+    NS :: ns(),
+    ID :: id(),
     Args :: args(),
     After :: event_id() | undefined,
     Limit :: integer() | undefined,
     Direction :: forward | backward,
     Result :: {ok, response()} | {error, notfound | failed}.
-do_call(Ns, Id, Args, After, Limit, Direction) ->
+do_call(NS, ID, Args, After, Limit, Direction) ->
     HistoryRange = #mg_stateproc_HistoryRange{
         'after' = After,
         'limit' = Limit,
         'direction' = Direction
     },
-    Descriptor = prepare_descriptor(Ns, Id, HistoryRange),
+    Descriptor = prepare_descriptor(NS, ID, HistoryRange),
     case call_automaton('Call', {Descriptor, wrap_args(Args)}) of
         {ok, Response} ->
             {ok, unmarshal_response(Response)};
@@ -262,31 +262,31 @@ handle_function(Func, Args, Opts) ->
     ).
 
 -spec handle_function_(func(), woody:args(), #{ns := ns()}) -> term() | no_return().
-handle_function_('ProcessSignal', {Args}, #{ns := Ns} = _Opts) ->
+handle_function_('ProcessSignal', {Args}, #{ns := NS} = _Opts) ->
     #mg_stateproc_SignalArgs{signal = {Type, Signal}, machine = #mg_stateproc_Machine{id = ID} = Machine} = Args,
     scoper:add_meta(#{
-        namespace => Ns,
+        namespace => NS,
         id => ID,
         activity => signal,
         signal => Type
     }),
-    dispatch_signal(Ns, Signal, unmarshal_machine(Machine));
-handle_function_('ProcessCall', {Args}, #{ns := Ns} = _Opts) ->
+    dispatch_signal(NS, Signal, unmarshal_machine(Machine));
+handle_function_('ProcessCall', {Args}, #{ns := NS} = _Opts) ->
     #mg_stateproc_CallArgs{arg = Payload, machine = #mg_stateproc_Machine{id = ID} = Machine} = Args,
     scoper:add_meta(#{
-        namespace => Ns,
+        namespace => NS,
         id => ID,
         activity => call
     }),
-    dispatch_call(Ns, Payload, unmarshal_machine(Machine));
-handle_function_('ProcessRepair', {Args}, #{ns := Ns} = _Opts) ->
+    dispatch_call(NS, Payload, unmarshal_machine(Machine));
+handle_function_('ProcessRepair', {Args}, #{ns := NS} = _Opts) ->
     #mg_stateproc_RepairArgs{arg = Payload, machine = #mg_stateproc_Machine{id = ID} = Machine} = Args,
     scoper:add_meta(#{
-        namespace => Ns,
+        namespace => NS,
         id => ID,
         activity => repair
     }),
-    dispatch_repair(Ns, Payload, unmarshal_machine(Machine)).
+    dispatch_repair(NS, Payload, unmarshal_machine(Machine)).
 
 %%
 
@@ -296,19 +296,19 @@ handle_function_('ProcessRepair', {Args}, #{ns := Ns} = _Opts) ->
         | mg_proto_state_processing_thrift:'TimeoutSignal'(),
     Result ::
         mg_proto_state_processing_thrift:'SignalResult'().
-dispatch_signal(Ns, #mg_stateproc_InitSignal{arg = Payload}, Machine) ->
+dispatch_signal(NS, #mg_stateproc_InitSignal{arg = Payload}, Machine) ->
     Args = unwrap_args(Payload),
     _ = log_dispatch(init, Args, Machine),
-    Module = get_handler_module(Ns),
+    Module = get_handler_module(NS),
     Result = Module:init(Args, Machine),
     marshal_signal_result(Result, Machine);
-dispatch_signal(Ns, #mg_stateproc_TimeoutSignal{}, Machine) ->
+dispatch_signal(NS, #mg_stateproc_TimeoutSignal{}, Machine) ->
     _ = log_dispatch(timeout, Machine),
-    Module = get_handler_module(Ns),
+    Module = get_handler_module(NS),
     Result = Module:process_signal(timeout, Machine),
     marshal_signal_result(Result, Machine).
 
-marshal_signal_result(Result = #{}, #{aux_state := AuxStWas}) ->
+marshal_signal_result(#{} = Result, #{aux_state := AuxStWas}) ->
     _ = logger:debug("signal result = ~p", [Result]),
     Change = #mg_stateproc_MachineStateChange{
         events = marshal_events(maps:get(events, Result, [])),
@@ -322,10 +322,10 @@ marshal_signal_result(Result = #{}, #{aux_state := AuxStWas}) ->
 -spec dispatch_call(ns(), Call, machine()) -> Result when
     Call :: mg_proto_state_processing_thrift:'Args'(),
     Result :: mg_proto_state_processing_thrift:'CallResult'().
-dispatch_call(Ns, Payload, Machine) ->
+dispatch_call(NS, Payload, Machine) ->
     Args = unwrap_args(Payload),
     _ = log_dispatch(call, Args, Machine),
-    Module = get_handler_module(Ns),
+    Module = get_handler_module(NS),
     do_dispatch_call(Module, Args, Machine).
 
 do_dispatch_call(Module, {schemaless_call, Args}, Machine) ->
@@ -352,10 +352,10 @@ marshal_call_result(Response, Result, #{aux_state := AuxStWas}) ->
 -spec dispatch_repair(ns(), Args, machine()) -> Result when
     Args :: mg_proto_state_processing_thrift:'Args'(),
     Result :: mg_proto_state_processing_thrift:'RepairResult'().
-dispatch_repair(Ns, Payload, Machine) ->
+dispatch_repair(NS, Payload, Machine) ->
     Args = unwrap_args(Payload),
     _ = log_dispatch(repair, Args, Machine),
-    Module = get_handler_module(Ns),
+    Module = get_handler_module(NS),
     try
         Result = Module:process_repair(Args, Machine),
         marshal_repair_result(ok, Result, Machine)
@@ -365,7 +365,7 @@ dispatch_repair(Ns, Payload, Machine) ->
             woody_error:raise(business, marshal_repair_failed(Error))
     end.
 
-marshal_repair_result(Response, RepairResult = #{}, #{aux_state := AuxStWas}) ->
+marshal_repair_result(Response, #{} = RepairResult, #{aux_state := AuxStWas}) ->
     _ = logger:debug("repair response = ~p with result = ~p", [Response, RepairResult]),
     Change = #mg_stateproc_MachineStateChange{
         events = marshal_events(maps:get(events, RepairResult, [])),
@@ -400,9 +400,9 @@ get_service_handlers(MachineHandlers, Opts) ->
     [get_service_handler(H, Opts) || H <- MachineHandlers].
 
 get_service_handler(MachineHandler, Opts) ->
-    Ns = MachineHandler:namespace(),
-    FullOpts = maps:merge(#{ns => Ns, handler => ?MODULE}, Opts),
-    {Path, Service} = hg_proto:get_service_spec(processor, #{namespace => Ns}),
+    NS = MachineHandler:namespace(),
+    FullOpts = maps:merge(#{ns => NS, handler => ?MODULE}, Opts),
+    {Path, Service} = hg_proto:get_service_spec(processor, #{namespace => NS}),
     {Path, {Service, {hg_woody_service_wrapper, FullOpts}}}.
 
 %%
@@ -422,8 +422,8 @@ init(MachineHandlers) ->
 %%
 
 -spec get_handler_module(ns()) -> module().
-get_handler_module(Ns) ->
-    ets:lookup_element(?TABLE, Ns, 2).
+get_handler_module(NS) ->
+    ets:lookup_element(?TABLE, NS, 2).
 
 log_dispatch(Operation, #{id := ID, history := History, aux_state := AuxSt}) ->
     logger:debug(
@@ -561,9 +561,9 @@ unmarshal_term({bin, B}) ->
     binary_to_term(B).
 
 -spec prepare_descriptor(ns(), id(), history_range()) -> descriptor().
-prepare_descriptor(NS, Id, Range) ->
+prepare_descriptor(NS, ID, Range) ->
     #mg_stateproc_MachineDescriptor{
         ns = NS,
-        ref = {id, Id},
+        ref = {id, ID},
         range = Range
     }.

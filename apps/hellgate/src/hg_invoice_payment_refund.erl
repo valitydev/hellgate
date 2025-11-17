@@ -204,7 +204,7 @@ route(#{route := V}) ->
 %% API
 
 -spec create(params()) -> events().
-create(Params = #{refund := Refund, cash_flow := Cashflow}) ->
+create(#{refund := Refund, cash_flow := Cashflow} = Params) ->
     TransactionInfo = maps:get(transaction_info, Params, undefined),
     ID = Refund#domain_InvoicePaymentRefund.id,
     [?refund_ev(ID, ?refund_created(Refund, Cashflow, TransactionInfo))].

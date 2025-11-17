@@ -479,7 +479,7 @@ balance_routes(FailRatedRoutes) ->
     balance_route_groups(FilteredRouteGroups).
 
 -spec group_routes_by_priority(fail_rated_route(), Acc :: route_groups_by_priority()) -> route_groups_by_priority().
-group_routes_by_priority(FailRatedRoute = {Route, {ProviderCondition, _}}, SortedRoutes) ->
+group_routes_by_priority({Route, {ProviderCondition, _}} = FailRatedRoute, SortedRoutes) ->
     TerminalPriority = hg_route:priority(Route),
     Key = {ProviderCondition, TerminalPriority},
     Routes = maps:get(Key, SortedRoutes, []),

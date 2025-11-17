@@ -48,11 +48,11 @@ get_service_spec(Name) ->
     get_service_spec(Name, #{}).
 
 -spec get_service_spec(Name :: atom(), Opts :: #{namespace => binary()}) -> service_spec().
-get_service_spec(Name = invoicing, #{}) ->
+get_service_spec(invoicing = Name, #{}) ->
     {?VERSION_PREFIX ++ "/processing/invoicing", get_service(Name)};
-get_service_spec(Name = invoice_templating, #{}) ->
+get_service_spec(invoice_templating = Name, #{}) ->
     {?VERSION_PREFIX ++ "/processing/invoice_templating", get_service(Name)};
-get_service_spec(Name = processor, #{namespace := Ns}) when is_binary(Ns) ->
+get_service_spec(processor = Name, #{namespace := Ns}) when is_binary(Ns) ->
     {?VERSION_PREFIX ++ "/stateproc/" ++ binary_to_list(Ns), get_service(Name)};
-get_service_spec(Name = proxy_host_provider, #{}) ->
+get_service_spec(proxy_host_provider = Name, #{}) ->
     {?VERSION_PREFIX ++ "/proxyhost/provider", get_service(Name)}.

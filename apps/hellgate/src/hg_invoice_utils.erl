@@ -49,7 +49,7 @@ validate_amount(_) ->
     throw(#base_InvalidRequest{errors = [<<"Invalid amount">>]}).
 
 -spec validate_currency(currency(), shop()) -> ok.
-validate_currency(Currency, Shop = #domain_ShopConfig{}) ->
+validate_currency(Currency, #domain_ShopConfig{} = Shop) ->
     validate_currency_(Currency, get_shop_currency(Shop)).
 
 -spec validate_cash_range(cash_range()) -> ok.
