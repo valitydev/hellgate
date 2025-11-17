@@ -1,0 +1,15 @@
+{application, ff_core, [
+    {description, "Core types and facilities"},
+    {vsn, "1"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        genlib
+    ]},
+    {env, []},
+    {modules, []},
+    {maintainers, []},
+    {licenses, ["Apache 2.0"]},
+    {links, ["https://github.com/valitydev/fistful-server"]}
+]}.
