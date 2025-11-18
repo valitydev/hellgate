@@ -353,7 +353,7 @@ update_cash_flow(State, Action, Opts) ->
 -spec finalise(state(), action(), opts()) -> result() | no_return().
 finalise(#chargeback_st{target_status = Status = ?chargeback_status_pending()}, Action, _Opts) ->
     {[?chargeback_status_changed(Status)], Action};
-finalise(State = #chargeback_st{target_status = Status}, Action, Opts) when
+finalise(#chargeback_st{target_status = Status} = State, Action, Opts) when
     Status =:= ?chargeback_status_rejected();
     Status =:= ?chargeback_status_accepted();
     Status =:= ?chargeback_status_cancelled()

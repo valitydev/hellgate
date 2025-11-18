@@ -370,7 +370,7 @@ mk_trx_extra(#proxy_provider_InvoicePayment{
         prefix_extra(<<"payer_session_info">>, mk_trx_extra(PayerSessionInfo)),
         prefix_extra(<<"payment_service">>, mk_trx_extra(PaymentService))
     ]);
-mk_trx_extra(R = #domain_PayerSessionInfo{}) ->
+mk_trx_extra(#domain_PayerSessionInfo{} = R) ->
     record_to_map(R, record_info(fields, domain_PayerSessionInfo));
 mk_trx_extra(#domain_PaymentService{name = Name, brand_name = BrandName}) ->
     #{<<"name">> => Name, <<"brand_name">> => BrandName};
@@ -678,16 +678,16 @@ make_payment_tool({Code, Timeout}, PSys) when Code =:= preauth_3ds orelse Code =
 make_payment_tool({scenario, Scenario}, PSys) ->
     BinScenario = encode_failure_scenario(Scenario),
     ?SESSION42(make_bank_card_payment_tool(<<"scenario_", BinScenario/binary>>, PSys));
-make_payment_tool(terminal, PSrv = #domain_PaymentServiceRef{}) ->
+make_payment_tool(terminal, #domain_PaymentServiceRef{} = PSrv) ->
     ?DEFAULT_SESSION({payment_terminal, #domain_PaymentTerminal{payment_service = PSrv}});
-make_payment_tool(digital_wallet, PSrv = #domain_PaymentServiceRef{}) ->
+make_payment_tool(digital_wallet, #domain_PaymentServiceRef{} = PSrv) ->
     ?DEFAULT_SESSION(make_digital_wallet_payment_tool(PSrv));
 make_payment_tool(tokenized_bank_card, {PSys, Provider, Method}) ->
     {_, BCard} = make_bank_card_payment_tool(<<"no_preauth">>, PSys),
     ?SESSION42({bank_card, BCard#domain_BankCard{payment_token = Provider, tokenization_method = Method}});
-make_payment_tool(crypto_currency, Type = #domain_CryptoCurrencyRef{}) ->
+make_payment_tool(crypto_currency, #domain_CryptoCurrencyRef{} = Type) ->
     ?DEFAULT_SESSION({crypto_currency, Type});
-make_payment_tool({mobile_commerce, Exp}, Operator = #domain_MobileOperatorRef{}) ->
+make_payment_tool({mobile_commerce, Exp}, #domain_MobileOperatorRef{} = Operator) ->
     ?DEFAULT_SESSION(make_mobile_commerce_payment_tool(Operator, phone(Exp))).
 
 make_digital_wallet_payment_tool(PSrv) ->

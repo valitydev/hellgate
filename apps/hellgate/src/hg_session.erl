@@ -235,7 +235,7 @@ do_process(suspended, Session) ->
 do_process(finished, Session) ->
     {{[], hg_machine_action:new()}, Session}.
 
-repair(Session = #{repair_scenario := {result, ProxyResult}}) ->
+repair(#{repair_scenario := {result, ProxyResult}} = Session) ->
     Result = handle_proxy_result(ProxyResult, Session),
     apply_result(Result, Session).
 
@@ -342,7 +342,7 @@ handle_proxy_callback_result(
     Events2 = hg_proxy_provider:update_proxy_state(ProxyState, Session),
     {Events1 ++ Events2, hg_machine_action:new()}.
 
-apply_result(Result = {Events, _Action}, T) ->
+apply_result({Events, _Action} = Result, T) ->
     {Result, update_state_with(Events, T)}.
 
 handle_proxy_intent(#proxy_provider_FinishIntent{status = {success, Success}}, Action, Session) ->

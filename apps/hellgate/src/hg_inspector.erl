@@ -100,10 +100,10 @@ inspect(
     RiskScore.
 
 get_payment_info(
-    Shop = #domain_ShopConfig{
+    #domain_ShopConfig{
         category = CategoryRef,
         location = Location
-    },
+    } = Shop,
     #domain_Invoice{
         party_ref = PartyConfigRef,
         shop_ref = ShopConfigRef,

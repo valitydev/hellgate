@@ -67,7 +67,7 @@ cart_is_not_valid_for_mutation(Lines) ->
 apply_mutations(Mutations, Invoice) ->
     lists:foldl(fun apply_mutation/2, Invoice, genlib:define(Mutations, [])).
 
-apply_mutation(Mutation = {amount, #domain_InvoiceAmountMutation{mutated = NewAmount}}, Invoice) ->
+apply_mutation({amount, #domain_InvoiceAmountMutation{mutated = NewAmount}} = Mutation, Invoice) ->
     #domain_Invoice{cost = Cost, mutations = Mutations} = Invoice,
     update_invoice_details_price(NewAmount, Invoice#domain_Invoice{
         cost = Cost#domain_Cash{amount = NewAmount},
@@ -76,7 +76,7 @@ apply_mutation(Mutation = {amount, #domain_InvoiceAmountMutation{mutated = NewAm
 apply_mutation(_, Invoice) ->
     Invoice.
 
-update_invoice_details_price(NewAmount, Invoice = #domain_Invoice{details = Details}) ->
+update_invoice_details_price(NewAmount, #domain_Invoice{details = Details} = Invoice) ->
     case Details#domain_InvoiceDetails.cart of
         Cart = #domain_InvoiceCart{lines = [Line]} ->
             NewCart = Cart#domain_InvoiceCart{
@@ -89,7 +89,7 @@ update_invoice_details_price(NewAmount, Invoice = #domain_Invoice{details = Deta
             Invoice
     end.
 
-update_invoice_line_price(NewAmount, Line = #domain_InvoiceLine{price = Price}) ->
+update_invoice_line_price(NewAmount, #domain_InvoiceLine{price = Price} = Line) ->
     Line#domain_InvoiceLine{price = Price#domain_Cash{amount = NewAmount}}.
 
 -spec make_mutations([mutation_params()], mutation_context()) -> [mutation()].
