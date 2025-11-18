@@ -89,24 +89,24 @@ build_operation_id(ServiceType, IDs) ->
     hg_utils:construct_complex_id(lists:flatten([<<"hellgate_operation">>, genlib:to_binary(ServiceType), MappedIDs])).
 
 -spec init_service(service_id(), service_config()) -> {ok, initialised} | {error, any()} | disabled.
-init_service(ServiceId, ServiceConfig) ->
-    call('InitService', {ServiceId, ServiceConfig}).
+init_service(ServiceID, ServiceConfig) ->
+    call('InitService', {ServiceID, ServiceConfig}).
 
 -spec get_statistics([service_id()]) -> [service_stats()].
-get_statistics(ServiceIds) when is_list(ServiceIds) ->
-    call('GetStatistics', {ServiceIds}).
+get_statistics(ServiceIDs) when is_list(ServiceIDs) ->
+    call('GetStatistics', {ServiceIDs}).
 
 -spec register_operation(operation_status(), service_id(), operation_id(), service_config()) ->
     {ok, registered} | {error, not_found} | {error, any()} | disabled.
-register_operation(Status, ServiceId, OperationId, ServiceConfig) ->
+register_operation(Status, ServiceID, OperationID, ServiceConfig) ->
     OperationState =
         case Status of
             start -> {Status, ?state_start(hg_datetime:format_now())};
             error -> {Status, ?state_error(hg_datetime:format_now())};
             finish -> {Status, ?state_finish(hg_datetime:format_now())}
         end,
-    Operation = ?operation(OperationId, OperationState),
-    call('RegisterOperation', {ServiceId, Operation, ServiceConfig}).
+    Operation = ?operation(OperationID, OperationState),
+    call('RegisterOperation', {ServiceID, Operation, ServiceConfig}).
 
 %% PRIVATE
 
@@ -125,7 +125,7 @@ maybe_call(false = _FDEnabled, 'GetStatistics', _Args, _Opts, _Deadline) ->
 maybe_call(false = _FDEnabled, _Service, _Args, _Opts, _Deadline) ->
     disabled.
 
-do_call('InitService', {ServiceId, _ServiceConfig} = Args, Opts, Deadline) ->
+do_call('InitService', {ServiceID, _ServiceConfig} = Args, Opts, Deadline) ->
     try hg_woody_wrapper:call(fault_detector, 'InitService', Args, Opts, Deadline) of
         {ok, _Result} -> {ok, initialised}
     catch
@@ -134,14 +134,14 @@ do_call('InitService', {ServiceId, _ServiceConfig} = Args, Opts, Deadline) ->
                 Class =:= result_unknown
         ->
             ErrorText = "Unable to init service ~p in fault detector, ~p:~p",
-            _ = logger:warning(ErrorText, [ServiceId, error, Reason]),
+            _ = logger:warning(ErrorText, [ServiceID, error, Reason]),
             {error, Reason};
         error:{woody_error, {_Source, result_unexpected, _Details}} = Reason ->
             ErrorText = "Unable to init service ~p in fault detector, ~p:~p",
-            _ = logger:error(ErrorText, [ServiceId, error, Reason]),
+            _ = logger:error(ErrorText, [ServiceID, error, Reason]),
             {error, Reason}
     end;
-do_call('GetStatistics', {ServiceIds} = Args, Opts, Deadline) ->
+do_call('GetStatistics', {ServiceIDs} = Args, Opts, Deadline) ->
     try hg_woody_wrapper:call(fault_detector, 'GetStatistics', Args, Opts, Deadline) of
         {ok, Stats} -> Stats
     catch
@@ -150,14 +150,14 @@ do_call('GetStatistics', {ServiceIds} = Args, Opts, Deadline) ->
                 Class =:= result_unknown
         ->
             String = "Unable to get statistics for services ~p from fault detector, ~p:~p",
-            _ = logger:warning(String, [ServiceIds, error, Reason]),
+            _ = logger:warning(String, [ServiceIDs, error, Reason]),
             [];
         error:{woody_error, {_Source, result_unexpected, _Details}} = Reason ->
             String = "Unable to get statistics for services ~p from fault detector, ~p:~p",
-            _ = logger:error(String, [ServiceIds, error, Reason]),
+            _ = logger:error(String, [ServiceIDs, error, Reason]),
             []
     end;
-do_call('RegisterOperation', {ServiceId, OperationId, _ServiceConfig} = Args, Opts, Deadline) ->
+do_call('RegisterOperation', {ServiceID, OperationID, _ServiceConfig} = Args, Opts, Deadline) ->
     try hg_woody_wrapper:call(fault_detector, 'RegisterOperation', Args, Opts, Deadline) of
         {ok, _Result} ->
             {ok, registered};
@@ -169,10 +169,10 @@ do_call('RegisterOperation', {ServiceId, OperationId, _ServiceConfig} = Args, Op
                 Class =:= result_unknown
         ->
             ErrorText = "Unable to register operation ~p for service ~p in fault detector, ~p:~p",
-            _ = logger:warning(ErrorText, [OperationId, ServiceId, error, Reason]),
+            _ = logger:warning(ErrorText, [OperationID, ServiceID, error, Reason]),
             {error, Reason};
         error:{woody_error, {_Source, result_unexpected, _Details}} = Reason ->
             ErrorText = "Unable to register operation ~p for service ~p in fault detector, ~p:~p",
-            _ = logger:error(ErrorText, [OperationId, ServiceId, error, Reason]),
+            _ = logger:error(ErrorText, [OperationID, ServiceID, error, Reason]),
             {error, Reason}
     end.

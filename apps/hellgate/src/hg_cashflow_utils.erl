@@ -94,12 +94,12 @@ collect_allocation_cash_flow(
 construct_transaction_cashflow(
     Amount,
     PaymentInstitution,
-    Context = #{
+    #{
         revision := Revision,
         operation := OpType,
         shop := {_, Shop},
         varset := VS
-    }
+    } = Context
 ) ->
     MerchantPaymentsTerms1 =
         case maps:get(merchant_terms, Context, undefined) of
@@ -114,7 +114,7 @@ construct_transaction_cashflow(
     AccountMap = hg_accounting:collect_account_map(make_collect_account_context(PaymentInstitution, Context)),
     construct_final_cashflow(MerchantCashflow, #{operation_amount => Amount}, AccountMap).
 
-construct_provider_cashflow(PaymentInstitution, Context = #{provision_terms := ProvisionTerms}) ->
+construct_provider_cashflow(PaymentInstitution, #{provision_terms := ProvisionTerms} = Context) ->
     ProviderCashflowSelector = get_provider_cashflow_selector(ProvisionTerms),
     ProviderCashflow = get_selector_value(provider_payment_cash_flow, ProviderCashflowSelector),
     AccountMap = hg_accounting:collect_account_map(make_collect_account_context(PaymentInstitution, Context)),

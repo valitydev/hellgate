@@ -56,7 +56,7 @@ set_timer(Timer) ->
     set_timer(Timer, new()).
 
 -spec set_timer(timer(), t()) -> t().
-set_timer(Timer, Action = #mg_stateproc_ComplexAction{}) ->
+set_timer(Timer, #mg_stateproc_ComplexAction{} = Action) ->
     % TODO pass range and processing timeout explicitly too
     Action#mg_stateproc_ComplexAction{timer = {set_timer, #mg_stateproc_SetTimerAction{timer = Timer}}}.
 
@@ -65,16 +65,16 @@ unset_timer() ->
     unset_timer(new()).
 
 -spec unset_timer(t()) -> t().
-unset_timer(Action = #mg_stateproc_ComplexAction{}) ->
+unset_timer(#mg_stateproc_ComplexAction{} = Action) ->
     Action#mg_stateproc_ComplexAction{timer = {unset_timer, #mg_stateproc_UnsetTimerAction{}}}.
 
 -spec mark_removal(t()) -> t().
-mark_removal(Action = #mg_stateproc_ComplexAction{}) ->
+mark_removal(#mg_stateproc_ComplexAction{} = Action) ->
     Action#mg_stateproc_ComplexAction{remove = #mg_stateproc_RemoveAction{}}.
 
 %%
 
-try_format_dt(Datetime = {_, _}) ->
+try_format_dt({_, _} = Datetime) ->
     Seconds = genlib_time:daytime_to_unixtime(Datetime),
     genlib_rfc3339:format(Seconds, second);
 try_format_dt(Datetime) when is_binary(Datetime) ->

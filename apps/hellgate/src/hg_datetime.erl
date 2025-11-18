@@ -34,7 +34,7 @@
 %%
 
 -spec format_dt(datetime()) -> timestamp().
-format_dt(Dt = {_, _}) ->
+format_dt({_, _} = Dt) ->
     Ts = genlib_time:daytime_to_unixtime(Dt),
     format_ts(Ts).
 

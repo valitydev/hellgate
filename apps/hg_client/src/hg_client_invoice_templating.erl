@@ -95,10 +95,10 @@ init(ApiClient) ->
     {ok, #state{pollers = #{}, client = ApiClient}}.
 
 -spec handle_call(term(), callref(), state()) -> {reply, term(), state()} | {noreply, state()}.
-handle_call({call, Function, Args}, _From, St = #state{client = Client}) ->
+handle_call({call, Function, Args}, _From, #state{client = Client} = St) ->
     {Result, ClientNext} = hg_client_api:call(invoice_templating, Function, Args, Client),
     {reply, Result, St#state{client = ClientNext}};
-handle_call({pull_event, InvoiceID, Timeout}, _From, St = #state{client = Client}) ->
+handle_call({pull_event, InvoiceID, Timeout}, _From, #state{client = Client} = St) ->
     Poller = get_poller(InvoiceID, St),
     {Result, ClientNext, PollerNext} = hg_client_event_poller:poll(1, Timeout, Client, Poller),
     StNext = set_poller(InvoiceID, PollerNext, St#state{client = ClientNext}),
@@ -137,7 +137,7 @@ code_change(_OldVsn, _State, _Extra) ->
 get_poller(ID, #state{pollers = Pollers}) ->
     maps:get(ID, Pollers, construct_poller(ID)).
 
-set_poller(ID, Poller, St = #state{pollers = Pollers}) ->
+set_poller(ID, Poller, #state{pollers = Pollers} = St) ->
     St#state{pollers = maps:put(ID, Poller, Pollers)}.
 
 construct_poller(ID) ->
