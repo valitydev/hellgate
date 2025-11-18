@@ -95,7 +95,7 @@ init_per_suite(C) ->
     ]),
     RootUrl = maps:get(hellgate_root_url, Ret),
     _ = hg_limiter_helper:init_per_suite(C),
-    _ = hg_domain:insert(construct_domain_fixture()),
+    _ = hg_domain:upsert(construct_domain_fixture()),
     PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient = {party_client:create_client(), party_client:create_context()},
     ok = hg_context:save(hg_context:create()),
