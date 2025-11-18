@@ -1,4 +1,4 @@
--module(ff_ct_limiter_client).
+-module(ct_limiter_client).
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 

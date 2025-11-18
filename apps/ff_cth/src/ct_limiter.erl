@@ -1,4 +1,4 @@
--module(ff_limiter_helper).
+-module(ct_limiter).
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_withdrawal_thrift.hrl").
@@ -49,7 +49,7 @@ get_limit(LimitID, Version, Withdrawal, Config) ->
     },
     maybe_uninitialized_limit(
         LimitID,
-        ff_ct_limiter_client:get(LimitID, Version, Context, ct_helper:get_woody_ctx(Config))
+        ct_limiter_client:get(LimitID, Version, Context, ct_helper:get_woody_ctx(Config))
     ).
 
 -spec maybe_uninitialized_limit(limproto_limiter_thrift:'LimitID'(), {ok, _} | {exception, _}) -> _Limit.
