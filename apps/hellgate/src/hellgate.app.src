@@ -1,7 +1,5 @@
 {application, hellgate, [
-    {description,
-        "Umbrella project for state processors implementing payment processing activities"
-    },
+    {description, "Umbrella project for state processors implementing payment processing activities"},
     {vsn, "1"},
     {registered, []},
     {mod, {hellgate, []}},
@@ -19,7 +17,8 @@
         prometheus,
         prometheus_cowboy,
         woody,
-        scoper,  % should be before any scoper event handler usage
+        % should be before any scoper event handler usage
+        scoper,
         gproc,
         dmt_client,
         party_client,

@@ -1,0 +1,22 @@
+{application, ff_transfer, [
+    {description, "Transfer processing"},
+    {vsn, "1"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        genlib,
+        ff_core,
+        progressor,
+        machinery,
+        machinery_extra,
+        damsel,
+        fistful,
+        limiter_proto
+    ]},
+    {env, []},
+    {modules, []},
+    {maintainers, []},
+    {licenses, []},
+    {links, ["https://github.com/valitydev/fistful-server"]}
+]}.
