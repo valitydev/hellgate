@@ -186,7 +186,7 @@ limit_success(C) ->
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(
         PreviousAmount + 1,
-        ff_limiter_helper:get_limit_amount(
+        ct_limiter:get_limit_amount(
             ?LIMIT_TURNOVER_NUM_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
         )
     ).
@@ -232,7 +232,7 @@ sender_receiver_limit_success(C) ->
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(
         PreviousAmount + 1,
-        ff_limiter_helper:get_limit_amount(
+        ct_limiter:get_limit_amount(
             ?LIMIT_TURNOVER_NUM_SENDER_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
         )
     ),
@@ -264,7 +264,7 @@ limit_overflow(C) ->
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(
         PreviousAmount,
-        ff_limiter_helper:get_limit_amount(
+        ct_limiter:get_limit_amount(
             ?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
         )
     ).
@@ -383,7 +383,7 @@ choose_provider_without_limit_overflow(C) ->
     Withdrawal = get_withdrawal(WithdrawalID),
     ?assertEqual(
         PreviousAmount + 1,
-        ff_limiter_helper:get_limit_amount(
+        ct_limiter:get_limit_amount(
             ?LIMIT_TURNOVER_NUM_PAYTOOL_ID2, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C
         )
     ).
@@ -417,7 +417,7 @@ provider_limits_exhaust_orderly(C) ->
     Withdrawal1 = get_withdrawal(WithdrawalID1),
     ?assertEqual(
         PreviousAmount1 + 902000,
-        ff_limiter_helper:get_limit_amount(
+        ct_limiter:get_limit_amount(
             ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal1, C
         )
     ),
@@ -438,7 +438,7 @@ provider_limits_exhaust_orderly(C) ->
     Withdrawal2 = get_withdrawal(WithdrawalID2),
     ?assertEqual(
         PreviousAmount2 + 903000,
-        ff_limiter_helper:get_limit_amount(
+        ct_limiter:get_limit_amount(
             ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID2, ct_helper:cfg('$limits_domain_revision', C), Withdrawal2, C
         )
     ),
@@ -460,7 +460,7 @@ provider_limits_exhaust_orderly(C) ->
     ExpectedAmount3 = PreviousAmount1 + 902000 + 902000,
     ?assertEqual(
         ExpectedAmount3,
-        ff_limiter_helper:get_limit_amount(
+        ct_limiter:get_limit_amount(
             ?LIMIT_TURNOVER_AMOUNT_PAYTOOL_ID1, ct_helper:cfg('$limits_domain_revision', C), Withdrawal3, C
         )
     ),
@@ -599,7 +599,7 @@ get_limit_amount(Cash, WalletID, DestinationID, LimitID, C) ->
     get_limit_amount(Cash, WalletID, DestinationID, LimitID, undefined, C).
 get_limit_amount(Cash, WalletID, DestinationID, LimitID, AuthData, C) ->
     Withdrawal = get_limit_withdrawal(Cash, WalletID, DestinationID, AuthData),
-    ff_limiter_helper:get_limit_amount(LimitID, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C).
+    ct_limiter:get_limit_amount(LimitID, ct_helper:cfg('$limits_domain_revision', C), Withdrawal, C).
 
 get_destination_resource(DestinationID) ->
     {ok, DestinationMachine} = ff_destination_machine:get(DestinationID),
