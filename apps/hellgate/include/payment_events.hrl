@@ -51,6 +51,16 @@
     }}
 ).
 
+-define(route_changed(Route, Candidates, Scores, Limits, Decision),
+    {invoice_payment_route_changed, #payproc_InvoicePaymentRouteChanged{
+        route = Route,
+        candidates = Candidates,
+        scores = Scores,
+        limits = Limits,
+        decision = Decision
+    }}
+).
+
 -define(shop_limit_initiated(),
     {
         invoice_payment_shop_limit_initiated,

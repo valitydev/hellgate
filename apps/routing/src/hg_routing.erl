@@ -702,11 +702,11 @@ check_terms_acceptability(payment, Terms, VS) ->
     acceptable_payment_terms(Terms#domain_ProvisionTermSet.payments, VS);
 check_terms_acceptability(recurrent_payment, Terms, VS) ->
     _ = acceptable_payment_terms(Terms#domain_ProvisionTermSet.payments, VS),
-    case Terms#domain_ProvisionTermSet.skipped_recurrent of
-        undefined ->
-            acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS);
+    case Terms#domain_ProvisionTermSet.extension of
+        #domain_ExtendedProvisionTerms{skip_recurrent = true} ->
+            true;
         _ ->
-            true
+            acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS)
     end.
 
 acceptable_payment_terms(

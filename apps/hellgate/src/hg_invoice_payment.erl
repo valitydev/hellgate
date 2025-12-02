@@ -1933,7 +1933,7 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
         ]
     ).
 
-produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= undefined ->
+produce_routing_events(Ctx = #{error := Error}, Revision, St) when Error =/= undefined ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
     %% rejected because of provider gone critical, then use subcode to highlight
     %% the offender. Like 'provider_dead' or 'conversion_lacking'.
@@ -1946,12 +1946,13 @@ produce_routing_events(Ctx = #{error := Error}, _Revision, St) when Error =/= un
         ordsets:from_list([hg_route:to_payment_route(R) || R <- RollbackableCandidates]),
     RouteScores = hg_routing_ctx:route_scores(Ctx),
     RouteLimits = hg_routing_ctx:route_limits(Ctx),
+    Decision = build_route_decision_context(Route, Revision),
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be
     %% skipped. And all limit's 'hold' operations will be rolled back.
     %% For same purpose in cascade routing we use route from unfiltered list of
     %% originally resolved candidates.
-    [?route_changed(Route, Candidates, RouteScores, RouteLimits), ?payment_rollback_started(Failure)];
+    [?route_changed(Route, Candidates, RouteScores, RouteLimits, Decision), ?payment_rollback_started(Failure)];
 produce_routing_events(Ctx, Revision, _St) ->
     ok = log_route_choice_meta(Ctx, Revision),
     Route = hg_route:to_payment_route(hg_routing_ctx:choosen_route(Ctx)),
@@ -1959,7 +1960,19 @@ produce_routing_events(Ctx, Revision, _St) ->
         ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing_ctx:considered_candidates(Ctx)]),
     RouteScores = hg_routing_ctx:route_scores(Ctx),
     RouteLimits = hg_routing_ctx:route_limits(Ctx),
-    [?route_changed(Route, Candidates, RouteScores, RouteLimits)].
+    Decision = build_route_decision_context(Route, Revision),
+    [?route_changed(Route, Candidates, RouteScores, RouteLimits, Decision)].
+
+build_route_decision_context(Route, Revision) ->
+    ProvisionTerms = hg_routing:get_provision_terms(Route, #{}, Revision),
+    SkipRecurrent =
+        case ProvisionTerms#domain_ProvisionTermSet.extension of
+            #domain_ExtendedProvisionTerms{skip_recurrent = true} ->
+                true;
+            _ ->
+                undefined
+        end,
+    #payproc_RouteDecisionContext{skip_recurrent = SkipRecurrent}.
 
 route_args(St) ->
     Opts = get_opts(St),
@@ -2358,12 +2371,12 @@ process_failure({payment, Step} = Activity, Events, Action, Failure, St, _Refund
     end.
 
 check_recurrent_token(#st{
-    payment = #domain_InvoicePayment{make_recurrent = true, skipped_recurrent = true},
+    payment = #domain_InvoicePayment{make_recurrent = true, skip_recurrent = true},
     recurrent_token = undefined
 }) ->
     ok;
 check_recurrent_token(#st{
-    payment = #domain_InvoicePayment{id = ID, make_recurrent = true, skipped_recurrent = true},
+    payment = #domain_InvoicePayment{id = ID, make_recurrent = true, skip_recurrent = true},
     recurrent_token = _Token
 }) ->
     _ = logger:warning("Got recurrent token in non recurrent payment. Payment id:~p", [ID]);
@@ -2797,7 +2810,7 @@ construct_proxy_payment(
         payer_session_info = PayerSessionInfo,
         cost = Cost,
         make_recurrent = MakeRecurrent,
-        skipped_recurrent = SkippedRecurrent,
+        skip_recurrent = SkipRecurrent,
         processing_deadline = Deadline
     },
     Trx
@@ -2814,7 +2827,7 @@ construct_proxy_payment(
         cost = construct_proxy_cash(Cost),
         contact_info = ContactInfo,
         make_recurrent = MakeRecurrent,
-        skipped_recurrent = SkippedRecurrent,
+        skip_recurrent = SkipRecurrent,
         processing_deadline = Deadline
     }.
 
@@ -3038,21 +3051,20 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
         activity = {payment, routing}
     };
 merge_change(
-    Change = ?route_changed(Route, Candidates, Scores, Limits),
+    Change = ?route_changed(Route, Candidates, Scores, Limits, Decision),
     #st{routes = Routes, route_scores = RouteScores, route_limits = RouteLimits} = St,
     Opts
 ) ->
     _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
-    #domain_ProvisionTermSet{skipped_recurrent = Terms} = hg_routing:get_provision_terms(Route, #{}, get_payment_revision(St)),
     Skip =
-        case Terms of
-            undefined ->
-                false;
+        case Decision of
+            #payproc_RouteDecisionContext{skip_recurrent = true} ->
+                true;
             _ ->
-                true
+                false
         end,
     Payment0 = get_payment(St),
-    Payment1 = Payment0#domain_InvoicePayment{skipped_recurrent = Skip},
+    Payment1 = Payment0#domain_InvoicePayment{skip_recurrent = Skip},
     St#st{
         %% On route change we expect cash flow from previous attempt to be rolled back.
         %% So on `?payment_rollback_started(_)` event for routing failure we won't try to do it again.
