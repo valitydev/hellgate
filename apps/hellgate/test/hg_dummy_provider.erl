@@ -490,12 +490,19 @@ success(PaymentInfo) ->
     success(PaymentInfo, undefined).
 
 success(PaymentInfo, ChangedCash) ->
-    #proxy_provider_PaymentInfo{payment = #proxy_provider_InvoicePayment{make_recurrent = MakeRecurrent}} = PaymentInfo,
+    #proxy_provider_PaymentInfo{
+        payment = #proxy_provider_InvoicePayment{
+            make_recurrent = MakeRecurrent,
+            skip_recurrent = SkipRecurrent
+        }
+    } = PaymentInfo,
     Token =
-        case MakeRecurrent of
-            true ->
+        case {MakeRecurrent, SkipRecurrent} of
+            {true, true} ->
+                undefined;
+            {true, _} ->
                 ?REC_TOKEN;
-            Other when Other =:= false orelse Other =:= undefined ->
+            _ ->
                 undefined
         end,
     ?success(Token, ChangedCash).
