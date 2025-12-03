@@ -971,13 +971,13 @@ get_invoice_params(Invoice) ->
     #domain_Invoice{
         id = ID,
         cost = ?cash(Amount, Currency),
-        party_ref = PartyConfigRef,
-        shop_ref = ShopConfigRef
+        party_ref = #domain_PartyConfigRef{id = PartyID},
+        shop_ref = #domain_ShopConfigRef{id = ShopID}
     } = Invoice,
     [
         {id, ID},
-        {party_ref, PartyConfigRef},
-        {shop_ref, ShopConfigRef},
+        {party_id, PartyID},
+        {shop_id, ShopID},
         {cost, [{amount, Amount}, {currency, Currency}]}
     ].
 
