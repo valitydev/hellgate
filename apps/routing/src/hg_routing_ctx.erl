@@ -81,7 +81,7 @@ error(#{error := Error}) ->
     Error.
 
 -spec reject(atom(), hg_route:rejected_route(), t()) -> t().
-reject(GroupReason, RejectedRoute, Ctx = #{rejections := Rejections, candidates := Candidates}) ->
+reject(GroupReason, RejectedRoute, #{rejections := Rejections, candidates := Candidates} = Ctx) ->
     RejectedList = maps:get(GroupReason, Rejections, []) ++ [RejectedRoute],
     Ctx#{
         rejections := Rejections#{GroupReason => RejectedList},
@@ -147,7 +147,7 @@ accounted_candidates(Ctx) ->
     maps:get(stashed_candidates, Ctx, initial_candidates(Ctx)).
 
 -spec stash_current_candidates(t()) -> t().
-stash_current_candidates(Ctx = #{candidates := []}) ->
+stash_current_candidates(#{candidates := []} = Ctx) ->
     Ctx;
 stash_current_candidates(Ctx) ->
     Ctx#{stashed_candidates => candidates(Ctx)}.
@@ -175,7 +175,7 @@ route_scores(Ctx) ->
     maps:get(route_scores, Ctx, undefined).
 
 -spec stash_route_scores(route_scores(), t()) -> t().
-stash_route_scores(RouteScoresNew, Ctx = #{route_scores := RouteScores}) ->
+stash_route_scores(RouteScoresNew, #{route_scores := RouteScores} = Ctx) ->
     Ctx#{route_scores => maps:merge(RouteScores, RouteScoresNew)};
 stash_route_scores(RouteScores, Ctx) ->
     Ctx#{route_scores => RouteScores}.

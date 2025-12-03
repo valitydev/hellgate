@@ -37,8 +37,8 @@
 %% API
 
 -spec get(tpl_id()) -> tpl().
-get(TplId) ->
-    get_invoice_template(TplId).
+get(TplID) ->
+    get_invoice_template(TplID).
 
 get_invoice_template(ID) ->
     History = get_history(ID),

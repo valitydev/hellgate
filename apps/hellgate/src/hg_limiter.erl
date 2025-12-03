@@ -99,8 +99,8 @@ get_batch_limit_values(_Context, [], _OperationIdSegments) ->
 get_batch_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
     {LimitRequest, TurnoverLimitsMap} = prepare_limit_request(TurnoverLimits, OperationIdSegments),
     lists:map(
-        fun(#limiter_Limit{id = Id, amount = Amount}) ->
-            #payproc_TurnoverLimitValue{limit = maps:get(Id, TurnoverLimitsMap), value = Amount}
+        fun(#limiter_Limit{id = ID, amount = Amount}) ->
+            #payproc_TurnoverLimitValue{limit = maps:get(ID, TurnoverLimitsMap), value = Amount}
         end,
         hg_limiter_client:get_batch(LimitRequest, Context)
     ).
@@ -395,14 +395,14 @@ maybe_route_context(#base_Route{provider = Provider, terminal = Terminal}) ->
 prepare_limit_request(TurnoverLimits, IdSegments) ->
     {TurnoverLimitsIdList, LimitChanges} = lists:unzip(
         lists:map(
-            fun(TurnoverLimit = #domain_TurnoverLimit{ref = ?ref(LimitID), domain_revision = DomainRevision}) ->
+            fun(#domain_TurnoverLimit{ref = ?ref(LimitID), domain_revision = DomainRevision} = TurnoverLimit) ->
                 {{LimitID, TurnoverLimit}, #limiter_LimitChange{id = LimitID, version = DomainRevision}}
             end,
             TurnoverLimits
         )
     ),
-    OperationId = make_operation_id(IdSegments),
-    LimitRequest = #limiter_LimitRequest{operation_id = OperationId, limit_changes = LimitChanges},
+    OperationID = make_operation_id(IdSegments),
+    LimitRequest = #limiter_LimitRequest{operation_id = OperationID, limit_changes = LimitChanges},
     TurnoverLimitsMap = maps:from_list(TurnoverLimitsIdList),
     {LimitRequest, TurnoverLimitsMap}.
 

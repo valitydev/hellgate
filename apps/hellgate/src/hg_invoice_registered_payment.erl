@@ -31,7 +31,7 @@ init(PaymentID, Params, Opts) ->
 
 -spec init_(hg_invoice_payment:payment_id(), _, hg_invoice_payment:opts()) ->
     {hg_invoice_payment:st(), hg_invoice_payment:result()}.
-init_(PaymentID, Params, Opts = #{timestamp := CreatedAt0}) ->
+init_(PaymentID, Params, #{timestamp := CreatedAt0} = Opts) ->
     #payproc_RegisterInvoicePaymentParams{
         payer_params = PayerParams,
         route = Route,

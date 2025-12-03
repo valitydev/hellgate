@@ -59,7 +59,7 @@ raise(Exception) ->
 
 %% Internal functions
 
-construct_opts(Opts = #{url := Url}) ->
+construct_opts(#{url := Url} = Opts) ->
     Opts#{url := genlib:to_binary(Url)};
 construct_opts(Url) ->
     #{url => genlib:to_binary(Url)}.

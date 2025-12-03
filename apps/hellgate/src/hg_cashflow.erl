@@ -164,7 +164,7 @@ compute_volume(?product(Fun, CVs) = CV0, Context) ->
             error({misconfiguration, {'Cash volume product over empty set', CV0}})
     end.
 
-compute_parts_of(P, Q, Cash = #domain_Cash{amount = Amount}, RoundingMethod) ->
+compute_parts_of(P, Q, #domain_Cash{amount = Amount} = Cash, RoundingMethod) ->
     Cash#domain_Cash{
         amount = genlib_rational:round(
             genlib_rational:mul(
@@ -182,7 +182,7 @@ compute_product(Fun, [CV | CVRest], CV0, Context) ->
         CVRest
     ).
 
-compute_product(Fun, CV, CVMin = #domain_Cash{amount = AmountMin, currency = Currency}, CV0, Context) ->
+compute_product(Fun, CV, #domain_Cash{amount = AmountMin, currency = Currency} = CVMin, CV0, Context) ->
     case compute_volume(CV, Context) of
         #domain_Cash{amount = Amount, currency = Currency} ->
             CVMin#domain_Cash{amount = compute_product_fun(Fun, AmountMin, Amount)};

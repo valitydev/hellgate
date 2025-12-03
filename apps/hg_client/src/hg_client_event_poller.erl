@@ -62,7 +62,7 @@ wait_timeout(StartTs, TimeoutWas) ->
 
 update_last_event_id([], St) ->
     St;
-update_last_event_id(Events, St = #{get_event_id := GetEventID}) ->
+update_last_event_id(Events, #{get_event_id := GetEventID} = St) ->
     St#{last_event_id => GetEventID(lists:last(Events))}.
 
 call(Range, Client, #{rpc := {Name, Function, Args}}) ->

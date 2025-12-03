@@ -90,8 +90,8 @@
 %% API
 
 -spec get(hg_machine:id()) -> {ok, st()} | {error, notfound}.
-get(Id) ->
-    case hg_machine:get_history(?NS, Id) of
+get(ID) ->
+    case hg_machine:get_history(?NS, ID) of
         {ok, History} ->
             {ok, collapse_history(unmarshal_history(History))};
         Error ->
@@ -108,7 +108,7 @@ get_payment(PaymentID, St) ->
     end.
 
 -spec get_payment_opts(st()) -> hg_invoice_payment:opts().
-get_payment_opts(St = #st{invoice = Invoice, party = undefined}) ->
+get_payment_opts(#st{invoice = Invoice, party = undefined} = St) ->
     {PartyConfigRef, Party} = hg_party:get_party(get_party_config_ref(St)),
     #{
         party => Party,
@@ -126,7 +126,7 @@ get_payment_opts(#st{invoice = Invoice, party = Party, party_config_ref = PartyC
 
 -spec get_payment_opts(hg_domain:revision(), st()) ->
     hg_invoice_payment:opts().
-get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
+get_payment_opts(Revision, #st{invoice = Invoice} = St) ->
     {PartyConfigRef, Party} = hg_party:checkout(get_party_config_ref(St), Revision),
     #{
         party => Party,
@@ -144,7 +144,7 @@ get_payment_opts(Revision, St = #st{invoice = Invoice}) ->
     revision()
 ) ->
     invoice().
-create(ID, InvoiceTplID, V = #payproc_InvoiceParams{}, _Allocation, Mutations, DomainRevision) ->
+create(ID, InvoiceTplID, #payproc_InvoiceParams{} = V, _Allocation, Mutations, DomainRevision) ->
     PartyConfigRef = V#payproc_InvoiceParams.party_id,
     ShopConfigRef = V#payproc_InvoiceParams.shop_id,
     Cost = V#payproc_InvoiceParams.cost,
@@ -262,8 +262,8 @@ process_with_tag(Tag, F) ->
 %%
 
 -spec fail(hg_machine:id()) -> ok.
-fail(Id) ->
-    try hg_machine:call(?NS, Id, fail) of
+fail(ID) ->
+    try hg_machine:call(?NS, ID, fail) of
         {error, failed} ->
             ok;
         {error, Error} ->
@@ -315,7 +315,7 @@ handle_repair({changes, Changes, RepairAction, Params}, St) ->
     };
 handle_repair({scenario, _}, #st{activity = Activity}) when Activity =:= invoice orelse Activity =:= undefined ->
     throw({exception, invoice_has_no_active_payment});
-handle_repair({scenario, Scenario}, St = #st{activity = {payment, PaymentID}}) ->
+handle_repair({scenario, Scenario}, #st{activity = {payment, PaymentID}} = St) ->
     PaymentSession = get_payment_session(PaymentID, St),
     Activity = hg_invoice_payment:get_activity(PaymentSession),
     case {Scenario, Activity} of
@@ -329,11 +329,11 @@ handle_repair({scenario, Scenario}, St = #st{activity = {payment, PaymentID}}) -
 process_signal(Signal, #{history := History}) ->
     handle_result(handle_signal(Signal, collapse_history(unmarshal_history(History)))).
 
-handle_signal(timeout, St = #st{activity = {payment, PaymentID}}) ->
+handle_signal(timeout, #st{activity = {payment, PaymentID}} = St) ->
     % there's a payment pending
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_signal(timeout, PaymentID, PaymentSession, St);
-handle_signal(timeout, St = #st{activity = invoice}) ->
+handle_signal(timeout, #st{activity = invoice} = St) ->
     % invoice is expired
     handle_expiration(St).
 
@@ -493,10 +493,10 @@ handle_call({session_change, _Tag, _SessionChange} = Call, St) ->
 
 -spec dispatch_to_session({callback, tag(), callback()} | {session_change, tag(), session_change()}, st()) ->
     call_result().
-dispatch_to_session({callback, Tag, {provider, Payload}}, St = #st{activity = {payment, PaymentID}}) ->
+dispatch_to_session({callback, Tag, {provider, Payload}}, #st{activity = {payment, PaymentID}} = St) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_call({callback, Tag, Payload}, PaymentID, PaymentSession, St);
-dispatch_to_session({session_change, _Tag, _SessionChange} = Call, St = #st{activity = {payment, PaymentID}}) ->
+dispatch_to_session({session_change, _Tag, _SessionChange} = Call, #st{activity = {payment, PaymentID}} = St) ->
     PaymentSession = get_payment_session(PaymentID, St),
     process_payment_call(Call, PaymentID, PaymentSession, St);
 dispatch_to_session(_Call, _St) ->
@@ -733,7 +733,7 @@ define_refund_id(#payproc_InvoicePaymentRefundParams{id = ID}, _PaymentSession) 
 -define(MANUAL_REFUND_ID_PREFIX, "m").
 
 %% If something breaks - this is why
-force_refund_id_format(manual_refund, Correct = <<?MANUAL_REFUND_ID_PREFIX, _Rest/binary>>) ->
+force_refund_id_format(manual_refund, <<?MANUAL_REFUND_ID_PREFIX, _Rest/binary>> = Correct) ->
     Correct;
 force_refund_id_format(manual_refund, Incorrect) ->
     <<?MANUAL_REFUND_ID_PREFIX, Incorrect/binary>>;
@@ -816,7 +816,7 @@ try_to_get_repair_state({complex, #payproc_InvoiceRepairComplex{scenarios = Scen
 try_to_get_repair_state(Scenario, St) ->
     repair_scenario(Scenario, St).
 
-repair_complex([], St = #st{activity = {payment, PaymentID}}) ->
+repair_complex([], #st{activity = {payment, PaymentID}} = St) ->
     PaymentSession = get_payment_session(PaymentID, St),
     Activity = hg_invoice_payment:get_activity(PaymentSession),
     throw({exception, {activity_not_compatible_with_complex_scenario, Activity}});
@@ -828,7 +828,7 @@ repair_complex([Scenario | Rest], St) ->
             repair_complex(Rest, St)
     end.
 
-repair_scenario(Scenario, St = #st{activity = {payment, PaymentID}}) ->
+repair_scenario(Scenario, #st{activity = {payment, PaymentID}} = St) ->
     PaymentSession = get_payment_session(PaymentID, St),
     Activity = hg_invoice_payment:get_activity(PaymentSession),
     NewActivity =
@@ -923,7 +923,7 @@ try_get_payment_session(PaymentID, #st{payments = Payments}) ->
             undefined
     end.
 
-set_payment_session(PaymentID, PaymentSession, St = #st{payments = Payments}) ->
+set_payment_session(PaymentID, PaymentSession, #st{payments = Payments} = St) ->
     St#st{payments = lists:keystore(PaymentID, 1, Payments, {PaymentID, PaymentSession})}.
 
 %%
@@ -971,13 +971,13 @@ get_invoice_params(Invoice) ->
     #domain_Invoice{
         id = ID,
         cost = ?cash(Amount, Currency),
-        party_ref = PartyConfigRef,
-        shop_ref = ShopConfigRef
+        party_ref = #domain_PartyConfigRef{id = PartyID},
+        shop_ref = #domain_ShopConfigRef{id = ShopID}
     } = Invoice,
     [
         {id, ID},
-        {party_ref, PartyConfigRef},
-        {shop_ref, ShopConfigRef},
+        {party_id, PartyID},
+        {shop_id, ShopID},
         {cost, [{amount, Amount}, {currency, Currency}]}
     ].
 

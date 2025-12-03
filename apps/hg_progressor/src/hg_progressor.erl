@@ -111,7 +111,7 @@ cleanup() ->
         customer,
         recurrent_paytools
     ],
-    lists:foreach(fun(NsId) -> progressor:cleanup(#{ns => NsId}) end, Namespaces).
+    lists:foreach(fun(NsID) -> progressor:cleanup(#{ns => NsID}) end, Namespaces).
 
 %-endif.
 
@@ -120,11 +120,11 @@ cleanup() ->
 -spec process({task_t(), encoded_args(), process()}, map(), encoded_ctx()) -> process_result().
 process({CallType, BinArgs, Process}, #{ns := NS} = Options, Ctx) ->
     _ = set_context(Ctx),
-    #{last_event_id := LastEventId} = Process,
+    #{last_event_id := LastEventID} = Process,
     Machine = marshal(process, Process#{ns => NS}),
     Func = marshal(function, CallType),
     Args = marshal(args, {CallType, BinArgs, Machine}),
-    handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventId).
+    handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID).
 
 %% Internal functions
 
@@ -136,11 +136,11 @@ handle_result(
         },
         action = Action
     },
-    LastEventId
+    LastEventID
 ) ->
     {ok,
         genlib_map:compact(#{
-            events => unmarshal(events, {Events, LastEventId}),
+            events => unmarshal(events, {Events, LastEventID}),
             aux_state => maybe_unmarshal(term, AuxState),
             action => maybe_unmarshal(action, Action)
         })};
@@ -153,12 +153,12 @@ handle_result(
         },
         action = Action
     },
-    LastEventId
+    LastEventID
 ) ->
     {ok,
         genlib_map:compact(#{
             response => Response,
-            events => unmarshal(events, {Events, LastEventId}),
+            events => unmarshal(events, {Events, LastEventID}),
             aux_state => maybe_unmarshal(term, AuxState),
             action => maybe_unmarshal(action, Action)
         })};
@@ -171,16 +171,16 @@ handle_result(
         },
         action = Action
     },
-    LastEventId
+    LastEventID
 ) ->
     {ok,
         genlib_map:compact(#{
             response => Response,
-            events => unmarshal(events, {Events, LastEventId}),
+            events => unmarshal(events, {Events, LastEventID}),
             aux_state => maybe_unmarshal(term, AuxState),
             action => maybe_unmarshal(action, Action)
         })};
-handle_result(_Unexpected, _LastEventId) ->
+handle_result(_Unexpected, _LastEventID) ->
     {error, <<"unexpected result">>}.
 
 -spec handle_exception(_) -> no_return().
@@ -232,14 +232,14 @@ marshal(
 marshal(
     event,
     #{
-        event_id := EventId,
+        event_id := EventID,
         timestamp := Timestamp,
         payload := Payload
     } = Event
 ) ->
     Meta = maps:get(metadata, Event, #{}),
     #mg_stateproc_Event{
-        id = EventId,
+        id = EventID,
         created_at = marshal(timestamp, Timestamp),
         format_version = format_version(Meta),
         data = marshal(term, Payload)
@@ -292,22 +292,22 @@ maybe_unmarshal(_, undefined) ->
 maybe_unmarshal(Type, Value) ->
     unmarshal(Type, Value).
 
-unmarshal(events, {undefined, _Id}) ->
+unmarshal(events, {undefined, _ID}) ->
     [];
 unmarshal(events, {[], _}) ->
     [];
-unmarshal(events, {Events, LastEventId}) ->
+unmarshal(events, {Events, LastEventID}) ->
     Ts = erlang:system_time(second),
     lists:foldl(
         fun(#mg_stateproc_Content{format_version = Ver, data = Payload}, Acc) ->
-            PrevId =
+            PrevID =
                 case Acc of
-                    [] -> LastEventId;
-                    [#{event_id := Id} | _] -> Id
+                    [] -> LastEventID;
+                    [#{event_id := ID} | _] -> ID
                 end,
             [
                 genlib_map:compact(#{
-                    event_id => PrevId + 1,
+                    event_id => PrevID + 1,
                     timestamp => Ts,
                     metadata => #{<<"format_version">> => Ver},
                     payload => unmarshal(term, Payload)

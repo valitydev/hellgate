@@ -364,7 +364,7 @@ init(ApiClient) ->
     {ok, #state{pollers = #{}, client = ApiClient}}.
 
 -spec handle_call(term(), callref(), state()) -> {reply, term(), state()} | {noreply, state()}.
-handle_call({call, Function, Args, OtelCtx}, _From, St = #state{client = Client}) ->
+handle_call({call, Function, Args, OtelCtx}, _From, #state{client = Client} = St) ->
     _ = otel_ctx:attach(OtelCtx),
     {Result, ClientNext} = hg_client_api:call(invoicing, Function, Args, Client),
     {reply, Result, St#state{client = ClientNext}};
@@ -400,7 +400,7 @@ code_change(_OldVsn, _State, _Extra) ->
 
 %%
 
-handle_pull_event(InvoiceID, Timeout, St = #state{client = Client}) ->
+handle_pull_event(InvoiceID, Timeout, #state{client = Client} = St) ->
     Poller = get_poller(InvoiceID, St),
     {Result, ClientNext, PollerNext} = hg_client_event_poller:poll(1, Timeout, Client, Poller),
     StNext = set_poller(InvoiceID, PollerNext, St#state{client = ClientNext}),
@@ -413,7 +413,7 @@ handle_pull_event(InvoiceID, Timeout, St = #state{client = Client}) ->
             {Error, StNext}
     end.
 
-handle_pull_change(InvoiceID, Timeout, St = #state{changes = ChangesMap}) ->
+handle_pull_change(InvoiceID, Timeout, #state{changes = ChangesMap} = St) ->
     case ChangesMap of
         #{InvoiceID := [ResultChange | RemainingChanges]} ->
             ChangesMapNext = ChangesMap#{InvoiceID => RemainingChanges},
@@ -432,7 +432,7 @@ handle_pull_change(InvoiceID, Timeout, St = #state{changes = ChangesMap}) ->
 get_poller(InvoiceID, #state{pollers = Pollers}) ->
     maps:get(InvoiceID, Pollers, construct_poller(InvoiceID)).
 
-set_poller(InvoiceID, Poller, St = #state{pollers = Pollers}) ->
+set_poller(InvoiceID, Poller, #state{pollers = Pollers} = St) ->
     St#state{pollers = maps:put(InvoiceID, Poller, Pollers)}.
 
 construct_poller(InvoiceID) ->
