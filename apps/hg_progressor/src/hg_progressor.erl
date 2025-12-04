@@ -117,14 +117,22 @@ cleanup() ->
 
 %% Processor
 
--spec process({task_t(), encoded_args(), process()}, map(), encoded_ctx()) -> process_result().
-process({CallType, BinArgs, Process}, #{ns := NS} = Options, Ctx) ->
-    _ = set_context(Ctx),
+-spec process({task_t(), encoded_args(), process()}, hg_woody_service_wrapper:handler_opts(), encoded_ctx()) ->
+    process_result().
+process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
+    {WoodyContext0, OtelCtx} = woody_rpc_helper:decode_rpc_context(marshal(term, BinCtx)),
+    ok = woody_rpc_helper:attach_otel_context(OtelCtx),
     #{last_event_id := LastEventID} = Process,
     Machine = marshal(process, Process#{ns => NS}),
     Func = marshal(function, CallType),
     Args = marshal(args, {CallType, BinArgs, Machine}),
-    handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID).
+    WoodyContext = hg_woody_service_wrapper:ensure_woody_deadline_set(WoodyContext0, Options),
+    ok = hg_context:save(hg_woody_service_wrapper:create_context(WoodyContext, Options)),
+    try
+        handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID)
+    after
+        hg_context:cleanup()
+    end.
 
 %% Internal functions
 
@@ -188,18 +196,17 @@ handle_exception({exception, Class, Reason}) ->
     erlang:raise(Class, Reason, []).
 
 get_context() ->
-    try hg_context:load() of
-        Ctx ->
-            unmarshal(term, Ctx)
-    catch
-        _:_ ->
-            unmarshal(term, <<>>)
-    end.
-
-set_context(<<>>) ->
-    hg_context:save(hg_context:create(#{party_client => #{}}));
-set_context(BinContext) ->
-    hg_context:save(marshal(term, BinContext)).
+    WoodyContext =
+        try hg_context:load() of
+            Ctx ->
+                hg_context:get_woody_context(Ctx)
+        catch
+            Class:Reason ->
+                _ = logger:warning("Failed to load context with error class '~s' and reason: ~p", [Class, Reason]),
+                _ = logger:info("Creating empty fallback context"),
+                woody_context:new()
+        end,
+    unmarshal(term, woody_rpc_helper:encode_rpc_context(WoodyContext, otel_ctx:get_current())).
 
 %% Marshalling
 

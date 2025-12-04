@@ -8,6 +8,10 @@
 -export([handle_function/4]).
 -export([raise/1]).
 
+%% Utils
+-export([create_context/2]).
+-export([ensure_woody_deadline_set/2]).
+
 -export_type([handler_opts/0]).
 
 -type handler_opts() :: #{
@@ -47,6 +51,7 @@ handle_function(Func, Args, WoodyContext0, #{handler := Handler} = Opts) ->
 raise(Exception) ->
     woody_error:raise(business, Exception).
 
+-spec create_context(woody_context:ctx(), handler_opts()) -> hg_context:context().
 create_context(WoodyContext, Opts) ->
     ContextOptions = #{
         woody_context => WoodyContext
