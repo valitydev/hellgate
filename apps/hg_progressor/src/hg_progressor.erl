@@ -192,8 +192,10 @@ get_context() ->
         Ctx ->
             unmarshal(term, Ctx)
     catch
-        _:_ ->
-            unmarshal(term, <<>>)
+        Class:Reason ->
+            _ = logger:warning("Failed to load context with error class '~s' and reason: ~p", [Class, Reason]),
+            _ = logger:info("Creating empty fallback context"),
+            unmarshal(term, hg_context:create())
     end.
 
 set_context(<<>>) ->
