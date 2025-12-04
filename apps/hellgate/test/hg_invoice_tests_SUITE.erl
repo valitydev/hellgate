@@ -534,7 +534,7 @@ init_per_suite(C) ->
     _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_WITH_SEVERAL_LIMITS, PartyClient),
     _ = hg_ct_helper:create_party(?PARTY_CONFIG_REF_WITH_SHOP_LIMITS, PartyClient),
 
-    _BaseRevision = hg_domain:insert(construct_domain_fixture(BaseLimitsRevision)),
+    _BaseRevision = hg_domain:upsert(construct_domain_fixture(BaseLimitsRevision)),
 
     ok = hg_context:save(hg_context:create()),
     ShopConfigRef = hg_ct_helper:create_party_and_shop(

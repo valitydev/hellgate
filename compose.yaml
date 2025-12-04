@@ -1,4 +1,5 @@
 services:
+
   testrunner:
     image: $DEV_IMAGE_TAG
     build:
@@ -27,8 +28,10 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-90f5fa2
+    image: ghcr.io/valitydev/dominant-v2:sha-5823897
     command: /opt/dmt/bin/dmt foreground
+    environment:
+      DMT_KAFKA_ENABLED: "0"
     volumes:
       - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
     depends_on:
@@ -128,7 +131,7 @@ services:
     image: postgres:15-bookworm
     command: -c 'max_connections=1000'
     environment:
-      POSTGRES_MULTIPLE_DATABASES: "hellgate,bender,dmt,party_management,shumway,liminator"
+      POSTGRES_MULTIPLE_DATABASES: "hellgate,fistful,bender,dmt,party_management,shumway,liminator"
       POSTGRES_PASSWORD: "postgres"
     volumes:
       - ./test/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d

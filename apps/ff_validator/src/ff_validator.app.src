@@ -1,0 +1,14 @@
+{application, ff_validator, [
+    {description, "An OTP library"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        validator_personal_data_proto
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.
