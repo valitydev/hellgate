@@ -1926,7 +1926,7 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
         ]
     ).
 
-produce_routing_events(Ctx = #{error := Error}, Revision, St) when Error =/= undefined ->
+produce_routing_events(#{error := Error} = Ctx, Revision, St) when Error =/= undefined ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
     %% rejected because of provider gone critical, then use subcode to highlight
     %% the offender. Like 'provider_dead' or 'conversion_lacking'.

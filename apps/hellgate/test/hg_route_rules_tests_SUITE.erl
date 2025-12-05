@@ -31,6 +31,8 @@
 -export([terminal_priority_for_shop/1]).
 -export([gather_pinned_route/1]).
 -export([choose_route_w_override/1]).
+-export([recurrent_payment_skip_recurrent_terms/1]).
+-export([recurrent_payment_rejected_without_terms/1]).
 
 -define(PROVIDER_MIN_ALLOWED, ?cash(1000, <<"RUB">>)).
 -define(PROVIDER_MIN_ALLOWED_W_EXTRA_CASH(ExtraCash), ?cash(1000 + ExtraCash, <<"RUB">>)).
@@ -72,7 +74,10 @@ groups() ->
             terminal_priority_for_shop,
 
             gather_pinned_route,
-            choose_route_w_override
+            choose_route_w_override,
+
+            recurrent_payment_skip_recurrent_terms,
+            recurrent_payment_rejected_without_terms
         ]}
     ].
 
@@ -144,6 +149,8 @@ cfg(Key, C) ->
 -define(pinned_route_revision, 5).
 -define(empty_allow_revision, 6).
 -define(not_reduced_allow_revision, 7).
+-define(recurrent_skip_revision, 8).
+-define(recurrent_no_terms_revision, 9).
 
 mock_dominant(SupPid) ->
     Domain = construct_domain_fixture(),
@@ -311,6 +318,32 @@ mock_party_management(SupPid) ->
                         name = <<"No prohibition: all candidate is allowed">>,
                         decisions = {candidates, []}
                     }};
+                ('ComputeRoutingRuleset', {?ruleset(2), ?recurrent_skip_revision, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"">>,
+                        decisions =
+                            {candidates, [
+                                ?candidate({constant, true}, ?trm(8))
+                            ]}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(1), ?recurrent_skip_revision, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"No prohibition">>,
+                        decisions = {candidates, []}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(2), ?recurrent_no_terms_revision, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"">>,
+                        decisions =
+                            {candidates, [
+                                ?candidate({constant, true}, ?trm(9))
+                            ]}
+                    }};
+                ('ComputeRoutingRuleset', {?ruleset(1), ?recurrent_no_terms_revision, _}) ->
+                    {ok, #domain_RoutingRuleset{
+                        name = <<"No prohibition">>,
+                        decisions = {candidates, []}
+                    }};
                 ('ComputeProviderTerminalTerms', {?prv(2), _, ?base_routing_rule_domain_revision, _}) ->
                     {ok, #domain_ProvisionTermSet{
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
@@ -379,6 +412,16 @@ mock_party_management(SupPid) ->
                         payments = PaymentTerms#domain_PaymentsProvisionTerms{
                             allow = {all_of, [{constant, false}]}
                         }
+                    }};
+                ('ComputeProviderTerminalTerms', {?prv(8), _, ?recurrent_skip_revision, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = ?payment_terms,
+                        extension = #domain_ExtendedProvisionTerms{skip_recurrent = true}
+                    }};
+                ('ComputeProviderTerminalTerms', {?prv(9), _, ?recurrent_no_terms_revision, _}) ->
+                    {ok, #domain_ProvisionTermSet{
+                        payments = ?payment_terms,
+                        recurrent_paytools = undefined
                     }};
                 ('ComputeProviderTerminalTerms', _) ->
                     {ok, #domain_ProvisionTermSet{
@@ -829,6 +872,63 @@ choose_route_w_override(_C) ->
     RoutesWithOV = [Route1, Route2, Route3WithOV],
     {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
 
+-spec recurrent_payment_skip_recurrent_terms(config()) -> test_return().
+recurrent_payment_skip_recurrent_terms(_C) ->
+    %% Test that recurrent_payment routing passes when provider has skip_recurrent = true
+    %% even without recurrent_paytools terms
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    VS = #{
+        category => ?cat(1),
+        currency => Currency,
+        cost => ?PROVIDER_MIN_ALLOWED,
+        payment_tool => PaymentTool,
+        party_config_ref => ?dummy_party_config_ref,
+        flow => instant,
+        risk_score => low
+    },
+    Revision = ?recurrent_skip_revision,
+    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        client_ip => undefined
+    },
+    {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(recurrent_payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
+    ?assertEqual(1, length(Routes)),
+    [Route] = Routes,
+    ?assertMatch(?trm(8), hg_route:terminal_ref(Route)).
+
+-spec recurrent_payment_rejected_without_terms(config()) -> test_return().
+recurrent_payment_rejected_without_terms(_C) ->
+    %% Test that recurrent_payment routing rejects when provider has no recurrent_paytools terms
+    %% and no skip_recurrent flag
+    Currency = ?cur(<<"RUB">>),
+    PaymentTool = {payment_terminal, #domain_PaymentTerminal{payment_service = ?pmt_srv(<<"euroset-ref">>)}},
+    VS = #{
+        category => ?cat(1),
+        currency => Currency,
+        cost => ?PROVIDER_MIN_ALLOWED,
+        payment_tool => PaymentTool,
+        party_config_ref => ?dummy_party_config_ref,
+        flow => instant,
+        risk_score => low
+    },
+    Revision = ?recurrent_no_terms_revision,
+    PaymentInstitution = hg_domain:get(Revision, {payment_institution, ?pinst(1)}),
+    Ctx = #{
+        currency => Currency,
+        payment_tool => PaymentTool,
+        client_ip => undefined
+    },
+    {ok, {Routes, RejectedRoutes}} = unwrap_routing_context(
+        hg_routing:gather_routes(recurrent_payment, PaymentInstitution, VS, Revision, Ctx)
+    ),
+    ?assertEqual([], Routes),
+    ?assertMatch([{?prv(9), ?trm(9), {'RecurrentPaytoolsProvisionTerms', undefined}}], RejectedRoutes).
+
 %%% Domain config fixtures
 
 routing_with_risk_score_fixture(Domain, AddRiskScore) ->
@@ -867,6 +967,8 @@ construct_domain_fixture() ->
         {provider, ?prv(5)} => {provider, ?provider_obj(?prv(5), #domain_ProvisionTermSet{})},
         {provider, ?prv(6)} => {provider, ?provider_obj(?prv(6), #domain_ProvisionTermSet{})},
         {provider, ?prv(7)} => {provider, ?provider_obj(?prv(7), #domain_ProvisionTermSet{})},
+        {provider, ?prv(8)} => {provider, ?provider_obj(?prv(8), #domain_ProvisionTermSet{})},
+        {provider, ?prv(9)} => {provider, ?provider_obj(?prv(9), #domain_ProvisionTermSet{})},
         {provider, ?prv(11)} => {provider, ?provider_obj(?prv(11), #domain_ProvisionTermSet{})},
         {provider, ?prv(12)} => {provider, ?provider_obj(?prv(12), #domain_ProvisionTermSet{})},
         {terminal, ?trm(1)} => {terminal, ?terminal_obj(?trm(1), ?prv(1), undefined)},
@@ -876,6 +978,8 @@ construct_domain_fixture() ->
         {terminal, ?trm(5)} => {terminal, ?terminal_obj(?trm(5), ?prv(5))},
         {terminal, ?trm(6)} => {terminal, ?terminal_obj(?trm(6), ?prv(6))},
         {terminal, ?trm(7)} => {terminal, ?terminal_obj(?trm(7), ?prv(7))},
+        {terminal, ?trm(8)} => {terminal, ?terminal_obj(?trm(8), ?prv(8))},
+        {terminal, ?trm(9)} => {terminal, ?terminal_obj(?trm(9), ?prv(9))},
         {terminal, ?trm(11)} => {terminal, ?terminal_obj(?trm(11), ?prv(11))},
         {terminal, ?trm(12)} => {terminal, ?terminal_obj(?trm(12), ?prv(12))},
         {payment_institution, ?pinst(1)} =>
