@@ -178,8 +178,9 @@ assert_party_shop_operable(Shop, Party) ->
     _ = assert_shop_operable(Shop),
     ok.
 
-get_invoice_state(#st{invoice = Invoice, payments = Payments}) ->
+get_invoice_state(#st{invoice = Invoice, payments = Payments, latest_event_id = LatestEventId}) ->
     #payproc_Invoice{
+        latest_event_id = LatestEventId,
         invoice = Invoice,
         payments = [
             get_payment_state(PaymentSession)

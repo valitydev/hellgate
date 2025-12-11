@@ -847,8 +847,9 @@ repair_scenario(Scenario, #st{activity = {payment, PaymentID}} = St) ->
 -spec collapse_history([hg_machine:event()]) -> st().
 collapse_history(History) ->
     lists:foldl(
-        fun({_ID, Dt, Changes}, St0) ->
-            collapse_changes(Changes, St0, #{timestamp => Dt})
+        fun({ID, Dt, Changes}, St0) ->
+            St1 = collapse_changes(Changes, St0, #{timestamp => Dt}),
+            St1#st{latest_event_id = ID}
         end,
         #st{},
         History
