@@ -20,7 +20,8 @@
 -export([first_recurrent_payment_success_test/1]).
 -export([second_recurrent_payment_success_test/1]).
 -export([register_parent_payment_test/1]).
--export([another_shop_test/1]).
+-export([another_party_test/1]).
+-export([same_party_different_shops_test/1]).
 -export([not_recurring_first_test/1]).
 -export([cancelled_first_payment_test/1]).
 -export([not_permitted_recurrent_test/1]).
@@ -69,7 +70,8 @@ groups() ->
             first_recurrent_payment_success_test,
             second_recurrent_payment_success_test,
             register_parent_payment_test,
-            another_shop_test,
+            another_party_test,
+            same_party_different_shops_test,
             not_recurring_first_test,
             cancelled_first_payment_test,
             not_exists_invoice_test,
@@ -101,14 +103,19 @@ init_per_suite(C) ->
     _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
+    AnotherPartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     PartyClient = {party_client:create_client(), party_client:create_context()},
     _ = hg_ct_helper:create_party(PartyConfigRef, PartyClient),
+    _ = hg_ct_helper:create_party(AnotherPartyConfigRef, PartyClient),
     ok = hg_context:save(hg_context:create()),
     Shop1ConfigRef = hg_ct_helper:create_shop(
         PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient
     ),
     Shop2ConfigRef = hg_ct_helper:create_shop(
         PartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient
+    ),
+    AnotherPartyShopConfigRef = hg_ct_helper:create_shop(
+        AnotherPartyConfigRef, ?cat(1), <<"RUB">>, ?trms(1), ?pinst(1), undefined, PartyClient
     ),
     ok = hg_context:cleanup(),
     {ok, SupPid} = supervisor:start_link(?MODULE, []),
@@ -117,8 +124,10 @@ init_per_suite(C) ->
         {apps, Apps},
         {root_url, RootUrl},
         {party_config_ref, PartyConfigRef},
+        {another_party_config_ref, AnotherPartyConfigRef},
         {shop_config_ref, Shop1ConfigRef},
-        {another_shop_config_ref, Shop2ConfigRef},
+        {second_shop_config_ref, Shop2ConfigRef},
+        {another_party_shop_config_ref, AnotherPartyShopConfigRef},
         {test_sup, SupPid}
         | C
     ],
@@ -234,10 +243,14 @@ register_parent_payment_test(C) ->
         [?payment_state(?payment_w_status(Payment2ID, ?captured()))]
     ) = hg_client_invoicing:get(Invoice2ID, Client).
 
--spec another_shop_test(config()) -> test_result().
-another_shop_test(C) ->
+-spec another_party_test(config()) -> test_result().
+another_party_test(C) ->
     Client = cfg(client, C),
-    Invoice1ID = start_invoice(cfg(another_shop_config_ref, C), <<"rubberduck">>, make_due_date(10), 42000, C),
+    AnotherPartyConfigRef = cfg(another_party_config_ref, C),
+    AnotherPartyShopConfigRef = cfg(another_party_shop_config_ref, C),
+    Invoice1ID = start_invoice_for_party(
+        AnotherPartyConfigRef, AnotherPartyShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C
+    ),
     %% first payment in recurrent session
     Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
     {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
@@ -246,8 +259,28 @@ another_shop_test(C) ->
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
     Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
-    ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment refer to another shop">>},
+    ExpectedError = #payproc_InvalidRecurrentParentPayment{details = <<"Parent payment refer to another party">>},
     {error, ExpectedError} = start_payment(Invoice2ID, Payment2Params, Client).
+
+-spec same_party_different_shops_test(config()) -> test_result().
+same_party_different_shops_test(C) ->
+    Client = cfg(client, C),
+    %% First payment in shop1
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    %% Second recurrent payment in shop2 (same party, different shop) - should succeed
+    SecondShopConfigRef = cfg(second_shop_config_ref, C),
+    Invoice2ID = start_invoice(SecondShopConfigRef, <<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(?payment_w_status(Payment2ID, ?captured()))]
+    ) = hg_client_invoicing:get(Invoice2ID, Client).
 
 -spec not_recurring_first_test(config()) -> test_result().
 not_recurring_first_test(C) ->
@@ -422,6 +455,14 @@ start_invoice(Product, Due, Amount, C) ->
 start_invoice(ShopConfigRef, Product, Due, Amount, C) ->
     Client = cfg(client, C),
     PartyConfigRef = cfg(party_config_ref, C),
+    Cash = hg_ct_helper:make_cash(Amount, <<"RUB">>),
+    InvoiceParams = hg_ct_helper:make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, Cash),
+    InvoiceID = create_invoice(InvoiceParams, Client),
+    _Events = await_events(InvoiceID, [?evp(?invoice_created(?invoice_w_status(?invoice_unpaid())))], Client),
+    InvoiceID.
+
+start_invoice_for_party(PartyConfigRef, ShopConfigRef, Product, Due, Amount, C) ->
+    Client = cfg(client, C),
     Cash = hg_ct_helper:make_cash(Amount, <<"RUB">>),
     InvoiceParams = hg_ct_helper:make_invoice_params(PartyConfigRef, ShopConfigRef, Product, Due, Cash),
     InvoiceID = create_invoice(InvoiceParams, Client),

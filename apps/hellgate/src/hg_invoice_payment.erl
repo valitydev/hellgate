@@ -634,7 +634,7 @@ validate_recurrent_terms(RecurrentTerms, PaymentTool) ->
 -spec validate_recurrent_parent({shop_config_ref(), shop()}, st()) -> ok | no_return().
 validate_recurrent_parent(ShopObj, ParentPayment) ->
     ok = validate_recurrent_token_present(ParentPayment),
-    ok = validate_recurrent_parent_shop(ShopObj, ParentPayment),
+    ok = validate_recurrent_parent_party(ShopObj, ParentPayment),
     ok = validate_recurrent_parent_status(ParentPayment).
 
 -spec validate_recurrent_token_present(st()) -> ok | no_return().
@@ -646,14 +646,14 @@ validate_recurrent_token_present(PaymentState) ->
             throw_invalid_recurrent_parent(<<"Parent payment has no recurrent token">>)
     end.
 
--spec validate_recurrent_parent_shop({shop_config_ref(), shop()}, st()) -> ok | no_return().
-validate_recurrent_parent_shop({ShopConfigRef, _}, PaymentState) ->
-    PaymentShopConfigRef = get_payment_shop_config_ref(get_payment(PaymentState)),
-    case ShopConfigRef =:= PaymentShopConfigRef of
+-spec validate_recurrent_parent_party({shop_config_ref(), shop()}, st()) -> ok | no_return().
+validate_recurrent_parent_party({_, #domain_ShopConfig{party_ref = PartyConfigRef}}, PaymentState) ->
+    PaymentPartyConfigRef = get_payment_party_config_ref(get_payment(PaymentState)),
+    case PartyConfigRef =:= PaymentPartyConfigRef of
         true ->
             ok;
         false ->
-            throw_invalid_recurrent_parent(<<"Parent payment refer to another shop">>)
+            throw_invalid_recurrent_parent(<<"Parent payment refer to another party">>)
     end.
 
 -spec validate_recurrent_parent_status(st()) -> ok | no_return().
@@ -1926,7 +1926,7 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
         ]
     ).
 
-produce_routing_events(#{error := Error} = Ctx, _Revision, St) when Error =/= undefined ->
+produce_routing_events(#{error := Error} = Ctx, Revision, St) when Error =/= undefined ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
     %% rejected because of provider gone critical, then use subcode to highlight
     %% the offender. Like 'provider_dead' or 'conversion_lacking'.
@@ -1939,12 +1939,13 @@ produce_routing_events(#{error := Error} = Ctx, _Revision, St) when Error =/= un
         ordsets:from_list([hg_route:to_payment_route(R) || R <- RollbackableCandidates]),
     RouteScores = hg_routing_ctx:route_scores(Ctx),
     RouteLimits = hg_routing_ctx:route_limits(Ctx),
+    Decision = build_route_decision_context(Route, Revision),
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be
     %% skipped. And all limit's 'hold' operations will be rolled back.
     %% For same purpose in cascade routing we use route from unfiltered list of
     %% originally resolved candidates.
-    [?route_changed(Route, Candidates, RouteScores, RouteLimits), ?payment_rollback_started(Failure)];
+    [?route_changed(Route, Candidates, RouteScores, RouteLimits, Decision), ?payment_rollback_started(Failure)];
 produce_routing_events(Ctx, Revision, _St) ->
     ok = log_route_choice_meta(Ctx, Revision),
     Route = hg_route:to_payment_route(hg_routing_ctx:choosen_route(Ctx)),
@@ -1952,7 +1953,19 @@ produce_routing_events(Ctx, Revision, _St) ->
         ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing_ctx:considered_candidates(Ctx)]),
     RouteScores = hg_routing_ctx:route_scores(Ctx),
     RouteLimits = hg_routing_ctx:route_limits(Ctx),
-    [?route_changed(Route, Candidates, RouteScores, RouteLimits)].
+    Decision = build_route_decision_context(Route, Revision),
+    [?route_changed(Route, Candidates, RouteScores, RouteLimits, Decision)].
+
+build_route_decision_context(Route, Revision) ->
+    ProvisionTerms = hg_routing:get_provision_terms(Route, #{}, Revision),
+    SkipRecurrent =
+        case ProvisionTerms#domain_ProvisionTermSet.extension of
+            #domain_ExtendedProvisionTerms{skip_recurrent = true} ->
+                true;
+            _ ->
+                undefined
+        end,
+    #payproc_RouteDecisionContext{skip_recurrent = SkipRecurrent}.
 
 route_args(St) ->
     Opts = get_opts(St),
@@ -2351,6 +2364,16 @@ process_failure({payment, Step} = Activity, Events, Action, Failure, St, _Refund
     end.
 
 check_recurrent_token(#st{
+    payment = #domain_InvoicePayment{make_recurrent = true, skip_recurrent = true},
+    recurrent_token = undefined
+}) ->
+    ok;
+check_recurrent_token(#st{
+    payment = #domain_InvoicePayment{id = ID, make_recurrent = true, skip_recurrent = true},
+    recurrent_token = _Token
+}) ->
+    _ = logger:warning("Got recurrent token in non recurrent payment. Payment id:~p", [ID]);
+check_recurrent_token(#st{
     payment = #domain_InvoicePayment{id = ID, make_recurrent = true},
     recurrent_token = undefined
 }) ->
@@ -2471,7 +2494,7 @@ get_action(_Target, Action, _St) ->
 set_timer(Timer, Action) ->
     hg_machine_action:set_timer(Timer, Action).
 
-get_provider_terms(St, Revision) ->
+get_provider_payment_terms(St, Revision) ->
     Opts = get_opts(St),
     Route = get_route(St),
     Payment = get_payment(St),
@@ -2662,7 +2685,7 @@ commit_payment_limits(#st{capture_data = CaptureData} = St) ->
     #payproc_InvoicePaymentCaptureData{cash = CapturedCash} = CaptureData,
     Invoice = get_invoice(Opts),
     Route = get_route(St),
-    ProviderTerms = get_provider_terms(St, Revision),
+    ProviderTerms = get_provider_payment_terms(St, Revision),
     TurnoverLimits = get_turnover_limits(ProviderTerms, strict),
     Iter = get_iter(St),
     hg_limiter:commit_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, CapturedCash).
@@ -2780,6 +2803,7 @@ construct_proxy_payment(
         payer_session_info = PayerSessionInfo,
         cost = Cost,
         make_recurrent = MakeRecurrent,
+        skip_recurrent = SkipRecurrent,
         processing_deadline = Deadline
     },
     Trx
@@ -2796,6 +2820,7 @@ construct_proxy_payment(
         cost = construct_proxy_cash(Cost),
         contact_info = ContactInfo,
         make_recurrent = MakeRecurrent,
+        skip_recurrent = SkipRecurrent,
         processing_deadline = Deadline
     }.
 
@@ -2909,8 +2934,8 @@ get_payment_cost(#domain_InvoicePayment{cost = Cost}) ->
 get_payment_flow(#domain_InvoicePayment{flow = Flow}) ->
     Flow.
 
-get_payment_shop_config_ref(#domain_InvoicePayment{shop_ref = ShopConfigRef}) ->
-    ShopConfigRef.
+get_payment_party_config_ref(#domain_InvoicePayment{party_ref = PartyConfigRef}) ->
+    PartyConfigRef.
 
 get_payment_tool(#domain_InvoicePayment{payer = Payer}) ->
     get_payer_payment_tool(Payer).
@@ -3019,11 +3044,20 @@ merge_change(Change = ?risk_score_changed(RiskScore), #st{} = St, Opts) ->
         activity = {payment, routing}
     };
 merge_change(
-    Change = ?route_changed(Route, Candidates, Scores, Limits),
+    Change = ?route_changed(Route, Candidates, Scores, Limits, Decision),
     #st{routes = Routes, route_scores = RouteScores, route_limits = RouteLimits} = St,
     Opts
 ) ->
     _ = validate_transition([{payment, S} || S <- [routing, processing_failure]], Change, St, Opts),
+    Skip =
+        case Decision of
+            #payproc_RouteDecisionContext{skip_recurrent = true} ->
+                true;
+            _ ->
+                false
+        end,
+    Payment0 = get_payment(St),
+    Payment1 = Payment0#domain_InvoicePayment{skip_recurrent = Skip},
     St#st{
         %% On route change we expect cash flow from previous attempt to be rolled back.
         %% So on `?payment_rollback_started(_)` event for routing failure we won't try to do it again.
@@ -3034,7 +3068,8 @@ merge_change(
         candidate_routes = ordsets:to_list(Candidates),
         activity = {payment, cash_flow_building},
         route_scores = hg_maybe:apply(fun(S) -> maps:merge(RouteScores, S) end, Scores, RouteScores),
-        route_limits = hg_maybe:apply(fun(L) -> maps:merge(RouteLimits, L) end, Limits, RouteLimits)
+        route_limits = hg_maybe:apply(fun(L) -> maps:merge(RouteLimits, L) end, Limits, RouteLimits),
+        payment = Payment1
     };
 merge_change(Change = ?payment_capture_started(Data), #st{} = St, Opts) ->
     _ = validate_transition([{payment, S} || S <- [flow_waiting]], Change, St, Opts),

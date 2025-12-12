@@ -27,7 +27,7 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-90f5fa2
+    image: ghcr.io/valitydev/dominant-v2:sha-3ad3a22
     command: /opt/dmt/bin/dmt foreground
     volumes:
       - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
@@ -107,7 +107,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-53d780a
+    image: ghcr.io/valitydev/party-management:sha-2296944
     command: /opt/party-management/bin/party-management foreground
     volumes:
       - ./test/party-management/sys.config:/opt/party-management/releases/0.1/sys.config
