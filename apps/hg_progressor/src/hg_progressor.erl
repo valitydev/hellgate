@@ -120,7 +120,7 @@ cleanup() ->
 -spec process({task_t(), encoded_args(), process()}, hg_woody_service_wrapper:handler_opts(), encoded_ctx()) ->
     process_result().
 process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
-    {WoodyContext0, OtelCtx} = woody_rpc_helper:decode_rpc_context(marshal(term, BinCtx)),
+    {WoodyContext0, OtelCtx} = decode_rpc_context(BinCtx),
     ok = woody_rpc_helper:attach_otel_context(OtelCtx),
     #{last_event_id := LastEventID} = Process,
     Machine = marshal(process, Process#{ns => NS}),
@@ -135,6 +135,11 @@ process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
     end.
 
 %% Internal functions
+
+decode_rpc_context(<<>>) ->
+    woody_rpc_helper:decode_rpc_context(#{});
+decode_rpc_context(BinCtx) ->
+    woody_rpc_helper:decode_rpc_context(marshal(term, BinCtx)).
 
 handle_result(
     #mg_stateproc_SignalResult{
