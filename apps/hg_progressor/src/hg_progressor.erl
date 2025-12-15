@@ -136,8 +136,8 @@ process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
 
 %% Internal functions
 
-decode_rpc_context(<<>> = Empty) ->
-    woody_rpc_helper:decode_rpc_context(Empty);
+decode_rpc_context(<<>>) ->
+    woody_rpc_helper:decode_rpc_context(#{});
 decode_rpc_context(BinCtx) ->
     woody_rpc_helper:decode_rpc_context(marshal(term, BinCtx)).
 
