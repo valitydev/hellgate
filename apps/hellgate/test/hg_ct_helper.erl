@@ -310,7 +310,7 @@ start_app(progressor = AppName) ->
                     max_attempts => 3,
                     non_retryable_errors => []
                 },
-                task_scan_timeout => 1,
+                task_scan_timeout => 15,
                 worker_pool_size => 30,
                 process_step_timeout => 30
             }},
