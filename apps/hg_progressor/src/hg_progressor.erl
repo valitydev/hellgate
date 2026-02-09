@@ -52,6 +52,8 @@ call_automaton('Call', {MachineDesc, Args}) ->
             Ok;
         {error, <<"process not found">>} ->
             {error, notfound};
+        {error, <<"process is init">>} ->
+            {error, notfound};
         {error, <<"process is error">>} ->
             {error, failed};
         {error, {exception, _, _} = Exception} ->
@@ -92,6 +94,8 @@ call_automaton('Repair', {MachineDesc, Args}) ->
         {ok, _Response} = Ok ->
             Ok;
         {error, <<"process not found">>} ->
+            {error, notfound};
+        {error, <<"process is init">>} ->
             {error, notfound};
         {error, <<"process is running">>} ->
             {error, working};
