@@ -29,7 +29,9 @@
         limiter_proto,
         opentelemetry_api,
         opentelemetry_exporter,
-        opentelemetry
+        opentelemetry,
+        opentelemetry_experimental,
+        opentelemetry_api_experimental
     ]},
     {env, []},
     {modules, []},
