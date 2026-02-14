@@ -206,25 +206,31 @@ wait_marker_delivery(Marker, C, DeadlineMs, LastErr) ->
                     {ok, MarkerQuery};
                 false ->
                     %% Маркер не найден по |= фильтру, пробуем без фильтра (полный scan)
-                    case query_loki(?LOKI_SELECTOR, C) of
-                        {ok, AllLines} ->
-                            case otel_lines_contain_marker(AllLines, Marker) of
-                                true -> {ok, ?LOKI_SELECTOR};
-                                false -> retry_or_fail(Marker, C, DeadlineMs, LastErr)
-                            end;
-                        {error, Err} ->
-                            retry_or_fail(Marker, C, DeadlineMs, Err)
-                    end
+                    try_full_scan_or_retry(Marker, C, DeadlineMs, LastErr)
             end;
         {error, Err} ->
             retry_or_fail(Marker, C, DeadlineMs, Err)
     end.
 
-retry_or_fail(_Marker, _C, DeadlineMs, LastErr) when erlang:monotonic_time(millisecond) >= DeadlineMs ->
-    {error, LastErr};
+try_full_scan_or_retry(Marker, C, DeadlineMs, LastErr) ->
+    case query_loki(?LOKI_SELECTOR, C) of
+        {ok, AllLines} ->
+            case otel_lines_contain_marker(AllLines, Marker) of
+                true -> {ok, ?LOKI_SELECTOR};
+                false -> retry_or_fail(Marker, C, DeadlineMs, LastErr)
+            end;
+        {error, Err} ->
+            retry_or_fail(Marker, C, DeadlineMs, Err)
+    end.
+
 retry_or_fail(Marker, C, DeadlineMs, LastErr) ->
-    timer:sleep(?DELIVERY_POLL_INTERVAL_MS),
-    wait_marker_delivery(Marker, C, DeadlineMs, LastErr).
+    case erlang:monotonic_time(millisecond) >= DeadlineMs of
+        true ->
+            {error, LastErr};
+        false ->
+            timer:sleep(?DELIVERY_POLL_INTERVAL_MS),
+            wait_marker_delivery(Marker, C, DeadlineMs, LastErr)
+    end.
 
 otel_lines_contain_marker(Lines, Marker) ->
     MarkerBin = ensure_binary(Marker),
