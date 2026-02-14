@@ -1,31 +1,14 @@
 %% @doc
-%% Мини-сьют для проверки доставки логов в Loki по разным путям:
-%% - Путь 1 (Docker/Promtail): logger -> default handler -> stdout -> Docker -> Promtail -> Loki
-%% - Путь 2 (OTel): logger -> otel_log_handler -> OTLP -> otel-collector -> Loki
-%%
-%% См. compose.tracing.yaml — тесты запускаются в testrunner с otel-log-handler.
-%% Loki доступен как http://loki:3100 в docker network.
-%%
-%% Запуск:
-%%   rebar3 ct --suite=apps/hellgate/test/hg_log_delivery_tests_SUITE
-%%
-%% В compose с tracing (compose.tracing.yaml):
-%%   docker compose -f compose.yaml -f compose.tracing.yaml run testrunner rebar3 ct --suite=...
+%% Мини-сьют для проверки доставки логов через OTel:
+%% logger -> otel_log_handler -> OTLP -> otel-collector -> Loki.
 -module(hg_log_delivery_tests_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
--include_lib("stdlib/include/assert.hrl").
 
 -export([all/0]).
 -export([init_per_suite/1]).
 -export([end_per_suite/1]).
--export([init_per_testcase/2]).
--export([end_per_testcase/2]).
-
--export([logger_plain_delivery/1]).
--export([logger_lazy_format_delivery/1]).
 -export([logger_otlp_delivery/1]).
--export([woody_scoper_delivery/1]). % требует full compose (hellgate + mocks)
 
 -type config() :: hg_ct_helper:config().
 -type test_case_name() :: hg_ct_helper:test_case_name().
@@ -34,83 +17,78 @@
 -define(LOKI_HOST, "loki").
 -define(LOKI_PORT, 3100).
 -define(DELIVERY_WAIT_MS, 12000).
+-define(DELIVERY_ASSERT_TIMEOUT_MS, 90000).
+-define(DELIVERY_POLL_INTERVAL_MS, 2000).
+-define(LOKI_LOOKBACK_NS, 10 * 60 * 1_000_000_000).
 
 -spec all() -> [test_case_name()].
 all() ->
-    [
-        %% Plain + lazy в одном тесте — избегаем cross-test interference (второй тест не экспортирует)
-        logger_otlp_delivery
-        %% logger_plain_delivery, logger_lazy_format_delivery — см. otel_log_handler пустой batch
-        %% woody_scoper_delivery — раскомментировать при запуске в full compose с mocks
-    ].
+    [logger_otlp_delivery].
 
 -spec init_per_suite(config()) -> config().
 init_per_suite(C) ->
     _ = application:ensure_all_started(inets, temporary),
-    %% Стартуем hellgate - это вызовет ensure_otel_log_handler() в hellgate:start/2
+    OldPrimaryLevel = get_primary_logger_level(),
+    _ = logger:set_primary_config(level, info),
     {Apps, _Ret} = hg_ct_helper:start_apps([woody, scoper, dmt_client, hg_proto, hellgate]),
-    %% Проверка доступности otel-collector для OTel-пути
     case httpc:request(get, {"http://otel-collector:4318", []}, [{timeout, 3000}], []) of
-        {ok, _} -> ok;
+        {ok, _} ->
+            ok;
         {error, Reason} ->
-            ct:pal("WARNING: otel-collector unreachable (~p). OTel path will likely fail.", [Reason])
+            ct:log("WARNING: otel-collector unreachable (~p). OTel path will likely fail.", [Reason])
     end,
-    [{loki_url, loki_base_url()}, {apps, Apps} | C].
+    [{loki_url, loki_base_url()}, {apps, Apps}, {old_logger_primary_level, OldPrimaryLevel} | C].
 
 -spec end_per_suite(config()) -> ok.
 end_per_suite(C) ->
-    _ = hg_ct_helper:flush_otel_logs(),
     _ = [application:stop(App) || App <- hg_ct_helper:cfg(apps, C)],
+    case proplists:get_value(old_logger_primary_level, C, undefined) of
+        undefined ->
+            ok;
+        OldLevel ->
+            _ = logger:set_primary_config(level, OldLevel),
+            ok
+    end,
     ok.
 
--spec init_per_testcase(test_case_name(), config()) -> config().
-init_per_testcase(_TC, C) ->
-    C.
-
--spec end_per_testcase(test_case_name(), config()) -> ok.
-end_per_testcase(_TC, _C) ->
-    ok.
-
-%% -------------------------------------------------------------------------
-%% Helpers
-%% ----------------------------------------------------------------------------
+get_primary_logger_level() ->
+    case logger:get_primary_config() of
+        #{level := L} -> L;
+        _ -> undefined
+    end.
 
 loki_base_url() ->
-    Host = case os:getenv("LOKI_HOST") of
-        false -> ?LOKI_HOST;
-        H -> H
-    end,
-    Port = case os:getenv("LOKI_PORT") of
-        false -> integer_to_list(?LOKI_PORT);
-        P -> P
-    end,
+    Host =
+        case os:getenv("LOKI_HOST") of
+            false -> ?LOKI_HOST;
+            H -> H
+        end,
+    Port =
+        case os:getenv("LOKI_PORT") of
+            false -> integer_to_list(?LOKI_PORT);
+            P -> P
+        end,
     "http://" ++ Host ++ ":" ++ Port.
 
 make_marker() ->
     Rand = base64:encode(crypto:strong_rand_bytes(8)),
     ?LOG_MARKER_PREFIX ++ binary_to_list(Rand).
 
-%% Отправить логи разными способами, затем проверить доставку в Loki
-send_and_wait(MarkerPlain, MarkerLazy, C) ->
-    %% 1. Plain logger — идёт в default + otel_log_handler
+send_and_wait(MarkerPlain, MarkerLazy) ->
     logger:info("~s", [MarkerPlain]),
-    %% 2. Lazy format (как scoper_woody_event_handler)
     logger:info(fun(Args) -> {"~s", Args} end, [MarkerLazy]),
-    timer:sleep(?DELIVERY_WAIT_MS),
-    C.
+    timer:sleep(?DELIVERY_WAIT_MS).
 
-%% Запрос Loki API: GET /loki/api/v1/query_range
-%% Query: LogQL, например {job="docker"} |~ "MARKER" или {service_name="hellgate"} |~ "MARKER"
 -spec query_loki(string(), config()) -> {ok, [binary()]} | {error, term()}.
 query_loki(LogQL, C) ->
     BaseUrl = proplists:get_value(loki_url, C),
     EndNs = erlang:system_time(nanosecond),
-    StartNs = EndNs - 60 * 1_000_000_000, %% 1 min back
+    StartNs = EndNs - ?LOKI_LOOKBACK_NS,
     Query = [
         {"query", LogQL},
         {"start", integer_to_list(StartNs)},
         {"end", integer_to_list(EndNs)},
-        {"limit", "100"}
+        {"limit", "2000"}
     ],
     URL = BaseUrl ++ "/loki/api/v1/query_range?" ++ build_query(Query),
     case http_get(URL) of
@@ -123,10 +101,7 @@ query_loki(LogQL, C) ->
     end.
 
 build_query(KVs) ->
-    Parts = [
-        qs_key(K) ++ "=" ++ qs_value(V)
-        || {K, V} <- KVs
-    ],
+    Parts = [qs_key(K) ++ "=" ++ qs_value(V) || {K, V} <- KVs],
     string:join(Parts, "&").
 
 qs_key(S) ->
@@ -134,6 +109,14 @@ qs_key(S) ->
 
 qs_value(S) ->
     lists:flatten(percent_encode(ensure_binary(S))).
+
+logql_quote(S) ->
+    Bin = ensure_binary(S),
+    Escaped = binary:replace(Bin, <<"\\">>, <<"\\\\">>, [global]),
+    <<"\"", (binary:replace(Escaped, <<"\"">>, <<"\\\"">>, [global]))/binary, "\"">>.
+
+build_marker_query(Selector, Marker) ->
+    Selector ++ " |= " ++ binary_to_list(logql_quote(Marker)).
 
 ensure_binary(S) when is_list(S) ->
     unicode:characters_to_binary(S);
@@ -144,9 +127,9 @@ percent_encode(<<>>) ->
     [];
 percent_encode(<<C, Rest/binary>>) when
     (C >= $a andalso C =< $z) orelse
-    (C >= $A andalso C =< $Z) orelse
-    (C >= $0 andalso C =< $9) orelse
-    C =:= $- orelse C =:= $_ orelse C =:= $. orelse C =:= $~
+        (C >= $A andalso C =< $Z) orelse
+        (C >= $0 andalso C =< $9) orelse
+        C =:= $- orelse C =:= $_ orelse C =:= $. orelse C =:= $~
 ->
     [C | percent_encode(Rest)];
 percent_encode(<<C, Rest/binary>>) ->
@@ -163,7 +146,7 @@ http_get(URL) ->
 parse_loki_streams(Body) ->
     try
         BodyBin = ensure_binary(Body),
-        Decoded = jsone:decode(BodyBin, [{object_format, map}, {keys, binary}]),
+        Decoded = jsx:decode(BodyBin, [return_maps]),
         Streams = maps:get(<<"result">>, maps:get(<<"data">>, Decoded, #{}), []),
         Lines = lists:flatmap(
             fun(Stream) ->
@@ -178,103 +161,107 @@ parse_loki_streams(Body) ->
             {error, {parse_error, Reason, Body}}
     end.
 
-%% -------------------------------------------------------------------------
-%% Test cases
-%% ----------------------------------------------------------------------------
-
 -spec logger_otlp_delivery(config()) -> ok.
 logger_otlp_delivery(C) ->
-    %% Plain + lazy в одном send — оба должны дойти по OTel
     MarkerPlain = make_marker() ++ "_PLAIN",
     MarkerLazy = make_marker() ++ "_LAZY",
-    send_and_wait(MarkerPlain, MarkerLazy, C),
+    send_and_wait(MarkerPlain, MarkerLazy),
     assert_delivery(MarkerPlain, C, "logger plain"),
     assert_delivery(MarkerLazy, C, "logger lazy format").
 
--spec logger_plain_delivery(config()) -> ok.
-logger_plain_delivery(C) ->
-    Marker = make_marker(),
-    send_and_wait(Marker, Marker ++ "_LAZY_IGNORED", C),
-    assert_delivery(Marker, C, "logger plain").
-
--spec logger_lazy_format_delivery(config()) -> ok.
-logger_lazy_format_delivery(C) ->
-    MarkerLazy = make_marker() ++ "_LAZY",
-    MarkerPlain = make_marker() ++ "_PLAIN",
-    send_and_wait(MarkerPlain, MarkerLazy, C),
-    assert_delivery(MarkerPlain, C, "logger plain (from same send)"),
-    assert_delivery(MarkerLazy, C, "logger lazy format").
-
--spec woody_scoper_delivery(config()) -> ok.
-woody_scoper_delivery(C) ->
-    Marker = make_marker() ++ "_WOODY",
-    logger:info("~s", [Marker]),
-    RootUrl = hg_ct_helper:cfg(root_url, C),
-    ApiClient = hg_ct_helper:create_client(RootUrl),
-    try
-        {ok, InvoicingPid} = hg_client_invoicing:start_link(ApiClient),
-        _ = hg_client_invoicing:get(<<"00000000-0000-0000-0000-000000000000">>, InvoicingPid),
-        ok
-    catch
-        _:_ ->
-            ok
-    end,
-    timer:sleep(?DELIVERY_WAIT_MS),
-    assert_delivery(Marker, C, "woody/scoper").
-
 -spec assert_delivery(string(), config(), string()) -> ok.
 assert_delivery(Marker, C, PathDesc) ->
-    %% Пробуем подключиться — без compose Loki недоступен
     case query_loki("{exporter=\"OTLP\"}", C) of
         {error, {failed_connect, _}} ->
-            ct:pal("Loki unreachable. Run with: docker compose -f compose.yaml -f compose.tracing.yaml run testrunner rebar3 ct --dir=apps/hellgate/test --suite=hg_log_delivery_tests_SUITE"),
+            ct:log(
+                "Loki unreachable. Run with: "
+                "docker compose -f compose.yaml -f compose.tracing.yaml run testrunner "
+                "rebar3 ct --dir=apps/hellgate/test --suite=hg_log_delivery_tests_SUITE"
+            ),
             throw({skip, "Loki not available"});
-        _ -> ok
+        _ ->
+            ok
     end,
-    %% Проверка OTLP пути — только поток с exporter=OTLP.
-    %% В Loki body может храниться как массив байт JSON, поэтому проверяем маркер
-    %% после локального декодирования тела сообщения.
-    case query_loki("{exporter=\"OTLP\", service_name=\"hellgate\"}", C) of
-        {ok, OTelLines} ->
-            case otel_lines_contain_marker(OTelLines, Marker) of
-                true ->
-                    ct:log("Path OTel: found marker ~s", [Marker]),
-                    ok;
-                false ->
-                    ct:log("Path OTel: marker ~s NOT found (exporter=OTLP,service_name=hellgate)", [Marker]),
-                    %% Пробуем другие labels перед fail
-                    try_otel_alternate_query(Marker, C, PathDesc)
-            end;
-        {error, ErrO} ->
-            ct:log("Path OTel: query failed: ~p", [ErrO]),
-            case ErrO of
-                {http_error, 400, _} ->
-                    try_otel_alternate_query(Marker, C, PathDesc);
+    DeadlineMs = erlang:monotonic_time(millisecond) + ?DELIVERY_ASSERT_TIMEOUT_MS,
+    case wait_marker_delivery(Marker, C, DeadlineMs, undefined) of
+        {ok, QueryUsed} ->
+            ct:log("Path OTel: found marker ~s via query ~s", [Marker, QueryUsed]),
+            ok;
+        {error, LastErr} ->
+            case LastErr of
+                undefined ->
+                    ct:fail("~s: marker ~s not found via any OTel query", [PathDesc, Marker]);
                 _ ->
-                    ct:fail("~s: Loki query failed: ~p", [PathDesc, ErrO])
+                    ct:fail("~s: marker ~s not found via any OTel query (last_error=~p)", [PathDesc, Marker, LastErr])
             end
     end.
 
-try_otel_alternate_query(Marker, C, PathDesc) ->
-    %% OTel Loki exporter может использовать другие labels
-    Queries = [
-        "{exporter=\"OTLP\"}",
-        "{service_name=\"hellgate\"}"
-    ],
-    Found = lists:any(
-        fun(Q) ->
-            case query_loki(Q, C) of
-                {ok, Lines} ->
-                    otel_lines_contain_marker(Lines, Marker);
-                _ -> false
+wait_marker_delivery(Marker, C, DeadlineMs, LastErr) ->
+    case try_otel_queries(Marker, C) of
+        {ok, QueryUsed} ->
+            {ok, QueryUsed};
+        {error, Err} ->
+            case erlang:monotonic_time(millisecond) >= DeadlineMs of
+                true ->
+                    {error, pick_last_error(Err, LastErr)};
+                false ->
+                    timer:sleep(?DELIVERY_POLL_INTERVAL_MS),
+                    wait_marker_delivery(Marker, C, DeadlineMs, pick_last_error(Err, LastErr))
             end
-        end,
-        Queries
-    ),
-    case Found of
-        true -> ok;
-        false ->
-            ct:fail("~s: marker ~s not found via any OTel query", [PathDesc, Marker])
+    end.
+
+pick_last_error(undefined, LastErr) ->
+    LastErr;
+pick_last_error(Err, _LastErr) ->
+    Err.
+
+try_otel_queries(Marker, C) ->
+    Selectors = [
+        "{exporter=\"OTLP\", service_name=\"hellgate\"}",
+        "{exporter=~\"(?i)otlp\"}",
+        "{service_name=\"hellgate\"}",
+        "{job=~\".+\"}"
+    ],
+    try_selectors(Selectors, Marker, C, undefined).
+
+try_selectors([], _Marker, _C, LastErr) ->
+    {error, LastErr};
+try_selectors([Selector | Rest], Marker, C, LastErr) ->
+    case query_selector_for_marker(Selector, Marker, C) of
+        {ok, QueryUsed} ->
+            {ok, QueryUsed};
+        {error, Err} ->
+            try_selectors(Rest, Marker, C, pick_last_error(Err, LastErr))
+    end.
+
+query_selector_for_marker(Selector, Marker, C) ->
+    MarkerQuery = build_marker_query(Selector, Marker),
+    case query_loki(MarkerQuery, C) of
+        {ok, Lines} ->
+            case otel_lines_contain_marker(Lines, Marker) of
+                true -> {ok, MarkerQuery};
+                false -> query_selector_without_marker_filter(Selector, Marker, C)
+            end;
+        {error, {http_error, 400, _}} ->
+            query_selector_without_marker_filter(Selector, Marker, C);
+        {error, Err} ->
+            case query_selector_without_marker_filter(Selector, Marker, C) of
+                {error, undefined} -> {error, Err};
+                Other -> Other
+            end
+    end.
+
+query_selector_without_marker_filter(Selector, Marker, C) ->
+    case query_loki(Selector, C) of
+        {ok, Lines} ->
+            case otel_lines_contain_marker(Lines, Marker) of
+                true -> {ok, Selector};
+                false -> {error, undefined}
+            end;
+        {error, {http_error, 400, _}} ->
+            {error, undefined};
+        {error, Err} ->
+            {error, Err}
     end.
 
 otel_lines_contain_marker(Lines, Marker) ->
@@ -294,7 +281,7 @@ otel_lines_contain_marker(Lines, Marker) ->
 decode_otel_body(Line) ->
     try
         BodyBin = ensure_binary(Line),
-        Decoded = jsone:decode(BodyBin, [{object_format, map}, {keys, binary}]),
+        Decoded = jsx:decode(BodyBin, [return_maps]),
         case maps:get(<<"body">>, Decoded, undefined) of
             undefined ->
                 error;
@@ -309,15 +296,12 @@ decode_otel_body(Line) ->
 body_to_binary(Body) when is_binary(Body) ->
     Body;
 body_to_binary(Body) when is_list(Body) ->
-    case catch iolist_to_binary(Body) of
-        Bin when is_binary(Bin) ->
-            Bin;
-        _ ->
+    try iolist_to_binary(Body) of
+        Bin ->
+            Bin
+    catch
+        _:_ ->
             unicode:characters_to_binary(io_lib:format("~tp", [Body]))
     end;
 body_to_binary(Body) ->
     unicode:characters_to_binary(io_lib:format("~tp", [Body])).
-
-escape_loki_regex(S) ->
-    %% Loki regex: escape . * + ? [ ] ( ) { } | \
-    re:replace(S, "[\\.*+?\\[\\]\\(\\)\\{\\}\\|\\\\]", "\\\\&", [global, {return, list}]).

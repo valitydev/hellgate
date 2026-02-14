@@ -38,9 +38,7 @@ format_otp_report_utf8(Report) ->
     Bin =
         try logger:format_otp_report(Report) of
             {Format, Args} ->
-                unicode:characters_to_binary(io_lib:format(Format, Args));
-            Formatted ->
-                unicode:characters_to_binary(Formatted)
+                unicode:characters_to_binary(io_lib:format(Format, Args))
         catch
             _:_ ->
                 %% Не даём report_cb падать: fallback в печатное представление отчёта.
