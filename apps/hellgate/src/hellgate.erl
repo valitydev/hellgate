@@ -105,9 +105,14 @@ get_prometheus_route() ->
 
 -spec start(normal, any()) -> {ok, pid()} | {error, any()}.
 start(_StartType, _StartArgs) ->
-    ok = ensure_otel_log_handler(),
-    ok = setup_metrics(),
-    supervisor:start_link(?MODULE, []).
+    case ensure_otel_log_handler() of
+        ok ->
+            ok = setup_metrics(),
+            supervisor:start_link(?MODULE, []);
+        {error, Reason} ->
+            logger:error("Failed to add otel_logs handler: ~p", [Reason]),
+            {error, Reason}
+    end.
 
 -spec stop(any()) -> ok.
 stop(_State) ->
@@ -152,10 +157,16 @@ ensure_otel_log_handler() ->
                 {error, {already_exist, _}} ->
                     ok;
                 {error, Reason} ->
-                    error_logger:error_msg("Failed to add otel_logs handler: ~p", [Reason]),
-                    ok
+                    {error, {otel_log_handler_failed, Reason}}
             end
     end.
+
+%% @doc Ждём отправки буферизованных логов перед остановкой.
+%% otel_log_handler батчит логи и отправляет по таймеру (scheduled_delay_ms).
+%% Явного API для flush у otel_log_handler нет, поэтому ждём один полный цикл
+%% батчинга + запас на сетевую отправку (export overhead).
+-define(FLUSH_EXPORT_OVERHEAD_MS, 700).
+-define(FLUSH_MAX_WAIT_MS, 5000).
 
 flush_otel_logs() ->
     case logger:get_handler_config(otel_logs) of
@@ -167,7 +178,7 @@ flush_otel_logs() ->
                 maps:get(scheduled_delay_ms, HandlerCfg, 1000)
             ),
             _ = logger:info("otel_log_handler_flush"),
-            timer:sleep(erlang:min(5000, DelayMs + 700)),
+            timer:sleep(erlang:min(?FLUSH_MAX_WAIT_MS, DelayMs + ?FLUSH_EXPORT_OVERHEAD_MS)),
             ok;
         _ ->
             ok

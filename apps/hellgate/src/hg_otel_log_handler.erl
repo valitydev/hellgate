@@ -30,7 +30,19 @@ changing_config(SetOrUpdate, OldConfig, NewConfig) ->
 filter_config(Config) ->
     otel_log_handler:filter_config(Config).
 
+%% Переносим ключи из вложенного config в корневой map для otel_log_handler.
+%% Только ключи, которые ожидает otel_log_handler — чтобы случайно не перезаписать
+%% верхнеуровневые настройки logger (level, filters, filter_default и т.д.).
+-define(OTEL_LOG_HANDLER_KEYS, [
+    exporter,
+    report_cb,
+    max_queue_size,
+    scheduled_delay_ms,
+    exporting_timeout_ms
+]).
+
 merge_module_config(#{config := ModuleConfig} = Config) when is_map(ModuleConfig) ->
-    maps:merge(Config, ModuleConfig);
+    OtelConfig = maps:with(?OTEL_LOG_HANDLER_KEYS, ModuleConfig),
+    maps:merge(Config, OtelConfig);
 merge_module_config(Config) ->
     Config.

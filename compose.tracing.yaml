@@ -47,9 +47,6 @@ services:
       OTEL_SERVICE_NAME: party-management
 
   testrunner:
-    volumes:
-      - .:$PWD
-      - ../opentelemetry-erlang:/opt/opentelemetry-erlang:ro
     environment:
       <<: *otlp_enabled
       OTEL_SERVICE_NAME: hellgate

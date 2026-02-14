@@ -5,6 +5,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-export([suite/0]).
 -export([all/0]).
 -export([init_per_suite/1]).
 -export([end_per_suite/1]).
@@ -16,10 +17,15 @@
 -define(LOG_MARKER_PREFIX, "HG_LOG_DELIVERY_").
 -define(LOKI_HOST, "loki").
 -define(LOKI_PORT, 3100).
--define(DELIVERY_WAIT_MS, 12000).
--define(DELIVERY_ASSERT_TIMEOUT_MS, 90000).
--define(DELIVERY_POLL_INTERVAL_MS, 2000).
+-define(DELIVERY_WAIT_MS, 5000).
+-define(DELIVERY_ASSERT_TIMEOUT_MS, 30000).
+-define(DELIVERY_POLL_INTERVAL_MS, 1000).
 -define(LOKI_LOOKBACK_NS, 10 * 60 * 1_000_000_000).
+-define(LOKI_SELECTOR, "{exporter=\"OTLP\", service_name=\"hellgate\"}").
+
+-spec suite() -> list().
+suite() ->
+    [{timetrap, {minutes, 2}}].
 
 -spec all() -> [test_case_name()].
 all() ->
@@ -171,7 +177,7 @@ logger_otlp_delivery(C) ->
 
 -spec assert_delivery(string(), config(), string()) -> ok.
 assert_delivery(Marker, C, PathDesc) ->
-    case query_loki("{exporter=\"OTLP\"}", C) of
+    case query_loki(?LOKI_SELECTOR, C) of
         {error, {failed_connect, _}} ->
             ct:log(
                 "Loki unreachable. Run with: "
@@ -185,84 +191,40 @@ assert_delivery(Marker, C, PathDesc) ->
     DeadlineMs = erlang:monotonic_time(millisecond) + ?DELIVERY_ASSERT_TIMEOUT_MS,
     case wait_marker_delivery(Marker, C, DeadlineMs, undefined) of
         {ok, QueryUsed} ->
-            ct:log("Path OTel: found marker ~s via query ~s", [Marker, QueryUsed]),
+            ct:log("~s: found marker ~s via query ~s", [PathDesc, Marker, QueryUsed]),
             ok;
         {error, LastErr} ->
-            case LastErr of
-                undefined ->
-                    ct:fail("~s: marker ~s not found via any OTel query", [PathDesc, Marker]);
-                _ ->
-                    ct:fail("~s: marker ~s not found via any OTel query (last_error=~p)", [PathDesc, Marker, LastErr])
-            end
+            ct:fail("~s: marker ~s not found in Loki (last_error=~p)", [PathDesc, Marker, LastErr])
     end.
 
 wait_marker_delivery(Marker, C, DeadlineMs, LastErr) ->
-    case try_otel_queries(Marker, C) of
-        {ok, QueryUsed} ->
-            {ok, QueryUsed};
-        {error, Err} ->
-            case erlang:monotonic_time(millisecond) >= DeadlineMs of
-                true ->
-                    {error, pick_last_error(Err, LastErr)};
-                false ->
-                    timer:sleep(?DELIVERY_POLL_INTERVAL_MS),
-                    wait_marker_delivery(Marker, C, DeadlineMs, pick_last_error(Err, LastErr))
-            end
-    end.
-
-pick_last_error(undefined, LastErr) ->
-    LastErr;
-pick_last_error(Err, _LastErr) ->
-    Err.
-
-try_otel_queries(Marker, C) ->
-    Selectors = [
-        "{exporter=\"OTLP\", service_name=\"hellgate\"}",
-        "{exporter=~\"(?i)otlp\"}",
-        "{service_name=\"hellgate\"}",
-        "{job=~\".+\"}"
-    ],
-    try_selectors(Selectors, Marker, C, undefined).
-
-try_selectors([], _Marker, _C, LastErr) ->
-    {error, LastErr};
-try_selectors([Selector | Rest], Marker, C, LastErr) ->
-    case query_selector_for_marker(Selector, Marker, C) of
-        {ok, QueryUsed} ->
-            {ok, QueryUsed};
-        {error, Err} ->
-            try_selectors(Rest, Marker, C, pick_last_error(Err, LastErr))
-    end.
-
-query_selector_for_marker(Selector, Marker, C) ->
-    MarkerQuery = build_marker_query(Selector, Marker),
+    MarkerQuery = build_marker_query(?LOKI_SELECTOR, Marker),
     case query_loki(MarkerQuery, C) of
         {ok, Lines} ->
             case otel_lines_contain_marker(Lines, Marker) of
-                true -> {ok, MarkerQuery};
-                false -> query_selector_without_marker_filter(Selector, Marker, C)
+                true ->
+                    {ok, MarkerQuery};
+                false ->
+                    %% Маркер не найден по |= фильтру, пробуем без фильтра (полный scan)
+                    case query_loki(?LOKI_SELECTOR, C) of
+                        {ok, AllLines} ->
+                            case otel_lines_contain_marker(AllLines, Marker) of
+                                true -> {ok, ?LOKI_SELECTOR};
+                                false -> retry_or_fail(Marker, C, DeadlineMs, LastErr)
+                            end;
+                        {error, Err} ->
+                            retry_or_fail(Marker, C, DeadlineMs, Err)
+                    end
             end;
-        {error, {http_error, 400, _}} ->
-            query_selector_without_marker_filter(Selector, Marker, C);
         {error, Err} ->
-            case query_selector_without_marker_filter(Selector, Marker, C) of
-                {error, undefined} -> {error, Err};
-                Other -> Other
-            end
+            retry_or_fail(Marker, C, DeadlineMs, Err)
     end.
 
-query_selector_without_marker_filter(Selector, Marker, C) ->
-    case query_loki(Selector, C) of
-        {ok, Lines} ->
-            case otel_lines_contain_marker(Lines, Marker) of
-                true -> {ok, Selector};
-                false -> {error, undefined}
-            end;
-        {error, {http_error, 400, _}} ->
-            {error, undefined};
-        {error, Err} ->
-            {error, Err}
-    end.
+retry_or_fail(_Marker, _C, DeadlineMs, LastErr) when erlang:monotonic_time(millisecond) >= DeadlineMs ->
+    {error, LastErr};
+retry_or_fail(Marker, C, DeadlineMs, LastErr) ->
+    timer:sleep(?DELIVERY_POLL_INTERVAL_MS),
+    wait_marker_delivery(Marker, C, DeadlineMs, LastErr).
 
 otel_lines_contain_marker(Lines, Marker) ->
     MarkerBin = ensure_binary(Marker),
