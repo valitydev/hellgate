@@ -105,11 +105,13 @@ get_prometheus_route() ->
 
 -spec start(normal, any()) -> {ok, pid()} | {error, any()}.
 start(_StartType, _StartArgs) ->
+    ok = ensure_otel_log_handler(),
     ok = setup_metrics(),
     supervisor:start_link(?MODULE, []).
 
 -spec stop(any()) -> ok.
 stop(_State) ->
+    ok = flush_otel_logs(),
     ok.
 
 %%
@@ -117,3 +119,51 @@ stop(_State) ->
 setup_metrics() ->
     ok = woody_ranch_prometheus_collector:setup(),
     ok = woody_hackney_prometheus_collector:setup().
+
+ensure_otel_log_handler() ->
+    case logger:get_handler_config(otel_logs) of
+        {ok, _} ->
+            ok;
+        _ ->
+            MaxQueue = application:get_env(hellgate, otel_log_max_queue_size, 2048),
+            DelayMs = application:get_env(hellgate, otel_log_scheduled_delay_ms, 1000),
+            TimeoutMs = application:get_env(hellgate, otel_log_exporting_timeout_ms, 300000),
+            HandlerConfig = #{
+                level => info,
+                report_cb => fun hg_otel_log_filter:format_otp_report_utf8/1,
+                exporter =>
+                    {otel_exporter_logs_otlp, #{
+                        protocol => http_protobuf,
+                        ssl_options => []
+                    }},
+                max_queue_size => MaxQueue,
+                scheduled_delay_ms => DelayMs,
+                exporting_timeout_ms => TimeoutMs,
+                filters => [{hg_otel_trace_id_bytes, {fun hg_otel_log_filter:filter/2, undefined}}]
+            },
+            case logger:add_handler(otel_logs, otel_log_handler, HandlerConfig) of
+                ok ->
+                    ok;
+                {error, {already_exist, _}} ->
+                    ok;
+                {error, Reason} ->
+                    error_logger:error_msg("Failed to add otel_logs handler: ~p", [Reason]),
+                    ok
+            end
+    end.
+
+flush_otel_logs() ->
+    case logger:get_handler_config(otel_logs) of
+        {ok, HandlerCfg} ->
+            Config = maps:get(config, HandlerCfg, #{}),
+            DelayMs = maps:get(
+                scheduled_delay_ms,
+                Config,
+                maps:get(scheduled_delay_ms, HandlerCfg, 1000)
+            ),
+            _ = logger:info("otel_log_handler_flush"),
+            timer:sleep(erlang:min(5000, DelayMs + 700)),
+            ok;
+        _ ->
+            ok
+    end.

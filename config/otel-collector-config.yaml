@@ -1,0 +1,51 @@
+# OpenTelemetry Collector: receives OTLP, exports traces to Tempo, logs to Loki
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+exporters:
+  # Traces -> Tempo
+  otlp/tempo:
+    endpoint: "tempo:4317"
+    tls:
+      insecure: true
+
+  # Logs -> Loki
+  loki:
+    endpoint: "http://loki:3100/loki/api/v1/push"
+    default_labels_enabled:
+      exporter: true
+      job: true
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 30s
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 2s
+  resource/add_loki_labels:
+    attributes:
+      - key: loki.resource.labels
+        value: service.name
+        action: insert
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo]
+    logs:
+      receivers: [otlp]
+      processors: [batch, resource/add_loki_labels]
+      exporters: [loki]
