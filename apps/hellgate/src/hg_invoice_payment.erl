@@ -2522,6 +2522,7 @@ reject_routes(GroupReason, RejectedRoutes, Ctx) ->
 get_limit_overflow_routes(Routes, VS, Iter, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
+    Session = get_activity_session(St),
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
     lists:foldl(
@@ -2529,7 +2530,6 @@ get_limit_overflow_routes(Routes, VS, Iter, St) ->
             PaymentRoute = hg_route:to_payment_route(Route),
             ProviderTerms = hg_routing:get_payment_terms(PaymentRoute, VS, Revision),
             TurnoverLimits = get_turnover_limits(ProviderTerms, strict),
-            Session = get_activity_session(St),
             case hg_limiter:check_limits(TurnoverLimits, Invoice, Payment, Session, PaymentRoute, Iter) of
                 {ok, Limits} ->
                     {[Route | RoutesNoOverflowIn], RejectedIn, LimitsIn#{PaymentRoute => Limits}};
@@ -2597,9 +2597,9 @@ get_shop_turnover_limits(ShopConfig) ->
 hold_limit_routes(Routes0, VS, Iter, St) ->
     Opts = get_opts(St),
     Revision = get_payment_revision(St),
+    Session = get_activity_session(St),
     Payment = get_payment(St),
     Invoice = get_invoice(Opts),
-    Session = get_activity_session(St),
     {Routes1, Rejected} = lists:foldl(
         fun(Route, {LimitHeldRoutes, RejectedRoutes} = Acc) ->
             PaymentRoute = hg_route:to_payment_route(Route),
