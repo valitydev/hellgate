@@ -201,7 +201,13 @@ make_refund_operation_segments(Invoice, Payment, Refund) ->
     ].
 
 -spec commit_payment_limits(
-    [turnover_limit()], invoice(), payment(), session() | undefined, route(), pos_integer(), cash() | undefined
+    [turnover_limit()],
+    invoice(),
+    payment(),
+    session() | undefined,
+    route(),
+    pos_integer(),
+    cash() | undefined
 ) -> ok.
 commit_payment_limits(TurnoverLimits, Invoice, Payment, Session, Route, Iter, CapturedCash) ->
     Context = gen_limit_context(Invoice, Payment, Session, Route, CapturedCash),
@@ -249,9 +255,13 @@ batch_commit_limits(Context, TurnoverLimits, OperationIdSegments) ->
 %%      - `ignore_not_found` -- does not raise error if limiter won't be able to
 %%      find according posting plan in accountant service
 -spec rollback_payment_limits(
-    [turnover_limit()], invoice(), payment(), session() | undefined, route(), pos_integer(), [
-        handling_flag()
-    ]
+    [turnover_limit()],
+    invoice(),
+    payment(),
+    session() | undefined,
+    route(),
+    pos_integer(),
+    [handling_flag()]
 ) ->
     ok.
 rollback_payment_limits(TurnoverLimits, Invoice, Payment, Session, Route, Iter, Flags) ->
