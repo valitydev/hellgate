@@ -567,6 +567,7 @@ do_register_payment(PaymentID, PaymentParams, St) ->
 do_start_payment(PaymentID, PaymentParams, St) ->
     _ = assert_invoice({status, unpaid}, St),
     _ = assert_no_pending_payment(St),
+    %% TODO Assert paytool failure limit is below the threshold if applicable
     Opts = #{timestamp := OccurredAt} = get_payment_opts(St),
     % TODO make timer reset explicit here
     {PaymentSession, {Changes, Action}} = hg_invoice_payment:init(PaymentID, PaymentParams, Opts),
