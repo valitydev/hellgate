@@ -72,7 +72,7 @@
  {<<"kafka_protocol">>,{pkg,<<"kafka_protocol">>,<<"4.1.10">>},2},
  {<<"limiter_proto">>,
   {git,"https://github.com/valitydev/limiter-proto.git",
-       {ref,"9830ab6153ef1a9169450eda5216b793fe8e75db"}},
+       {ref,"d90c1d123a8a67ec61762cf07a8344247e32ba05"}},
   0},
  {<<"metrics">>,{pkg,<<"metrics">>,<<"1.0.1">>},2},
  {<<"mg_proto">>,
