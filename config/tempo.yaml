@@ -1,5 +1,8 @@
 server:
   http_listen_port: 3200
+  # Лимиты gRPC (по умолчанию 4MB), чтобы большие трейсы/ответы не давали ResourceExhausted
+  grpc_server_max_recv_msg_size: 104857600   # 100 MiB
+  grpc_server_max_send_msg_size: 104857600   # 100 MiB
 
 distributor:
   receivers:
@@ -7,6 +10,7 @@ distributor:
       protocols:
         grpc:
           endpoint: 0.0.0.0:4317
+          max_recv_msg_size_mib: 100
         http:
           endpoint: 0.0.0.0:4318
 

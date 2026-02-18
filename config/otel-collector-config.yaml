@@ -4,6 +4,7 @@ receivers:
     protocols:
       grpc:
         endpoint: "0.0.0.0:4317"
+        max_recv_msg_size_mib: 100   # по умолчанию 4 MiB — большие батчи дают ResourceExhausted
       http:
         endpoint: "0.0.0.0:4318"
 

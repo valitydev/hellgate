@@ -2,6 +2,9 @@ auth_enabled: false
 
 server:
   http_listen_port: 3100
+  # Увеличиваем лимит gRPC (по умолчанию 4MB), чтобы большие ответы querier->frontend не падали с ResourceExhausted
+  grpc_server_max_recv_msg_size: 104857600   # 100 MiB
+  grpc_server_max_send_msg_size: 104857600   # 100 MiB
 
 common:
   path_prefix: /tmp/loki
