@@ -38,5 +38,5 @@ jobs:
       thrift-version: ${{ needs.setup.outputs.thrift-version }}
       run-ct-with-compose: true
       use-coveralls: true
-      cache-version: v9
+      cache-version: v10
       upload-coverage: false
