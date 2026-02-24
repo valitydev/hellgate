@@ -1,4 +1,6 @@
 # OpenTelemetry Collector: receives OTLP, exports traces to Tempo, logs to Loki
+# Логи в Loki — через нативный OTLP (/otlp), чтобы атрибуты логов попадали в Fields (structured metadata).
+# Устаревший loki exporter (/loki/api/v1/push) атрибуты в Loki не передаёт.
 receivers:
   otlp:
     protocols:
@@ -15,12 +17,11 @@ exporters:
     tls:
       insecure: true
 
-  # Logs -> Loki
-  loki:
-    endpoint: "http://loki:3100/loki/api/v1/push"
-    default_labels_enabled:
-      exporter: true
-      job: true
+  # Logs -> Loki (нативный OTLP: атрибуты лога → Structured Metadata → Fields в Grafana)
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
     retry_on_failure:
       enabled: true
       max_elapsed_time: 30s
@@ -29,11 +30,6 @@ processors:
   batch:
     send_batch_size: 512
     timeout: 2s
-  resource/add_loki_labels:
-    attributes:
-      - key: loki.resource.labels
-        value: service.name
-        action: insert
 
 extensions:
   health_check:
@@ -48,5 +44,5 @@ service:
       exporters: [otlp/tempo]
     logs:
       receivers: [otlp]
-      processors: [batch, resource/add_loki_labels]
-      exporters: [loki]
+      processors: [batch]
+      exporters: [otlphttp/loki]
