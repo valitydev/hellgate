@@ -140,21 +140,18 @@ process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
     try
         handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID)
     after
-        case SpanCtx of
-            undefined -> ok;
-            _ -> _ = otel_span:end_span(SpanCtx, undefined)
-        end,
+        otel_span:end_span(SpanCtx, undefined),
         hg_context:cleanup()
     end.
 
 mk_span_name('ProcessSignal', NS) ->
-    iolist_to_binary(["hellgate signal ", ns_to_binary(NS)]);
+    iolist_to_binary(["signal ", ns_to_binary(NS)]);
 mk_span_name('ProcessCall', NS) ->
-    iolist_to_binary(["hellgate call ", ns_to_binary(NS)]);
+    iolist_to_binary(["call ", ns_to_binary(NS)]);
 mk_span_name('ProcessRepair', NS) ->
-    iolist_to_binary(["hellgate repair ", ns_to_binary(NS)]);
+    iolist_to_binary(["repair ", ns_to_binary(NS)]);
 mk_span_name(Func, NS) ->
-    iolist_to_binary(["hellgate ", atom_to_binary(Func), " ", ns_to_binary(NS)]).
+    iolist_to_binary([atom_to_binary(Func), " ", ns_to_binary(NS)]).
 
 ns_to_binary(NS) when is_atom(NS) -> atom_to_binary(NS);
 ns_to_binary(NS) when is_binary(NS) -> NS.
