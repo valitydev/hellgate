@@ -140,7 +140,7 @@ process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
     try
         handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID)
     after
-        otel_span:end_span(SpanCtx, undefined),
+        _ = otel_span:end_span(SpanCtx, undefined),
         hg_context:cleanup()
     end.
 
