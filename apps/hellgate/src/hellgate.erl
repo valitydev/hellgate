@@ -64,6 +64,7 @@ get_api_child_spec(MachineHandlers, Opts) ->
             construct_health_routes(readiness, genlib_app:env(?MODULE, health_check_readiness, #{})),
     EventHandlerOpts = genlib_app:env(?MODULE, scoper_event_handler_options, #{}),
     PrometeusRoute = get_prometheus_route(),
+    ProcessTracingRoute = hg_progressor_handler:get_routes(),
     woody_server:child_spec(
         ?MODULE,
         #{
@@ -78,7 +79,7 @@ get_api_child_spec(MachineHandlers, Opts) ->
                     construct_service_handler(invoice_templating, hg_invoice_template, Opts),
                     construct_service_handler(proxy_host_provider, hg_proxy_host_provider, Opts)
                 ],
-            additional_routes => [PrometeusRoute | HealthRoutes],
+            additional_routes => [PrometeusRoute | HealthRoutes] ++ ProcessTracingRoute,
             shutdown_timeout => genlib_app:env(?MODULE, shutdown_timeout, 0)
         }
     ).

@@ -242,11 +242,43 @@ payment_success(C) ->
         },
         Payment
     ),
-    Res = hg_progressor_handler:handle_function('ProcessTrace', {invoice, InvoiceID}, #{format => jaeger}),
-    Json = unicode:characters_to_binary(json:encode(Res)),
-    io:format(user, "RES: ~p~n", [Res]),
-    R = file:write_file("qqq", Json),
-    io:format(user, "FILE RES: ~p~n", [[R, os:cmd("pwd")]]),
+
+    RootUrl = unicode:characters_to_binary(cfg(root_url, C)),
+    FullUrl = <<RootUrl/binary, "/traces/internal/invoice/", InvoiceID/binary>>,
+    {ok, _Status, _Headers, Ref} = hackney:get(FullUrl),
+    {ok, Body} = hackney:body(Ref),
+    [
+        #{
+            <<"args">> := _,
+            <<"error">> := null,
+            <<"events">> := _,
+            <<"finished">> := _,
+            <<"otel_trace_id">> := _,
+            <<"retry_attempts">> := 0,
+            <<"retry_interval">> := 0,
+            <<"running">> := _,
+            <<"scheduled">> := _,
+            <<"task_id">> := _,
+            <<"task_metadata">> := #{<<"range">> := #{}},
+            <<"task_status">> := <<"finished">>,
+            <<"task_type">> := <<"init">>
+        },
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _
+    ] = json:decode(Body),
+
     ?assertMatch(
         #domain_TransactionInfo{
             extra = #{

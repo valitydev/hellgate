@@ -1,20 +1,45 @@
 -module(hg_progressor_handler).
 
--export([handle_function/3]).
+-export([init/2, terminate/3]).
+-export([get_routes/0]).
 
--spec handle_function(_, _, _) -> _.
-handle_function('ProcessTrace', {NS, ProcessID}, Opts) ->
+-spec get_routes() -> _.
+get_routes() ->
+    [
+        {"/traces/[:format]/invoice/[:process_id]", ?MODULE, #{namespace => invoice}},
+        {"/traces/[:format]/invoice_template/[:process_id]", ?MODULE, #{namespace => invoice_template}}
+    ].
+
+-spec init(cowboy_req:req(), cowboy_http:opts()) ->
+    {ok, cowboy_req:req(), undefined}.
+init(Request, Opts) ->
+    Method = cowboy_req:method(Request),
+    NS = maps:get(namespace, Opts),
+    Format = cowboy_req:binding(format, Request),
+    ProcessID = cowboy_req:binding(process_id, Request),
+    handle(Method, NS, ProcessID, Format, Request).
+
+-spec terminate(term(), cowboy_req:req(), undefined) ->
+    ok.
+terminate(_Reason, _Req, _State) ->
+    ok.
+
+-spec handle(_, _, _, _, _) -> _.
+handle(<<"GET">>, NS, ProcessID, Format, Request) ->
     case progressor:trace(#{ns => NS, id => ProcessID}) of
         {ok, RawTrace} ->
-            Format = maps:get(format, Opts, internal),
-            unmarshal_trace(NS, ProcessID, RawTrace, Format);
-        {error, _} = Error ->
-            Error
-    end.
+            Trace = unmarshal_trace(NS, ProcessID, RawTrace, Format),
+            Body = unicode:characters_to_binary(json:encode(Trace)),
+            cowboy_req:reply(200, #{}, Body, Request);
+        {error, _} = _Error ->
+            cowboy_req:reply(404, #{}, <<"Unknown process">>, Request)
+    end;
+handle(_, _NS, _ProcessID, _Format, Request) ->
+    cowboy_req:reply(405, #{}, <<"Method Not Allowed">>, Request).
 
-unmarshal_trace(NS, ProcessID, RawTrace, internal = Format) ->
+unmarshal_trace(NS, ProcessID, RawTrace, <<"internal">> = Format) ->
     lists:map(fun(RawTraceUnit) -> unmarshal_trace_unit(NS, ProcessID, RawTraceUnit, Format) end, RawTrace);
-unmarshal_trace(NS, ProcessID, RawTrace, jaeger = Format) ->
+unmarshal_trace(NS, ProcessID, RawTrace, <<"jaeger">> = Format) ->
     Spans = lists:map(fun(RawTraceUnit) -> unmarshal_trace_unit(NS, ProcessID, RawTraceUnit, Format) end, RawTrace),
     #{
         data => [
@@ -31,7 +56,7 @@ unmarshal_trace(NS, ProcessID, RawTrace, jaeger = Format) ->
         ]
     }.
 
-unmarshal_trace_unit(NS, _ProcessID, #{task_type := TaskType} = TraceUnit, internal = Format) ->
+unmarshal_trace_unit(NS, _ProcessID, #{task_type := TaskType} = TraceUnit, <<"internal">> = Format) ->
     BinArgs = maps:get(args, TraceUnit, <<>>),
     BinEvents = maps:get(events, TraceUnit, []),
     OtelTraceID = extract_trace_id(TraceUnit),
@@ -42,7 +67,7 @@ unmarshal_trace_unit(NS, _ProcessID, #{task_type := TaskType} = TraceUnit, inter
         otel_trace_id => OtelTraceID,
         error => Error
     };
-unmarshal_trace_unit(NS, ProcessID, #{task_type := TaskType, task_id := TaskID} = TraceUnit, jaeger = Format) ->
+unmarshal_trace_unit(NS, ProcessID, #{task_type := TaskType, task_id := TaskID} = TraceUnit, <<"jaeger">> = Format) ->
     BinArgs = maps:get(args, TraceUnit, <<>>),
     BinEvents = maps:get(events, TraceUnit, []),
     #{
@@ -140,9 +165,9 @@ unmarshal_events(BinEvents, Format) ->
         BinEvents
     ).
 
-unmarshal_event(Event, Payload, internal) ->
+unmarshal_event(Event, Payload, <<"internal">>) ->
     Event#{event_payload => Payload};
-unmarshal_event(#{event_id := EventID, event_timestamp := Ts}, Payload, jaeger) ->
+unmarshal_event(#{event_id := EventID, event_timestamp := Ts}, Payload, <<"jaeger">>) ->
     #{
         timestamp => Ts,
         fields => [
