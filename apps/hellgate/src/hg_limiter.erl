@@ -316,23 +316,15 @@ gen_limit_context(Invoice, Payment, Session, Route, CapturedCash) ->
             invoice = #context_payproc_Invoice{
                 invoice = Invoice,
                 payment = PaymentCtx,
-                session = gen_limit_session_context(Session)
+                session = gen_limit_session_context(Session, Route)
             }
         }
     }.
 
-gen_limit_session_context(undefined) ->
-    undefined;
-gen_limit_session_context(Session) ->
-    #{target := SessionTargetStatus, trx := SessionTransactionInfo, route := Route} = Session,
-    #context_payproc_InvoicePaymentSession{
-        session = #payproc_InvoicePaymentSession{
-            target_status = SessionTargetStatus,
-            transaction_info = SessionTransactionInfo
-        },
-        result = maps:get(result, Session, undefined),
-        route = convert_to_limit_route(Route)
-    }.
+gen_limit_session_context(#{status := finished, route := Route}, Route) ->
+    #context_payproc_InvoicePaymentSession{};
+gen_limit_session_context(_, _) ->
+    undefined.
 
 gen_limit_shop_context(Invoice, Payment) ->
     #limiter_LimitContext{

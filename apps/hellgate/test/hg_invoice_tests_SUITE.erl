@@ -235,6 +235,7 @@ init([]) ->
 -define(LIMIT_ID3, <<"ID3">>).
 -define(LIMIT_ID4, <<"ID4">>).
 -define(SHOPLIMIT_ID, <<"SHOPLIMITID">>).
+-define(LIMIT_TERMINAL_FAILURES, <<"TERMINAL_FAILURES">>).
 -define(LIMIT_UPPER_BOUNDARY, 100000).
 -define(BIG_LIMIT_UPPER_BOUNDARY, 1000000).
 -define(DEFAULT_NEXT_CHANGE_TIMEOUT, 12000).
@@ -724,7 +725,7 @@ init_per_testcase(repair_fail_routing_succeeded = Name, C) ->
     meck:expect(
         hg_limiter,
         check_limits,
-        fun override_check_limits/5
+        fun override_check_limits/6
     ),
     init_per_testcase_(Name, C);
 init_per_testcase(repair_fail_cash_flow_building_succeeded = Name, C) ->
@@ -745,8 +746,8 @@ init_per_testcase(Name, C) ->
         end,
     init_per_testcase_(Name, C1).
 
-override_check_limits(_, _, _, _, _) -> throw(unknown).
--dialyzer({nowarn_function, override_check_limits/5}).
+override_check_limits(_, _, _, _, _, _) -> throw(unknown).
+-dialyzer({nowarn_function, override_check_limits/6}).
 
 override_collect_cashflow(_) -> throw(unknown).
 -dialyzer({nowarn_function, override_collect_cashflow/1}).
@@ -1353,7 +1354,7 @@ payment_limit_overflow(C) ->
 
     Failure = create_payment_limit_overflow(PartyConfigRef, ShopConfigRef, 1000, Client, PmtSys),
     ok = hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
+        ?LIMIT_ID, configured_limit_version(C), PaymentAmount, Payment, Invoice
     ),
     ok = payproc_errors:match(
         'PaymentFailure',
@@ -1423,7 +1424,7 @@ switch_provider_after_limit_overflow(C) ->
     ) = create_payment(PartyConfigRef, ShopConfigRef, PaymentAmount, Client, PmtSys),
 
     ok = hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID, configured_limit_version(?LIMIT_ID, C), PaymentAmount, Payment, Invoice
+        ?LIMIT_ID, configured_limit_version(C), PaymentAmount, Payment, Invoice
     ),
 
     #domain_InvoicePayment{id = PaymentID} = Payment,
@@ -6389,12 +6390,9 @@ payment_cascade_success(C) ->
     },
     #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    Limit = hg_limiter_helper:maybe_uninitialized_limit(
-        hg_limiter_helper:get_payment_limit_amount(
-            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
-        )
+    InitialAccountedAmount = hg_limiter_helper:get_amount(
+        ?LIMIT_ID4, configured_limit_version(C), Payment, Invoice, undefined
     ),
-    InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -6448,7 +6446,7 @@ payment_cascade_success(C) ->
     ),
     %% At the end of this scenario limit must be accounted only once.
     _ = hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
+        ?LIMIT_ID4, configured_limit_version(C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
     ),
     #payproc_InvoicePaymentExplanation{
         explained_routes = [
@@ -6562,6 +6560,11 @@ payment_big_cascade_success_fixture(Revision, _C) ->
                     {value, [
                         #domain_TurnoverLimit{
                             ref = ?lim(?LIMIT_ID4),
+                            upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
+                            domain_revision = Revision
+                        },
+                        #domain_TurnoverLimit{
+                            ref = ?lim(?LIMIT_TERMINAL_FAILURES),
                             upper_boundary = ?BIG_LIMIT_UPPER_BOUNDARY,
                             domain_revision = Revision
                         }
@@ -6777,12 +6780,9 @@ payment_cascade_limit_overflow(C) ->
     },
     #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    Limit = hg_limiter_helper:maybe_uninitialized_limit(
-        hg_limiter_helper:get_payment_limit_amount(
-            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
-        )
+    InitialAccountedAmount = hg_limiter_helper:get_amount(
+        ?LIMIT_ID4, configured_limit_version(C), Payment, Invoice, undefined
     ),
-    InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -6810,7 +6810,7 @@ payment_cascade_limit_overflow(C) ->
     ?invoice_status_changed(?invoice_cancelled(<<"overdue">>)) = next_change(InvoiceID, Client),
     %% At the end of this scenario limit must not be changed.
     hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount, FinalPayment, Invoice
+        ?LIMIT_ID4, configured_limit_version(C), InitialAccountedAmount, FinalPayment, Invoice
     ).
 
 -spec payment_big_cascade_success(config()) -> test_return().
@@ -6839,12 +6839,9 @@ payment_big_cascade_success(C) ->
     },
     #payproc_InvoicePayment{payment = Payment} = hg_client_invoicing:start_payment(InvoiceID, PaymentParams, Client),
     ?invoice_created(?invoice_w_status(?invoice_unpaid())) = next_change(InvoiceID, Client),
-    Limit = hg_limiter_helper:maybe_uninitialized_limit(
-        hg_limiter_helper:get_payment_limit_amount(
-            ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), Payment, Invoice
-        )
+    InitialAccountedAmount = hg_limiter_helper:get_amount(
+        ?LIMIT_ID4, configured_limit_version(C), Payment, Invoice, undefined
     ),
-    InitialAccountedAmount = hg_limiter_helper:get_amount(Limit),
     [
         ?payment_ev(PaymentID, ?payment_started(?payment_w_status(?pending()))),
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
@@ -6853,12 +6850,19 @@ payment_big_cascade_success(C) ->
     ] = next_changes(InvoiceID, 4, Client),
     [
         (fun() ->
-            {_Route, _CashFlow, _TrxID, Failure} =
+            {Route, _CashFlow, _TrxID, Failure} =
                 await_cascade_triggering(InvoiceID, PaymentID, Client),
             ok = payproc_errors:match(
                 'PaymentFailure',
                 Failure,
                 fun({preauthorization_failed, {card_blocked, _}}) -> ok end
+            ),
+            ?assertNotEqual(
+                0,
+                hg_limiter_helper:get_amount(
+                    ?LIMIT_TERMINAL_FAILURES, configured_limit_version(C), Payment, Invoice, Route
+                ),
+                "Session failure must be accounted for attempted route on rollback"
             ),
             %% Assert payment status IS NOT failed
             ?invoice_state(?invoice_w_status(_), [?payment_state(PaymentInterim)]) =
@@ -6901,7 +6905,18 @@ payment_big_cascade_success(C) ->
     ),
     %% At the end of this scenario limit must be accounted only once.
     hg_limiter_helper:assert_payment_limit_amount(
-        ?LIMIT_ID4, configured_limit_version(?LIMIT_ID4, C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
+        ?LIMIT_ID4, configured_limit_version(C), InitialAccountedAmount + Amount, PaymentFinal, Invoice
+    ),
+    ?assertEqual(
+        0,
+        hg_limiter_helper:get_amount(
+            ?LIMIT_TERMINAL_FAILURES,
+            configured_limit_version(C),
+            PaymentFinal,
+            Invoice,
+            RouteFinal
+        ),
+        "Successful payment session must not count against failures counter"
     ).
 
 payment_cascade_fail_provider_error_fixture_pre(Revision, _C) ->
@@ -10649,5 +10664,5 @@ mock_fault_detector(SupPid) ->
         SupPid
     ).
 
-configured_limit_version(_LimitID, C) ->
+configured_limit_version(C) ->
     genlib:define(cfg(original_domain_revision, C), cfg(base_limits_domain_revision, C)).

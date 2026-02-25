@@ -3640,6 +3640,8 @@ get_payment_state(InvoiceID, PaymentID) ->
     end.
 
 -spec get_session(target(), st()) -> session() | undefined.
+get_session(_Target, #st{routes = []}) ->
+    undefined;
 get_session(Target, #st{sessions = Sessions, routes = [Route | _PreviousRoutes]}) ->
     TargetSessions = maps:get(get_target_type(Target), Sessions, []),
     MatchingRoute = fun(#{route := SR}) -> SR =:= Route end,
@@ -3685,7 +3687,9 @@ get_activity_session({payment, _Step}, St) ->
     get_session(get_target(St), St);
 get_activity_session({refund, ID}, St) ->
     Refund = try_get_refund_state(ID, St),
-    hg_invoice_payment_refund:session(Refund).
+    hg_invoice_payment_refund:session(Refund);
+get_activity_session(_, _St) ->
+    undefined.
 
 %%
 

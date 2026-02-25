@@ -27,7 +27,7 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-3ad3a22
+    image: ghcr.io/valitydev/dominant-v2:sha-815385c
     command: /opt/dmt/bin/dmt foreground
     volumes:
       - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
@@ -55,7 +55,7 @@ services:
       retries: 10
 
   limiter:
-    image: ghcr.io/valitydev/limiter:sha-2a3f78d
+    image: ghcr.io/valitydev/limiter:sha-67cf0b7
     command: /opt/limiter/bin/limiter foreground
     depends_on:
       liminator:
