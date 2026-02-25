@@ -1,0 +1,711 @@
+{
+    "data": [
+        {
+            "traceID": "32454678576843414f7277",
+            "spans": [
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "1",
+                    "operationName": "init",
+                    "startTime": 1771911647810000,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "{\"content\":{\"call\":{\"function\":\"Create\",\"service\":\"Invoicing\"},\"params\":{\"id\":\"2EFxWhCAOrw\",\"status\":{\"unpaid\":[]},\"context\":{\"data\":\"some_merchant_specific_data\",\"type\":\"application/octet-stream\"},\"details\":{\"product\":\"rubberduck\"},\"domain_revision\":5,\"party_ref\":{\"id\":\"2EFxWg5BsGG\"},\"shop_ref\":{\"id\":\"2EFxWg5BsGH\"},\"created_at\":\"2026-02-20T15:20:51.040302Z\",\"due\":\"2026-02-20T15:21:00Z\",\"cost\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000}}},\"content_type\":\"thrift_call\"}",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810000,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 1,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_created\":{\"invoice\":{\"id\":\"2EFxWhCAOrw\",\"status\":{\"unpaid\":[]},\"context\":{\"data\":\"some_merchant_specific_data\",\"type\":\"application/octet-stream\"},\"details\":{\"product\":\"rubberduck\"},\"domain_revision\":5,\"party_ref\":{\"id\":\"2EFxWg5BsGG\"},\"shop_ref\":{\"id\":\"2EFxWg5BsGH\"},\"created_at\":\"2026-02-20T15:20:51.040302Z\",\"due\":\"2026-02-20T15:21:00Z\",\"cost\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000}}}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "3",
+                    "operationName": "call",
+                    "startTime": 1771911647810200,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "{\"content\":{\"call\":{\"function\":\"StartPayment\",\"service\":\"Invoicing\"},\"params\":{\"id\":\"2EFxWhCAOrw\",\"params\":{\"context\":{\"data\":{\"content\":\"g2gEdwN5b3ViAAACg2sAA25vdGwAAAACbQAAAAd3ZWxjb21ldwRoZXJlag==\",\"content_type\":\"base64\"},\"type\":\"application/x-erlang-binary\"},\"flow\":{\"instant\":[]},\"payer\":{\"payment_resource\":{\"resource\":{\"client_info\":[],\"payment_tool\":{\"bank_card\":{\"bin\":\"424242\",\"payment_system\":{\"id\":\"visa-ref\"},\"token\":\"no_preauth\",\"last_digits\":\"4242\"}},\"payment_session_id\":\"SESSION42\"},\"contact_info\":[]}},\"payer_session_info\":{\"redirect_url\":\"https://redirectly.io/merchant\"}}}},\"content_type\":\"thrift_call\"}",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810200,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 2,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_started\":{\"payment\":{\"id\":\"1\",\"status\":{\"pending\":[]},\"context\":{\"data\":{\"content\":\"g2gEdwN5b3ViAAACg2sAA25vdGwAAAACbQAAAAd3ZWxjb21ldwRoZXJlag==\",\"content_type\":\"base64\"},\"type\":\"application/x-erlang-binary\"},\"domain_revision\":5,\"party_ref\":{\"id\":\"2EFxWg5BsGG\"},\"shop_ref\":{\"id\":\"2EFxWg5BsGH\"},\"created_at\":\"2026-02-20T15:20:51.225295Z\",\"cost\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000},\"flow\":{\"instant\":[]},\"payer\":{\"payment_resource\":{\"resource\":{\"client_info\":[],\"payment_tool\":{\"bank_card\":{\"bin\":\"424242\",\"payment_system\":{\"id\":\"visa-ref\"},\"token\":\"no_preauth\",\"last_digits\":\"4242\"}},\"payment_session_id\":\"SESSION42\"},\"contact_info\":[]}},\"payer_session_info\":{\"redirect_url\":\"https://redirectly.io/merchant\"},\"make_recurrent\":false,\"registration_origin\":{\"merchant\":[]}}}},\"occurred_at\":\"2026-02-20T15:20:51.225295Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "4",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810300,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810300,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 3,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_shop_limit_initiated\":[]},\"occurred_at\":\"2026-02-20T15:20:51.262665Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "5",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810400,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810400,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 4,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_shop_limit_applied\":[]},\"occurred_at\":\"2026-02-20T15:20:51.281361Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "6",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810500,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810500,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 5,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_risk_score_changed\":{\"risk_score\":\"trusted\"}},\"occurred_at\":\"2026-02-20T15:20:51.290873Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "7",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810600,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810600,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 6,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_route_changed\":{\"candidates\":[{\"terminal\":{\"id\":1},\"provider\":{\"id\":1}},{\"terminal\":{\"id\":2},\"provider\":{\"id\":1}}],\"route\":{\"terminal\":{\"id\":2},\"provider\":{\"id\":1}},\"scores\":[{\"key\":{\"terminal\":{\"id\":2},\"provider\":{\"id\":1}},\"value\":{\"availability_condition\":1,\"conversion_condition\":1,\"terminal_priority_rating\":1000,\"route_pin\":0,\"random_condition\":0,\"availability\":1.0,\"conversion\":1.0,\"blacklist_condition\":0}},{\"key\":{\"terminal\":{\"id\":1},\"provider\":{\"id\":1}},\"value\":{\"availability_condition\":1,\"conversion_condition\":1,\"terminal_priority_rating\":1000,\"route_pin\":0,\"random_condition\":0,\"availability\":1.0,\"conversion\":1.0,\"blacklist_condition\":0}}],\"limits\":[{\"key\":{\"terminal\":{\"id\":2},\"provider\":{\"id\":1}},\"value\":[]},{\"key\":{\"terminal\":{\"id\":1},\"provider\":{\"id\":1}},\"value\":[]}],\"decision\":[]}},\"occurred_at\":\"2026-02-20T15:20:51.338508Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "8",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810700,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810700,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 7,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_cash_flow_changed\":{\"cash_flow\":[{\"source\":{\"account_type\":{\"merchant\":\"settlement\"},\"account_id\":6,\"transaction_account\":{\"merchant\":{\"owner\":{\"party_ref\":{\"id\":\"2EFxWg5BsGG\"},\"shop_ref\":{\"id\":\"2EFxWg5BsGH\"}},\"type\":\"settlement\"}}},\"destination\":{\"account_type\":{\"system\":\"settlement\"},\"account_id\":1,\"transaction_account\":{\"system\":{\"type\":\"settlement\"}}},\"volume\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":1890}},{\"source\":{\"account_type\":{\"provider\":\"settlement\"},\"account_id\":5,\"transaction_account\":{\"provider\":{\"owner\":{\"provider_ref\":{\"id\":1},\"terminal_ref\":{\"id\":2}},\"type\":\"settlement\"}}},\"destination\":{\"account_type\":{\"merchant\":\"settlement\"},\"account_id\":6,\"transaction_account\":{\"merchant\":{\"owner\":{\"party_ref\":{\"id\":\"2EFxWg5BsGG\"},\"shop_ref\":{\"id\":\"2EFxWg5BsGH\"}},\"type\":\"settlement\"}}},\"volume\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000}},{\"source\":{\"account_type\":{\"system\":\"settlement\"},\"account_id\":1,\"transaction_account\":{\"system\":{\"type\":\"settlement\"}}},\"destination\":{\"account_type\":{\"provider\":\"settlement\"},\"account_id\":5,\"transaction_account\":{\"provider\":{\"owner\":{\"provider_ref\":{\"id\":1},\"terminal_ref\":{\"id\":2}},\"type\":\"settlement\"}}},\"volume\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":756}}]}},\"occurred_at\":\"2026-02-20T15:20:51.453512Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "9",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810800,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810800,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 8,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_session_change\":{\"payload\":{\"session_started\":[]},\"target\":{\"processed\":[]}}},\"occurred_at\":\"2026-02-20T15:20:51.617385Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "10",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810900,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647810900,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 9,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_session_change\":{\"payload\":{\"session_proxy_state_changed\":{\"proxy_state\":\"sleeping\"}},\"target\":{\"processed\":[]}}},\"occurred_at\":\"2026-02-20T15:20:51.644832Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "11",
+                    "operationName": "timeout",
+                    "startTime": 1771911647811000,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647811000,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 10,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_session_change\":{\"payload\":{\"session_transaction_bound\":{\"trx\":{\"extra\":{\"payment.payer_session_info.redirect_url\":\"https://redirectly.io/merchant\"},\"id\":\"1.brovider\",\"additional_info\":{\"rrn\":\"rrn\",\"approval_code\":\"code\"}}}},\"target\":{\"processed\":[]}}},\"occurred_at\":\"2026-02-20T15:20:51.711062Z\"}},{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_session_change\":{\"payload\":{\"session_finished\":{\"result\":{\"succeeded\":[]}}},\"target\":{\"processed\":[]}}},\"occurred_at\":\"2026-02-20T15:20:51.711062Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "12",
+                    "operationName": "timeout",
+                    "startTime": 1771911647811100,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647811100,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 11,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_status_changed\":{\"status\":{\"processed\":[]}}},\"occurred_at\":\"2026-02-20T15:20:51.751992Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "13",
+                    "operationName": "timeout",
+                    "startTime": 1771911647811200,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647811200,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 12,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_capture_started\":{\"data\":{\"reason\":\"Timeout\",\"cash\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000}}}},\"occurred_at\":\"2026-02-20T15:20:51.767624Z\"}},{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_session_change\":{\"payload\":{\"session_started\":[]},\"target\":{\"captured\":{\"reason\":\"Timeout\",\"cost\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000}}}}},\"occurred_at\":\"2026-02-20T15:20:51.767624Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "14",
+                    "operationName": "timeout",
+                    "startTime": 1771911647811300,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647811300,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 13,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_session_change\":{\"payload\":{\"session_finished\":{\"result\":{\"succeeded\":[]}}},\"target\":{\"captured\":{\"reason\":\"Timeout\",\"cost\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000}}}}},\"occurred_at\":\"2026-02-20T15:20:51.785162Z\"}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "15",
+                    "operationName": "timeout",
+                    "startTime": 1771911647811400,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "finished",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1771911647811400,
+                            "fields": [
+                                {
+                                    "type": "int64",
+                                    "value": 14,
+                                    "key": "event.id"
+                                },
+                                {
+                                    "type": "string",
+                                    "value": "{\"invoice_changes\":[{\"invoice_payment_change\":{\"id\":\"1\",\"payload\":{\"invoice_payment_status_changed\":{\"status\":{\"captured\":{\"reason\":\"Timeout\",\"cost\":{\"currency\":{\"symbolic_code\":\"RUB\"},\"amount\":42000}}}}},\"occurred_at\":\"2026-02-20T15:20:51.829255Z\"}},{\"invoice_status_changed\":{\"status\":{\"paid\":[]}}}]}",
+                                    "key": "event.payload"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "processID": "q1",
+                    "warnings": [],
+                    "process": {
+                        "serviceName": "hellgate_progressor",
+                        "tags": []
+                    },
+                    "duration": 100,
+                    "traceID": "32454678576843414f7277",
+                    "spanID": "2",
+                    "operationName": "timeout",
+                    "startTime": 1771911647810050,
+                    "tags": [
+                        {
+                            "type": "string",
+                            "value": "error",
+                            "key": "task.status"
+                        },
+                        {
+                            "type": "string",
+                            "value": "{exception,error,{woody_error,{external,result_unknown,<<\"closed\">>}}}",
+                            "key": "task.error"
+                        },
+                        {
+                            "type": "int64",
+                            "value": 0,
+                            "key": "task.retries"
+                        },
+                        {
+                            "type": "string",
+                            "value": "\"\"",
+                            "key": "task.input"
+                        }
+                    ],
+                    "logs": []
+                }
+            ],
+            "processes": {
+                "q1": {
+                    "serviceName": "hellgate_progressor",
+                    "tags": []
+                }
+            },
+            "warnings": null
+        }
+    ]
+}

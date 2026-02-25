@@ -60,7 +60,8 @@ groups() ->
             {group, pool_payments}
         ]},
         {pool_payments, [parallel], lists:foldl(fun(_, Acc) -> [payment_ok_test | Acc] end, [], lists:seq(1, 100))},
-        {payments, [parallel], [
+        {payments, [], [payment_success]},
+        {paymentsx, [parallel], [
             payment_start_idempotency,
             payment_success,
             payment_w_first_blacklisted_success,
@@ -241,6 +242,11 @@ payment_success(C) ->
         },
         Payment
     ),
+    Res = hg_progressor_handler:handle_function('ProcessTrace', {invoice, InvoiceID}, #{format => jaeger}),
+    Json = unicode:characters_to_binary(json:encode(Res)),
+    io:format(user, "RES: ~p~n", [Res]),
+    R = file:write_file("qqq", Json),
+    io:format(user, "FILE RES: ~p~n", [[R, os:cmd("pwd")]]),
     ?assertMatch(
         #domain_TransactionInfo{
             extra = #{

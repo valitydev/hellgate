@@ -26,6 +26,7 @@
 %% API
 
 -export([get/1]).
+-export([unmarshal_invoice_template_params/1]).
 
 -type tpl_id() :: dmsl_domain_thrift:'InvoiceTemplateID'().
 -type tpl() :: dmsl_domain_thrift:'InvoiceTemplate'().
