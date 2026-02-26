@@ -6399,7 +6399,7 @@ payment_cascade_success(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    {Route1, _CashFlow1, TrxID1, Failure1} =
+    {Route1, _Candidates1, _CashFlow1, TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match(
         'PaymentFailure',
@@ -6789,7 +6789,7 @@ payment_cascade_limit_overflow(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    {Route1, _CashFlow1, _TrxID1, Failure1} =
+    {Route1, _Candidates1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
     %% And again but no route found
@@ -6850,15 +6850,31 @@ payment_big_cascade_success(C) ->
     ] = next_changes(InvoiceID, 4, Client),
     [
         (fun() ->
-            {Route, _CashFlow, _TrxID, Failure} =
+            {Route, Candidates, _CashFlow, _TrxID, Failure} =
                 await_cascade_triggering(InvoiceID, PaymentID, Client),
             ok = payproc_errors:match(
                 'PaymentFailure',
                 Failure,
                 fun({preauthorization_failed, {card_blocked, _}}) -> ok end
             ),
-            ?assertNotEqual(
-                0,
+            _ = [
+                ?assertMatch(
+                    HoldValue when HoldValue =:= 0 orelse HoldValue =:= Amount,
+                    hg_limiter_helper:get_amount(
+                        ?LIMIT_TERMINAL_FAILURES, configured_limit_version(C), Payment, Invoice, CandidateRoute
+                    ),
+                    "Routing candidate's limit changes must be rolled back "
+                    "normally or account change only once if hold operation is "
+                    "not yet finialized"
+                )
+             || CandidateRoute <- Candidates
+            ],
+            %% NOTE Since domain config's version takes part in limit's counter
+            %% unique id and it is new in every test run, we can ensure that
+            %% expected limit change for that paytool and terminal occurrs only
+            %% once each run.
+            ?assertEqual(
+                Amount,
                 hg_limiter_helper:get_amount(
                     ?LIMIT_TERMINAL_FAILURES, configured_limit_version(C), Payment, Invoice, Route
                 ),
@@ -7024,7 +7040,7 @@ payment_cascade_fail_provider_error(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    {_Route1, _CashFlow1, _TrxID1, Failure1} =
+    {_Route1, _Candidates1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     %% And again
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure1}))) =
@@ -7124,7 +7140,7 @@ payment_cascade_fail_ui(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    {_Route1, _CashFlow1, _TrxID1, Failure1} =
+    {_Route1, _Candidates1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({authorization_failed, {unknown, _}}) -> ok end),
     %% And again with UI
@@ -7327,7 +7343,7 @@ payment_cascade_fail_wo_available_attempt_limit(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    {_Route, _CashFlow, _TrxID, Failure} =
+    {_Route, _Candidates, _CashFlow, _TrxID, Failure} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure}))) =
         next_change(InvoiceID, Client),
@@ -7417,11 +7433,11 @@ payment_cascade_failures(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    {_Route1, _CashFlow1, _TrxID1, Failure1} =
+    {_Route1, _Candidates1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
     %% And again
-    {_Route2, _CashFlow2, _TrxID2, Failure2} =
+    {_Route2, _Candidates2, _CashFlow2, _TrxID2, Failure2} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, Failure2}))) =
         next_change(InvoiceID, Client),
@@ -7518,7 +7534,7 @@ payment_cascade_deadline_failures(C) ->
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
-    {_Route1, _CashFlow1, _TrxID1, Failure1} =
+    {_Route1, _Candidates1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ok = payproc_errors:match('PaymentFailure', Failure1, fun({preauthorization_failed, {card_blocked, _}}) -> ok end),
     %% And again
@@ -7753,7 +7769,7 @@ payment_recurrent_cascade_success(C) ->
         ?payment_ev(PaymentID, ?risk_score_changed(_))
     ] = next_changes(InvoiceID, 4, Client),
     %% First terminal fails, cascade to second
-    {Route1, _CashFlow1, _TrxID1, Failure1} =
+    {Route1, _Candidates1, _CashFlow1, _TrxID1, Failure1} =
         await_cascade_triggering(InvoiceID, PaymentID, Client),
     ?assertMatch(
         #domain_PaymentRoute{provider = ?prv(?CASCADE_ID_RANGE(?PAYMENT_RECURRENT_CASCADE_SUCCESS_ID + 1))},
@@ -7870,7 +7886,7 @@ make_payment_params_with_contact_info_assertion(PmtSys) ->
 
 await_cascade_triggering(InvoiceID, PaymentID, Client) ->
     [
-        ?payment_ev(PaymentID, ?route_changed(Route)),
+        ?payment_ev(PaymentID, ?route_changed(Route, Candidates)),
         ?payment_ev(PaymentID, ?cash_flow_changed(CashFlow)),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?session_started())),
         ?payment_ev(PaymentID, ?session_ev(?processed(), ?trx_bound(?trx_info(TrxID)))),
@@ -7881,7 +7897,7 @@ await_cascade_triggering(InvoiceID, PaymentID, Client) ->
         ?payment_ev(PaymentID, ?payment_rollback_started({failure, Failure}))
     ] =
         next_changes(InvoiceID, 6, Client),
-    {Route, CashFlow, TrxID, Failure}.
+    {Route, Candidates, CashFlow, TrxID, Failure}.
 
 next_changes(InvoiceID, Amount, Client) ->
     hg_invoice_helper:next_changes(InvoiceID, Amount, Client).
@@ -8382,7 +8398,7 @@ execute_payment_w_cascade(InvoiceID, Params, Client, CascadeCount) when CascadeC
         next_changes(InvoiceID, 4, Client),
     FailedRoutes = [
         begin
-            {Route, _CashFlow, _TrxID, _Failure} =
+            {Route, _Candidates, _CashFlow, _TrxID, _Failure} =
                 await_cascade_triggering(InvoiceID, PaymentID, Client),
             Route
         end

@@ -53,7 +53,7 @@ init_per_suite(_Config) ->
         #{}
     ).
 
--spec get_amount(_, _, _, _, _) -> pos_integer().
+-spec get_amount(_, _, _, _, _) -> non_neg_integer().
 get_amount(LimitID, Version, Payment, Invoice, Route) ->
     Result = get_payment_limit_amount(LimitID, Version, Payment, Invoice, Route),
     Limit = maybe_uninitialized_limit(Result),
