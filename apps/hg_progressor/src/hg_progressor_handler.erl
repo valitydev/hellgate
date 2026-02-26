@@ -17,7 +17,8 @@ init(Request, Opts) ->
     NS = maps:get(namespace, Opts),
     Format = cowboy_req:binding(format, Request),
     ProcessID = cowboy_req:binding(process_id, Request),
-    handle(Method, NS, ProcessID, Format, Request).
+    Req = handle(Method, NS, ProcessID, Format, Request),
+    {ok, Req, undefined}.
 
 -spec terminate(term(), cowboy_req:req(), undefined) ->
     ok.
@@ -264,7 +265,7 @@ error_tag(_) ->
 -define(is_number(T), (?is_integer(T) orelse T == double)).
 -define(is_scalar(T), (?is_number(T) orelse T == string orelse element(1, T) == enum)).
 
--spec term_to_object(term(), dmt_thrift:thrift_type()) -> jsone:json_value().
+-spec term_to_object(term(), hg_proto_utils:thrift_type()) -> jsone:json_value().
 term_to_object(Term, Type) ->
     term_to_object(Term, Type, []).
 
