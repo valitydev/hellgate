@@ -9,6 +9,8 @@
 
 -export([is_triggered/4]).
 
+-export_type([cascade_behaviour/0]).
+
 -spec is_triggered(
     cascade_behaviour() | undefined,
     operation_failure(),

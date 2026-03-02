@@ -42,6 +42,8 @@
 -export_type([change/0]).
 -export_type([event_context/0]).
 -export_type([process_result/0]).
+-export_type([callback/0]).
+-export_type([callback_response/0]).
 
 %% Accessors
 

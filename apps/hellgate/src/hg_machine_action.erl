@@ -22,8 +22,10 @@
 
 -type timer() :: mg_proto_base_thrift:'Timer'().
 -type t() :: mg_proto_state_processing_thrift:'ComplexAction'().
+-type action() :: t().
 
 -export_type([t/0]).
+-export_type([action/0]).
 
 %%
 

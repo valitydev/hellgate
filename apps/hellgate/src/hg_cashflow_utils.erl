@@ -18,7 +18,8 @@
     timestamp := hg_datetime:timestamp(),
     varset := hg_varset:varset(),
     revision := revision(),
-    merchant_terms => dmsl_domain_thrift:'PaymentsServiceTerms'(),
+    merchant_terms =>
+        dmsl_domain_thrift:'PaymentsServiceTerms'() | dmsl_domain_thrift:'PaymentRefundsServiceTerms'(),
     refund => refund(),
     allocation => hg_allocation:allocation()
 }.
@@ -146,9 +147,24 @@ get_provider_cashflow_selector(#domain_PaymentRefundsProvisionTerms{cash_flow = 
 
 get_terms_cashflow(payment, MerchantPaymentsTerms) ->
     MerchantPaymentsTerms#domain_PaymentsServiceTerms.fees;
-get_terms_cashflow(refund, MerchantPaymentsTerms) ->
-    MerchantRefundTerms = MerchantPaymentsTerms#domain_PaymentsServiceTerms.refunds,
-    MerchantRefundTerms#domain_PaymentRefundsServiceTerms.fees.
+get_terms_cashflow(refund, MerchantTerms) ->
+    case normalize_refund_terms(MerchantTerms) of
+        #domain_PaymentRefundsServiceTerms{fees = FeesSelector} ->
+            FeesSelector;
+        undefined ->
+            error({misconfiguration, 'No refund terms for payment'})
+    end.
+
+normalize_refund_terms(#domain_PaymentRefundsServiceTerms{} = Terms) ->
+    Terms;
+normalize_refund_terms(#domain_PaymentsServiceTerms{refunds = Terms}) ->
+    normalize_refund_terms(Terms);
+normalize_refund_terms({value, Terms}) ->
+    normalize_refund_terms(Terms);
+normalize_refund_terms(undefined) ->
+    undefined;
+normalize_refund_terms(Other) ->
+    error({misconfiguration, {'Unexpected refund terms', Other}}).
 
 get_selector_value(Name, Selector) ->
     case Selector of
