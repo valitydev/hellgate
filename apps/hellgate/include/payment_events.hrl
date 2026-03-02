@@ -4,6 +4,7 @@
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("hellgate/include/payment_events.hrl").
 
 %% Payments
 
