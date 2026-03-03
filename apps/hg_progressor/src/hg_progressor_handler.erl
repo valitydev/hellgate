@@ -17,8 +17,19 @@ init(Request, Opts) ->
     NS = maps:get(namespace, Opts),
     Format = cowboy_req:binding(format, Request),
     ProcessID = cowboy_req:binding(process_id, Request),
-    Req = handle(Method, NS, ProcessID, Format, Request),
-    {ok, Req, undefined}.
+    maybe
+        {format_is_valid, true} ?= {format_is_valid, Format =:= <<"internal">> orelse Format =:= <<"jaeger">>},
+        {process_id_is_valid, true} ?= {process_id_is_valid, is_binary(ProcessID)},
+        Req = handle(Method, NS, ProcessID, Format, Request),
+        {ok, Req, undefined}
+    else
+        {format_is_valid, false} ->
+            Req1 = cowboy_req:reply(400, #{}, <<"Invalid Format">>, Request),
+            {ok, Req1, undefined};
+        {process_id_is_valid, false} ->
+            Req2 = cowboy_req:reply(400, #{}, <<"Invalid ProcessID">>, Request),
+            {ok, Req2, undefined}
+    end.
 
 -spec terminate(term(), cowboy_req:req(), undefined) ->
     ok.
@@ -32,7 +43,7 @@ handle(<<"GET">>, NS, ProcessID, Format, Request) ->
             Trace = unmarshal_trace(NS, ProcessID, RawTrace, Format),
             Body = unicode:characters_to_binary(json:encode(Trace)),
             cowboy_req:reply(200, #{}, Body, Request);
-        {error, _} = _Error ->
+        {error, <<"process not found">>} = _Error ->
             cowboy_req:reply(404, #{}, <<"Unknown process">>, Request)
     end;
 handle(_, _NS, _ProcessID, _Format, Request) ->
@@ -45,7 +56,7 @@ unmarshal_trace(NS, ProcessID, RawTrace, <<"jaeger">> = Format) ->
     #{
         data => [
             #{
-                traceID => trace_id(NS, ProcessID),
+                traceId => trace_id(NS, ProcessID),
                 spans => Spans,
                 processes => #{
                     ProcessID => #{
@@ -79,7 +90,7 @@ unmarshal_trace_unit(NS, ProcessID, #{task_type := TaskType, task_id := TaskID} 
         },
         warnings => [],
         traceId => trace_id(NS, ProcessID),
-        span_id => integer_to_binary(TaskID),
+        spanId => integer_to_binary(TaskID),
         operationName => TaskType,
         startTime => start_time(TraceUnit),
         duration => duration(TraceUnit),
@@ -166,11 +177,11 @@ unmarshal_events(BinEvents, Format) ->
         BinEvents
     ).
 
-unmarshal_event(Event, Payload, <<"internal">>) ->
-    Event#{event_payload => Payload};
+unmarshal_event(#{event_timestamp := Ts} = Event, Payload, <<"internal">>) ->
+    Event#{event_payload => Payload, event_timestamp => to_microseconds(Ts)};
 unmarshal_event(#{event_id := EventID, event_timestamp := Ts}, Payload, <<"jaeger">>) ->
     #{
-        timestamp => Ts,
+        timestamp => to_microseconds(Ts),
         fields => [
             #{
                 key => <<"event.id">>,
@@ -232,7 +243,6 @@ trace_id(NS, ProcessID) ->
     NsBin = erlang:atom_to_binary(NS),
     HexList = [io_lib:format("~2.16.0b", [B]) || <<B>> <= <<NsBin/binary, ProcessID/binary>>],
     Hex = lists:flatten(HexList),
-    io:format(user, "HEX: ~p~n", [Hex]),
     case length(Hex) of
         Len when Len < 32 -> unicode:characters_to_binary(lists:duplicate(32 - Len, $0) ++ Hex);
         Len when Len > 32 -> unicode:characters_to_binary(string:slice(Hex, 0, 32));
@@ -260,6 +270,16 @@ error_tag(#{task_status := <<"error">>, response := {error, ReasonTerm}}) ->
     ];
 error_tag(_) ->
     [].
+
+to_microseconds(Timestamp) when Timestamp < 100000000000 ->
+    %% seconds
+    Timestamp * 1000000;
+to_microseconds(Timestamp) when Timestamp < 100000000000000 ->
+    %% milliseconds
+    Timestamp * 1000;
+to_microseconds(Timestamp) when Timestamp < 100000000000000000 ->
+    %% microseconds
+    Timestamp.
 
 -define(is_integer(T), (T == byte orelse T == i8 orelse T == i16 orelse T == i32 orelse T == i64)).
 -define(is_number(T), (?is_integer(T) orelse T == double)).
