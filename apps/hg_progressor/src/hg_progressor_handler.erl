@@ -199,10 +199,7 @@ unmarshal_event(#{event_id := EventID, event_timestamp := Ts}, Payload, <<"jaege
 maybe_format(Data) when is_binary(Data) ->
     case is_printable_string(Data) of
         true ->
-            #{
-                content_type => <<"text">>,
-                content => Data
-            };
+            Data;
         false ->
             to_maps(term_to_object_content(Data))
     end;
