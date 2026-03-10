@@ -178,10 +178,10 @@ unmarshal_events(BinEvents, Format) ->
     ).
 
 unmarshal_event(#{event_timestamp := Ts} = Event, Payload, <<"internal">>) ->
-    Event#{event_payload => Payload, event_timestamp => to_microseconds(Ts)};
+    Event#{event_payload => Payload, event_timestamp => prg_utils:to_microseconds(Ts)};
 unmarshal_event(#{event_id := EventID, event_timestamp := Ts}, Payload, <<"jaeger">>) ->
     #{
-        timestamp => to_microseconds(Ts),
+        timestamp => prg_utils:to_microseconds(Ts),
         fields => [
             #{
                 key => <<"event.id">>,
@@ -267,16 +267,6 @@ error_tag(#{task_status := <<"error">>, response := {error, ReasonTerm}}) ->
     ];
 error_tag(_) ->
     [].
-
-to_microseconds(Timestamp) when Timestamp < 100000000000 ->
-    %% seconds
-    Timestamp * 1000000;
-to_microseconds(Timestamp) when Timestamp < 100000000000000 ->
-    %% milliseconds
-    Timestamp * 1000;
-to_microseconds(Timestamp) when Timestamp < 100000000000000000 ->
-    %% microseconds
-    Timestamp.
 
 -define(is_integer(T), (T == byte orelse T == i8 orelse T == i16 orelse T == i32 orelse T == i64)).
 -define(is_number(T), (?is_integer(T) orelse T == double)).
