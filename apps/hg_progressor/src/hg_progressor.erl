@@ -273,7 +273,7 @@ marshal(status, {<<"running">>, _Detail}) ->
 marshal(status, {<<"error">>, Detail}) ->
     {'failed', #mg_stateproc_MachineStatusFailed{reason = Detail}};
 marshal(timestamp, Timestamp) ->
-    unicode:characters_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{offset, "Z"}]));
+    unicode:characters_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{offset, "Z"}, {unit, microsecond}]));
 marshal(term, Term) ->
     binary_to_term(Term);
 marshal(function, init) ->
@@ -315,7 +315,7 @@ unmarshal(events, {undefined, _ID}) ->
 unmarshal(events, {[], _}) ->
     [];
 unmarshal(events, {Events, LastEventID}) ->
-    Ts = erlang:system_time(second),
+    Ts = erlang:system_time(microsecond),
     lists:foldl(
         fun(#mg_stateproc_Content{format_version = Ver, data = Payload}, Acc) ->
             PrevID =
@@ -349,7 +349,7 @@ unmarshal(action, #mg_stateproc_ComplexAction{
     remove = RemoveAction
 }) when Timeout =/= undefined ->
     genlib_map:compact(#{
-        set_timer => erlang:system_time(second) + Timeout,
+        set_timer => erlang:system_time(microsecond) + (Timeout * 1000000),
         remove => maybe_unmarshal(remove_action, RemoveAction)
     });
 unmarshal(action, #mg_stateproc_ComplexAction{timer = {unset_timer, #'mg_stateproc_UnsetTimerAction'{}}}) ->
@@ -359,9 +359,9 @@ unmarshal(action, #mg_stateproc_ComplexAction{remove = #mg_stateproc_RemoveActio
 unmarshal(action, #mg_stateproc_ComplexAction{remove = undefined}) ->
     undefined;
 unmarshal(timer, {deadline, DateTimeRFC3339}) ->
-    calendar:rfc3339_to_system_time(unicode:characters_to_list(DateTimeRFC3339), [{unit, second}]);
+    calendar:rfc3339_to_system_time(unicode:characters_to_list(DateTimeRFC3339), [{unit, microsecond}]);
 unmarshal(timer, {timeout, Timeout}) ->
-    erlang:system_time(second) + Timeout;
+    erlang:system_time(microsecond) + (Timeout * 1000000);
 unmarshal(term, Term) ->
     erlang:term_to_binary(Term);
 unmarshal(remove_action, #mg_stateproc_RemoveAction{}) ->

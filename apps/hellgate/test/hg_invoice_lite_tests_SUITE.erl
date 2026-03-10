@@ -27,6 +27,7 @@
 -export([payment_success_empty_cvv/1]).
 -export([payment_has_optional_fields/1]).
 -export([payment_last_trx_correct/1]).
+-export([payment_success_trace/1]).
 
 -type config() :: hg_ct_helper:config().
 -type test_case_name() :: hg_ct_helper:test_case_name().
@@ -63,6 +64,7 @@ groups() ->
         {payments, [parallel], [
             payment_start_idempotency,
             payment_success,
+            payment_success_trace,
             payment_w_first_blacklisted_success,
             payment_w_all_blacklisted,
             register_payment_success,
@@ -241,6 +243,7 @@ payment_success(C) ->
         },
         Payment
     ),
+
     ?assertMatch(
         #domain_TransactionInfo{
             extra = #{
@@ -249,6 +252,158 @@ payment_success(C) ->
         },
         Trx
     ).
+
+-spec payment_success_trace(config()) -> test_return().
+payment_success_trace(C) ->
+    Client = cfg(client, C),
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Context = #base_Content{
+        type = <<"application/x-erlang-binary">>,
+        data = erlang:term_to_binary({you, 643, "not", [<<"welcome">>, here]})
+    },
+    PayerSessionInfo = #domain_PayerSessionInfo{
+        redirect_url = <<"https://redirectly.io/merchant">>
+    },
+    PaymentParams = (make_payment_params(?pmt_sys(<<"visa-ref">>)))#payproc_InvoicePaymentParams{
+        payer_session_info = PayerSessionInfo,
+        context = Context
+    },
+    PaymentID = process_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+
+    RootUrl = unicode:characters_to_binary(cfg(root_url, C)),
+    UrlInternal = <<RootUrl/binary, "/traces/internal/invoice/", InvoiceID/binary>>,
+    UrlJaeger = <<RootUrl/binary, "/traces/jaeger/invoice/", InvoiceID/binary>>,
+    {ok, _Status, _Headers, RefInternal} = hackney:get(UrlInternal),
+    {ok, BodyInternal} = hackney:body(RefInternal),
+    [
+        #{
+            <<"args">> := #{
+                <<"content_type">> := <<"thrift_call">>,
+                <<"content">> := #{
+                    <<"call">> := #{
+                        <<"function">> := <<"Create">>,
+                        <<"service">> := <<"Invoicing">>
+                    },
+                    <<"params">> := _
+                }
+            },
+            <<"error">> := null,
+            <<"events">> := [
+                #{
+                    <<"event_id">> := 1,
+                    <<"event_payload">> := _,
+                    <<"event_timestamp">> := _
+                }
+            ],
+            <<"finished">> := _,
+            <<"otel_trace_id">> := _,
+            <<"retry_attempts">> := 0,
+            <<"retry_interval">> := 0,
+            <<"running">> := _,
+            <<"scheduled">> := _,
+            <<"task_id">> := _,
+            <<"task_metadata">> := #{<<"range">> := #{}},
+            <<"task_status">> := <<"finished">>,
+            <<"task_type">> := <<"init">>
+        },
+        #{<<"task_type">> := <<"call">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"finished">>},
+        #{<<"task_type">> := <<"timeout">>, <<"task_status">> := <<"cancelled">>}
+    ] = json:decode(BodyInternal),
+    {ok, _Status2, _Headers2, RefJaeger} = hackney:get(UrlJaeger),
+    {ok, BodyJaeger} = hackney:body(RefJaeger),
+    #{
+        <<"data">> := [
+            #{
+                <<"traceId">> := _,
+                <<"processes">> := #{
+                    InvoiceID := #{
+                        <<"service_name">> := <<"hellgate_invoice">>,
+                        <<"tags">> := []
+                    }
+                },
+                <<"spans">> := [
+                    #{
+                        <<"operationName">> := <<"init">>,
+                        <<"process">> := #{
+                            <<"service_name">> := <<"hellgate_invoice">>,
+                            <<"tags">> := []
+                        },
+                        <<"processID">> := InvoiceID,
+                        <<"spanId">> := _,
+                        <<"traceId">> := _,
+                        <<"startTime">> := _,
+                        <<"duration">> := _,
+                        <<"tags">> := [
+                            #{
+                                <<"key">> := <<"task.status">>,
+                                <<"type">> := <<"string">>,
+                                <<"value">> := <<"finished">>
+                            },
+                            #{
+                                <<"key">> := <<"task.retries">>,
+                                <<"type">> := <<"int64">>,
+                                <<"value">> := 0
+                            },
+                            #{
+                                <<"key">> := <<"task.input">>,
+                                <<"type">> := <<"string">>,
+                                <<"value">> := _NestedJsonArgs
+                            }
+                        ],
+                        <<"logs">> := [
+                            #{
+                                <<"timestamp">> := _,
+                                <<"fields">> := [
+                                    #{
+                                        <<"key">> := <<"event.id">>,
+                                        <<"type">> := <<"int64">>,
+                                        <<"value">> := 1
+                                    },
+                                    #{
+                                        <<"key">> := <<"event.payload">>,
+                                        <<"type">> := <<"string">>,
+                                        <<"value">> := _NestedJsonEvent
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    #{<<"operationName">> := <<"call">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>},
+                    #{<<"operationName">> := <<"timeout">>}
+                ]
+            }
+        ]
+    } = json:decode(BodyJaeger),
+    BadInvoiceUrl = <<RootUrl/binary, "/traces/internal/invoice/UnknownInvoice">>,
+    {ok, 404, _, _} = hackney:get(BadInvoiceUrl),
+    BadFormatUrl = <<RootUrl/binary, "/traces/external/invoice/", InvoiceID/binary>>,
+    {ok, 400, _, _} = hackney:get(BadFormatUrl),
+    ok.
 
 -spec payment_w_first_blacklisted_success(config()) -> test_return().
 payment_w_first_blacklisted_success(C) ->

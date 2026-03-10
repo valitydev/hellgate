@@ -40,6 +40,7 @@
 -export([get_payment_opts/1]).
 -export([create/6]).
 -export([marshal_invoice/1]).
+-export([unmarshal_invoice/1]).
 -export([unmarshal_history/1]).
 -export([collapse_history/1]).
 
