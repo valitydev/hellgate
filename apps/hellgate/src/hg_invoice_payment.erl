@@ -1892,67 +1892,72 @@ process_risk_score(Action, St) ->
 -spec process_routing(action(), st()) -> machine_result().
 process_routing(Action, St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
-    Ctx0 = hg_routing_ctx:with_guard(build_routing_context(PaymentInstitution, VS, Revision, St)),
+    Routing0 = build_routing_context(PaymentInstitution, VS, Revision, St),
     %% NOTE We need to handle routing errors differently if route not found
-    %% before the pipeline.
-    case hg_routing_ctx:error(Ctx0) of
+    %% before the routing decision pipeline.
+    case hg_routing:get_error(Routing0) of
         undefined ->
-            Ctx1 = run_routing_decision_pipeline(Ctx0, VS, St),
+            Routing1 = run_routing_decision_pipeline(Routing0, VS, St),
             _ = [
                 log_rejected_routes(Group, RejectedRoutes, VS)
-             || {Group, RejectedRoutes} <- hg_routing_ctx:rejections(Ctx1)
+             || {Group, RejectedRoutes} <- hg_routing:rejections(Routing1)
             ],
-            Events = produce_routing_events(Ctx1, Revision, St),
+            Events = produce_routing_events(Routing1, Revision, St),
             {next, {Events, hg_machine_action:set_timeout(0, Action)}};
         Error ->
             ok = maybe_log_misconfigurations(Error),
-            ok = log_rejected_routes(all, hg_routing_ctx:rejected_routes(Ctx0), VS),
+            ok = log_rejected_routes(all, hg_routing:rejected_routes(Routing0), VS),
             handle_choose_route_error(Error, [], St, Action)
     end.
 
-run_routing_decision_pipeline(Ctx0, VS, St) ->
+run_routing_decision_pipeline(Routing0, VS, St) ->
     %% NOTE Since this is routing step then current attempt is not yet
     %% accounted for in `St`.
     NewIter = get_iter(St) + 1,
-    hg_routing_ctx:pipeline(
-        Ctx0,
-        [
-            fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
-            fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, NewIter, St) end,
-            fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, NewIter, St) end,
-            fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
-            fun hg_routing:filter_by_critical_provider_status/1,
-            fun hg_routing:choose_route_with_ctx/1
-        ]
-    ).
+    hg_routing:resolve(#{
+        routing => Routing0,
+        attempted_routes => St#st.routes,
+        limit_hold_fun => fun(Routes) -> hold_limit_routes(Routes, VS, NewIter, St) end,
+        limit_overflow_fun => fun(Routes) -> get_limit_overflow_routes(Routes, VS, NewIter, St) end,
+        blacklist_context => build_blacklist_context(St)
+    }).
 
-produce_routing_events(#{error := Error} = Ctx, Revision, St) when Error =/= undefined ->
+produce_routing_events(Routing, Revision, St) ->
+    case hg_routing:get_error(Routing) of
+        Error when Error =/= undefined ->
+            produce_failed_routing_events(Routing, Error, Revision, St);
+        undefined ->
+            produce_success_routing_events(Routing, Revision)
+    end.
+
+produce_failed_routing_events(Routing, Error, Revision, St) ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
     %% rejected because of provider gone critical, then use subcode to highlight
     %% the offender. Like 'provider_dead' or 'conversion_lacking'.
     Failure = genlib:define(St#st.failure, construct_routing_failure(Error)),
     %% NOTE Not all initial candidates have their according limits held. And so
     %% we must account only for those that can be rolled back.
-    RollbackableCandidates = hg_routing_ctx:accounted_candidates(Ctx),
+    RollbackableCandidates = hg_routing:accounted_candidates(Routing),
     Route = hg_route:to_payment_route(hd(RollbackableCandidates)),
     Candidates =
         ordsets:from_list([hg_route:to_payment_route(R) || R <- RollbackableCandidates]),
-    RouteScores = hg_routing_ctx:route_scores(Ctx),
-    RouteLimits = hg_routing_ctx:route_limits(Ctx),
+    RouteScores = hg_routing:route_scores(Routing),
+    RouteLimits = hg_routing:route_limits(Routing),
     Decision = build_route_decision_context(Route, Revision),
     %% For protocol compatability we set choosen route in route_changed event.
     %% It doesn't influence cash_flow building because this step will be
     %% skipped. And all limit's 'hold' operations will be rolled back.
     %% For same purpose in cascade routing we use route from unfiltered list of
     %% originally resolved candidates.
-    [?route_changed(Route, Candidates, RouteScores, RouteLimits, Decision), ?payment_rollback_started(Failure)];
-produce_routing_events(Ctx, Revision, _St) ->
-    ok = log_route_choice_meta(Ctx, Revision),
-    Route = hg_route:to_payment_route(hg_routing_ctx:choosen_route(Ctx)),
+    [?route_changed(Route, Candidates, RouteScores, RouteLimits, Decision), ?payment_rollback_started(Failure)].
+
+produce_success_routing_events(Routing, Revision) ->
+    ok = log_route_choice_meta(#{choice_meta => hg_routing:choice_meta(Routing)}, Revision),
+    Route = hg_route:to_payment_route(hg_routing:chosen_route(Routing)),
     Candidates =
-        ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing_ctx:considered_candidates(Ctx)]),
-    RouteScores = hg_routing_ctx:route_scores(Ctx),
-    RouteLimits = hg_routing_ctx:route_limits(Ctx),
+        ordsets:from_list([hg_route:to_payment_route(R) || R <- hg_routing:considered_candidates(Routing)]),
+    RouteScores = hg_routing:route_scores(Routing),
+    RouteLimits = hg_routing:route_limits(Routing),
     Decision = build_route_decision_context(Route, Revision),
     [?route_changed(Route, Candidates, RouteScores, RouteLimits, Decision)].
 
@@ -1984,7 +1989,7 @@ build_routing_context(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
         {ok, PaymentRoute} ->
-            hg_routing_ctx:new([hg_route:from_payment_route(PaymentRoute)]);
+            hg_routing:resolve(#{predefined_routes => [hg_route:from_payment_route(PaymentRoute)]});
         undefined ->
             gather_routes(PaymentInstitution, VS, Revision, St)
     end.
@@ -2011,16 +2016,57 @@ build_blacklist_context(St) ->
         inspector => Inspector
     }.
 
+-ifdef(TEST).
+
+new_routing_result(Candidates) ->
+    #{
+        initial_candidates => Candidates,
+        candidates => Candidates,
+        rejections => #{},
+        latest_rejection => undefined,
+        error => undefined,
+        chosen_route => undefined,
+        choice_meta => undefined
+    }.
+
 filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
+    mark_attempted_routes(AttemptedRoutes, Ctx).
+
+mark_attempted_routes([], Routing) ->
+    Routing;
+mark_attempted_routes(AttemptedRoutes, Routing0) ->
     lists:foldr(
-        fun(R, C) ->
-            R1 = hg_route:from_payment_route(R),
-            R2 = hg_route:to_rejected_route(R1, {'AlreadyAttempted', undefined}),
-            hg_routing_ctx:reject(already_attempted, R2, C)
+        fun(Route, Routing) ->
+            InnerRoute = hg_route:from_payment_route(Route),
+            RejectedRoute = hg_route:to_rejected_route(InnerRoute, {'AlreadyAttempted', undefined}),
+            reject_route_in_routing(already_attempted, RejectedRoute, Routing)
         end,
-        Ctx,
+        Routing0,
         AttemptedRoutes
     ).
+
+reject_route_in_routing(GroupReason, RejectedRoute, Routing0) ->
+    #{rejections := Rejections0, candidates := Candidates0} = Routing0,
+    RejectedList = maps:get(GroupReason, Rejections0, []) ++ [RejectedRoute],
+    Routing0#{
+        rejections := Rejections0#{GroupReason => RejectedList},
+        candidates := exclude_routing_route(RejectedRoute, Candidates0),
+        latest_rejection := GroupReason
+    }.
+
+exclude_routing_route(Route, Routes) ->
+    lists:foldr(
+        fun(R, Acc) ->
+            case hg_route:equal(Route, R) of
+                true -> Acc;
+                false -> [R | Acc]
+            end
+        end,
+        [],
+        Routes
+    ).
+
+-endif.
 
 handle_choose_route_error(Error, Events, St, Action) ->
     Failure = construct_routing_failure(Error),
@@ -2501,23 +2547,6 @@ get_provider_payment_terms(St, Revision) ->
     VS0 = reconstruct_payment_flow(Payment, #{}),
     VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
     hg_routing:get_payment_terms(Route, VS1, Revision).
-
-filter_routes_with_limit_hold(Ctx0, VS, Iter, St) ->
-    {_Routes, RejectedRoutes} = hold_limit_routes(hg_routing_ctx:candidates(Ctx0), VS, Iter, St),
-    Ctx1 = reject_routes(limit_misconfiguration, RejectedRoutes, Ctx0),
-    hg_routing_ctx:stash_current_candidates(Ctx1).
-
-filter_routes_by_limit_overflow(Ctx0, VS, Iter, St) ->
-    {_Routes, RejectedRoutes, Limits} = get_limit_overflow_routes(hg_routing_ctx:candidates(Ctx0), VS, Iter, St),
-    Ctx1 = hg_routing_ctx:stash_route_limits(Limits, Ctx0),
-    reject_routes(limit_overflow, RejectedRoutes, Ctx1).
-
-reject_routes(GroupReason, RejectedRoutes, Ctx) ->
-    lists:foldr(
-        fun(R, C) -> hg_routing_ctx:reject(GroupReason, R, C) end,
-        Ctx,
-        RejectedRoutes
-    ).
 
 get_limit_overflow_routes(Routes, VS, Iter, St) ->
     Opts = get_opts(St),
@@ -3486,7 +3515,7 @@ get_limit_values(St, Opts) ->
 
 get_limit_values_(St, Mode) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
-    Ctx = build_routing_context(PaymentInstitution, VS, Revision, St),
+    Routing = build_routing_context(PaymentInstitution, VS, Revision, St),
     Session = get_activity_session(St),
     Payment = get_payment(St),
     Invoice = get_invoice(get_opts(St)),
@@ -3508,7 +3537,7 @@ get_limit_values_(St, Mode) ->
             Acc#{PaymentRoute => TurnoverLimitValues}
         end,
         #{},
-        hg_routing_ctx:considered_candidates(Ctx)
+        hg_routing:considered_candidates(Routing)
     ).
 
 try_accrue_waiting_timing(Opts, #st{payment = Payment, timings = Timings}) ->
@@ -3943,7 +3972,7 @@ filter_attempted_routes_test_() ->
         ?_assertMatch(
             #{candidates := []},
             filter_attempted_routes(
-                hg_routing_ctx:new([]),
+                new_routing_result([]),
                 #st{
                     activity = idle,
                     routes = [
@@ -3956,16 +3985,16 @@ filter_attempted_routes_test_() ->
             )
         ),
         ?_assertMatch(
-            #{candidates := []}, filter_attempted_routes(hg_routing_ctx:new([]), #st{activity = idle, routes = []})
+            #{candidates := []}, filter_attempted_routes(new_routing_result([]), #st{activity = idle, routes = []})
         ),
         ?_assertMatch(
             #{candidates := [R1, R2, R3]},
-            filter_attempted_routes(hg_routing_ctx:new([R1, R2, R3]), #st{activity = idle, routes = []})
+            filter_attempted_routes(new_routing_result([R1, R2, R3]), #st{activity = idle, routes = []})
         ),
         ?_assertMatch(
             #{candidates := [R1, R2]},
             filter_attempted_routes(
-                hg_routing_ctx:new([R1, R2, R3]),
+                new_routing_result([R1, R2, R3]),
                 #st{
                     activity = idle,
                     routes = [
@@ -3980,7 +4009,7 @@ filter_attempted_routes_test_() ->
         ?_assertMatch(
             #{candidates := []},
             filter_attempted_routes(
-                hg_routing_ctx:new([R1, R2, R3]),
+                new_routing_result([R1, R2, R3]),
                 #st{
                     activity = idle,
                     routes = [

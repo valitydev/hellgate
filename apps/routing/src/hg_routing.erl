@@ -2,12 +2,15 @@
 
 -module(hg_routing).
 
+-compile({no_auto_import, [error/1]}).
+
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 -include_lib("hellgate/include/domain.hrl").
 
 -export([gather_routes/5]).
+-export([resolve/1]).
 -export([rate_routes/1]).
 -export([choose_route/1]).
 -export([choose_rated_route/1]).
@@ -23,6 +26,16 @@
 -export([filter_by_critical_provider_status/1]).
 -export([filter_by_blacklist/2]).
 -export([choose_route_with_ctx/1]).
+-export([get_error/1]).
+-export([rejected_routes/1]).
+-export([rejections/1]).
+-export([candidates/1]).
+-export([considered_candidates/1]).
+-export([accounted_candidates/1]).
+-export([chosen_route/1]).
+-export([choice_meta/1]).
+-export([route_scores/1]).
+-export([route_limits/1]).
 
 %%
 
@@ -87,6 +100,20 @@
 -type limits() :: #{hg_route:payment_route() => [hg_limiter:turnover_limit_value()]}.
 -type scores() :: #{hg_route:payment_route() => hg_routing:route_scores()}.
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
+-type rejection_group() :: atom().
+-type result() :: #{
+    initial_candidates := [hg_route:t()],
+    candidates := [hg_route:t()],
+    rejections := #{rejection_group() => [hg_route:rejected_route()]},
+    latest_rejection := rejection_group() | undefined,
+    error := term() | undefined,
+    chosen_route := hg_route:t() | undefined,
+    choice_meta := route_choice_context() | undefined,
+    stashed_candidates => [hg_route:t()],
+    fail_rates => [fail_rated_route()],
+    route_limits => limits(),
+    route_scores => scores()
+}.
 
 -export_type([route_predestination/0]).
 -export_type([route_choice_context/0]).
@@ -95,56 +122,82 @@
 -export_type([route_scores/0]).
 -export_type([limits/0]).
 -export_type([scores/0]).
+-export_type([result/0]).
 
 %%
 
--spec filter_by_critical_provider_status(T) -> T when T :: hg_routing_ctx:t().
-filter_by_critical_provider_status(Ctx0) ->
-    RoutesFailRates = rate_routes(hg_routing_ctx:candidates(Ctx0)),
+-spec resolve(map()) -> result().
+resolve(Params) ->
+    Result0 =
+        case maps:find(routing, Params) of
+            {ok, Routing} ->
+                Routing;
+            error ->
+                build_initial_result(Params)
+        end,
+    case get_error(Result0) of
+        undefined ->
+            AttemptedRoutes = maps:get(attempted_routes, Params, []),
+            LimitHoldFun = maps:get(limit_hold_fun, Params, undefined),
+            LimitOverflowFun = maps:get(limit_overflow_fun, Params, undefined),
+            BlacklistContext = maps:get(blacklist_context, Params, undefined),
+            Result1 = reject_attempted_routes(AttemptedRoutes, Result0),
+            Result2 = process_result(Result1, fun(R) -> apply_limit_hold(LimitHoldFun, R) end),
+            Result3 = process_result(Result2, fun(R) -> apply_limit_overflow(LimitOverflowFun, R) end),
+            Result4 = process_result(Result3, fun(R) -> apply_blacklist(BlacklistContext, R) end),
+            Result5 = process_result(Result4, fun filter_by_critical_provider_status/1),
+            process_result(Result5, fun choose_route_with_ctx/1);
+        _ ->
+            Result0
+    end.
+
+-spec filter_by_critical_provider_status(result()) -> result().
+filter_by_critical_provider_status(Result0) ->
+    RoutesFailRates = rate_routes(candidates(Result0)),
     RouteScores = score_routes_map(RoutesFailRates),
-    Ctx1 = hg_routing_ctx:stash_route_scores(RouteScores, Ctx0),
+    Result1 = stash_route_scores(RouteScores, Result0),
     lists:foldr(
         fun
-            ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, C) ->
-                R1 = hg_route:to_rejected_route(R, {'ProviderDead', AvailabilityStatus}),
-                hg_routing_ctx:reject(adapter_unavailable, R1, C);
-            ({_R, _ProviderStatus}, C) ->
-                C
+            ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, Acc) ->
+                RejectedRoute = hg_route:to_rejected_route(R, {'ProviderDead', AvailabilityStatus}),
+                reject(adapter_unavailable, RejectedRoute, Acc);
+            ({_R, _ProviderStatus}, Acc) ->
+                Acc
         end,
-        hg_routing_ctx:with_fail_rates(RoutesFailRates, Ctx1),
+        with_fail_rates(RoutesFailRates, Result1),
         RoutesFailRates
     ).
 
--spec filter_by_blacklist(T, hg_inspector:blacklist_context()) -> T when T :: hg_routing_ctx:t().
-filter_by_blacklist(Ctx, BlCtx) ->
-    BlacklistedRoutes = check_routes(hg_routing_ctx:candidates(Ctx), BlCtx),
+-spec filter_by_blacklist(result(), hg_inspector:blacklist_context()) -> result().
+filter_by_blacklist(Result, undefined) ->
+    Result;
+filter_by_blacklist(Result, BlCtx) ->
+    BlacklistedRoutes = check_routes(candidates(Result), BlCtx),
     lists:foldr(
         fun
-            ({R, true = Status}, C) ->
-                R1 = hg_route:to_rejected_route(R, {'InBlackList', Status}),
-                Ctx0 = hg_routing_ctx:reject(in_blacklist, R1, C),
-                Scores0 = score_route(R),
-                Scores1 = Scores0#domain_PaymentRouteScores{blacklist_condition = 1},
-                hg_routing_ctx:add_route_scores({hg_route:to_payment_route(R), Scores1}, Ctx0);
-            ({_R, _ProviderStatus}, C) ->
-                C
+            ({R, true = Status}, Acc) ->
+                RejectedRoute = hg_route:to_rejected_route(R, {'InBlackList', Status}),
+                Score = (hg_route:score(R))#domain_PaymentRouteScores{blacklist_condition = 1},
+                stash_route_scores(#{hg_route:to_payment_route(R) => Score}, reject(in_blacklist, RejectedRoute, Acc));
+            ({_R, _Status}, Acc) ->
+                Acc
         end,
-        Ctx,
+        Result,
         BlacklistedRoutes
     ).
 
--spec choose_route_with_ctx(T) -> T when T :: hg_routing_ctx:t().
-choose_route_with_ctx(Ctx) ->
-    Candidates = hg_routing_ctx:candidates(Ctx),
-    {ChoosenRoute, ChoiceContext} =
-        case hg_routing_ctx:fail_rates(Ctx) of
+-spec choose_route_with_ctx(result()) -> result().
+choose_route_with_ctx(Result) ->
+    Routes = candidates(Result),
+    {ChosenRoute, ChoiceContext} =
+        case maps:get(fail_rates, Result, undefined) of
             undefined ->
-                choose_route(Candidates);
+                choose_route(Routes);
             FailRates ->
-                RatedCandidates = filter_rated_routes_with_candidates(FailRates, Candidates),
+                RatedCandidates = filter_rated_routes_with_candidates(FailRates, Routes),
                 choose_rated_route(RatedCandidates)
         end,
-    hg_routing_ctx:set_choosen(ChoosenRoute, ChoiceContext, Ctx).
+    set_chosen(ChosenRoute, ChoiceContext, Result).
 
 filter_rated_routes_with_candidates(FailRates, Candidates) ->
     lists:foldr(
@@ -158,6 +211,159 @@ filter_rated_routes_with_candidates(FailRates, Candidates) ->
         FailRates
     ).
 
+new(Candidates0) ->
+    #{
+        initial_candidates => Candidates0,
+        candidates => Candidates0,
+        rejections => #{},
+        latest_rejection => undefined,
+        error => undefined,
+        chosen_route => undefined,
+        choice_meta => undefined
+    }.
+
+build_initial_result(#{predefined_routes := Routes}) ->
+    new(Routes);
+build_initial_result(#{
+    predestination := Predestination,
+    payment_institution := PaymentInstitution,
+    varset := VS,
+    revision := Revision,
+    pin_context := PinCtx
+}) ->
+    gather_routes(Predestination, PaymentInstitution, VS, Revision, PinCtx).
+
+with_fail_rates(FailRates, Result) ->
+    Result#{fail_rates => FailRates}.
+
+set_chosen(Route, ChoiceMeta, Result) ->
+    Result#{chosen_route => Route, choice_meta => ChoiceMeta}.
+
+set_error(ErrorReason, Result) ->
+    Result#{error => ErrorReason}.
+
+-spec get_error(result()) -> term() | undefined.
+get_error(#{error := ErrorReason}) ->
+    ErrorReason.
+
+-spec rejected_routes(result()) -> [hg_route:rejected_route()].
+rejected_routes(#{rejections := Rejections}) ->
+    {_, Rejected} = lists:unzip(maps:to_list(Rejections)),
+    lists:flatten(Rejected).
+
+-spec rejections(result()) -> [{atom(), [hg_route:rejected_route()]}].
+rejections(#{rejections := Rejections}) ->
+    maps:to_list(Rejections).
+
+-spec candidates(result()) -> [hg_route:t()].
+candidates(#{candidates := Candidates0}) ->
+    Candidates0.
+
+-spec considered_candidates(result()) -> [hg_route:t()].
+considered_candidates(Result) ->
+    maps:get(stashed_candidates, Result, candidates(Result)).
+
+-spec accounted_candidates(result()) -> [hg_route:t()].
+accounted_candidates(Result) ->
+    maps:get(stashed_candidates, Result, maps:get(initial_candidates, Result, [])).
+
+-spec chosen_route(result()) -> hg_route:t() | undefined.
+chosen_route(#{chosen_route := Chosen}) ->
+    Chosen.
+
+-spec choice_meta(result()) -> route_choice_context() | undefined.
+choice_meta(Result) ->
+    maps:get(choice_meta, Result, undefined).
+
+-spec route_scores(result()) -> scores() | undefined.
+route_scores(Result) ->
+    maps:get(route_scores, Result, undefined).
+
+-spec route_limits(result()) -> limits() | undefined.
+route_limits(Result) ->
+    maps:get(route_limits, Result, undefined).
+
+stash_current_candidates(#{candidates := []} = Result) ->
+    Result;
+stash_current_candidates(Result) ->
+    Result#{stashed_candidates => candidates(Result)}.
+
+stash_route_limits(RouteLimits, Result) ->
+    Result#{route_limits => RouteLimits}.
+
+stash_route_scores(RouteScoresNew, #{route_scores := RouteScores0} = Result) ->
+    Result#{route_scores => maps:merge(RouteScores0, RouteScoresNew)};
+stash_route_scores(RouteScores0, Result) ->
+    Result#{route_scores => RouteScores0}.
+
+reject(GroupReason, RejectedRoute, #{rejections := Rejections0, candidates := Candidates0} = Result) ->
+    RejectedList = maps:get(GroupReason, Rejections0, []) ++ [RejectedRoute],
+    Result#{
+        rejections := Rejections0#{GroupReason => RejectedList},
+        candidates := exclude_route(RejectedRoute, Candidates0),
+        latest_rejection := GroupReason
+    }.
+
+exclude_route(Route, Routes) ->
+    lists:foldr(
+        fun(R, Acc) ->
+            case hg_route:equal(Route, R) of
+                true -> Acc;
+                false -> [R | Acc]
+            end
+        end,
+        [],
+        Routes
+    ).
+
+latest_rejected_routes(#{latest_rejection := ReasonGroup, rejections := Rejections}) ->
+    {ReasonGroup, maps:get(ReasonGroup, Rejections, [])}.
+
+with_guard(#{candidates := [], error := undefined} = Result) ->
+    Result#{error := {rejected_routes, latest_rejected_routes(Result)}};
+with_guard(Result) ->
+    Result.
+
+reject_attempted_routes([], Result) ->
+    Result;
+reject_attempted_routes(AttemptedRoutes, Result) ->
+    with_guard(
+        lists:foldr(
+            fun(Route, Acc) ->
+                InnerRoute = hg_route:from_payment_route(Route),
+                RejectedRoute = hg_route:to_rejected_route(InnerRoute, {'AlreadyAttempted', undefined}),
+                reject(already_attempted, RejectedRoute, Acc)
+            end,
+            Result,
+            AttemptedRoutes
+        )
+    ).
+
+apply_limit_hold(undefined, Result) ->
+    Result;
+apply_limit_hold(Fun, Result0) ->
+    {_HeldRoutes, RejectedRoutes} = Fun(candidates(Result0)),
+    Result1 = lists:foldr(fun(Route, Acc) -> reject(limit_misconfiguration, Route, Acc) end, Result0, RejectedRoutes),
+    stash_current_candidates(with_guard(Result1)).
+
+apply_limit_overflow(undefined, Result) ->
+    Result;
+apply_limit_overflow(Fun, Result0) ->
+    {_AllowedRoutes, RejectedRoutes, Limits} = Fun(candidates(Result0)),
+    Result1 = stash_route_limits(Limits, Result0),
+    with_guard(lists:foldr(fun(Route, Acc) -> reject(limit_overflow, Route, Acc) end, Result1, RejectedRoutes)).
+
+apply_blacklist(undefined, Result) ->
+    Result;
+apply_blacklist(BlacklistContext, Result) ->
+    with_guard(filter_by_blacklist(Result, BlacklistContext)).
+
+process_result(Result, Fun) ->
+    case get_error(Result) of
+        undefined -> Fun(Result);
+        _ -> Result
+    end.
+
 %%
 
 -spec prepare_log_message(misconfiguration_error()) -> {io:format(), [term()]}.
@@ -169,9 +375,9 @@ prepare_log_message({misconfiguration, {routing_candidate, Candidate}}) ->
 %%
 
 -spec gather_routes(route_predestination(), payment_institution(), varset(), revision(), gather_route_context()) ->
-    hg_routing_ctx:t().
+    result().
 gather_routes(_, #domain_PaymentInstitution{payment_routing_rules = undefined}, _, _, _) ->
-    hg_routing_ctx:new([]);
+    new([]);
 gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, VS, Revision, Ctx) ->
     #domain_RoutingRules{
         policies = Policies,
@@ -183,14 +389,16 @@ gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules =
             collect_routes(Predestination, Candidates, VS, Revision, Ctx),
             get_table_prohibitions(Prohibitions, VS, Revision)
         ),
-        lists:foldr(
-            fun(R, C) -> hg_routing_ctx:reject(forbidden, R, C) end,
-            hg_routing_ctx:new(Accepted),
-            lists:reverse(RejectedRoutes)
+        with_guard(
+            lists:foldr(
+                fun(R, Acc) -> reject(forbidden, R, Acc) end,
+                new(Accepted),
+                lists:reverse(RejectedRoutes)
+            )
         )
     catch
         throw:{misconfiguration, _Reason} = Error ->
-            hg_routing_ctx:set_error(Error, hg_routing_ctx:new([]))
+            set_error(Error, new([]))
     end.
 
 get_table_prohibitions(Prohibitions, VS, Revision) ->
@@ -904,7 +1112,7 @@ pin_random_test() ->
                 {ST, _} ->
                     ShuffledRoute;
                 _ ->
-                    error({ShuffledRoute, Acc})
+                    erlang:error({ShuffledRoute, Acc})
             end
         end,
         undefined,
@@ -941,13 +1149,13 @@ diff_pin_test() ->
         {S, 0} when S > 400 ->
             true;
         SomethingElse ->
-            error({{i1, i2}, SomethingElse})
+            erlang:error({{i1, i2}, SomethingElse})
     end,
     case I3 of
         _ when I3 > 300 ->
             true;
         _ ->
-            error({i3, I3})
+            erlang:error({i3, I3})
     end.
 
 -spec pin_weight_test() -> _.
@@ -972,7 +1180,7 @@ pin_weight_test() ->
                 _ when ShuffledRoute1 == ?trm(1), ShuffledRoute2 == ?trm(2) ->
                     true;
                 _ ->
-                    error({ShuffledRoute1, ShuffledRoute2})
+                    erlang:error({ShuffledRoute1, ShuffledRoute2})
             end
         end,
         true,

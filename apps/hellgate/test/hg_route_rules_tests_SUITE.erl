@@ -675,7 +675,7 @@ ruleset_misconfig(_C) ->
     },
     ?assertMatch(
         {misconfiguration, {routing_decisions, {delegates, []}}},
-        hg_routing_ctx:error(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
+        hg_routing:get_error(hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx))
     ).
 
 -spec routes_selected_for_low_risk_score(config()) -> test_return().
@@ -1016,4 +1016,4 @@ maybe_set_risk_coverage(true, V) ->
     {value, V}.
 
 unwrap_routing_context(RoutingCtx) ->
-    {ok, {hg_routing_ctx:considered_candidates(RoutingCtx), hg_routing_ctx:rejected_routes(RoutingCtx)}}.
+    {ok, {hg_routing:considered_candidates(RoutingCtx), hg_routing:rejected_routes(RoutingCtx)}}.
