@@ -6,16 +6,10 @@
 -module(hg_otel_log_filter).
 
 -export([filter/2]).
--export([format_otp_report_utf8/1]).
 
 -spec filter(logger:log_event(), term()) -> logger:filter_return().
 filter(#{meta := Meta} = LogEvent, _FilterConfig) ->
-    case convert_otel_ids(Meta) of
-        Meta ->
-            LogEvent;
-        Meta1 ->
-            LogEvent#{meta => Meta1}
-    end.
+    LogEvent#{meta := convert_otel_ids(Meta)}.
 
 %% Конвертируем hex -> raw bytes только если формат hex (32/16 символов).
 %% OTLP LogRecord: trace_id=16 bytes, span_id=8 bytes.
@@ -29,22 +23,6 @@ convert_otel_ids(#{otel_trace_id := TraceIdHex, otel_span_id := SpanIdHex} = Met
     end;
 convert_otel_ids(Meta) ->
     Meta.
-
-%% logger:format_otp_report/1 возвращает chardata (часто list()),
-%% из-за чего downstream JSON может сериализовать body как массив байт.
-%% Явно приводим к UTF-8 binary(), чтобы body в OTel/Loki был строкой.
--spec format_otp_report_utf8(logger:report()) -> {unicode:chardata(), list()}.
-format_otp_report_utf8(Report) ->
-    Bin =
-        try logger:format_otp_report(Report) of
-            {Format, Args} ->
-                unicode:characters_to_binary(io_lib:format(Format, Args))
-        catch
-            _:_ ->
-                %% Не даём report_cb падать: fallback в печатное представление отчёта.
-                unicode:characters_to_binary(io_lib:format("~tp", [Report]))
-        end,
-    {"~ts", [Bin]}.
 
 hex_to_trace_id_bytes(Hex) when is_binary(Hex), byte_size(Hex) =:= 32 ->
     try
