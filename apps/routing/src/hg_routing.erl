@@ -14,7 +14,6 @@
 -export([gather_routes/5]).
 -export([resolve/1]).
 -export([rate_routes/1]).
--export([choose_route/1]).
 -export([choose_rated_route/1]).
 
 -export([get_payment_terms/3]).
@@ -214,8 +213,30 @@ filter_by_blacklist(Result, BlCtx) ->
 
 -spec choose_route_with_ctx(result()) -> result().
 choose_route_with_ctx(Result) ->
-    {ChosenRoute, ChoiceContext} = choose_prepared_route(candidates(Result)),
+    Candidates = candidates(Result),
+    {ChosenRoute, ChoiceContext} =
+        case maps:get(fail_rates, Result, undefined) of
+            undefined ->
+                choose_prepared_route(Candidates);
+            FailRates ->
+                RatedCandidates = filter_rated_routes_with_candidates(FailRates, Candidates),
+                choose_rated_route(RatedCandidates)
+        end,
     set_chosen(ChosenRoute, ChoiceContext, Result).
+
+filter_rated_routes_with_candidates(FailRates, Candidates) ->
+    lists:foldr(
+        fun({Route, _ProviderStatus} = FailRatedRoute, Acc) ->
+            case lists:any(fun(Candidate) -> hg_route:equal(Candidate, Route) end, Candidates) of
+                true ->
+                    [FailRatedRoute | Acc];
+                false ->
+                    Acc
+            end
+        end,
+        [],
+        FailRates
+    ).
 
 new(Candidates0) ->
     #{
@@ -520,11 +541,6 @@ map_conversion_status(_, Conversion) ->
 -spec rate_routes([hg_route:t()]) -> [fail_rated_route()].
 rate_routes(Routes) ->
     score_routes_with_fault_detector(Routes).
-
--spec choose_route([hg_route:t()]) -> {hg_route:t(), route_choice_context()}.
-choose_route(Routes) ->
-    PreparedRoutes = hg_route_balancer:fill(hg_route_fd:fill(Routes)),
-    choose_prepared_route(PreparedRoutes).
 
 choose_prepared_route([Route]) ->
     {Route, #{chosen_route => Route}};

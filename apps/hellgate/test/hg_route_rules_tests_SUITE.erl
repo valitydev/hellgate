@@ -718,11 +718,11 @@ choice_context_formats_ok(_C) ->
     Routes = [Route1, Route2, Route3],
 
     Revision = ?routing_with_fail_rate_domain_revision,
-    Result = {_, Context} = hg_routing:choose_route(Routes),
-    ?assertMatch(
-        {Route2, #{reject_reason := availability, preferable_route := Route3}},
-        Result
-    ),
+    {ChosenRoute, Context} = resolve_predefined_routes(Routes),
+    ?assert(hg_route:equal(Route2, ChosenRoute)),
+    ?assert(hg_route:equal(ChosenRoute, maps:get(chosen_route, Context))),
+    ?assertEqual(availability, maps:get(reject_reason, Context)),
+    ?assert(hg_route:equal(Route3, maps:get(preferable_route, Context))),
     ?assertMatch(
         #{
             reject_reason := availability,
@@ -788,8 +788,10 @@ do_gather_routes(Revision, ExpectedRouteTerminal, ExpectedRejectedRoutes) ->
 terminal_priority_for_shop(C) ->
     Route1 = hg_route:new(?prv(11), ?trm(11), 0, 10),
     Route2 = hg_route:new(?prv(12), ?trm(12), 0, 10),
-    ?assertMatch({Route1, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_1, C)),
-    ?assertMatch({Route2, _}, terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C)).
+    {ChosenRoute1, _} = terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_1, C),
+    ?assert(hg_route:equal(Route1, ChosenRoute1)),
+    {ChosenRoute2, _} = terminal_priority_for_shop(?shop_id_for_ruleset_w_priority_distribution_2, C),
+    ?assert(hg_route:equal(Route2, ChosenRoute2)).
 
 terminal_priority_for_shop(ShopID, _C) ->
     Currency = ?cur(<<"RUB">>),
@@ -813,7 +815,7 @@ terminal_priority_for_shop(ShopID, _C) ->
     {ok, {Routes, _RejectedRoutes}} = unwrap_routing_context(
         hg_routing:gather_routes(payment, PaymentInstitution, VS, Revision, Ctx)
     ),
-    hg_routing:choose_route(Routes).
+    resolve_predefined_routes(Routes).
 
 -spec gather_pinned_route(config()) -> test_return().
 gather_pinned_route(_C) ->
@@ -859,18 +861,16 @@ choose_route_w_override(_C) ->
     Route2 = hg_route:new(?prv(2), ?trm(2)),
     Route3 = hg_route:new(?prv(3), ?trm(3)),
     Routes = [Route1, Route2, Route3],
-    {
-        Route2,
-        #{
-            preferable_route := Route3,
-            reject_reason := availability
-        }
-    } = hg_routing:choose_route(Routes),
+    {ChosenRoute, ChoiceContext} = resolve_predefined_routes(Routes),
+    ?assert(hg_route:equal(Route2, ChosenRoute)),
+    ?assert(hg_route:equal(Route3, maps:get(preferable_route, ChoiceContext))),
+    ?assertEqual(availability, maps:get(reject_reason, ChoiceContext)),
 
     %% with overrides
     Route3WithOV = hg_route:new(?prv(3), ?trm(3), 0, 1000, #{}, #domain_RouteFaultDetectorOverrides{enabled = true}),
     RoutesWithOV = [Route1, Route2, Route3WithOV],
-    {Route3WithOV, _} = hg_routing:choose_route(RoutesWithOV).
+    {ChosenRouteWithOV, _} = resolve_predefined_routes(RoutesWithOV),
+    ?assert(hg_route:equal(Route3WithOV, ChosenRouteWithOV)).
 
 -spec recurrent_payment_skip_recurrent_terms(config()) -> test_return().
 recurrent_payment_skip_recurrent_terms(_C) ->
@@ -1017,3 +1017,7 @@ maybe_set_risk_coverage(true, V) ->
 
 unwrap_routing_context(RoutingCtx) ->
     {ok, {hg_routing:considered_candidates(RoutingCtx), hg_routing:rejected_routes(RoutingCtx)}}.
+
+resolve_predefined_routes(Routes) ->
+    Routing = hg_routing:resolve(#{predefined_routes => Routes}),
+    {hg_routing:chosen_route(Routing), hg_routing:choice_meta(Routing)}.
