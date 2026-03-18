@@ -9,6 +9,8 @@
 -include_lib("fault_detector_proto/include/fd_proto_fault_detector_thrift.hrl").
 -include_lib("hellgate/include/domain.hrl").
 
+-export([get_routes/1]).
+-export([filter_routes/2]).
 -export([gather_routes/5]).
 -export([resolve/1]).
 -export([rate_routes/1]).
@@ -43,14 +45,20 @@
 -type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
 -type route_predestination() :: payment | recurrent_payment.
+-type get_route_params() :: #{
+    predestination := route_predestination(),
+    revision := revision(),
+    varset := varset(),
+    payment_institution := payment_institution(),
+    pin_context := gather_route_context(),
+    blacklist_context => hg_route_collector:blacklist_context()
+}.
 
 -define(rejected(Reason), {rejected, Reason}).
 
 -define(fd_overrides(Enabled), #domain_RouteFaultDetectorOverrides{enabled = Enabled}).
 
 -define(ZERO, 0).
-
--type fd_service_stats() :: fd_proto_fault_detector_thrift:'ServiceStatistics'().
 
 -type terminal_priority_rating() :: integer().
 
@@ -116,6 +124,7 @@
 }.
 
 -export_type([route_predestination/0]).
+-export_type([get_route_params/0]).
 -export_type([route_choice_context/0]).
 -export_type([fail_rated_route/0]).
 -export_type([blacklisted_route/0]).
@@ -125,6 +134,18 @@
 -export_type([result/0]).
 
 %%
+
+-spec get_routes(get_route_params()) -> [hg_route:t()].
+get_routes(Params) ->
+    Routes0 = get_base_routes(Params),
+    Routes1 = maybe_fill_blacklist(maps:get(blacklist_context, Params, undefined), Routes0),
+    Routes2 = hg_route_fd:fill(Routes1),
+    hg_route_balancer:fill(Routes2).
+
+-spec filter_routes([hg_route:t()], [fun(([hg_route:t()]) -> [hg_route:t()])]) -> [hg_route:t()].
+filter_routes(Routes0, WithFilterFuns) ->
+    Routes1 = filter_flagged_routes(Routes0, [{accepted, false}, {prohibit, true}, {blacklisted, 1}]),
+    lists:foldr(fun(Fun, Routes) -> Fun(Routes) end, Routes1, WithFilterFuns).
 
 -spec resolve(map()) -> result().
 resolve(Params) ->
@@ -153,10 +174,10 @@ resolve(Params) ->
 
 -spec filter_by_critical_provider_status(result()) -> result().
 filter_by_critical_provider_status(Result0) ->
-    RoutesFailRates = rate_routes(candidates(Result0)),
-    RouteScores = score_routes_map(RoutesFailRates),
-    Result1 = stash_route_scores(RouteScores, Result0),
-    lists:foldr(
+    RoutesFailRates0 = rate_routes(candidates(Result0)),
+    RouteScores0 = score_routes_map(RoutesFailRates0),
+    Result1 = with_fail_rates(RoutesFailRates0, stash_route_scores(RouteScores0, Result0)),
+    Result2 = lists:foldr(
         fun
             ({R, {{dead, _} = AvailabilityStatus, _ConversionStatus}}, Acc) ->
                 RejectedRoute = hg_route:to_rejected_route(R, {'ProviderDead', AvailabilityStatus}),
@@ -164,52 +185,37 @@ filter_by_critical_provider_status(Result0) ->
             ({_R, _ProviderStatus}, Acc) ->
                 Acc
         end,
-        with_fail_rates(RoutesFailRates, Result1),
-        RoutesFailRates
-    ).
+        Result1,
+        RoutesFailRates0
+    ),
+    BalancedRoutes = hg_route_balancer:fill(candidates(Result2)),
+    RouteScores1 = routes_scores_map(BalancedRoutes),
+    set_candidates(BalancedRoutes, stash_route_scores(RouteScores1, Result2)).
 
 -spec filter_by_blacklist(result(), hg_inspector:blacklist_context()) -> result().
 filter_by_blacklist(Result, undefined) ->
     Result;
 filter_by_blacklist(Result, BlCtx) ->
-    BlacklistedRoutes = check_routes(candidates(Result), BlCtx),
+    Routes = hg_route_collector:fill_blacklist(BlCtx, candidates(Result)),
+    Result1 = set_candidates(Routes, Result),
     lists:foldr(
-        fun
-            ({R, true = Status}, Acc) ->
-                RejectedRoute = hg_route:to_rejected_route(R, {'InBlackList', Status}),
-                Score = (hg_route:score(R))#domain_PaymentRouteScores{blacklist_condition = 1},
-                stash_route_scores(#{hg_route:to_payment_route(R) => Score}, reject(in_blacklist, RejectedRoute, Acc));
-            ({_R, _Status}, Acc) ->
-                Acc
+        fun(Route, Acc) ->
+            case hg_route:blacklisted(Route) of
+                1 ->
+                    RejectedRoute = hg_route:to_rejected_route(Route, {'InBlackList', true}),
+                    stash_route_scores(routes_scores_map([Route]), reject(in_blacklist, RejectedRoute, Acc));
+                _ ->
+                    Acc
+            end
         end,
-        Result,
-        BlacklistedRoutes
+        Result1,
+        Routes
     ).
 
 -spec choose_route_with_ctx(result()) -> result().
 choose_route_with_ctx(Result) ->
-    Routes = candidates(Result),
-    {ChosenRoute, ChoiceContext} =
-        case maps:get(fail_rates, Result, undefined) of
-            undefined ->
-                choose_route(Routes);
-            FailRates ->
-                RatedCandidates = filter_rated_routes_with_candidates(FailRates, Routes),
-                choose_rated_route(RatedCandidates)
-        end,
+    {ChosenRoute, ChoiceContext} = choose_prepared_route(candidates(Result)),
     set_chosen(ChosenRoute, ChoiceContext, Result).
-
-filter_rated_routes_with_candidates(FailRates, Candidates) ->
-    lists:foldr(
-        fun({R, _PS} = FR, Res) ->
-            case lists:any(fun(CR) -> hg_route:equal(CR, R) end, Candidates) of
-                true -> [FR | Res];
-                _Else -> Res
-            end
-        end,
-        [],
-        FailRates
-    ).
 
 new(Candidates0) ->
     #{
@@ -235,6 +241,9 @@ build_initial_result(#{
 
 with_fail_rates(FailRates, Result) ->
     Result#{fail_rates => FailRates}.
+
+set_candidates(Candidates, Result) ->
+    Result#{candidates => Candidates}.
 
 set_chosen(Route, ChoiceMeta, Result) ->
     Result#{chosen_route => Route, choice_meta => ChoiceMeta}.
@@ -360,7 +369,7 @@ apply_blacklist(BlacklistContext, Result) ->
 
 process_result(Result, Fun) ->
     case get_error(Result) of
-        undefined -> Fun(Result);
+        undefined -> with_guard(Fun(Result));
         _ -> Result
     end.
 
@@ -378,149 +387,135 @@ prepare_log_message({misconfiguration, {routing_candidate, Candidate}}) ->
     result().
 gather_routes(_, #domain_PaymentInstitution{payment_routing_rules = undefined}, _, _, _) ->
     new([]);
-gather_routes(Predestination, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, VS, Revision, Ctx) ->
-    #domain_RoutingRules{
-        policies = Policies,
-        prohibitions = Prohibitions
-    } = RoutingRules,
+gather_routes(Predestination, PaymentInstitution, VS, Revision, PinCtx) ->
     try
-        Candidates = get_candidates(Policies, VS, Revision),
-        {Accepted, RejectedRoutes} = filter_routes(
-            collect_routes(Predestination, Candidates, VS, Revision, Ctx),
-            get_table_prohibitions(Prohibitions, VS, Revision)
-        ),
-        with_guard(
-            lists:foldr(
-                fun(R, Acc) -> reject(forbidden, R, Acc) end,
-                new(Accepted),
-                lists:reverse(RejectedRoutes)
-            )
-        )
+        Routes = get_base_routes(#{
+            predestination => Predestination,
+            payment_institution => PaymentInstitution,
+            varset => VS,
+            revision => Revision,
+            pin_context => PinCtx
+        }),
+        with_guard(build_result_from_base_routes(Routes))
     catch
         throw:{misconfiguration, _Reason} = Error ->
             set_error(Error, new([]))
     end.
 
-get_table_prohibitions(Prohibitions, VS, Revision) ->
-    RuleSetDeny = compute_rule_set(Prohibitions, VS, Revision),
-    lists:foldr(
-        fun(#domain_RoutingCandidate{terminal = K, description = V}, AccIn) ->
-            AccIn#{K => V}
-        end,
-        #{},
-        get_decisions_candidates(RuleSetDeny)
-    ).
+-spec get_base_routes(get_route_params()) -> [hg_route:t()].
+get_base_routes(#{
+    predestination := Predestination,
+    payment_institution := PaymentInstitution,
+    varset := VS,
+    revision := Revision,
+    pin_context := PinCtx
+}) ->
+    Routes0 = hg_route_collector:get_routes(Revision, VS, PaymentInstitution, PinCtx),
+    Routes1 = hg_route_collector:fill_accepted(Predestination, Revision, VS, Routes0),
+    Routes2 = hg_route_collector:fill_prohibition(Revision, VS, PaymentInstitution, Routes1),
+    hg_route_collector:fill_fd_overrides(Revision, Routes2).
 
-get_candidates(RoutingRule, VS, Revision) ->
-    get_decisions_candidates(
-        compute_rule_set(RoutingRule, VS, Revision)
-    ).
+maybe_fill_blacklist(undefined, Routes) ->
+    Routes;
+maybe_fill_blacklist(BlacklistContext, Routes) ->
+    hg_route_collector:fill_blacklist(BlacklistContext, Routes).
 
-get_decisions_candidates(#domain_RoutingRuleset{decisions = Decisions}) ->
-    case Decisions of
-        {delegates, _Delegates} ->
-            throw({misconfiguration, {routing_decisions, Decisions}});
-        {candidates, Candidates} ->
-            ok = validate_decisions_candidates(Candidates),
-            Candidates
-    end.
-
-validate_decisions_candidates([]) ->
-    ok;
-validate_decisions_candidates([#domain_RoutingCandidate{allowed = {constant, true}} | Rest]) ->
-    validate_decisions_candidates(Rest);
-validate_decisions_candidates([Candidate | _]) ->
-    throw({misconfiguration, {routing_candidate, Candidate}}).
-
-collect_routes(Predestination, Candidates, VS, Revision, Ctx) ->
-    lists:foldr(
-        fun(Candidate, {Accepted, Rejected}) ->
-            #domain_RoutingCandidate{
-                terminal = TerminalRef,
-                priority = Priority,
-                weight = Weight,
-                pin = Pin
-            } = Candidate,
-            {ProviderRef, FdOverrides} = get_provider_fd_overrides(Revision, TerminalRef),
-            GatheredPinInfo = gather_pin_info(Pin, Ctx),
-            try
-                true = acceptable_terminal(Predestination, ProviderRef, TerminalRef, VS, Revision),
-                Route = hg_route:new(ProviderRef, TerminalRef, Weight, Priority, GatheredPinInfo, FdOverrides),
-                {[Route | Accepted], Rejected}
-            catch
-                {rejected, Reason} ->
-                    {Accepted, [{ProviderRef, TerminalRef, Reason} | Rejected]};
-                error:{misconfiguration, Reason} ->
-                    {Accepted, [{ProviderRef, TerminalRef, {'Misconfiguration', Reason}} | Rejected]}
-            end
-        end,
-        {[], []},
-        Candidates
-    ).
-
-get_provider_fd_overrides(Revision, TerminalRef) ->
-    % Looks like overhead, we got Terminal only for provider_ref. Maybe
-    % we can remove provider_ref from hg_route:t().
-    % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
-    #domain_Terminal{provider_ref = ProviderRef, route_fd_overrides = TrmFdOverrides} =
-        hg_domain:get(Revision, {terminal, TerminalRef}),
-    #domain_Provider{route_fd_overrides = PrvFdOverrides} =
-        hg_domain:get(Revision, {provider, ProviderRef}),
-    %% TODO Consider moving this logic to party-management before (or after)
-    %%      internal route structure refactoring.
-    {ProviderRef, merge_fd_overrides(PrvFdOverrides, TrmFdOverrides)}.
-
-merge_fd_overrides(_A, B = ?fd_overrides(Enabled)) when Enabled =/= undefined ->
-    B;
-merge_fd_overrides(A = ?fd_overrides(Enabled), _B) when Enabled =/= undefined ->
-    A;
-merge_fd_overrides(_A, _B) ->
-    ?fd_overrides(undefined).
-
-gather_pin_info(undefined, _Ctx) ->
-    #{};
-gather_pin_info(#domain_RoutingPin{features = Features}, Ctx) ->
-    FeaturesList = ordsets:to_list(Features),
+build_result_from_base_routes(Routes) ->
     lists:foldl(
-        fun(Feature, Acc) ->
-            Acc#{Feature => maps:get(Feature, Ctx, undefined)}
-        end,
-        #{},
-        FeaturesList
-    ).
-
-filter_routes({Routes, Rejected}, Prohibitions) ->
-    lists:foldr(
-        fun(Route, {AccIn, RejectedIn}) ->
-            TRef = hg_route:terminal_ref(Route),
-            case maps:find(TRef, Prohibitions) of
-                error ->
-                    {[Route | AccIn], RejectedIn};
-                {ok, Description} ->
-                    RejectedOut = [hg_route:to_rejected_route(Route, {'RoutingRule', Description}) | RejectedIn],
-                    {AccIn, RejectedOut}
+        fun(Route, ResultAcc) ->
+            case route_filter_rejection(Route) of
+                undefined ->
+                    append_candidate(Route, ResultAcc);
+                RejectedRoute ->
+                    reject(forbidden, RejectedRoute, ResultAcc)
             end
         end,
-        {[], Rejected},
+        new([]),
         Routes
     ).
 
-compute_rule_set(RuleSetRef, VS, Revision) ->
-    Ctx = hg_context:load(),
-    {ok, RuleSet} = party_client_thrift:compute_routing_ruleset(
-        RuleSetRef,
-        Revision,
-        hg_varset:prepare_varset(VS),
-        hg_context:get_party_client(Ctx),
-        hg_context:get_party_client_context(Ctx)
-    ),
-    RuleSet.
+append_candidate(Route, #{initial_candidates := Initial, candidates := Candidates} = Result) ->
+    Result#{
+        initial_candidates := Initial ++ [Route],
+        candidates := Candidates ++ [Route]
+    }.
 
--spec check_routes([hg_route:t()], hg_inspector:blacklist_context()) -> [blacklisted_route()].
-check_routes([], _BlCtx) ->
-    [];
-check_routes(Routes, BlCtx) ->
-    [{R, hg_inspector:check_blacklist(BlCtx#{route => R})} || R <- Routes].
+route_filter_rejection(Route) ->
+    RouteData = hg_route:route_data(Route),
+    case maps:get(accepted, RouteData, true) of
+        false ->
+            hg_route:to_rejected_route(Route, {'RoutingRule', undefined});
+        {false, {rejected, Reason}} ->
+            hg_route:to_rejected_route(Route, Reason);
+        {false, {misconfiguration, Reason}} ->
+            hg_route:to_rejected_route(Route, {'Misconfiguration', Reason});
+        {false, Reason} ->
+            hg_route:to_rejected_route(Route, Reason);
+        _ ->
+            route_prohibit_rejection(Route, RouteData)
+    end.
+
+route_prohibit_rejection(Route, RouteData) ->
+    case maps:get(prohibit, RouteData, false) of
+        true ->
+            hg_route:to_rejected_route(Route, {'RoutingRule', undefined});
+        {true, Description} ->
+            hg_route:to_rejected_route(Route, {'RoutingRule', Description});
+        _ ->
+            undefined
+    end.
+
+filter_flagged_routes(Routes, Keys) ->
+    lists:filter(
+        fun(Route) ->
+            RouteData = hg_route:route_data(Route),
+            not lists:any(
+                fun({Key, Value}) ->
+                    route_data_matches(maps:get(Key, RouteData, undefined), Value)
+                end,
+                Keys
+            )
+        end,
+        Routes
+    ).
+
+route_data_matches(Value, Expected) when Value =:= Expected ->
+    true;
+route_data_matches({Expected, _}, Expected) ->
+    true;
+route_data_matches(_, _) ->
+    false.
+
+routes_scores_map(Routes) ->
+    lists:foldr(
+        fun(Route, Acc) ->
+            Acc#{hg_route:to_payment_route(Route) => hg_route:score(Route)}
+        end,
+        #{},
+        Routes
+    ).
+
+route_provider_status(Route) ->
+    #{
+        availability_condition := AvailabilityCondition,
+        availability := Availability,
+        conversion_condition := ConversionCondition,
+        conversion := Conversion
+    } = hg_route:fd_score(Route),
+    {
+        map_availability_status(AvailabilityCondition, Availability),
+        map_conversion_status(ConversionCondition, Conversion)
+    }.
+
+map_availability_status(0, Availability) ->
+    {dead, 1.0 - Availability};
+map_availability_status(_, Availability) ->
+    {alive, 1.0 - Availability}.
+
+map_conversion_status(0, Conversion) ->
+    {lacking, 1.0 - Conversion};
+map_conversion_status(_, Conversion) ->
+    {normal, 1.0 - Conversion}.
 
 -spec rate_routes([hg_route:t()]) -> [fail_rated_route()].
 rate_routes(Routes) ->
@@ -528,8 +523,14 @@ rate_routes(Routes) ->
 
 -spec choose_route([hg_route:t()]) -> {hg_route:t(), route_choice_context()}.
 choose_route(Routes) ->
-    FailRatedRoutes = rate_routes(Routes),
-    choose_rated_route(FailRatedRoutes).
+    PreparedRoutes = hg_route_balancer:fill(hg_route_fd:fill(Routes)),
+    choose_prepared_route(PreparedRoutes).
+
+choose_prepared_route([Route]) ->
+    {Route, #{chosen_route => Route}};
+choose_prepared_route([First | Rest]) ->
+    {ChosenRoute, IdealRoute} = find_best_prepared_routes(Rest, {First, First}),
+    {ChosenRoute, get_prepared_route_choice_context(ChosenRoute, IdealRoute)}.
 
 -spec choose_rated_route([fail_rated_route()]) -> {hg_route:t(), route_choice_context()}.
 choose_rated_route(FailRatedRoutes) ->
@@ -539,6 +540,76 @@ choose_rated_route(FailRatedRoutes) ->
     RouteChoiceContext = get_route_choice_context(ChosenScoredRoute, IdealRoute),
     {_, Route} = ChosenScoredRoute,
     {Route, RouteChoiceContext}.
+
+find_best_prepared_routes([], Routes) ->
+    Routes;
+find_best_prepared_routes([RouteIn | Rest], {CurrentChosen, CurrentIdeal}) ->
+    NewIdeal = select_better_prepared_route_ideal(RouteIn, CurrentIdeal),
+    NewChosen = select_better_prepared_route(RouteIn, CurrentChosen),
+    find_best_prepared_routes(Rest, {NewChosen, NewIdeal}).
+
+select_better_prepared_route_ideal(Left, Right) ->
+    IdealLeft = set_ideal_route_score(Left),
+    IdealRight = set_ideal_route_score(Right),
+    case select_better_prepared_route(IdealLeft, IdealRight) of
+        IdealLeft -> Left;
+        IdealRight -> Right
+    end.
+
+set_ideal_route_score(Route0) ->
+    Route1 = hg_route:set_availability(1, 1.0, Route0),
+    hg_route:set_conversion(1, 1.0, Route1).
+
+select_better_prepared_route(Left, Right) ->
+    LeftPin = hg_route:pin_hash(Left),
+    RightPin = hg_route:pin_hash(Right),
+    case {LeftPin, RightPin} of
+        _ when LeftPin /= ?ZERO, RightPin /= ?ZERO, RightPin =:= LeftPin ->
+            select_better_prepared_pinned_route(Left, Right);
+        _ ->
+            select_better_prepared_regular_route(Left, Right)
+    end.
+
+select_better_prepared_pinned_route(Left, Right) ->
+    LeftScore = (hg_route:score(Left))#domain_PaymentRouteScores{
+        random_condition = 0,
+        route_pin = erlang:phash2({
+            hg_route:pin_hash(Left),
+            hg_route:provider_ref(Left),
+            hg_route:terminal_ref(Left)
+        })
+    },
+    RightScore = (hg_route:score(Right))#domain_PaymentRouteScores{
+        random_condition = 0,
+        route_pin = erlang:phash2({
+            hg_route:pin_hash(Right),
+            hg_route:provider_ref(Right),
+            hg_route:terminal_ref(Right)
+        })
+    },
+    case max(LeftScore, RightScore) of
+        LeftScore -> Left;
+        RightScore -> Right
+    end.
+
+select_better_prepared_regular_route(Left, Right) ->
+    LeftScore = (hg_route:score(Left))#domain_PaymentRouteScores{route_pin = 0},
+    RightScore = (hg_route:score(Right))#domain_PaymentRouteScores{route_pin = 0},
+    case max({LeftScore, Left}, {RightScore, Right}) of
+        {LeftScore, Left} -> Left;
+        {RightScore, Right} -> Right
+    end.
+
+get_prepared_route_choice_context(SameRoute, SameRoute) ->
+    #{
+        chosen_route => SameRoute
+    };
+get_prepared_route_choice_context(ChosenRoute, IdealRoute) ->
+    #{
+        chosen_route => ChosenRoute,
+        preferable_route => IdealRoute,
+        reject_reason => map_route_switch_reason(hg_route:score(ChosenRoute), hg_route:score(IdealRoute))
+    }.
 
 -spec find_best_routes([scored_route()]) -> {Chosen :: scored_route(), Ideal :: scored_route()}.
 find_best_routes([Route]) ->
@@ -787,64 +858,8 @@ get_conversion_score({lacking, FailRate}) -> {0, 1.0 - FailRate}.
 score_routes_with_fault_detector([]) ->
     [];
 score_routes_with_fault_detector(Routes) ->
-    IDs = build_ids(Routes),
-    FDStats = hg_fault_detector_client:get_statistics(IDs),
-    [{R, get_provider_status(R, FDStats)} || R <- Routes].
-
--spec get_provider_status(hg_route:t(), [fd_service_stats()]) -> provider_status().
-get_provider_status(Route, FDStats) ->
-    ProviderRef = hg_route:provider_ref(Route),
-    FdOverrides = hg_route:fd_overrides(Route),
-    AvailabilityServiceID = build_fd_availability_service_id(ProviderRef),
-    ConversionServiceID = build_fd_conversion_service_id(ProviderRef),
-    AvailabilityStatus = get_adapter_availability_status(FdOverrides, AvailabilityServiceID, FDStats),
-    ConversionStatus = get_provider_conversion_status(FdOverrides, ConversionServiceID, FDStats),
-    {AvailabilityStatus, ConversionStatus}.
-
-get_adapter_availability_status(?fd_overrides(true), _FDID, _Stats) ->
-    %% ignore fd statistic if set override
-    {alive, 0.0};
-get_adapter_availability_status(_, FDID, Stats) ->
-    AvailabilityConfig = maps:get(availability, genlib_app:env(hellgate, fault_detector, #{}), #{}),
-    CriticalFailRate = maps:get(critical_fail_rate, AvailabilityConfig, 0.7),
-    case lists:keysearch(FDID, #fault_detector_ServiceStatistics.service_id, Stats) of
-        {value, #fault_detector_ServiceStatistics{failure_rate = FailRate}} when FailRate >= CriticalFailRate ->
-            {dead, FailRate};
-        {value, #fault_detector_ServiceStatistics{failure_rate = FailRate}} ->
-            {alive, FailRate};
-        false ->
-            {alive, 0.0}
-    end.
-
-get_provider_conversion_status(?fd_overrides(true), _FDID, _Stats) ->
-    %% ignore fd statistic if set override
-    {normal, 0.0};
-get_provider_conversion_status(_, FDID, Stats) ->
-    ConversionConfig = maps:get(conversion, genlib_app:env(hellgate, fault_detector, #{}), #{}),
-    CriticalFailRate = maps:get(critical_fail_rate, ConversionConfig, 0.7),
-    case lists:keysearch(FDID, #fault_detector_ServiceStatistics.service_id, Stats) of
-        {value, #fault_detector_ServiceStatistics{failure_rate = FailRate}} when FailRate >= CriticalFailRate ->
-            {lacking, FailRate};
-        {value, #fault_detector_ServiceStatistics{failure_rate = FailRate}} ->
-            {normal, FailRate};
-        false ->
-            {normal, 0.0}
-    end.
-
-build_ids(Routes) ->
-    lists:foldl(fun build_fd_ids/2, [], Routes).
-
-build_fd_ids(Route, IDs) ->
-    ProviderRef = hg_route:provider_ref(Route),
-    AvailabilityID = build_fd_availability_service_id(ProviderRef),
-    ConversionID = build_fd_conversion_service_id(ProviderRef),
-    [AvailabilityID, ConversionID | IDs].
-
-build_fd_availability_service_id(#domain_ProviderRef{id = ID}) ->
-    hg_fault_detector_client:build_service_id(adapter_availability, ID).
-
-build_fd_conversion_service_id(#domain_ProviderRef{id = ID}) ->
-    hg_fault_detector_client:build_service_id(provider_conversion, ID).
+    PreparedRoutes = hg_route_fd:fill(Routes),
+    [{Route, route_provider_status(Route)} || Route <- PreparedRoutes].
 
 -spec get_payment_terms(hg_route:payment_route(), varset(), revision()) -> payment_terms() | undefined.
 get_payment_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
@@ -874,192 +889,25 @@ get_provision_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
     ),
     TermsSet.
 
--spec acceptable_terminal(
-    route_predestination(),
-    hg_route:provider_ref(),
-    hg_route:terminal_ref(),
-    varset(),
-    revision()
-) -> true | no_return().
-acceptable_terminal(Predestination, ProviderRef, TerminalRef, VS, Revision) ->
-    {Client, Context} = get_party_client(),
-    Result = party_client_thrift:compute_provider_terminal_terms(
-        ProviderRef,
-        TerminalRef,
-        Revision,
-        hg_varset:prepare_varset(VS),
-        Client,
-        Context
-    ),
-    case Result of
-        {ok, ProvisionTermSet} ->
-            check_terms_acceptability(Predestination, ProvisionTermSet, VS);
-        {error, #payproc_ProvisionTermSetUndefined{}} ->
-            throw(?rejected({'ProvisionTermSet', undefined}))
-    end.
-
-%%
-
 get_party_client() ->
     HgContext = hg_context:load(),
     Client = hg_context:get_party_client(HgContext),
     Context = hg_context:get_party_client_context(HgContext),
     {Client, Context}.
 
-check_terms_acceptability(payment, Terms, VS) ->
-    acceptable_payment_terms(Terms#domain_ProvisionTermSet.payments, VS);
-check_terms_acceptability(recurrent_payment, Terms, VS) ->
-    _ = acceptable_payment_terms(Terms#domain_ProvisionTermSet.payments, VS),
-    case Terms#domain_ProvisionTermSet.extension of
-        #domain_ExtendedProvisionTerms{skip_recurrent = true} ->
-            true;
-        _ ->
-            acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS)
-    end.
-
-acceptable_payment_terms(
-    #domain_PaymentsProvisionTerms{
-        allow = Allow,
-        global_allow = GlobalAllow,
-        currencies = CurrenciesSelector,
-        categories = CategoriesSelector,
-        payment_methods = PMsSelector,
-        cash_limit = CashLimitSelector,
-        holds = HoldsTerms,
-        refunds = RefundsTerms,
-        risk_coverage = RiskCoverageSelector
-    },
-    VS
-) ->
-    % TODO varsets getting mixed up
-    %      it seems better to pass down here hierarchy of contexts w/ appropriate module accessors
-    ParentName = 'PaymentsProvisionTerms',
-    _ = acceptable_allow(ParentName, global_allow, GlobalAllow),
-    _ = acceptable_allow(ParentName, allow, Allow),
-    _ = try_accept_term(ParentName, currency, getv(currency, VS), CurrenciesSelector),
-    _ = try_accept_term(ParentName, category, getv(category, VS), CategoriesSelector),
-    _ = try_accept_term(ParentName, payment_tool, getv(payment_tool, VS), PMsSelector),
-    _ = try_accept_term(ParentName, cost, getv(cost, VS), CashLimitSelector),
-    _ = acceptable_holds_terms(HoldsTerms, getv(flow, VS, undefined)),
-    _ = acceptable_refunds_terms(RefundsTerms, getv(refunds, VS, undefined)),
-    _ = acceptable_risk(ParentName, RiskCoverageSelector, VS),
-    %% TODO Check chargeback terms when there will be any
-    %% _ = acceptable_chargeback_terms(...)
-    true;
-acceptable_payment_terms(undefined, _VS) ->
-    throw(?rejected({'PaymentsProvisionTerms', undefined})).
-
-acceptable_holds_terms(_Terms, undefined) ->
-    true;
-acceptable_holds_terms(_Terms, instant) ->
-    true;
-acceptable_holds_terms(Terms, {hold, Lifetime}) ->
-    case Terms of
-        #domain_PaymentHoldsProvisionTerms{lifetime = LifetimeSelector} ->
-            _ = try_accept_term('PaymentHoldsProvisionTerms', lifetime, Lifetime, LifetimeSelector),
-            true;
-        undefined ->
-            throw(?rejected({'PaymentHoldsProvisionTerms', undefined}))
-    end.
-
-acceptable_risk(_ParentName, undefined, _VS) ->
-    true;
-acceptable_risk(ParentName, Selector, VS) ->
-    RiskCoverage = get_selector_value(risk_coverage, Selector),
-    RiskScore = getv(risk_score, VS),
-    hg_inspector:compare_risk_score(RiskCoverage, RiskScore) >= 0 orelse
-        throw(?rejected({ParentName, risk_coverage})).
-
-acceptable_refunds_terms(_Terms, undefined) ->
-    true;
-acceptable_refunds_terms(
-    #domain_PaymentRefundsProvisionTerms{
-        partial_refunds = PartialRefundsTerms
-    },
-    RVS
-) ->
-    _ = acceptable_partial_refunds_terms(
-        PartialRefundsTerms,
-        getv(partial, RVS, undefined)
-    ),
-    true;
-acceptable_refunds_terms(undefined, _RVS) ->
-    throw(?rejected({'PaymentRefundsProvisionTerms', undefined})).
-
-acceptable_partial_refunds_terms(_Terms, undefined) ->
-    true;
-acceptable_partial_refunds_terms(
-    #domain_PartialRefundsProvisionTerms{cash_limit = CashLimitSelector},
-    #{cash_limit := MerchantLimit}
-) ->
-    ProviderLimit = get_selector_value(cash_limit, CashLimitSelector),
-    hg_cash_range:is_subrange(MerchantLimit, ProviderLimit) == true orelse
-        throw(?rejected({'PartialRefundsProvisionTerms', cash_limit}));
-acceptable_partial_refunds_terms(undefined, _RVS) ->
-    throw(?rejected({'PartialRefundsProvisionTerms', undefined})).
-
-acceptable_allow(_ParentName, _Type, undefined) ->
-    true;
-acceptable_allow(_ParentName, _Type, {constant, true}) ->
-    true;
-acceptable_allow(ParentName, Type, {constant, false}) ->
-    throw(?rejected({ParentName, Type}));
-acceptable_allow(_ParentName, Type, Ambiguous) ->
-    erlang:error({misconfiguration, {'Could not reduce predicate to a value', {Type, Ambiguous}}}).
-
-%%
-
-acceptable_recurrent_paytool_terms(
-    #domain_RecurrentPaytoolsProvisionTerms{
-        categories = CategoriesSelector,
-        payment_methods = PMsSelector
-    },
-    VS
-) ->
-    _ = try_accept_term('RecurrentPaytoolsProvisionTerms', category, getv(category, VS), CategoriesSelector),
-    _ = try_accept_term('RecurrentPaytoolsProvisionTerms', payment_tool, getv(payment_tool, VS), PMsSelector),
-    true;
-acceptable_recurrent_paytool_terms(undefined, _VS) ->
-    throw(?rejected({'RecurrentPaytoolsProvisionTerms', undefined})).
-
-try_accept_term(ParentName, Name, _Value, undefined) ->
-    throw(?rejected({ParentName, Name}));
-try_accept_term(ParentName, Name, Value, Selector) ->
-    Values = get_selector_value(Name, Selector),
-    test_term(Name, Value, Values) orelse throw(?rejected({ParentName, Name})).
-
-test_term(currency, V, Vs) ->
-    ordsets:is_element(V, Vs);
-test_term(category, V, Vs) ->
-    ordsets:is_element(V, Vs);
-test_term(payment_tool, PT, PMs) ->
-    hg_payment_tool:has_any_payment_method(PT, PMs);
-test_term(cost, Cost, CashRange) ->
-    hg_cash_range:is_inside(Cost, CashRange) == within;
-test_term(lifetime, ?hold_lifetime(Lifetime), ?hold_lifetime(Allowed)) ->
-    Lifetime =< Allowed.
-
-%%
-
-get_selector_value(Name, Selector) ->
-    case Selector of
-        {value, V} ->
-            V;
-        Ambiguous ->
-            erlang:error({misconfiguration, {'Could not reduce selector to a value', {Name, Ambiguous}}})
-    end.
-
-getv(Name, VS) ->
-    maps:get(Name, VS).
-
-getv(Name, VS, Default) ->
-    maps:get(Name, VS, Default).
-
 %%
 
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
+
+-spec merge_fd_overrides(term(), term()) -> term().
+merge_fd_overrides(_A, B = ?fd_overrides(Enabled)) when Enabled =/= undefined ->
+    B;
+merge_fd_overrides(A = ?fd_overrides(Enabled), _B) when Enabled =/= undefined ->
+    A;
+merge_fd_overrides(_A, _B) ->
+    ?fd_overrides(undefined).
 
 -spec test() -> _.
 -type testcase() :: {_, fun(() -> _)}.
