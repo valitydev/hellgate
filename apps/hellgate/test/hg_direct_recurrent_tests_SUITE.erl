@@ -7,6 +7,8 @@
 -include("invoice_events.hrl").
 -include("payment_events.hrl").
 
+-include_lib("damsel/include/dmsl_customer_thrift.hrl").
+
 -export([init_per_suite/1]).
 -export([end_per_suite/1]).
 
@@ -27,6 +29,8 @@
 -export([not_permitted_recurrent_test/1]).
 -export([not_exists_invoice_test/1]).
 -export([not_exists_payment_test/1]).
+-export([customer_id_stored_test/1]).
+-export([cascade_tokens_filter_success_test/1]).
 
 %% Internal types
 
@@ -60,6 +64,7 @@ init([]) ->
 all() ->
     [
         {group, basic_operations},
+        {group, cascade_tokens},
         {group, domain_affecting_operations}
     ].
 
@@ -79,6 +84,10 @@ groups() ->
         ]},
         {domain_affecting_operations, [], [
             not_permitted_recurrent_test
+        ]},
+        {cascade_tokens, [], [
+            customer_id_stored_test,
+            cascade_tokens_filter_success_test
         ]}
     ].
 
@@ -151,6 +160,9 @@ end_per_group(_Name, _C) ->
 
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(Name, C) ->
+    init_per_testcase(default, Name, C).
+
+init_per_testcase(default, Name, C) ->
     TraceID = hg_ct_helper:make_trace_id(Name),
     ApiClient = hg_ct_helper:create_client(cfg(root_url, C)),
     Client = hg_client_invoicing:start_link(ApiClient),
@@ -395,6 +407,75 @@ construct_proxy(ID, Url, Options) ->
             options = Options
         }
     }}.
+
+%% Tests: cascade tokens
+
+-spec customer_id_stored_test(config()) -> test_result().
+customer_id_stored_test(C) ->
+    Client = cfg(client, C),
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    CustomerID = <<"test-customer-42">>,
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    BaseParams = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    Payment2Params = BaseParams#payproc_InvoicePaymentParams{customer_id = CustomerID},
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{customer_id = StoredCustomerID}
+    } = hg_client_invoicing:get_payment(Invoice2ID, Payment2ID, Client),
+    CustomerID = StoredCustomerID.
+
+-spec cascade_tokens_filter_success_test(config()) -> test_result().
+cascade_tokens_filter_success_test(C) ->
+    Client = cfg(client, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    %% Establish parent payment
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    %% Seed cubasty: create customer, link bank card + recurrent token, link parent payment
+    ok = hg_context:save(hg_context:create()),
+    {ok, #customer_Customer{id = CustID}} = hg_woody_wrapper:call(
+        customer_management,
+        'Create',
+        {#customer_CustomerParams{party_ref = PartyConfigRef}}
+    ),
+    {ok, #customer_BankCard{id = BankCardID}} = hg_woody_wrapper:call(
+        customer_management,
+        'AddBankCard',
+        {CustID, #customer_BankCardParams{bank_card_token = <<"test-cascade-visa-token">>}}
+    ),
+    {ok, _} = hg_woody_wrapper:call(
+        bank_card_storage,
+        'AddRecurrentToken',
+        {#customer_RecurrentTokenParams{
+            bank_card_id = BankCardID,
+            provider_ref = ?prv(1),
+            terminal_ref = ?trm(1),
+            token = <<"cascade-token-1">>
+        }}
+    ),
+    {ok, ok} = hg_woody_wrapper:call(
+        customer_management,
+        'AddPayment',
+        {CustID, Invoice1ID, Payment1ID}
+    ),
+    ok = hg_context:cleanup(),
+    %% Second recurrent payment: hellgate queries cubasty, gets token for ?prv(1)/?trm(1)
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [?payment_state(?payment_w_status(Payment2ID, ?captured()))]
+    ) = hg_client_invoicing:get(Invoice2ID, Client).
 
 make_payment_params(PmtSys) ->
     make_payment_params(true, undefined, PmtSys).

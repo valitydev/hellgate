@@ -20,6 +20,7 @@
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
+-include_lib("damsel/include/dmsl_customer_thrift.hrl").
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 
@@ -413,7 +414,8 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         make_recurrent = MakeRecurrent,
         context = Context,
         external_id = ExternalID,
-        processing_deadline = Deadline
+        processing_deadline = Deadline,
+        customer_id = CustomerID
     } = Params,
     Revision = hg_domain:head(),
     PartyConfigRef = get_party_config_ref(Opts),
@@ -438,10 +440,22 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         payer_session_info = PayerSessionInfo,
         context = Context,
         external_id = ExternalID,
-        processing_deadline = Deadline
+        processing_deadline = Deadline,
+        customer_id = CustomerID
     },
+    CascadeTokens =
+        case PayerParams of
+            {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(InvID, PmtID)}} ->
+                case hg_customer_client:get_cascade_tokens(InvID, PmtID) of
+                    T when map_size(T) > 0 -> T;
+                    _ -> undefined
+                end;
+            _ ->
+                undefined
+        end,
     Events = [?payment_started(Payment2)],
-    {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
+    InitSt = #st{activity = {payment, new}, cascade_recurrent_tokens = CascadeTokens},
+    {collapse_changes(Events, InitSt, #{}), {Events, hg_machine_action:instant()}}.
 
 get_merchant_payments_terms(Opts, Revision, _Timestamp, VS) ->
     Shop = get_shop(Opts, Revision),
@@ -1918,6 +1932,7 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
         Ctx0,
         [
             fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
+            fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end,
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
@@ -2020,6 +2035,29 @@ filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
         end,
         Ctx,
         AttemptedRoutes
+    ).
+
+filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = undefined}) ->
+    Ctx;
+filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = Tokens}) when map_size(Tokens) =:= 0 ->
+    Ctx;
+filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = Tokens}) ->
+    lists:foldl(
+        fun(Route, C) ->
+            Key = #customer_ProviderTerminalKey{
+                provider_ref = hg_route:provider_ref(Route),
+                terminal_ref = hg_route:terminal_ref(Route)
+            },
+            case maps:is_key(Key, Tokens) of
+                true ->
+                    C;
+                false ->
+                    RejectedRoute = hg_route:to_rejected_route(Route, {recurrent_token_missing, undefined}),
+                    hg_routing_ctx:reject(recurrent_token_missing, RejectedRoute, C)
+            end
+        end,
+        Ctx,
+        hg_routing_ctx:candidates(Ctx)
     ).
 
 handle_choose_route_error(Error, Events, St, Action) ->
@@ -2779,7 +2817,7 @@ construct_payment_info(St, Opts) ->
         #proxy_provider_PaymentInfo{
             shop = construct_proxy_shop(get_shop_obj(Opts, Revision)),
             invoice = construct_proxy_invoice(get_invoice(Opts)),
-            payment = construct_proxy_payment(Payment, get_trx(St))
+            payment = construct_proxy_payment(Payment, get_trx(St), St)
         }
     ).
 
@@ -2811,7 +2849,8 @@ construct_proxy_payment(
         skip_recurrent = SkipRecurrent,
         processing_deadline = Deadline
     },
-    Trx
+    Trx,
+    St
 ) ->
     ContactInfo = get_contact_info(Payer),
     PaymentTool = get_payer_payment_tool(Payer),
@@ -2819,7 +2858,7 @@ construct_proxy_payment(
         id = ID,
         created_at = CreatedAt,
         trx = Trx,
-        payment_resource = construct_payment_resource(Payer),
+        payment_resource = construct_payment_resource(Payer, St),
         payment_service = hg_payment_tool:get_payment_service(PaymentTool, Revision),
         payer_session_info = PayerSessionInfo,
         cost = construct_proxy_cash(Cost),
@@ -2829,9 +2868,23 @@ construct_proxy_payment(
         processing_deadline = Deadline
     }.
 
-construct_payment_resource(?payment_resource_payer(Resource, _)) ->
+construct_payment_resource(?payment_resource_payer(Resource, _), _St) ->
     {disposable_payment_resource, Resource};
-construct_payment_resource(?recurrent_payer(PaymentTool, ?recurrent_parent(InvoiceID, PaymentID), _)) ->
+construct_payment_resource(
+    ?recurrent_payer(PaymentTool, ?recurrent_parent(_InvoiceID, _PaymentID), _),
+    #st{cascade_recurrent_tokens = Tokens} = St
+) when Tokens =/= undefined ->
+    #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef} = get_route(St),
+    Key = #customer_ProviderTerminalKey{
+        provider_ref = ProviderRef,
+        terminal_ref = TerminalRef
+    },
+    RecToken = maps:get(Key, Tokens),
+    {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
+        payment_tool = PaymentTool,
+        rec_token = RecToken
+    }};
+construct_payment_resource(?recurrent_payer(PaymentTool, ?recurrent_parent(InvoiceID, PaymentID), _), _St) ->
     PreviousPayment = get_payment_state(InvoiceID, PaymentID),
     RecToken = get_recurrent_token(PreviousPayment),
     {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
