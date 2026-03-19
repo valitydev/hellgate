@@ -115,7 +115,7 @@ cleanup() ->
         customer,
         recurrent_paytools
     ],
-    lists:foreach(fun(NsID) -> progressor:cleanup(#{ns => NsID}) end, Namespaces).
+    lists:foreach(fun(NsID) -> prg_test_utils:cleanup(#{ns => NsID}) end, Namespaces).
 
 %-endif.
 
