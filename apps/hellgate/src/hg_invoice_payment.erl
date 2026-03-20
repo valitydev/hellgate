@@ -1955,13 +1955,13 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
         ]
     ).
 
-%% With cascade tokens: skip token filter (parent route forced on first attempt,
-%% fallback routes use parent's token on retries), keep all candidates for cascade viability.
-%% First attempt: force parent route. Retries: normal priority-based selection.
+%% First attempt with cascade tokens: skip token filter (parent route always has a token,
+%% and we need all candidates visible for cascade viability check), force parent route.
+%% Retries: filter by tokens (only routes with tokens are valid cascade targets), normal selection.
 cascade_pipeline_fns(#st{cascade_recurrent_tokens = Tokens, routes = []}) when Tokens =/= undefined ->
     {fun(Ctx) -> Ctx end, fun choose_parent_route/1};
-cascade_pipeline_fns(#st{cascade_recurrent_tokens = Tokens}) when Tokens =/= undefined ->
-    {fun(Ctx) -> Ctx end, fun hg_routing:choose_route_with_ctx/1};
+cascade_pipeline_fns(#st{cascade_recurrent_tokens = Tokens} = St) when Tokens =/= undefined ->
+    {fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end, fun hg_routing:choose_route_with_ctx/1};
 cascade_pipeline_fns(St) ->
     {fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end, fun hg_routing:choose_route_with_ctx/1}.
 
@@ -2947,7 +2947,7 @@ construct_proxy_payment(
 construct_payment_resource(?payment_resource_payer(Resource, _), _St) ->
     {disposable_payment_resource, Resource};
 construct_payment_resource(
-    ?recurrent_payer(PaymentTool, ?recurrent_parent(InvoiceID, PaymentID), _),
+    ?recurrent_payer(PaymentTool, ?recurrent_parent(_InvoiceID, _PaymentID), _),
     #st{cascade_recurrent_tokens = Tokens} = St
 ) when Tokens =/= undefined ->
     #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef} = get_route(St),
@@ -2955,11 +2955,7 @@ construct_payment_resource(
         provider_ref = ProviderRef,
         terminal_ref = TerminalRef
     },
-    RecToken =
-        case maps:find(Key, Tokens) of
-            {ok, T} -> T;
-            error -> get_recurrent_token(get_payment_state(InvoiceID, PaymentID))
-        end,
+    RecToken = maps:get(Key, Tokens),
     {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
         payment_tool = PaymentTool,
         rec_token = RecToken

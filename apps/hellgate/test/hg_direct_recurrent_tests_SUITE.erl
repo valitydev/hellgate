@@ -541,6 +541,15 @@ cascade_recurrent_payment_success_test(C) ->
         hg_customer_client:get_recurrent_tokens(Invoice1ID, Payment1ID),
     %% Step 2: Make ?prv(1) always fail, add ?prv(2)/?trm(2) as cascade fallback
     _ = hg_domain:upsert(construct_cascade_fixture()),
+    %% Step 3: Add cascade token for ?prv(2)/?trm(2) to existing bank card
+    [#customer_RecurrentToken{} = ParentToken] =
+        hg_customer_client:get_recurrent_tokens(Invoice1ID, Payment1ID),
+    hg_customer_client:save_recurrent_token(
+        CustomerID,
+        ParentToken#customer_RecurrentToken.token,
+        #domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)},
+        <<"cascade-token-prv2">>
+    ),
     %% Step 4: Parent route ?prv(1)/?trm(1) tried first (now fails), cascades to ?prv(2)/?trm(2)
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
