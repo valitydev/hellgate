@@ -445,35 +445,28 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         customer_id = InheritedCustomerID
     },
     CascadeTokenEvents =
-        case {InheritedCustomerID, PayerParams, VS0} of
-            {CID, {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(InvID, PmtID)}}, #{
-                    parent_payment := ParentSt
-                }} when CID =/= undefined ->
-                CubastyTokens = hg_customer_client:get_recurrent_tokens(InvID, PmtID),
-                ParentToken = make_parent_recurrent_token(ParentSt),
-                AllTokens = [ParentToken | CubastyTokens],
-                [?cascade_tokens_loaded(AllTokens)];
+        case {InheritedCustomerID, PayerParams} of
+            {CID, {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(InvID, PmtID)}}} when
+                CID =/= undefined
+            ->
+                case hg_customer_client:get_recurrent_tokens(InvID, PmtID) of
+                    [_ | _] = Tokens -> [?cascade_tokens_loaded(Tokens)];
+                    [] -> []
+                end;
             _ ->
                 []
         end,
     Events = [?payment_started(Payment2)] ++ CascadeTokenEvents,
     {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
 
-make_parent_recurrent_token(ParentSt) ->
-    #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef} = get_route(ParentSt),
-    RecToken = get_recurrent_token(ParentSt),
-    #domain_InvoicePayment{created_at = CreatedAt} = get_payment(ParentSt),
-    #customer_RecurrentToken{
-        id = <<"parent">>,
-        provider_ref = ProviderRef,
-        terminal_ref = TerminalRef,
-        token = RecToken,
-        created_at = CreatedAt,
-        status = {active, #customer_RecurrentTokenActive{}}
-    }.
-
 maybe_inherit_customer_id(undefined, #{parent_payment := ParentPayment}) ->
     (get_payment(ParentPayment))#domain_InvoicePayment.customer_id;
+maybe_inherit_customer_id(CustomerID, #{parent_payment := ParentPayment}) ->
+    case (get_payment(ParentPayment))#domain_InvoicePayment.customer_id of
+        CustomerID -> CustomerID;
+        undefined -> CustomerID;
+        _Other -> throw(#payproc_InvalidRecurrentParentPayment{details = <<"Customer ID mismatch with parent">>})
+    end;
 maybe_inherit_customer_id(CustomerID, _VS) ->
     CustomerID.
 
@@ -2965,11 +2958,8 @@ construct_payment_resource(
     },
     RecToken =
         case maps:find(Key, Tokens) of
-            {ok, T} ->
-                T;
-            error ->
-                %% Cascade route without pre-existing token — use parent's token
-                get_recurrent_token(get_payment_state(InvoiceID, PaymentID))
+            {ok, T} -> T;
+            error -> get_recurrent_token(get_payment_state(InvoiceID, PaymentID))
         end,
     {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
         payment_tool = PaymentTool,

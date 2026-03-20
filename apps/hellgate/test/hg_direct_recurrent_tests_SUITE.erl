@@ -34,6 +34,7 @@
 -export([customer_id_stored_no_parent_test/1]).
 -export([cascade_tokens_filter_success_test/1]).
 -export([cascade_recurrent_payment_success_test/1]).
+-export([different_customer_id_test/1]).
 
 %% Internal types
 
@@ -91,6 +92,7 @@ groups() ->
         {cascade_tokens, [], [
             customer_id_stored_test,
             customer_id_stored_no_parent_test,
+            different_customer_id_test,
             cascade_tokens_filter_success_test,
             cascade_recurrent_payment_success_test
         ]}
@@ -451,6 +453,27 @@ customer_id_stored_no_parent_test(C) ->
         payment = #domain_InvoicePayment{customer_id = StoredCustomerID}
     } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
     ?assertEqual(CustomerID, StoredCustomerID).
+
+-spec different_customer_id_test(config()) -> test_result().
+different_customer_id_test(C) ->
+    Client = cfg(client, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    %% Create two different customers
+    #customer_Customer{id = CustomerA} = hg_customer_client:create_customer(PartyConfigRef),
+    #customer_Customer{id = CustomerB} = hg_customer_client:create_customer(PartyConfigRef),
+    %% Parent payment with CustomerA
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1BaseParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    Payment1Params = Payment1BaseParams#payproc_InvoicePaymentParams{customer_id = CustomerA},
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    %% Child recurrent payment with different CustomerB should be rejected
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    BaseParams = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    Payment2Params = BaseParams#payproc_InvoicePaymentParams{customer_id = CustomerB},
+    {error, #payproc_InvalidRecurrentParentPayment{details = <<"Customer ID mismatch with parent">>}} =
+        start_payment(Invoice2ID, Payment2Params, Client).
 
 -spec cascade_tokens_filter_success_test(config()) -> test_result().
 cascade_tokens_filter_success_test(C) ->
