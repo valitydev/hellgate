@@ -436,26 +436,46 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         Revision,
         genlib:define(MakeRecurrent, false)
     ),
+    InheritedCustomerID = maybe_inherit_customer_id(CustomerID, VS0),
     Payment2 = Payment1#domain_InvoicePayment{
         payer_session_info = PayerSessionInfo,
         context = Context,
         external_id = ExternalID,
         processing_deadline = Deadline,
-        customer_id = CustomerID
+        customer_id = InheritedCustomerID
     },
-    CascadeTokens =
-        case PayerParams of
-            {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(InvID, PmtID)}} ->
-                case hg_customer_client:get_cascade_tokens(InvID, PmtID) of
-                    T when map_size(T) > 0 -> T;
-                    _ -> undefined
-                end;
+    CascadeTokenEvents =
+        case {InheritedCustomerID, PayerParams, VS0} of
+            {CID, {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(InvID, PmtID)}}, #{
+                    parent_payment := ParentSt
+                }} when CID =/= undefined ->
+                CubastyTokens = hg_customer_client:get_recurrent_tokens(InvID, PmtID),
+                ParentToken = make_parent_recurrent_token(ParentSt),
+                AllTokens = [ParentToken | CubastyTokens],
+                [?cascade_tokens_loaded(AllTokens)];
             _ ->
-                undefined
+                []
         end,
-    Events = [?payment_started(Payment2)],
-    InitSt = #st{activity = {payment, new}, cascade_recurrent_tokens = CascadeTokens},
-    {collapse_changes(Events, InitSt, #{}), {Events, hg_machine_action:instant()}}.
+    Events = [?payment_started(Payment2)] ++ CascadeTokenEvents,
+    {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
+
+make_parent_recurrent_token(ParentSt) ->
+    #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef} = get_route(ParentSt),
+    RecToken = get_recurrent_token(ParentSt),
+    #domain_InvoicePayment{created_at = CreatedAt} = get_payment(ParentSt),
+    #customer_RecurrentToken{
+        id = <<"parent">>,
+        provider_ref = ProviderRef,
+        terminal_ref = TerminalRef,
+        token = RecToken,
+        created_at = CreatedAt,
+        status = {active, #customer_RecurrentTokenActive{}}
+    }.
+
+maybe_inherit_customer_id(undefined, #{parent_payment := ParentPayment}) ->
+    (get_payment(ParentPayment))#domain_InvoicePayment.customer_id;
+maybe_inherit_customer_id(CustomerID, _VS) ->
+    CustomerID.
 
 get_merchant_payments_terms(Opts, Revision, _Timestamp, VS) ->
     Shop = get_shop(Opts, Revision),
@@ -1928,18 +1948,35 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
     %% NOTE Since this is routing step then current attempt is not yet
     %% accounted for in `St`.
     NewIter = get_iter(St) + 1,
+    {TokenFilterFn, ChooseRouteFn} = cascade_pipeline_fns(St),
     hg_routing_ctx:pipeline(
         Ctx0,
         [
             fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
-            fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end,
+            TokenFilterFn,
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
             fun hg_routing:filter_by_critical_provider_status/1,
-            fun hg_routing:choose_route_with_ctx/1
+            ChooseRouteFn
         ]
     ).
+
+%% With cascade tokens: skip token filter (parent route forced on first attempt,
+%% fallback routes use parent's token on retries), keep all candidates for cascade viability.
+%% First attempt: force parent route. Retries: normal priority-based selection.
+cascade_pipeline_fns(#st{cascade_recurrent_tokens = Tokens, routes = []}) when Tokens =/= undefined ->
+    {fun(Ctx) -> Ctx end, fun choose_parent_route/1};
+cascade_pipeline_fns(#st{cascade_recurrent_tokens = Tokens}) when Tokens =/= undefined ->
+    {fun(Ctx) -> Ctx end, fun hg_routing:choose_route_with_ctx/1};
+cascade_pipeline_fns(St) ->
+    {fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end, fun hg_routing:choose_route_with_ctx/1}.
+
+choose_parent_route(Ctx) ->
+    Candidates = hg_routing_ctx:candidates(Ctx),
+    %% Parent route is first in candidates (prepended in build_routing_context)
+    ParentRoute = hd(Candidates),
+    hg_routing_ctx:set_choosen(ParentRoute, #{}, Ctx).
 
 produce_routing_events(#{error := Error} = Ctx, Revision, St) when Error =/= undefined ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
@@ -1995,6 +2032,16 @@ route_args(St) ->
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
     {PaymentInstitution, VS3, Revision}.
 
+build_routing_context(PaymentInstitution, VS, Revision, #st{cascade_recurrent_tokens = CascadeTokens} = St) when
+    CascadeTokens =/= undefined
+->
+    %% Parent route first, then other gathered routes for cascade
+    Payer = get_payment_payer(St),
+    {ok, ParentPaymentRoute} = get_predefined_route(Payer),
+    ParentRoute = hg_route:from_payment_route(ParentPaymentRoute),
+    GatheredCtx = gather_routes(PaymentInstitution, VS, Revision, St),
+    OtherCandidates = hg_routing_ctx:candidates(GatheredCtx),
+    hg_routing_ctx:new([ParentRoute | OtherCandidates]);
 build_routing_context(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
@@ -2038,8 +2085,6 @@ filter_attempted_routes(Ctx, #st{routes = AttemptedRoutes}) ->
     ).
 
 filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = undefined}) ->
-    Ctx;
-filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = Tokens}) when map_size(Tokens) =:= 0 ->
     Ctx;
 filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = Tokens}) ->
     lists:foldl(
@@ -2368,6 +2413,7 @@ process_result({payment, finalizing_accounter}, Action, St) ->
                 rollback_payment_cashflow(St)
         end,
     check_recurrent_token(St),
+    maybe_save_recurrent_token_to_customer(St),
     NewAction = get_action(Target, Action, St),
     {done, {[?payment_status_changed(Target)], NewAction}}.
 
@@ -2426,6 +2472,44 @@ check_recurrent_token(#st{
     _ = logger:warning("Got recurrent token in non recurrent payment. Payment id:~p", [ID]);
 check_recurrent_token(_) ->
     ok.
+
+maybe_save_recurrent_token_to_customer(
+    #st{
+        payment = #domain_InvoicePayment{
+            id = PaymentID,
+            make_recurrent = true,
+            customer_id = CustomerID,
+            payer = Payer
+        },
+        recurrent_token = RecToken
+    } = St
+) when CustomerID =/= undefined, RecToken =/= undefined ->
+    case get_bank_card_token(Payer) of
+        undefined ->
+            ok;
+        BankCardToken ->
+            Route = get_route(St),
+            InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
+            hg_customer_client:save_recurrent_token(
+                CustomerID, BankCardToken, Route, RecToken, InvoiceID, PaymentID
+            )
+    end;
+maybe_save_recurrent_token_to_customer(_St) ->
+    ok.
+
+get_bank_card_token(
+    ?payment_resource_payer(
+        #domain_DisposablePaymentResource{
+            payment_tool = {bank_card, #domain_BankCard{token = Token}}
+        },
+        _
+    )
+) ->
+    Token;
+get_bank_card_token(?recurrent_payer({bank_card, #domain_BankCard{token = Token}}, _, _)) ->
+    Token;
+get_bank_card_token(_) ->
+    undefined.
 
 choose_fd_operation_status_for_failure({failure, Failure}) ->
     payproc_errors:match('PaymentFailure', Failure, fun do_choose_fd_operation_status_for_failure/1);
@@ -2871,7 +2955,7 @@ construct_proxy_payment(
 construct_payment_resource(?payment_resource_payer(Resource, _), _St) ->
     {disposable_payment_resource, Resource};
 construct_payment_resource(
-    ?recurrent_payer(PaymentTool, ?recurrent_parent(_InvoiceID, _PaymentID), _),
+    ?recurrent_payer(PaymentTool, ?recurrent_parent(InvoiceID, PaymentID), _),
     #st{cascade_recurrent_tokens = Tokens} = St
 ) when Tokens =/= undefined ->
     #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef} = get_route(St),
@@ -2879,7 +2963,14 @@ construct_payment_resource(
         provider_ref = ProviderRef,
         terminal_ref = TerminalRef
     },
-    RecToken = maps:get(Key, Tokens),
+    RecToken =
+        case maps:find(Key, Tokens) of
+            {ok, T} ->
+                T;
+            error ->
+                %% Cascade route without pre-existing token — use parent's token
+                get_recurrent_token(get_payment_state(InvoiceID, PaymentID))
+        end,
     {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
         payment_tool = PaymentTool,
         rec_token = RecToken
@@ -3172,6 +3263,8 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
 merge_change(Change = ?rec_token_acquired(Token), #st{} = St, Opts) ->
     _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
     St#st{recurrent_token = Token};
+merge_change(?cascade_tokens_loaded(Tokens), #st{} = St, _Opts) ->
+    St#st{cascade_recurrent_tokens = hg_customer_client:tokens_to_map(Tokens)};
 merge_change(Change = ?cash_changed(_OldCash, NewCash), #st{} = St, Opts) ->
     _ = validate_transition(
         [{adjustment_new, latest_adjustment_id(St)}, {payment, processing_session}],

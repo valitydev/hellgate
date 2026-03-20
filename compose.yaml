@@ -127,7 +127,7 @@ services:
       retries: 10
 
   cubasty:
-    image: ghcr.io/valitydev/cubasty:sha-048a791
+    image: ghcr.io/valitydev/cubasty:sha-a1a945f-epic-fix_matched
     volumes:
       - ./test/cubasty/sys.config:/opt/cs/releases/0.1/sys.config
     hostname: cubasty
