@@ -4,9 +4,11 @@
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 -export([create_customer/1]).
+-export([get_by_parent_payment/2]).
 -export([get_recurrent_tokens/2]).
 -export([tokens_to_map/1]).
--export([save_recurrent_token/6]).
+-export([add_payment/3]).
+-export([save_recurrent_token/4]).
 
 -export_type([cascade_tokens/0]).
 
@@ -24,6 +26,11 @@ create_customer(PartyConfigRef) ->
     {ok, Customer} = call(customer_management, 'Create', {#customer_CustomerParams{party_ref = PartyConfigRef}}),
     Customer.
 
+-spec get_by_parent_payment(invoice_id(), payment_id()) ->
+    {ok, dmsl_customer_thrift:'CustomerState'()} | {exception, term()}.
+get_by_parent_payment(InvoiceID, PaymentID) ->
+    call(customer_management, 'GetByParentPayment', {InvoiceID, PaymentID}).
+
 -spec get_recurrent_tokens(invoice_id(), payment_id()) -> [recurrent_token()].
 get_recurrent_tokens(InvoiceID, PaymentID) ->
     case call(customer_management, 'GetByParentPayment', {InvoiceID, PaymentID}) of
@@ -39,21 +46,22 @@ get_recurrent_tokens(InvoiceID, PaymentID) ->
 tokens_to_map(Tokens) ->
     lists:foldl(fun token_to_map_entry/2, #{}, Tokens).
 
+-spec add_payment(dmsl_customer_thrift:'CustomerID'(), invoice_id(), payment_id()) -> ok.
+add_payment(CustomerID, InvoiceID, PaymentID) ->
+    {ok, ok} = call(customer_management, 'AddPayment', {CustomerID, InvoiceID, PaymentID}),
+    ok.
+
 -spec save_recurrent_token(
     dmsl_customer_thrift:'CustomerID'(),
     token(),
     dmsl_domain_thrift:'PaymentRoute'(),
-    token(),
-    invoice_id(),
-    payment_id()
+    token()
 ) -> ok.
 save_recurrent_token(
     CustomerID,
     BankCardToken,
     #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef},
-    RecToken,
-    InvoiceID,
-    PaymentID
+    RecToken
 ) ->
     {ok, #customer_BankCard{id = BankCardID}} = call(
         customer_management,
@@ -69,11 +77,6 @@ save_recurrent_token(
             terminal_ref = TerminalRef,
             token = RecToken
         }}
-    ),
-    {ok, ok} = call(
-        customer_management,
-        'AddPayment',
-        {CustomerID, InvoiceID, PaymentID}
     ),
     ok.
 

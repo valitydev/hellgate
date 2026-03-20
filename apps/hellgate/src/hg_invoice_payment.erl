@@ -2470,22 +2470,21 @@ maybe_save_recurrent_token_to_customer(
     #st{
         payment = #domain_InvoicePayment{
             id = PaymentID,
-            make_recurrent = true,
             customer_id = CustomerID,
+            make_recurrent = MakeRecurrent,
             payer = Payer
         },
         recurrent_token = RecToken
     } = St
-) when CustomerID =/= undefined, RecToken =/= undefined ->
-    case get_bank_card_token(Payer) of
-        undefined ->
-            ok;
-        BankCardToken ->
+) when CustomerID =/= undefined ->
+    InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
+    hg_customer_client:add_payment(CustomerID, InvoiceID, PaymentID),
+    case {MakeRecurrent, RecToken, get_bank_card_token(Payer)} of
+        {true, RT, BCT} when RT =/= undefined, BCT =/= undefined ->
             Route = get_route(St),
-            InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
-            hg_customer_client:save_recurrent_token(
-                CustomerID, BankCardToken, Route, RecToken, InvoiceID, PaymentID
-            )
+            hg_customer_client:save_recurrent_token(CustomerID, BCT, Route, RT);
+        _ ->
+            ok
     end;
 maybe_save_recurrent_token_to_customer(_St) ->
     ok.

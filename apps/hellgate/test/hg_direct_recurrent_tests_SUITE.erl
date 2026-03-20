@@ -32,6 +32,7 @@
 -export([not_exists_payment_test/1]).
 -export([customer_id_stored_test/1]).
 -export([customer_id_stored_no_parent_test/1]).
+-export([regular_payment_saves_to_cubasty_test/1]).
 -export([cascade_tokens_filter_success_test/1]).
 -export([cascade_recurrent_payment_success_test/1]).
 -export([different_customer_id_test/1]).
@@ -93,6 +94,7 @@ groups() ->
             customer_id_stored_test,
             customer_id_stored_no_parent_test,
             different_customer_id_test,
+            regular_payment_saves_to_cubasty_test,
             cascade_tokens_filter_success_test,
             cascade_recurrent_payment_success_test
         ]}
@@ -474,6 +476,23 @@ different_customer_id_test(C) ->
     Payment2Params = BaseParams#payproc_InvoicePaymentParams{customer_id = CustomerB},
     {error, #payproc_InvalidRecurrentParentPayment{details = <<"Customer ID mismatch with parent">>}} =
         start_payment(Invoice2ID, Payment2Params, Client).
+
+-spec regular_payment_saves_to_cubasty_test(config()) -> test_result().
+regular_payment_saves_to_cubasty_test(C) ->
+    Client = cfg(client, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    #customer_Customer{id = CustomerID} = hg_customer_client:create_customer(PartyConfigRef),
+    %% Non-recurrent payment with customer_id — payment linked, no tokens saved
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    BaseParams = make_payment_params(false, undefined, ?pmt_sys(<<"visa-ref">>)),
+    PaymentParams = BaseParams#payproc_InvoicePaymentParams{customer_id = CustomerID},
+    {ok, PaymentID} = start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    %% Payment is linked to customer in cubasty
+    {ok, State} = hg_customer_client:get_by_parent_payment(InvoiceID, PaymentID),
+    ?assertEqual(CustomerID, State#customer_CustomerState.customer#customer_Customer.id),
+    %% But no recurrent tokens saved (make_recurrent=false)
+    [] = hg_customer_client:get_recurrent_tokens(InvoiceID, PaymentID).
 
 -spec cascade_tokens_filter_success_test(config()) -> test_result().
 cascade_tokens_filter_success_test(C) ->
