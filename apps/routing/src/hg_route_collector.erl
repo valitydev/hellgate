@@ -34,10 +34,12 @@
     card_token => card_token() | undefined
 }.
 
--type get_route_resut() :: #{
+-type get_routes_resut() :: #{
     routes := [hg_route:t()],
-    error => {misconfiguration, _Reason}
+    error => get_routes_error()
 }.
+
+-type get_routes_error() :: {misconfiguration, _Reason}.
 
 -type blacklist_context() :: hg_inspector:blacklist_context().
 
@@ -47,7 +49,7 @@
 -export_type([revision/0]).
 -export_type([blacklist_context/0]).
 -export_type([gather_route_context/0]).
--export_type([get_route_resut/0]).
+-export_type([get_routes_error/0]).
 
 -define(fd_overrides(Enabled), #domain_RouteFaultDetectorOverrides{enabled = Enabled}).
 -define(rejected(Reason), {rejected, Reason}).
@@ -72,16 +74,11 @@ fill_fd_overrides(Revision, Routes) ->
     ).
 
 get_provider_fd_overrides(Revision, TerminalRef) ->
-    % Looks like overhead, we got Terminal only for provider_ref. Maybe
-    % we can remove provider_ref from hg_route:t().
-    % https://github.com/rbkmoney/hellgate/pull/583#discussion_r682745123
     #domain_Terminal{provider_ref = ProviderRef, route_fd_overrides = TrmFdOverrides} =
         hg_domain:get(Revision, {terminal, TerminalRef}),
     #domain_Provider{route_fd_overrides = PrvFdOverrides} =
         hg_domain:get(Revision, {provider, ProviderRef}),
-    %% TODO Consider moving this logic to party-management before (or after)
-    %%      internal route structure refactoring.
-    {ProviderRef, merge_fd_overrides(PrvFdOverrides, TrmFdOverrides)}.
+    merge_fd_overrides(PrvFdOverrides, TrmFdOverrides).
 
 merge_fd_overrides(_A, B = ?fd_overrides(Enabled)) when Enabled =/= undefined ->
     B;
@@ -143,7 +140,7 @@ fill_accepted(Predestination, Revision, VS, Routes) ->
     ).
 
 -spec get_routes(revision(), varset(), payment_institution(), gather_route_context()) ->
-    get_route_resut().
+    get_routes_resut().
 get_routes(_, _, #domain_PaymentInstitution{payment_routing_rules = undefined}, _) ->
     #{routes => [], error => {misconfiguration, {payment_routing_rules, empty}}};
 get_routes(Revision, VS, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, Ctx) ->
@@ -173,7 +170,7 @@ get_decisions_candidates(#domain_RoutingRuleset{decisions = Decisions}) ->
     end.
 
 compute_rule_set(RuleSetRef, VS, Revision) ->
-   {Client, Context} = get_party_client(),
+    {Client, Context} = get_party_client(),
     {ok, RuleSet} = party_client_thrift:compute_routing_ruleset(
         RuleSetRef,
         Revision,

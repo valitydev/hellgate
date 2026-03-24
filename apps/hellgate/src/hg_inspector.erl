@@ -28,9 +28,13 @@
 }.
 
 -spec fill_blacklist(hg_route:t(), blacklist_context()) -> hg_route:t().
-fill_blacklist(Route, #{revision := Revision, token := Token, inspector := #domain_Inspector{
-    proxy = Proxy
-}}) when Token =/= undefined ->
+fill_blacklist(Route, #{
+    revision := Revision,
+    token := Token,
+    inspector := #domain_Inspector{
+        proxy = Proxy
+    }
+}) when Token =/= undefined ->
     #domain_ProviderRef{id = ProviderID} = hg_route:provider_ref(Route),
     #domain_TerminalRef{id = TerminalID} = hg_route:terminal_ref(Route),
     Context = #proxy_inspector_BlackListContext{

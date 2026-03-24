@@ -30,11 +30,17 @@
 -type rejection_group() :: atom().
 -type filter_routes_fun() :: fun((filter_routes_result()) -> filter_routes_result()).
 
+-type get_routes_result() :: #{
+    routes := [hg_route:t()],
+    rejected_routes => [hg_route:t()],
+    error => hg_route_collector:get_routes_error()
+}.
+
 -type filter_routes_result() :: #{
     routes := [hg_route:t()],
-    rejected_routes => [hg_route:rejected_route()],
+    rejected_routes => [hg_route:t()],
     latest_rejected_group => rejection_group() | undefined,
-    rejection_groups => #{rejection_group() => [hg_route:rejected_route()]},
+    rejection_groups => #{rejection_group() => [hg_route:t()]},
     considered_routes => [hg_route:t()],
     route_limits => limits(),
     route_scores => scores()
@@ -48,6 +54,7 @@
 -type misconfiguration_error() :: {misconfiguration, {routing_decisions, _} | {routing_candidate, _}}.
 
 -export_type([get_route_params/0]).
+-export_type([get_routes_result/0]).
 -export_type([filter_routes_result/0]).
 -export_type([route_scores/0]).
 -export_type([limits/0]).
@@ -61,7 +68,7 @@ prepare_log_message({misconfiguration, {routing_decisions, Details}}) ->
     {"PaymentRoutingDecisions couldn't be reduced to candidates, ~p", [Details]};
 prepare_log_message({misconfiguration, {routing_candidate, Candidate}}) ->
     {"PaymentRoutingCandidate couldn't be reduced, ~p", [Candidate]};
-prepare_log_message({misconfiguration, {payment_routing_rules, empty}   }) ->
+prepare_log_message({misconfiguration, {payment_routing_rules, empty}}) ->
     {"PaymentRoutingRules are empty", []}.
 
 -spec get_logger_metadata(route_choice_context(), hg_route_collector:revision()) -> LoggerFormattedMetadata :: map().
@@ -91,44 +98,38 @@ format_logger_metadata(Meta, Route, Revision) when
         weight => hg_route:weight(Route)
     }).
 
--spec get_routes(get_route_params()) -> hg_route_collector:get_route_resut().
-get_routes(Params = #{
-    predestination := Predestination,
-    revision := Revision,
-    varset := VS,
-    payment_institution := PI,
-    pin_context := PinCtx
-}) ->
+-spec get_routes(get_route_params()) -> get_routes_result().
+get_routes(
+    #{
+        predestination := Predestination,
+        revision := Revision,
+        varset := VS,
+        payment_institution := PI,
+        pin_context := PinCtx
+    } = Params
+) ->
     Result = #{routes := Routes0} = hg_route_collector:get_routes(Revision, VS, PI, PinCtx),
     Routes1 = hg_route_collector:fill_accepted(Predestination, Revision, VS, Routes0),
     Routes2 = hg_route_collector:fill_prohibition(Revision, VS, PI, Routes1),
     Routes3 = hg_route_collector:fill_fd_overrides(Revision, Routes2),
-    Routes4 = case maps:get(blacklist_context, Params, undefined) of
-        undefined ->
-            Routes3;
-        BlCtx ->
-            hg_route_collector:fill_blacklist(BlCtx, Routes3)
-    end,
+    Routes4 =
+        case maps:get(blacklist_context, Params, undefined) of
+            undefined ->
+                Routes3;
+            BlCtx ->
+                hg_route_collector:fill_blacklist(BlCtx, Routes3)
+        end,
     Routes5 = hg_route_fd:fill(Routes4),
-    Result#{routes => hg_route_balancer:fill(Routes5)}.
+    genlib_map:compact(
+        maps:merge(
+            #{error => maps:get(error, Result, undefined)},
+            filter(hg_route_balancer:fill(Routes5), [{accepted, false}, {prohibit, true}, {blacklisted, 1}])
+        )
+    ).
 
--spec filter_routes([hg_route:t()], [filter_routes_fun()]) -> filter_routes_result().
-filter_routes(Routes0, WithFilterFuns) ->
-    Result0 = init_filter_result(filter(Routes0, [{accepted, false}, {prohibit, true}, {blacklisted, 1}])),
+-spec filter_routes(filter_routes_result(), [filter_routes_fun()]) -> filter_routes_result().
+filter_routes(Result0, WithFilterFuns) ->
     lists:foldl(fun(Fun, Result) -> Fun(Result) end, Result0, WithFilterFuns).
-
-init_filter_result(#{rejected_routes := []} = Result) ->
-    Result#{
-        latest_rejected_group => undefined,
-        rejection_groups => #{}
-    };
-init_filter_result(#{rejected_routes := RejectedRoutes} = Result) ->
-    Result#{
-        latest_rejected_group => forbidden,
-        rejection_groups => #{
-            forbidden => RejectedRoutes
-        }
-    }.
 
 filter(Routes, Keys) ->
     lists:foldr(
@@ -137,7 +138,7 @@ filter(Routes, Keys) ->
                 undefined ->
                     Acc#{routes => [Route | Accepted]};
                 Reason ->
-                    Acc#{rejected_routes => [{Route, Reason} | Rejected]}
+                    Acc#{rejected_routes => [hg_route:set_rejection_reason(Reason, Route) | Rejected]}
             end
         end,
         #{routes => [], rejected_routes => []},
@@ -423,19 +424,20 @@ filter_routes_splits_accepted_and_rejected_test() ->
         1,
         new_route(1, 4, 0, {1, 1.0}, {1, 1.0})
     ),
-
-    ?assertEqual(
-        #{
-            routes => [AcceptedRoute],
-            rejected_routes => [
-                {RejectedByTerms, {rejected, {'ProvisionTermSet', undefined}}},
-                {RejectedByProhibition, <<"blocked">>},
-                {RejectedByBlacklist, blacklisted}
-            ]
-        },
-        filter_routes(
+    Rejected = [
+        hg_route:set_rejection_reason({accepted, {rejected, {'ProvisionTermSet', undefined}}}, RejectedByTerms),
+        hg_route:set_rejection_reason({prohibit, <<"blocked">>}, RejectedByProhibition),
+        hg_route:set_rejection_reason({blacklisted, 1}, RejectedByBlacklist)
+    ],
+    Result = #{
+        routes => [AcceptedRoute],
+        rejected_routes => Rejected
+    },
+    ?assertMatch(
+        Result,
+        filter(
             [AcceptedRoute, RejectedByTerms, RejectedByProhibition, RejectedByBlacklist],
-            []
+            [{accepted, false}, {prohibit, true}, {blacklisted, 1}]
         )
     ).
 
@@ -461,40 +463,52 @@ preferable_route_scoring_test_() ->
             ])
         ),
         ?_assertMatch(
-            {?trm(99), {_, #{
-                preferable_route := #{terminal_ref := ?trm(1)},
-                reject_reason := availability_condition
-            }}},
+            {
+                ?trm(99),
+                {_, #{
+                    preferable_route := #{terminal_ref := ?trm(1)},
+                    reject_reason := availability_condition
+                }}
+            },
             balance_and_choose_route([
                 new_route(1, 1, 0, {0, 0.6}, {0, 0.4}),
                 RouteFallback2
             ])
         ),
         ?_assertMatch(
-            {?trm(99), {_, #{
-                preferable_route := #{terminal_ref := ?trm(1)},
-                reject_reason := conversion_condition
-            }}},
+            {
+                ?trm(99),
+                {_, #{
+                    preferable_route := #{terminal_ref := ?trm(1)},
+                    reject_reason := conversion_condition
+                }}
+            },
             balance_and_choose_route([
                 new_route(1, 1, 0, {1, 0.9}, {0, 0.2}),
                 RouteFallback2
             ])
         ),
         ?_assertMatch(
-            {?trm(1), {_, #{
-                preferable_route := #{terminal_ref := ?trm(2)},
-                reject_reason := conversion
-            }}},
+            {
+                ?trm(1),
+                {_, #{
+                    preferable_route := #{terminal_ref := ?trm(2)},
+                    reject_reason := conversion
+                }}
+            },
             balance_and_choose_route([
                 new_route(1, 2, 0, {1, 1.0}, {1, 0.9}),
                 new_route(1, 1, 0, {1, 1.0}, {1, 1.0})
             ])
         ),
         ?_assertMatch(
-            {?trm(1), {_, #{
-                preferable_route := #{terminal_ref := ?trm(2)},
-                reject_reason := availability
-            }}},
+            {
+                ?trm(1),
+                {_, #{
+                    preferable_route := #{terminal_ref := ?trm(2)},
+                    reject_reason := availability
+                }}
+            },
             balance_and_choose_route([
                 new_route(1, 2, 0, {1, 0.9}, {1, 0.9}),
                 new_route(1, 1, 0, {1, 1.0}, {1, 1.0}),

@@ -17,7 +17,6 @@
 -export([route_data/1]).
 -export([terminal_ref/1]).
 -export([provider_ref/1]).
--export([payment_route/1]).
 -export([priority/1]).
 -export([weight/1]).
 -export([pin/1]).
@@ -25,13 +24,15 @@
 -export([fd_overrides/1]).
 -export([fd_score/1]).
 -export([blacklisted/1]).
+-export([rejection_reason/1]).
+-export([set_rejection_reason/2]).
 
 -export([score/1]).
 -export([equal/2]).
 
 -export([from_payment_route/1]).
 -export([to_payment_route/1]).
--export([to_rejected_route/2]).
+-export([to_rejected_route/1]).
 
 %%
 
@@ -50,7 +51,8 @@
     terminal_ref := dmsl_domain_thrift:'TerminalRef'(),
     route_data := route_data(),
     pin_data => pin_data(),
-    fd_overrides => fd_overrides()
+    fd_overrides => fd_overrides(),
+    rejection_reason => route_rejection_reason() | undefined
 }.
 
 -type fd_score() :: #{
@@ -129,16 +131,16 @@ set_fd_overrides(V, R) ->
 
 -spec set_prohibit(route_prohibit(), t()) ->
     t().
-set_prohibit(V, R = #{route_data := Data}) ->
+set_prohibit(V, #{route_data := Data} = R) ->
     R#{route_data => Data#{prohibit => V}}.
 
 -spec set_accepted(route_accepted(), t()) ->
     t().
-set_accepted(V, R = #{route_data := Data}) ->
+set_accepted(V, #{route_data := Data} = R) ->
     R#{route_data => Data#{accepted => V}}.
 
 -spec set_weight(integer(), t()) -> t().
-set_weight(Weight, R = #{route_data := Data}) ->
+set_weight(Weight, #{route_data := Data} = R) ->
     R#{route_data => Data#{weight => Weight}}.
 
 -spec set_blacklisted(boolean() | blacklist_condition(), t()) ->
@@ -147,22 +149,22 @@ set_blacklisted(true, R) ->
     set_blacklisted(1, R);
 set_blacklisted(false, R) ->
     set_blacklisted(0, R);
-set_blacklisted(V, R = #{route_data := Data}) ->
+set_blacklisted(V, #{route_data := Data} = R) ->
     R#{route_data => Data#{blacklisted => V}}.
 
 -spec set_availability(integer(), float(), t()) ->
     t().
-set_availability(C, V, R = #{route_data := Data = #{fd_score := Score}}) ->
+set_availability(C, V, #{route_data := Data = #{fd_score := Score}} = R) ->
     R#{route_data => Data#{fd_score => Score#{availability_condition => C, availability => V}}}.
 
 -spec set_conversion(integer(), float(), t()) ->
     t().
-set_conversion(C, V, R = #{route_data := Data = #{fd_score := Score}}) ->
+set_conversion(C, V, #{route_data := Data = #{fd_score := Score}} = R) ->
     R#{route_data => Data#{fd_score => Score#{conversion_condition => C, conversion => V}}}.
 
 -spec set_priority(integer(), t()) ->
     t().
-set_priority(V, R = #{route_data := Data}) ->
+set_priority(V, #{route_data := Data} = R) ->
     R#{route_data => Data#{priority => V}}.
 
 -spec provider_ref(t()) -> provider_ref().
@@ -177,10 +179,6 @@ route_data(#{route_data := V}) ->
 terminal_ref(#{terminal_ref := Ref}) ->
     Ref.
 
--spec payment_route(t()) -> payment_route().
-payment_route(#{payment_route := V}) ->
-    V.
-
 -spec priority(t()) -> integer().
 priority(#{route_data := #{priority := Priority}}) ->
     Priority.
@@ -193,7 +191,7 @@ weight(#{route_data := #{weight := Weight}}) ->
 pin(#{pin_data := Pin}) ->
     Pin.
 
--spec pin_hash(t()) -> pin_data() | undefined.
+-spec pin_hash(t()) -> non_neg_integer().
 pin_hash(#{pin_data := Pin}) when map_size(Pin) > 0 ->
     erlang:phash2(Pin);
 pin_hash(_) ->
@@ -215,6 +213,18 @@ blacklisted(#{route_data := #{blacklisted := V}}) ->
     V;
 blacklisted(_) ->
     0.
+
+-spec rejection_reason(t()) ->
+    route_rejection_reason().
+rejection_reason(#{rejection_reason := V}) ->
+    V;
+rejection_reason(_) ->
+    undefined.
+
+-spec set_rejection_reason(route_rejection_reason(), t()) ->
+    t().
+set_rejection_reason(Reason, R) ->
+    R#{rejection_reason => Reason}.
 
 -spec score(t()) -> score().
 score(R) ->
@@ -267,9 +277,9 @@ from_payment_route(Route) ->
 to_payment_route(Route) ->
     ?route(provider_ref(Route), terminal_ref(Route)).
 
--spec to_rejected_route(t(), route_rejection_reason()) -> rejected_route().
-to_rejected_route(Route, Reason) ->
-    {provider_ref(Route), terminal_ref(Route), Reason}.
+-spec to_rejected_route(t()) -> rejected_route().
+to_rejected_route(Route) ->
+    {provider_ref(Route), terminal_ref(Route), rejection_reason(Route)}.
 
 %%
 

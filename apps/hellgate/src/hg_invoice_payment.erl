@@ -1898,8 +1898,18 @@ process_routing(Action, St) ->
         #{error := Error} ->
             ok = maybe_log_misconfigurations(Error),
             handle_choose_route_error(Error, [], St, Action);
-        #{routes := Routes} ->
-            FilterResult = hg_routing:filter_routes(Routes, build_routing_filter_funs(VS, St)),
+        #{routes := Routes} = GetResult ->
+            FilterResult0 = append_rejected_routes(forbidden, Routes, maps:get(rejected_routes, GetResult, []), #{}),
+            %% NOTE Since this is routing step then current attempt is not yet
+            %% accounted for in `St`.
+            NewIter = get_iter(St) + 1,
+            FilterFuns = [
+                fun(Result) -> filter_attempted_routes(Result, St) end,
+                fun(Result) -> filter_routes_with_limit_hold(Result, VS, NewIter, St) end,
+                fun(Result) -> filter_routes_by_limit_overflow(Result, VS, NewIter, St) end,
+                fun filter_routes_by_critical_provider_status/1
+            ],
+            FilterResult = hg_routing:filter_routes(FilterResult0, FilterFuns),
             case FilterResult of
                 #{routes := []} ->
                     ok = log_rejected_route_groups(FilterResult, VS),
@@ -1915,19 +1925,8 @@ process_routing(Action, St) ->
             end
     end.
 
-build_routing_filter_funs(VS, St) ->
-    %% NOTE Since this is routing step then current attempt is not yet
-    %% accounted for in `St`.
-    NewIter = get_iter(St) + 1,
-    [
-        fun(Result) -> filter_attempted_routes(Result, St) end,
-        fun(Result) -> filter_routes_with_limit_hold(Result, VS, NewIter, St) end,
-        fun(Result) -> filter_routes_by_limit_overflow(Result, VS, NewIter, St) end,
-        fun filter_routes_by_critical_provider_status/1
-    ].
-
-produce_routing_events(#{error := Error, considered_routes := RollbackableCandidates} = Ctx, Revision, St)
-    when Error =/= undefined
+produce_routing_events(#{error := Error, considered_routes := RollbackableCandidates} = Ctx, Revision, St) when
+    Error =/= undefined
 ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
     %% rejected because of provider gone critical, then use subcode to highlight
@@ -1985,7 +1984,7 @@ get_routes(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
         {ok, PaymentRoute} ->
-            [hg_route:from_payment_route(PaymentRoute)];
+            #{routes => [hg_route:from_payment_route(PaymentRoute)]};
         undefined ->
             get_routes_(PaymentInstitution, VS, Revision, St)
     end.
@@ -1995,7 +1994,10 @@ filter_attempted_routes(#{routes := Routes} = Result, #st{routes = AttemptedRout
         fun(Route, {AcceptedAcc, RejectedAcc}) ->
             case lists:any(fun(AttemptedRoute) -> hg_route:equal(Route, AttemptedRoute) end, AttemptedRoutes) of
                 true ->
-                    {AcceptedAcc, [hg_route:to_rejected_route(Route, {'AlreadyAttempted', undefined}) | RejectedAcc]};
+                    {AcceptedAcc, [
+                        hg_route:set_rejection_reason({'AlreadyAttempted', undefined}, Route)
+                        | RejectedAcc
+                    ]};
                 false ->
                     {[Route | AcceptedAcc], RejectedAcc}
             end
@@ -2031,7 +2033,7 @@ handle_filtered_routes_exhaustion(Result, Revision, St, Action) ->
 log_rejected_route_groups(Result, VS) ->
     maps:fold(
         fun(Group, RejectedRoutes, ok) ->
-            log_rejected_routes(Group, RejectedRoutes, VS)
+            log_rejected_routes(Group, [hg_route:to_rejected_route(R) || R <- RejectedRoutes], VS)
         end,
         ok,
         maps:get(rejection_groups, Result, #{})
@@ -2570,9 +2572,9 @@ filter_routes_by_critical_provider_status(#{routes := Routes} = Result0) ->
         fun(Route, {AcceptedAcc, RejectedAcc}) ->
             case hg_route:fd_score(Route) of
                 #{availability_condition := 0, availability := Availability} ->
-                    RejectedRoute = hg_route:to_rejected_route(
-                        Route,
-                        {'ProviderDead', {dead, 1.0 - Availability}}
+                    RejectedRoute = hg_route:set_rejection_reason(
+                        {'ProviderDead', {dead, 1.0 - Availability}},
+                        Route
                     ),
                     {AcceptedAcc, [RejectedRoute | RejectedAcc]};
                 _ ->
@@ -2602,7 +2604,7 @@ get_limit_overflow_routes(Routes, VS, Iter, St) ->
                 {ok, Limits} ->
                     {[Route | RoutesNoOverflowIn], RejectedIn, LimitsIn#{PaymentRoute => Limits}};
                 {error, {limit_overflow, IDs, Limits}} ->
-                    RejectedRoute = hg_route:to_rejected_route(Route, {'LimitOverflow', IDs}),
+                    RejectedRoute = hg_route:set_rejection_reason({'LimitOverflow', IDs}, Route),
                     {RoutesNoOverflowIn, [RejectedRoute | RejectedIn], LimitsIn#{PaymentRoute => Limits}}
             end
         end,
@@ -2694,7 +2696,7 @@ hold_limit_routes(Routes0, VS, Iter, St) ->
 
 do_reject_route(LimiterError, Route, TurnoverLimits, {LimitHeldRoutes, RejectedRoutes}) ->
     LimitsIDs = [T#domain_TurnoverLimit.ref#domain_LimitConfigRef.id || T <- TurnoverLimits],
-    RejectedRoute = hg_route:to_rejected_route(Route, {'LimitHoldError', LimitsIDs, LimiterError}),
+    RejectedRoute = hg_route:set_rejection_reason({'LimitHoldError', LimitsIDs, LimiterError}, Route),
     {LimitHeldRoutes, [RejectedRoute | RejectedRoutes]}.
 
 rollback_payment_limits(Routes, Iter, St, Flags) ->
@@ -4043,7 +4045,8 @@ filter_attempted_routes_test_() ->
         ?_assertMatch(
             #{
                 routes := [R1, R2],
-                rejected_routes := [{_, _, {'AlreadyAttempted', undefined}}]
+                rejected_routes := [#{rejection_reason := {'AlreadyAttempted', undefined}}],
+                latest_rejected_group := already_attempted
             },
             filter_attempted_routes(
                 #{routes => [R1, R2, R3], rejected_routes => []},
@@ -4062,10 +4065,11 @@ filter_attempted_routes_test_() ->
             #{
                 routes := [],
                 rejected_routes := [
-                    {_, _, {'AlreadyAttempted', undefined}},
-                    {_, _, {'AlreadyAttempted', undefined}},
-                    {_, _, {'AlreadyAttempted', undefined}}
-                ]
+                    #{rejection_reason := {'AlreadyAttempted', undefined}},
+                    #{rejection_reason := {'AlreadyAttempted', undefined}},
+                    #{rejection_reason := {'AlreadyAttempted', undefined}}
+                ],
+                latest_rejected_group := already_attempted
             },
             filter_attempted_routes(
                 #{routes => [R1, R2, R3], rejected_routes => []},

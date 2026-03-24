@@ -82,37 +82,34 @@ calc_random_condition(StartFrom, Random, [Route | Rest], Routes) ->
 -define(prv(ID), #domain_ProviderRef{id = ID}).
 -define(trm(ID), #domain_TerminalRef{id = ID}).
 
+balanced_test_route(ProviderId, Weight) ->
+    hg_route:new(1, ?prv(ProviderId), ?trm(1), Weight, ?DOMAIN_CANDIDATE_PRIORITY, #{}).
+
 -spec balance_routes_test_() -> [testcase()].
 balance_routes_test_() ->
     WithWeight = [
-        hg_route:new(1, ?prv(1), ?trm(1), 1, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(2), ?trm(1), 2, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(3), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(4), ?trm(1), 1, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(5), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{})
+        balanced_test_route(1, 1),
+        balanced_test_route(2, 2),
+        balanced_test_route(3, 0),
+        balanced_test_route(4, 1),
+        balanced_test_route(5, 0)
     ],
 
     Result1 = [
-        hg_route:new(1, ?prv(1), ?trm(1), 1, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(2), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(3), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(4), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(5), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{})
+        balanced_test_route(1, 1),
+        balanced_test_route(2, 0),
+        balanced_test_route(3, 0),
+        balanced_test_route(4, 0),
+        balanced_test_route(5, 0)
     ],
     Result2 = [
-        hg_route:new(1, ?prv(1), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(2), ?trm(1), 1, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(3), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(4), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(5), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{})
+        balanced_test_route(1, 0),
+        balanced_test_route(2, 1),
+        balanced_test_route(3, 0),
+        balanced_test_route(4, 0),
+        balanced_test_route(5, 0)
     ],
-    Result3 = [
-        hg_route:new(1, ?prv(1), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(2), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(3), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(4), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{}),
-        hg_route:new(1, ?prv(5), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{})
-    ],
+    Result3 = [balanced_test_route(Prv, 0) || Prv <- lists:seq(1, 5)],
     [
         ?_assertEqual(Result1, lists:reverse(calc_random_condition(0.0, 0.2, WithWeight, []))),
         ?_assertEqual(Result2, lists:reverse(calc_random_condition(0.0, 1.5, WithWeight, []))),
