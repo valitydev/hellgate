@@ -1,5 +1,6 @@
 -module(hg_inspector).
 
+-export([fill_blacklist/2]).
 -export([check_blacklist/1]).
 -export([inspect/4]).
 
@@ -25,6 +26,33 @@
     token => binary(),
     inspector := inspector()
 }.
+
+-spec fill_blacklist(hg_route:t(), blacklist_context()) -> hg_route:t().
+fill_blacklist(Route, #{revision := Revision, token := Token, inspector := #domain_Inspector{
+    proxy = Proxy
+}}) when Token =/= undefined ->
+    #domain_ProviderRef{id = ProviderID} = hg_route:provider_ref(Route),
+    #domain_TerminalRef{id = TerminalID} = hg_route:terminal_ref(Route),
+    Context = #proxy_inspector_BlackListContext{
+        first_id = genlib:to_binary(ProviderID),
+        second_id = genlib:to_binary(TerminalID),
+        field_name = <<"CARD_TOKEN">>,
+        value = Token
+    },
+    DeadLine = woody_deadline:from_timeout(genlib_app:env(hellgate, inspect_timeout, infinity)),
+    {ok, Check} = issue_call(
+        'IsBlacklisted',
+        {Context},
+        hg_proxy:get_call_options(
+            Proxy,
+            Revision
+        ),
+        false,
+        DeadLine
+    ),
+    hg_route:set_blacklisted(Check, Route);
+fill_blacklist(Route, _Ctx) ->
+    Route.
 
 -spec check_blacklist(blacklist_context()) -> boolean().
 check_blacklist(#{
