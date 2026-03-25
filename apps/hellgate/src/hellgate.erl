@@ -133,19 +133,21 @@ ensure_otel_log_handler() ->
             MaxQueue = application:get_env(hellgate, otel_log_max_queue_size, 2048),
             DelayMs = application:get_env(hellgate, otel_log_scheduled_delay_ms, 1000),
             TimeoutMs = application:get_env(hellgate, otel_log_exporting_timeout_ms, 300000),
-            LogLevel = application:get_env(hellgate, otel_log_level, info),
+            LogLevel = application:get_env(hellgate, otel_log_level, debug),
             LoggerHandlerConfig = #{
                 level => LogLevel,
                 filter_default => log,
                 filters => [{hg_otel_trace_id_bytes, {fun hg_otel_log_filter:filter/2, undefined}}],
-                exporter =>
-                    {otel_exporter_logs_otlp, #{
-                        protocol => http_protobuf,
-                        ssl_options => []
-                    }},
-                max_queue_size => MaxQueue,
-                scheduled_delay_ms => DelayMs,
-                exporting_timeout_ms => TimeoutMs
+                config => #{
+                    exporter =>
+                        {otel_exporter_logs_otlp, #{
+                            protocol => http_protobuf,
+                            ssl_options => []
+                        }},
+                    max_queue_size => MaxQueue,
+                    scheduled_delay_ms => DelayMs,
+                    exporting_timeout_ms => TimeoutMs
+                }
             },
             case logger:add_handler(otel_logs, otel_log_handler, LoggerHandlerConfig) of
                 ok ->
