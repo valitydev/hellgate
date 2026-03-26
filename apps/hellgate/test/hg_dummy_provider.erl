@@ -610,7 +610,13 @@ get_payment_tool_scenario({'crypto_currency', #domain_CryptoCurrencyRef{id = <<"
 get_payment_tool_scenario(
     {'mobile_commerce', #domain_MobileCommerce{operator = #domain_MobileOperatorRef{id = <<"mts-ref">>}}}
 ) ->
-    mobile_commerce.
+    mobile_commerce;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = Token} = BCard}) ->
+    %% Strip unique test suffix (e.g. <<"no_preauth/42">> -> <<"no_preauth">>)
+    case binary:split(Token, <<"/">>) of
+        [Base, _Suffix] ->
+            get_payment_tool_scenario({'bank_card', BCard#domain_BankCard{token = Base}})
+    end.
 
 -type tokenized_bank_card_payment_system() ::
     {

@@ -445,13 +445,16 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         customer_id = InheritedCustomerID
     },
     CascadeTokenEvents =
-        case {InheritedCustomerID, PayerParams} of
-            {CID, {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(InvID, PmtID)}}} when
-                CID =/= undefined
-            ->
-                case hg_customer_client:get_recurrent_tokens(InvID, PmtID) of
-                    [_ | _] = Tokens -> [?cascade_tokens_loaded(Tokens)];
-                    [] -> []
+        case PayerParams of
+            {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(_InvID, _PmtID)}} ->
+                case get_bank_card_token(Payer) of
+                    undefined ->
+                        [];
+                    BCT ->
+                        case hg_customer_client:get_recurrent_tokens_by_card(PartyConfigRef, BCT) of
+                            [_ | _] = Tokens -> [?cascade_tokens_loaded(Tokens)];
+                            [] -> []
+                        end
                 end;
             _ ->
                 []
@@ -2479,15 +2482,36 @@ maybe_save_recurrent_token_to_customer(
 ) when CustomerID =/= undefined ->
     InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
     hg_customer_client:add_payment(CustomerID, InvoiceID, PaymentID),
-    case {MakeRecurrent, RecToken, get_bank_card_token(Payer)} of
-        {true, RT, BCT} when RT =/= undefined, BCT =/= undefined ->
+    maybe_save_recurrent_token_to_bankcard(MakeRecurrent, RecToken, Payer, St),
+    maybe_link_bankcard_to_customer(CustomerID, Payer);
+maybe_save_recurrent_token_to_customer(
+    #st{
+        payment = #domain_InvoicePayment{
+            make_recurrent = MakeRecurrent,
+            payer = Payer
+        },
+        recurrent_token = RecToken
+    } = St
+) ->
+    maybe_save_recurrent_token_to_bankcard(MakeRecurrent, RecToken, Payer, St).
+
+maybe_save_recurrent_token_to_bankcard(true, RecToken, Payer, St) when RecToken =/= undefined ->
+    case get_bank_card_token(Payer) of
+        undefined ->
+            ok;
+        BCT ->
+            PartyConfigRef = get_party_config_ref(get_opts(St)),
             Route = get_route(St),
-            hg_customer_client:save_recurrent_token(CustomerID, BCT, Route, RT);
-        _ ->
-            ok
+            hg_customer_client:save_recurrent_token_by_card(PartyConfigRef, BCT, {Route, RecToken})
     end;
-maybe_save_recurrent_token_to_customer(_St) ->
+maybe_save_recurrent_token_to_bankcard(_, _, _, _) ->
     ok.
+
+maybe_link_bankcard_to_customer(CustomerID, Payer) ->
+    case get_bank_card_token(Payer) of
+        undefined -> ok;
+        BCT -> hg_customer_client:link_bank_card(CustomerID, BCT)
+    end.
 
 get_bank_card_token(
     ?payment_resource_payer(

@@ -36,6 +36,11 @@
 -export([cascade_tokens_filter_success_test/1]).
 -export([cascade_recurrent_payment_success_test/1]).
 -export([different_customer_id_test/1]).
+-export([recurrent_no_customer_bankcard_lookup_test/1]).
+-export([make_recurrent_saves_token_without_customer_test/1]).
+-export([new_client_old_card_cascade_test/1]).
+-export([cascade_exhaustion_test/1]).
+-export([cascade_routing_filter_test/1]).
 
 %% Internal types
 
@@ -96,7 +101,12 @@ groups() ->
             different_customer_id_test,
             regular_payment_saves_to_cubasty_test,
             cascade_tokens_filter_success_test,
-            cascade_recurrent_payment_success_test
+            cascade_recurrent_payment_success_test,
+            make_recurrent_saves_token_without_customer_test,
+            recurrent_no_customer_bankcard_lookup_test,
+            new_client_old_card_cascade_test,
+            cascade_exhaustion_test,
+            cascade_routing_filter_test
         ]}
     ].
 
@@ -181,7 +191,16 @@ init_per_testcase(Name, C) ->
 
 -spec end_per_testcase(test_case_name(), config()) -> ok.
 end_per_testcase(cascade_recurrent_payment_success_test, _C) ->
-    _ = hg_domain:upsert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
+    restore_domain_after_cascade(),
+    ok;
+end_per_testcase(new_client_old_card_cascade_test, _C) ->
+    restore_domain_after_cascade(),
+    ok;
+end_per_testcase(cascade_exhaustion_test, _C) ->
+    restore_domain_after_cascade(),
+    ok;
+end_per_testcase(cascade_routing_filter_test, _C) ->
+    restore_domain_after_cascade(),
     ok;
 end_per_testcase(_Name, _C) ->
     ok.
@@ -227,7 +246,7 @@ register_parent_payment_test(C) ->
     Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     %% first payment in recurrent session
     Route = ?route(?prv(1), ?trm(1)),
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, ?pmt_sys(<<"visa-ref">>)),
+    {PaymentTool, Session} = make_unique_payment_tool(?pmt_sys(<<"visa-ref">>)),
     PaymentParams = #payproc_RegisterInvoicePaymentParams{
         payer_params =
             {payment_resource, #payproc_PaymentResourcePayerParams{
@@ -542,13 +561,13 @@ cascade_recurrent_payment_success_test(C) ->
     %% Step 2: Make ?prv(1) always fail, add ?prv(2)/?trm(2) as cascade fallback
     _ = hg_domain:upsert(construct_cascade_fixture()),
     %% Step 3: Add cascade token for ?prv(2)/?trm(2) to existing bank card
-    [#customer_RecurrentToken{} = ParentToken] =
-        hg_customer_client:get_recurrent_tokens(Invoice1ID, Payment1ID),
-    hg_customer_client:save_recurrent_token(
-        CustomerID,
-        ParentToken#customer_RecurrentToken.token,
-        #domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)},
-        <<"cascade-token-prv2">>
+    #payproc_InvoicePayment{payment = #domain_InvoicePayment{payer = Payer1}} =
+        hg_client_invoicing:get_payment(Invoice1ID, Payment1ID, Client),
+    BCT1 = get_bank_card_token_from_payer(Payer1),
+    hg_customer_client:save_recurrent_token_by_card(
+        PartyConfigRef,
+        BCT1,
+        {#domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)}, <<"cascade-token-prv2">>}
     ),
     %% Step 4: Parent route ?prv(1)/?trm(1) tried first (now fails), cascades to ?prv(2)/?trm(2)
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
@@ -564,6 +583,162 @@ cascade_recurrent_payment_success_test(C) ->
     #domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)} =
         Payment2St#payproc_InvoicePayment.route.
 
+-spec make_recurrent_saves_token_without_customer_test(config()) -> test_result().
+make_recurrent_saves_token_without_customer_test(C) ->
+    Client = cfg(client, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    %% Payment with make_recurrent=true but NO customer_id
+    InvoiceID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    PaymentParams = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, PaymentID} = start_payment(InvoiceID, PaymentParams, Client),
+    PaymentID = await_payment_capture(InvoiceID, PaymentID, Client),
+    %% Verify: no customer_id on the payment
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{customer_id = undefined, payer = Payer}
+    } = hg_client_invoicing:get_payment(InvoiceID, PaymentID, Client),
+    %% Verify: recurrent token was saved to BankCard via bank_card_token lookup
+    BCT = get_bank_card_token_from_payer(Payer),
+    Tokens = hg_customer_client:get_recurrent_tokens_by_card(PartyConfigRef, BCT),
+    ?assertMatch([#customer_RecurrentToken{provider_ref = ?prv(1), terminal_ref = ?trm(1)} | _], Tokens).
+
+-spec recurrent_no_customer_bankcard_lookup_test(config()) -> test_result().
+recurrent_no_customer_bankcard_lookup_test(C) ->
+    Client = cfg(client, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    %% Step 1: Parent payment with make_recurrent=true, NO customer_id
+    %% Token gets auto-saved to BankCard
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    %% Step 2: Child recurrent payment, also NO customer_id
+    %% System should find BankCard by bank_card_token and load cascade tokens
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
+    %% Verify: payment succeeded, no customer_id
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{customer_id = undefined}
+    } = hg_client_invoicing:get_payment(Invoice2ID, Payment2ID, Client),
+    %% Verify: BankCard now has token(s) accumulated
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{payer = Payer}
+    } = hg_client_invoicing:get_payment(Invoice1ID, Payment1ID, Client),
+    BCT = get_bank_card_token_from_payer(Payer),
+    Tokens = hg_customer_client:get_recurrent_tokens_by_card(PartyConfigRef, BCT),
+    ?assert(length(Tokens) >= 1).
+
+-spec new_client_old_card_cascade_test(config()) -> test_result().
+new_client_old_card_cascade_test(C) ->
+    Client = cfg(client, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    %% Step 1: First payment with make_recurrent=true, no customer
+    %% This saves recurrent token to BankCard for ?prv(1)/?trm(1)
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    %% Get bank card token from first payment
+    #payproc_InvoicePayment{
+        payment = #domain_InvoicePayment{payer = Payer1}
+    } = hg_client_invoicing:get_payment(Invoice1ID, Payment1ID, Client),
+    BCT = get_bank_card_token_from_payer(Payer1),
+    %% Step 2: Manually add a second recurrent token for ?prv(2)/?trm(2) to the same BankCard
+    #customer_BankCard{} = hg_customer_client:find_or_create_bank_card(PartyConfigRef, BCT),
+    hg_customer_client:save_recurrent_token_by_card(
+        PartyConfigRef,
+        BCT,
+        {#domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)}, <<"cascade-token-prv2">>}
+    ),
+    %% Step 3: Make ?prv(1) fail, add ?prv(2)/?trm(2) to routing
+    _ = hg_domain:upsert(construct_cascade_fixture()),
+    %% Step 4: "New client" makes a recurrent payment using the same card (no customer)
+    %% Should cascade from failing ?prv(1) to ?prv(2)
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
+    %% Verify: cascade succeeded via ?prv(2)/?trm(2)
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [Payment2St]
+    ) = hg_client_invoicing:get(Invoice2ID, Client),
+    ?payment_state(?payment_w_status(Payment2ID, ?captured())) = Payment2St,
+    #domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)} =
+        Payment2St#payproc_InvoicePayment.route.
+
+-spec cascade_exhaustion_test(config()) -> test_result().
+cascade_exhaustion_test(C) ->
+    Client = cfg(client, C),
+    %% Step 1: Parent payment, no customer
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    %% Step 2: Make ALL providers fail
+    _ = hg_domain:upsert(construct_all_fail_fixture()),
+    %% Step 3: Recurrent payment should exhaust cascade and fail
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    %% Await payment failure
+    Pattern = [
+        ?evp(?payment_ev(Payment2ID, ?payment_status_changed(?failed(_))))
+    ],
+    {ok, _Events} = await_events(Invoice2ID, Pattern, Client),
+    ?invoice_state(
+        _,
+        [?payment_state(?payment_w_status(Payment2ID, ?failed(_)))]
+    ) = hg_client_invoicing:get(Invoice2ID, Client).
+
+%% Tokens don't bypass routing: BankCard has tokens for prv(1), prv(2), prv(3),
+%% but routing only includes prv(1) and prv(3). prv(2)'s token must not be used.
+-spec cascade_routing_filter_test(config()) -> test_result().
+cascade_routing_filter_test(C) ->
+    Client = cfg(client, C),
+    PartyConfigRef = cfg(party_config_ref, C),
+    %% Step 1: Parent payment — saves token for prv(1)/trm(1)
+    Invoice1ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    Payment1Params = make_payment_params(?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment1ID} = start_payment(Invoice1ID, Payment1Params, Client),
+    Payment1ID = await_payment_capture(Invoice1ID, Payment1ID, Client),
+    %% Get BCT from parent
+    #payproc_InvoicePayment{payment = #domain_InvoicePayment{payer = Payer1}} =
+        hg_client_invoicing:get_payment(Invoice1ID, Payment1ID, Client),
+    BCT = get_bank_card_token_from_payer(Payer1),
+    %% Step 2: Add tokens for prv(2) AND prv(3) — BankCard now has tokens for all three
+    hg_customer_client:save_recurrent_token_by_card(
+        PartyConfigRef,
+        BCT,
+        {#domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)}, <<"token-prv2">>}
+    ),
+    hg_customer_client:save_recurrent_token_by_card(
+        PartyConfigRef,
+        BCT,
+        {#domain_PaymentRoute{provider = ?prv(3), terminal = ?trm(3)}, <<"token-prv3">>}
+    ),
+    %% Step 3: Routing only has prv(1) and prv(3) — prv(2) is NOT in routing rules.
+    %% prv(1) fails, so cascade should go to prv(3), skipping prv(2) despite its token.
+    _ = hg_domain:upsert(construct_routing_filter_fixture()),
+    %% Step 4: Recurrent payment
+    Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
+    RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
+    Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
+    {ok, Payment2ID} = start_payment(Invoice2ID, Payment2Params, Client),
+    Payment2ID = await_payment_capture(Invoice2ID, Payment2ID, Client),
+    %% Verify: routed to prv(3)/trm(3) — prv(2) was excluded by routing despite having a token
+    ?invoice_state(
+        ?invoice_w_status(?invoice_paid()),
+        [Payment2St]
+    ) = hg_client_invoicing:get(Invoice2ID, Client),
+    ?payment_state(?payment_w_status(Payment2ID, ?captured())) = Payment2St,
+    #domain_PaymentRoute{provider = ?prv(3), terminal = ?trm(3)} =
+        Payment2St#payproc_InvoicePayment.route.
+
 make_payment_params(PmtSys) ->
     make_payment_params(true, undefined, PmtSys).
 
@@ -571,7 +746,7 @@ make_payment_params(MakeRecurrent, RecurrentParent, PmtSys) ->
     make_payment_params(instant, MakeRecurrent, RecurrentParent, PmtSys).
 
 make_payment_params(FlowType, MakeRecurrent, RecurrentParent, PmtSys) ->
-    {PaymentTool, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
+    {PaymentTool, Session} = make_unique_payment_tool(PmtSys),
     make_payment_params(PaymentTool, Session, FlowType, MakeRecurrent, RecurrentParent).
 
 make_payment_params(PaymentTool, Session, FlowType, MakeRecurrent, RecurrentParent) ->
@@ -611,8 +786,14 @@ make_recurrent_payment_params(MakeRecurrent, RecurrentParent, PmtSys) ->
     make_recurrent_payment_params(instant, MakeRecurrent, RecurrentParent, PmtSys).
 
 make_recurrent_payment_params(FlowType, MakeRecurrent, RecurrentParent, PmtSys) ->
-    {PaymentTool, _Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
+    {PaymentTool, _Session} = make_unique_payment_tool(PmtSys),
     make_payment_params(undefined, PaymentTool, undefined, FlowType, MakeRecurrent, RecurrentParent).
+
+make_unique_payment_tool(PmtSys) ->
+    {{bank_card, BCard}, Session} = hg_dummy_provider:make_payment_tool(no_preauth, PmtSys),
+    Suffix = integer_to_binary(erlang:unique_integer([positive])),
+    UniqueToken = <<(BCard#domain_BankCard.token)/binary, "/", Suffix/binary>>,
+    {{bank_card, BCard#domain_BankCard{token = UniqueToken}}, Session}.
 
 make_due_date(LifetimeSeconds) ->
     genlib_time:unow() + LifetimeSeconds.
@@ -992,3 +1173,129 @@ construct_cascade_fixture() ->
             }
         }}
     ].
+
+construct_all_fail_fixture() ->
+    Revision = hg_domain:head(),
+    #domain_Provider{accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    #domain_TermSetHierarchy{term_set = TermSet} =
+        hg_domain:get(Revision, {term_set_hierarchy, ?trms(1)}),
+    #domain_TermSet{payments = PaymentsTerms} = TermSet,
+    FailProxy = #{
+        <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+        <<"override">> => <<"all_fail">>
+    },
+    [
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = #domain_Provider{
+                name = <<"Brovider (failing)">>,
+                description = <<"Always fails">>,
+                realm = test,
+                proxy = #domain_Proxy{ref = ?prx(1), additional = FailProxy},
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        {term_set_hierarchy, #domain_TermSetHierarchyObject{
+            ref = ?trms(1),
+            data = #domain_TermSetHierarchy{
+                term_set = TermSet#domain_TermSet{
+                    payments = PaymentsTerms#domain_PaymentsServiceTerms{
+                        attempt_limit = {value, #domain_AttemptLimit{attempts = 2}}
+                    }
+                }
+            }
+        }}
+    ].
+
+construct_routing_filter_fixture() ->
+    Revision = hg_domain:head(),
+    #domain_Provider{accounts = Accounts, terms = Terms} =
+        hg_domain:get(Revision, {provider, ?prv(1)}),
+    #domain_TermSetHierarchy{term_set = TermSet} =
+        hg_domain:get(Revision, {term_set_hierarchy, ?trms(1)}),
+    #domain_TermSet{payments = PaymentsTerms} = TermSet,
+    FailProxy = #{
+        <<"always_fail">> => <<"preauthorization_failed:card_blocked">>,
+        <<"override">> => <<"routing_filter">>
+    },
+    [
+        %% prv(1): fails
+        {provider, #domain_ProviderObject{
+            ref = ?prv(1),
+            data = #domain_Provider{
+                name = <<"Failing provider">>,
+                description = <<"Always fails">>,
+                realm = test,
+                proxy = #domain_Proxy{ref = ?prx(1), additional = FailProxy},
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        %% prv(3): succeeds
+        {provider, #domain_ProviderObject{
+            ref = ?prv(3),
+            data = #domain_Provider{
+                name = <<"Fallback provider">>,
+                description = <<"Succeeds">>,
+                realm = test,
+                proxy = #domain_Proxy{ref = ?prx(1), additional = #{}},
+                accounts = Accounts,
+                terms = Terms
+            }
+        }},
+        {terminal, #domain_TerminalObject{
+            ref = ?trm(3),
+            data = #domain_Terminal{
+                name = <<"Fallback terminal">>,
+                description = <<"Fallback terminal">>,
+                provider_ref = ?prv(3)
+            }
+        }},
+        %% Routing: only prv(1) and prv(3) — prv(2) is NOT routable
+        {routing_rules, #domain_RoutingRulesObject{
+            ref = ?ruleset(2),
+            data = #domain_RoutingRuleset{
+                name = <<"Filter routing">>,
+                decisions =
+                    {candidates, [
+                        ?candidate(<<"Failing">>, {constant, true}, ?trm(1), 1000),
+                        ?candidate(<<"Fallback">>, {constant, true}, ?trm(3), 1000)
+                    ]}
+            }
+        }},
+        %% Allow cascade: attempt limit 2
+        {term_set_hierarchy, #domain_TermSetHierarchyObject{
+            ref = ?trms(1),
+            data = #domain_TermSetHierarchy{
+                term_set = TermSet#domain_TermSet{
+                    payments = PaymentsTerms#domain_PaymentsServiceTerms{
+                        attempt_limit = {value, #domain_AttemptLimit{attempts = 2}}
+                    }
+                }
+            }
+        }}
+    ].
+
+%% Restore only objects modified by cascade/fail fixtures, without touching proxy URLs.
+%% construct_domain_fixture includes hg_ct_fixture:construct_proxy which sets url = <<>>,
+%% but real proxy URLs were set by start_proxies in init_per_suite.
+restore_domain_after_cascade() ->
+    TermSet = construct_term_set_w_recurrent_paytools(),
+    Fixture = construct_domain_fixture(TermSet),
+    SafeObjects = [Obj || {Type, _} = Obj <- Fixture, Type =/= proxy],
+    _ = hg_domain:upsert(SafeObjects),
+    ok.
+
+get_bank_card_token_from_payer(
+    ?payment_resource_payer(
+        #domain_DisposablePaymentResource{
+            payment_tool = {bank_card, #domain_BankCard{token = Token}}
+        },
+        _
+    )
+) ->
+    Token;
+get_bank_card_token_from_payer(?recurrent_payer({bank_card, #domain_BankCard{token = Token}}, _, _)) ->
+    Token.
