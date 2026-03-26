@@ -137,7 +137,7 @@ filter(Routes, Keys) ->
             case route_rejection_reason(Route, Keys) of
                 undefined ->
                     Acc#{routes => [Route | Accepted]};
-                {_Key, Reason} ->
+                Reason ->
                     Acc#{rejected_routes => [hg_route:set_rejection_reason(Reason, Route) | Rejected]}
             end
         end,
@@ -152,7 +152,7 @@ route_rejection_reason(Route, Keys) ->
 get_rejection_reason([{Key, Value} | Rest], Data) ->
     case maps:get(Key, Data, undefined) of
         {Value, Reason} ->
-            {Key, Reason};
+            {Key, {Value, Reason}};
         Value ->
             {Key, Value};
         _ ->
@@ -425,8 +425,10 @@ filter_routes_splits_accepted_and_rejected_test() ->
         new_route(1, 4, 0, {1, 1.0}, {1, 1.0})
     ),
     Rejected = [
-        hg_route:set_rejection_reason({accepted, {rejected, {'ProvisionTermSet', undefined}}}, RejectedByTerms),
-        hg_route:set_rejection_reason({prohibit, <<"blocked">>}, RejectedByProhibition),
+        hg_route:set_rejection_reason(
+            {accepted, {false, {rejected, {'ProvisionTermSet', undefined}}}}, RejectedByTerms
+        ),
+        hg_route:set_rejection_reason({prohibit, {true, <<"blocked">>}}, RejectedByProhibition),
         hg_route:set_rejection_reason({blacklisted, 1}, RejectedByBlacklist)
     ],
     Result = #{
