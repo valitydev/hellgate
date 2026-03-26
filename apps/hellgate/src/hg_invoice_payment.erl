@@ -2423,7 +2423,7 @@ process_result({payment, finalizing_accounter}, Action, St) ->
                 rollback_payment_cashflow(St)
         end,
     check_recurrent_token(St),
-    maybe_save_recurrent_token_to_customer(St),
+    _ = maybe_save_recurrent_token_to_customer(St),
     NewAction = get_action(Target, Action, St),
     {done, {[?payment_status_changed(Target)], NewAction}}.
 
@@ -2495,7 +2495,7 @@ maybe_save_recurrent_token_to_customer(
 ) when CustomerID =/= undefined ->
     InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
     hg_customer_client:add_payment(CustomerID, InvoiceID, PaymentID),
-    maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St),
+    _ = maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St),
     maybe_link_bankcard_to_customer(CustomerID, Payer);
 maybe_save_recurrent_token_to_customer(
     #st{

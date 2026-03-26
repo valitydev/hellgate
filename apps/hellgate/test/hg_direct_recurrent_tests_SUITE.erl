@@ -564,7 +564,7 @@ cascade_recurrent_payment_success_test(C) ->
     #payproc_InvoicePayment{payment = #domain_InvoicePayment{payer = Payer1}} =
         hg_client_invoicing:get_payment(Invoice1ID, Payment1ID, Client),
     BCT1 = get_bank_card_token_from_payer(Payer1),
-    hg_customer_client:save_recurrent_token_by_card(
+    _ = hg_customer_client:save_recurrent_token_by_card(
         PartyConfigRef,
         BCT1,
         {#domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)}, <<"cascade-token-prv2">>}
@@ -647,7 +647,7 @@ new_client_old_card_cascade_test(C) ->
     BCT = get_bank_card_token_from_payer(Payer1),
     %% Step 2: Manually add a second recurrent token for ?prv(2)/?trm(2) to the same BankCard
     #customer_BankCard{} = hg_customer_client:find_or_create_bank_card(PartyConfigRef, BCT),
-    hg_customer_client:save_recurrent_token_by_card(
+    _ = hg_customer_client:save_recurrent_token_by_card(
         PartyConfigRef,
         BCT,
         {#domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)}, <<"cascade-token-prv2">>}
@@ -711,12 +711,12 @@ cascade_routing_filter_test(C) ->
         hg_client_invoicing:get_payment(Invoice1ID, Payment1ID, Client),
     BCT = get_bank_card_token_from_payer(Payer1),
     %% Step 2: Add tokens for prv(2) AND prv(3) — BankCard now has tokens for all three
-    hg_customer_client:save_recurrent_token_by_card(
+    _ = hg_customer_client:save_recurrent_token_by_card(
         PartyConfigRef,
         BCT,
         {#domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)}, <<"token-prv2">>}
     ),
-    hg_customer_client:save_recurrent_token_by_card(
+    _ = hg_customer_client:save_recurrent_token_by_card(
         PartyConfigRef,
         BCT,
         {#domain_PaymentRoute{provider = ?prv(3), terminal = ?trm(3)}, <<"token-prv3">>}
