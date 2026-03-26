@@ -136,8 +136,6 @@ ensure_otel_log_handler() ->
             LogLevel = application:get_env(hellgate, otel_log_level, debug),
             LoggerHandlerConfig = #{
                 level => LogLevel,
-                filter_default => log,
-                filters => [{hg_otel_trace_id_bytes, {fun hg_otel_log_filter:filter/2, undefined}}],
                 config => #{
                     exporter =>
                         {otel_exporter_logs_otlp, #{
