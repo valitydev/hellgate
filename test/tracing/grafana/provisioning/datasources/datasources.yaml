@@ -13,7 +13,7 @@ datasources:
         # По structured metadata (Fields) — trace_id из OTLP не в теле лога
         - name: trace_id
           matcherType: label
-          matcherRegex: '^otel_trace_id$'
+          matcherRegex: '^trace_id$'
           datasourceUid: tempo
           url: '$${__value.raw}'
           urlDisplayLabel: 'View Trace'
