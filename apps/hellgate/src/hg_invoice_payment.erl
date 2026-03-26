@@ -452,8 +452,10 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
                         [];
                     BCT ->
                         case hg_customer_client:get_recurrent_tokens_by_card(PartyConfigRef, BCT) of
-                            [_ | _] = Tokens -> [?cascade_tokens_loaded(Tokens)];
-                            [] -> []
+                            [_ | _] = Tokens ->
+                                [?cascade_tokens_loaded(Tokens)];
+                            [] ->
+                                seed_bank_card_from_parent(PartyConfigRef, BCT, VS0)
                         end
                 end;
             _ ->
@@ -461,6 +463,18 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         end,
     Events = [?payment_started(Payment2)] ++ CascadeTokenEvents,
     {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
+
+seed_bank_card_from_parent(PartyConfigRef, BCT, #{parent_payment := ParentPayment}) ->
+    case get_recurrent_token(ParentPayment) of
+        undefined ->
+            [];
+        RecToken ->
+            Route = get_route(ParentPayment),
+            SavedToken = hg_customer_client:save_recurrent_token_by_card(PartyConfigRef, BCT, {Route, RecToken}),
+            [?cascade_tokens_loaded([SavedToken])]
+    end;
+seed_bank_card_from_parent(_PartyConfigRef, _BCT, _VS) ->
+    [].
 
 maybe_inherit_customer_id(undefined, #{parent_payment := ParentPayment}) ->
     (get_payment(ParentPayment))#domain_InvoicePayment.customer_id;
@@ -2474,7 +2488,6 @@ maybe_save_recurrent_token_to_customer(
         payment = #domain_InvoicePayment{
             id = PaymentID,
             customer_id = CustomerID,
-            make_recurrent = MakeRecurrent,
             payer = Payer
         },
         recurrent_token = RecToken
@@ -2482,20 +2495,19 @@ maybe_save_recurrent_token_to_customer(
 ) when CustomerID =/= undefined ->
     InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
     hg_customer_client:add_payment(CustomerID, InvoiceID, PaymentID),
-    maybe_save_recurrent_token_to_bankcard(MakeRecurrent, RecToken, Payer, St),
+    maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St),
     maybe_link_bankcard_to_customer(CustomerID, Payer);
 maybe_save_recurrent_token_to_customer(
     #st{
         payment = #domain_InvoicePayment{
-            make_recurrent = MakeRecurrent,
             payer = Payer
         },
         recurrent_token = RecToken
     } = St
 ) ->
-    maybe_save_recurrent_token_to_bankcard(MakeRecurrent, RecToken, Payer, St).
+    maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St).
 
-maybe_save_recurrent_token_to_bankcard(true, RecToken, Payer, St) when RecToken =/= undefined ->
+maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St) when RecToken =/= undefined ->
     case get_bank_card_token(Payer) of
         undefined ->
             ok;
@@ -2504,7 +2516,7 @@ maybe_save_recurrent_token_to_bankcard(true, RecToken, Payer, St) when RecToken 
             Route = get_route(St),
             hg_customer_client:save_recurrent_token_by_card(PartyConfigRef, BCT, {Route, RecToken})
     end;
-maybe_save_recurrent_token_to_bankcard(_, _, _, _) ->
+maybe_save_recurrent_token_to_bankcard(_, _, _) ->
     ok.
 
 maybe_link_bankcard_to_customer(CustomerID, Payer) ->

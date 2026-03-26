@@ -57,14 +57,14 @@ get_recurrent_tokens_by_card(PartyConfigRef, BankCardToken) ->
     dmsl_domain_thrift:'PartyConfigRef'(),
     token(),
     {dmsl_domain_thrift:'PaymentRoute'(), token()}
-) -> ok.
+) -> recurrent_token().
 save_recurrent_token_by_card(
     PartyConfigRef,
     BankCardToken,
     {#domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef}, RecToken}
 ) ->
     #customer_BankCard{id = BankCardID} = find_or_create_bank_card(PartyConfigRef, BankCardToken),
-    {ok, _} = call(
+    {ok, SavedToken} = call(
         bank_card_storage,
         'AddRecurrentToken',
         {#customer_RecurrentTokenParams{
@@ -74,7 +74,7 @@ save_recurrent_token_by_card(
             token = RecToken
         }}
     ),
-    ok.
+    SavedToken.
 
 -spec tokens_to_map([recurrent_token()]) -> cascade_tokens().
 tokens_to_map(Tokens) ->
