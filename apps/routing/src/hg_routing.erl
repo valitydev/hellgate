@@ -137,7 +137,7 @@ filter(Routes, Keys) ->
             case route_rejection_reason(Route, Keys) of
                 undefined ->
                     Acc#{routes => [Route | Accepted]};
-                Reason ->
+                {_Key, Reason} ->
                     Acc#{rejected_routes => [hg_route:set_rejection_reason(Reason, Route) | Rejected]}
             end
         end,

@@ -89,6 +89,8 @@ merge_fd_overrides(_A, _B) ->
 
 -spec fill_prohibition(revision(), varset(), payment_institution(), [hg_route:t()]) ->
     [hg_route:t()].
+fill_prohibition(_Revision, _VS, #domain_PaymentInstitution{payment_routing_rules = undefined}, Routes) ->
+    Routes;
 fill_prohibition(Revision, VS, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, Routes) ->
     #domain_RoutingRules{
         prohibitions = Prohibitions
@@ -101,7 +103,7 @@ fill_prohibition(Revision, VS, #domain_PaymentInstitution{payment_routing_rules 
                 error ->
                     [Route | AccIn];
                 {ok, Description} ->
-                    [hg_route:set_prohibit({true, Description}, Route) | AccIn]
+                    [hg_route:set_prohibit({true, {'RoutingRule', Description}}, Route) | AccIn]
             end
         end,
         [],
@@ -254,9 +256,15 @@ check_terms_acceptability(payment, Terms, VS) ->
 check_terms_acceptability(recurrent_paytool, Terms, VS) ->
     acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS);
 check_terms_acceptability(recurrent_payment, Terms, VS) ->
-    % Use provider check combined from recurrent_paytool and payment check
+    % Recurrent payment may be accepted either by recurrent terms
+    % or via the skip_recurrent extension flag.
     _ = acceptable_payment_terms(Terms#domain_ProvisionTermSet.payments, VS),
-    acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS).
+    case Terms#domain_ProvisionTermSet.extension of
+        #domain_ExtendedProvisionTerms{skip_recurrent = true} ->
+            true;
+        _ ->
+            acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS)
+    end.
 
 acceptable_payment_terms(
     #domain_PaymentsProvisionTerms{
