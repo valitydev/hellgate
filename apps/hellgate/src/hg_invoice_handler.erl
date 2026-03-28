@@ -226,11 +226,11 @@ get_state(ID, AfterID, Limit) ->
 
 get_history(ID) ->
     History = hg_machine:get_history(hg_invoice:namespace(), ID),
-    hg_invoice:unmarshal_history(map_history_error(History)).
+    hg_invoice:unmarshal_history(map_history_error(History, undefined)).
 
 get_history(ID, AfterID, Limit) ->
     History = hg_machine:get_history(hg_invoice:namespace(), ID, AfterID, Limit),
-    hg_invoice:unmarshal_history(map_history_error(History)).
+    hg_invoice:unmarshal_history(map_history_error(History, Limit)).
 
 get_public_history(InvoiceID, #payproc_EventRange{'after' = AfterID, limit = Limit}) ->
     [publish_invoice_event(InvoiceID, Ev) || Ev <- get_history(InvoiceID, AfterID, Limit)].
@@ -243,9 +243,13 @@ publish_invoice_event(InvoiceID, {ID, Dt, Event}) ->
         payload = ?invoice_ev(Event)
     }.
 
-map_history_error({ok, Result}) ->
+map_history_error({ok, Result}, undefined) ->
     Result;
-map_history_error({error, notfound}) ->
+map_history_error({ok, Result}, Limit) when length(Result) < Limit ->
+    throw(#base_InvalidRequest{errors = [<<"Non existent events requested">>]});
+map_history_error({ok, Result}, _Limit) ->
+    Result;
+map_history_error({error, notfound}, _Limit) ->
     throw(#payproc_InvoiceNotFound{}).
 
 %%
