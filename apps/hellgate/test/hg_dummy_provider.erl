@@ -613,7 +613,7 @@ get_payment_tool_scenario(
     mobile_commerce;
 get_payment_tool_scenario({'bank_card', #domain_BankCard{token = Token} = BCard}) ->
     %% Strip unique test suffix (e.g. <<"no_preauth/42">> -> <<"no_preauth">>)
-    [Base, _Suffix] = binary:split(Token, <<"/">>),
+    [Base | _Suffix] = binary:split(Token, <<"/">>),
     get_payment_tool_scenario({'bank_card', BCard#domain_BankCard{token = Base}}).
 
 -type tokenized_bank_card_payment_system() ::

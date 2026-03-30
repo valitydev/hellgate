@@ -190,16 +190,12 @@ init_per_testcase(Name, C) ->
     ].
 
 -spec end_per_testcase(test_case_name(), config()) -> ok.
-end_per_testcase(cascade_recurrent_payment_success_test, _C) ->
-    restore_domain_after_cascade(),
-    ok;
-end_per_testcase(new_client_old_card_cascade_test, _C) ->
-    restore_domain_after_cascade(),
-    ok;
-end_per_testcase(cascade_exhaustion_test, _C) ->
-    restore_domain_after_cascade(),
-    ok;
-end_per_testcase(cascade_routing_filter_test, _C) ->
+end_per_testcase(Name, _C) when
+    Name =:= cascade_recurrent_payment_success_test;
+    Name =:= new_client_old_card_cascade_test;
+    Name =:= cascade_exhaustion_test;
+    Name =:= cascade_routing_filter_test
+->
     restore_domain_after_cascade(),
     ok;
 end_per_testcase(_Name, _C) ->

@@ -1958,22 +1958,18 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
     %% NOTE Since this is routing step then current attempt is not yet
     %% accounted for in `St`.
     NewIter = get_iter(St) + 1,
-    {TokenFilterFn, ChooseRouteFn} = cascade_pipeline_fns(St),
     hg_routing_ctx:pipeline(
         Ctx0,
         [
             fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
-            TokenFilterFn,
+            fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end,
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
             fun hg_routing:filter_by_critical_provider_status/1,
-            ChooseRouteFn
+            fun hg_routing:choose_route_with_ctx/1
         ]
     ).
-
-cascade_pipeline_fns(St) ->
-    {fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end, fun hg_routing:choose_route_with_ctx/1}.
 
 produce_routing_events(#{error := Error} = Ctx, Revision, St) when Error =/= undefined ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
