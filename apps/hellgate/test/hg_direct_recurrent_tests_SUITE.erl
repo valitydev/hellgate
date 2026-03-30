@@ -569,7 +569,7 @@ cascade_recurrent_payment_success_test(C) ->
         BCT1,
         {#domain_PaymentRoute{provider = ?prv(2), terminal = ?trm(2)}, <<"cascade-token-prv2">>}
     ),
-    %% Step 4: Parent route ?prv(1)/?trm(1) tried first (now fails), cascades to ?prv(2)/?trm(2)
+    %% Step 4: Routing picks from candidates filtered by tokens; ?prv(1) fails, cascades to ?prv(2)
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
     Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),
@@ -654,8 +654,8 @@ new_client_old_card_cascade_test(C) ->
     ),
     %% Step 3: Make ?prv(1) fail, add ?prv(2)/?trm(2) to routing
     _ = hg_domain:upsert(construct_cascade_fixture()),
-    %% Step 4: "New client" makes a recurrent payment using the same card (no customer)
-    %% Should cascade from failing ?prv(1) to ?prv(2)
+    %% Step 4: "New client" recurrent payment — routing selects from token-filtered candidates
+    %% prv(1) fails, cascades to prv(2)
     Invoice2ID = start_invoice(<<"rubberduck">>, make_due_date(10), 42000, C),
     RecurrentParent = ?recurrent_parent(Invoice1ID, Payment1ID),
     Payment2Params = make_recurrent_payment_params(true, RecurrentParent, ?pmt_sys(<<"visa-ref">>)),

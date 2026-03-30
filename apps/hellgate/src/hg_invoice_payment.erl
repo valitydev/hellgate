@@ -1972,21 +1972,8 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
         ]
     ).
 
-%% First attempt with cascade tokens: skip token filter (parent route always has a token,
-%% and we need all candidates visible for cascade viability check), force parent route.
-%% Retries: filter by tokens (only routes with tokens are valid cascade targets), normal selection.
-cascade_pipeline_fns(#st{cascade_recurrent_tokens = Tokens, routes = []}) when Tokens =/= undefined ->
-    {fun(Ctx) -> Ctx end, fun choose_parent_route/1};
-cascade_pipeline_fns(#st{cascade_recurrent_tokens = Tokens} = St) when Tokens =/= undefined ->
-    {fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end, fun hg_routing:choose_route_with_ctx/1};
 cascade_pipeline_fns(St) ->
     {fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end, fun hg_routing:choose_route_with_ctx/1}.
-
-choose_parent_route(Ctx) ->
-    Candidates = hg_routing_ctx:candidates(Ctx),
-    %% Parent route is first in candidates (prepended in build_routing_context)
-    ParentRoute = hd(Candidates),
-    hg_routing_ctx:set_choosen(ParentRoute, #{}, Ctx).
 
 produce_routing_events(#{error := Error} = Ctx, Revision, St) when Error =/= undefined ->
     %% TODO Pass failure subcode from error. Say, if last candidates were
@@ -2045,13 +2032,7 @@ route_args(St) ->
 build_routing_context(PaymentInstitution, VS, Revision, #st{cascade_recurrent_tokens = CascadeTokens} = St) when
     CascadeTokens =/= undefined
 ->
-    %% Parent route first, then other gathered routes for cascade
-    Payer = get_payment_payer(St),
-    {ok, ParentPaymentRoute} = get_predefined_route(Payer),
-    ParentRoute = hg_route:from_payment_route(ParentPaymentRoute),
-    GatheredCtx = gather_routes(PaymentInstitution, VS, Revision, St),
-    OtherCandidates = hg_routing_ctx:candidates(GatheredCtx),
-    hg_routing_ctx:new([ParentRoute | OtherCandidates]);
+    gather_routes(PaymentInstitution, VS, Revision, St);
 build_routing_context(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
@@ -2505,7 +2486,8 @@ maybe_save_recurrent_token_to_customer(
         recurrent_token = RecToken
     } = St
 ) ->
-    maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St).
+    _ = maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St),
+    ok.
 
 maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St) when RecToken =/= undefined ->
     case get_bank_card_token(Payer) of
