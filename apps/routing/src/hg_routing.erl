@@ -27,25 +27,14 @@
     reject_reason => atom()
 }.
 
--type rejection_group() :: atom().
--type filter_routes_fun() :: fun((filter_routes_result()) -> filter_routes_result()).
-
 -type get_routes_result() :: #{
     routes := [hg_route:t()],
     rejected_routes => [hg_route:t()],
     error => hg_route_collector:get_routes_error()
 }.
 
--type filter_routes_result() :: #{
-    routes := [hg_route:t()],
-    rejected_routes => [hg_route:t()],
-    latest_rejected_group => rejection_group(),
-    rejection_groups => #{rejection_group() => [hg_route:t()]},
-    considered_routes => [hg_route:t()],
-    routing_snapshot_routes => [hg_route:t()],
-    route_limits => limits() | undefined,
-    route_scores => scores() | undefined
-}.
+-type filter_routes_result() :: hg_routing_ctx:t().
+-type filter_routes_fun() :: fun((filter_routes_result()) -> filter_routes_result()).
 
 -type route_scores() :: #domain_PaymentRouteScores{}.
 -type limits() :: #{hg_route:payment_route() => [hg_limiter:turnover_limit_value()]}.
@@ -57,6 +46,7 @@
 -export_type([get_route_params/0]).
 -export_type([get_routes_result/0]).
 -export_type([filter_routes_result/0]).
+-export_type([route_choice_context/0]).
 -export_type([route_scores/0]).
 -export_type([limits/0]).
 -export_type([scores/0]).
