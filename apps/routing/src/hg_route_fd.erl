@@ -26,7 +26,8 @@ fill(Routes) ->
         routes := RouteMap
     } = lists:foldl(fun build_route_map/2, #{service_ids => [], service_map => #{}, routes => #{}}, Routes),
     FDStats = hg_fault_detector_client:get_statistics(ServiceIDs),
-    maps:values(lists:foldl(fun(Stats, Map) -> fill_fd_score(Stats, ServiceMap, Map) end, RouteMap, FDStats)).
+    FilledRouteMap = lists:foldl(fun(Stats, Map) -> fill_fd_score(Stats, ServiceMap, Map) end, RouteMap, FDStats),
+    [maps:get(hg_route:to_payment_route(Route), FilledRouteMap) || Route <- Routes].
 
 %%
 

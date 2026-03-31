@@ -35,13 +35,20 @@ get_explanation(
             %% If there's no routes even tried, then no explanation can be provided
             throw(#payproc_RouteNotChosen{});
         [Route | AttemptedRoutes] ->
-            CandidateRoutesWithoutChosenRoute = exclude_chosen_route_from_candidates(CandidateRoutes, Route),
+            CandidateRoutesWithoutChosenRoute = exclude_chosen_route_from_candidates(
+                gather_candidate_routes(CandidateRoutes, RouteScores),
+                Route
+            ),
+            CandidateRoutesWithoutAttemptedRoutes = exclude_attempted_routes_from_candidates(
+                CandidateRoutesWithoutChosenRoute,
+                AttemptedRoutes
+            ),
             ChosenRWC = make_route_with_context(Route, RouteScores, RouteLimits),
             AttemptedExplanation = maybe_explain_attempted_routes(
                 AttemptedRoutes, RouteScores, RouteLimits
             ),
             CandidatesExplanation = maybe_explain_candidate_routes(
-                CandidateRoutesWithoutChosenRoute, RouteScores, RouteLimits, ChosenRWC
+                CandidateRoutesWithoutAttemptedRoutes, RouteScores, RouteLimits, ChosenRWC
             ),
 
             Varset = gather_varset(Payment, Opts),
@@ -55,10 +62,30 @@ get_explanation(
             }
     end.
 
-exclude_chosen_route_from_candidates(CandidateRoutes, Route) when is_list(CandidateRoutes) ->
-    CandidateRoutes -- [Route];
-exclude_chosen_route_from_candidates(_UndefinedCandidates, _Route) ->
-    [].
+-spec exclude_chosen_route_from_candidates([route()], route()) -> [route()].
+exclude_chosen_route_from_candidates(CandidateRoutes, Route) ->
+    CandidateRoutes -- [Route].
+
+-spec exclude_attempted_routes_from_candidates([route()], [route()]) -> [route()].
+exclude_attempted_routes_from_candidates(CandidateRoutes, AttemptedRoutes) ->
+    CandidateRoutes -- AttemptedRoutes.
+
+-spec gather_candidate_routes([route()] | undefined, scores()) -> [route()].
+gather_candidate_routes(CandidateRoutes, RouteScores) when is_list(CandidateRoutes) ->
+    lists:foldl(
+        fun(Route, Acc) ->
+            case lists:member(Route, Acc) of
+                true ->
+                    Acc;
+                false ->
+                    Acc ++ [Route]
+            end
+        end,
+        CandidateRoutes,
+        maps:keys(RouteScores)
+    );
+gather_candidate_routes(undefined, RouteScores) ->
+    maps:keys(RouteScores).
 
 -spec make_route_with_context(route(), scores(), limits()) -> route_with_context().
 make_route_with_context(Route, RouteScores, RouteLimits) ->

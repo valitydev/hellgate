@@ -39,11 +39,12 @@
 -type filter_routes_result() :: #{
     routes := [hg_route:t()],
     rejected_routes => [hg_route:t()],
-    latest_rejected_group => rejection_group() | undefined,
+    latest_rejected_group => rejection_group(),
     rejection_groups => #{rejection_group() => [hg_route:t()]},
     considered_routes => [hg_route:t()],
-    route_limits => limits(),
-    route_scores => scores()
+    routing_snapshot_routes => [hg_route:t()],
+    route_limits => limits() | undefined,
+    route_scores => scores() | undefined
 }.
 
 -type route_scores() :: #domain_PaymentRouteScores{}.
@@ -172,10 +173,13 @@ choose_route(Routes) ->
 find_best_routes([Route]) ->
     {Route, Route};
 find_best_routes([First | Rest]) ->
+    %% In old master, equal scores were broken by route term order.
+    %% After route maps transition this is non-stable, so keep the earlier
+    %% candidate explicitly when scores are equal.
     lists:foldl(
         fun(RouteIn, {CurrentRouteChosen, CurrentRouteIdeal}) ->
-            NewRouteIdeal = select_better_route_ideal(RouteIn, CurrentRouteIdeal),
-            NewRouteChosen = select_better_route(RouteIn, CurrentRouteChosen),
+            NewRouteIdeal = select_better_route_ideal(CurrentRouteIdeal, RouteIn),
+            NewRouteChosen = select_better_route(CurrentRouteChosen, RouteIn),
             {NewRouteChosen, NewRouteIdeal}
         end,
         {First, First},
@@ -185,9 +189,10 @@ find_best_routes([First | Rest]) ->
 select_better_route_ideal(Left, Right) ->
     IdealLeft = set_ideal_score(Left),
     IdealRight = set_ideal_score(Right),
-    case select_better_route(IdealLeft, IdealRight) of
-        IdealLeft -> Left;
-        IdealRight -> Right
+    Winner = select_better_route(IdealLeft, IdealRight),
+    case hg_route:to_payment_route(Winner) =:= hg_route:to_payment_route(IdealLeft) of
+        true -> Left;
+        false -> Right
     end.
 
 set_ideal_score(Route0) ->
@@ -207,6 +212,9 @@ select_better_route(Left, Right) ->
     Res.
 
 select_better_pinned_route(Left, Right) ->
+    %% Compare pinned siblings without the random bucket, then keep the bucket on the winner
+    %% so the whole pin-group preserves its share in later pairwise comparisons.
+    GroupRandomCondition = max(hg_route:weight(Left), hg_route:weight(Right)),
     LeftScore = (hg_route:score(Left))#domain_PaymentRouteScores{
         random_condition = 0,
         route_pin = erlang:phash2({
@@ -226,9 +234,9 @@ select_better_pinned_route(Left, Right) ->
 
     case max(LeftScore, RightScore) of
         LeftScore ->
-            Left;
+            hg_route:set_weight(GroupRandomCondition, Left);
         RightScore ->
-            Right
+            hg_route:set_weight(GroupRandomCondition, Right)
     end.
 
 select_better_regular_route(Left, Right) ->
@@ -314,6 +322,19 @@ record_comparsion_test() ->
             Middle,
             Bigger
         ])
+    ).
+
+-spec tie_case_prefers_earlier_route_test() -> _.
+tie_case_prefers_earlier_route_test() ->
+    RouteFirst = new_route(1, 1, 0, {1, 1.0}, {1, 1.0}),
+    RouteSecond = new_route(2, 2, 0, {1, 1.0}, {1, 1.0}),
+    ?assertMatch(
+        {?trm(1), _},
+        balance_and_choose_route([RouteFirst, RouteSecond])
+    ),
+    ?assertMatch(
+        {?trm(2), _},
+        balance_and_choose_route([RouteSecond, RouteFirst])
     ).
 
 -spec pin_random_test() -> _.

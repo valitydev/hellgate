@@ -8934,8 +8934,8 @@ construct_domain_fixture(BaseLimitsRevision) ->
             ?ruleset(5),
             <<"SubMain">>,
             {candidates, [
-                ?candidate({constant, true}, ?trm(1)),
-                ?candidate({constant, true}, ?trm(7))
+                ?candidate({constant, true}, ?trm(7)),
+                ?candidate({constant, true}, ?trm(1))
             ]}
         ),
         hg_ct_fixture:construct_payment_routing_ruleset(?ruleset(3), <<"Prohibitions">>, {candidates, []}),

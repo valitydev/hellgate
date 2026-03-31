@@ -447,9 +447,8 @@ payment_w_all_blacklisted(C) ->
         ?payment_ev(PaymentID, ?shop_limit_initiated()),
         ?payment_ev(PaymentID, ?shop_limit_applied()),
         ?payment_ev(PaymentID, ?risk_score_changed(_RiskScore)),
-        ?payment_ev(PaymentID, ?route_changed(_Route)),
-        ?payment_ev(PaymentID, ?payment_rollback_started({failure, _Failure}))
-    ] = next_changes(InvoiceID, 6, Client),
+        ?payment_ev(PaymentID, ?payment_status_changed(?failed({failure, _Failure})))
+    ] = next_changes(InvoiceID, 5, Client),
     ?invoice_state(
         ?invoice_w_status(?invoice_unpaid()),
         [_PaymentSt]

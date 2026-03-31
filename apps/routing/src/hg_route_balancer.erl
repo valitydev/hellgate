@@ -14,7 +14,7 @@
 
 -spec fill([route()]) -> [route()].
 fill(Routes) ->
-    FilteredRouteGroups = lists:foldl(
+    FilteredRouteGroups = lists:foldr(
         fun group_routes_by_priority/2,
         #{},
         Routes
@@ -127,5 +127,14 @@ balance_routes_with_default_weight_test_() ->
         hg_route:new(1, ?prv(2), ?trm(1), 0, ?DOMAIN_CANDIDATE_PRIORITY, #{})
     ],
     ?_assertEqual(Result, set_routes_random_condition(Routes)).
+
+-spec fill_preserves_candidate_order_test_() -> testcase().
+fill_preserves_candidate_order_test_() ->
+    Routes = [
+        balanced_test_route(1, 0),
+        balanced_test_route(2, 0),
+        balanced_test_route(3, 0)
+    ],
+    ?_assertEqual(Routes, fill(Routes)).
 
 -endif.

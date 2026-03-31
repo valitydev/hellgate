@@ -31,6 +31,7 @@
 -export([terminal_priority_for_shop/1]).
 -export([gather_pinned_route/1]).
 -export([choose_route_w_override/1]).
+-export([fd_fill_preserves_route_order/1]).
 -export([recurrent_payment_skip_recurrent_terms/1]).
 -export([recurrent_payment_rejected_without_terms/1]).
 
@@ -75,6 +76,7 @@ groups() ->
 
             gather_pinned_route,
             choose_route_w_override,
+            fd_fill_preserves_route_order,
 
             recurrent_payment_skip_recurrent_terms,
             recurrent_payment_rejected_without_terms
@@ -722,7 +724,7 @@ choice_context_formats_ok(_C) ->
     ),
     Result = {_, Context} = hg_routing:choose_route([Route1, Route2, Route3]),
     ?assertMatch(
-        {Route2, #{reject_reason := availability_condition, preferable_route := Route3}},
+        {Route2, #{reject_reason := availability_condition, preferable_route := Route1}},
         Result
     ),
     ?assertMatch(
@@ -735,8 +737,8 @@ choice_context_formats_ok(_C) ->
                 weight := ?DOMAIN_CANDIDATE_WEIGHT
             },
             preferable_route := #{
-                provider := #{id := 3, name := <<_/binary>>},
-                terminal := #{id := 3, name := <<_/binary>>},
+                provider := #{id := 1, name := <<_/binary>>},
+                terminal := #{id := 1, name := <<_/binary>>},
                 priority := ?DOMAIN_CANDIDATE_PRIORITY,
                 weight := ?DOMAIN_CANDIDATE_WEIGHT
             }
@@ -912,6 +914,20 @@ choose_route_w_override(_C) ->
     ),
     {ChosenRoute, _} = hg_routing:choose_route([Route1, Route2, Route3]),
     ?assertMatch(?trm(2), hg_route:terminal_ref(ChosenRoute)).
+
+-spec fd_fill_preserves_route_order(config()) -> test_return().
+fd_fill_preserves_route_order(_C) ->
+    Revision = ?routing_with_fail_rate_domain_revision,
+    Routes0 = [
+        new_route(Revision, ?prv(3), ?trm(3)),
+        new_route(Revision, ?prv(1), ?trm(1)),
+        new_route(Revision, ?prv(2), ?trm(2))
+    ],
+    Routes = hg_route_fd:fill(hg_route_collector:fill_fd_overrides(Revision, Routes0)),
+    ?assertEqual(
+        [?trm(3), ?trm(1), ?trm(2)],
+        [hg_route:terminal_ref(Route) || Route <- Routes]
+    ).
 
 -spec recurrent_payment_skip_recurrent_terms(config()) -> test_return().
 recurrent_payment_skip_recurrent_terms(_C) ->
