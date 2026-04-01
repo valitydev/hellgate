@@ -133,25 +133,21 @@ ensure_otel_log_handler() ->
             MaxQueue = application:get_env(hellgate, otel_log_max_queue_size, 2048),
             DelayMs = application:get_env(hellgate, otel_log_scheduled_delay_ms, 1000),
             TimeoutMs = application:get_env(hellgate, otel_log_exporting_timeout_ms, 300000),
-            LogLevel = application:get_env(hellgate, otel_log_level, info),
-            HandlerConfig = #{
-                report_cb => fun hg_otel_log_filter:format_otp_report_utf8/1,
-                exporter =>
-                    {otel_exporter_logs_otlp, #{
-                        protocol => http_protobuf,
-                        ssl_options => []
-                    }},
-                max_queue_size => MaxQueue,
-                scheduled_delay_ms => DelayMs,
-                exporting_timeout_ms => TimeoutMs
-            },
+            LogLevel = application:get_env(hellgate, otel_log_level, debug),
             LoggerHandlerConfig = #{
                 level => LogLevel,
-                filter_default => log,
-                filters => [{hg_otel_trace_id_bytes, {fun hg_otel_log_filter:filter/2, undefined}}],
-                config => HandlerConfig
+                config => #{
+                    exporter =>
+                        {otel_exporter_logs_otlp, #{
+                            protocol => http_protobuf,
+                            ssl_options => []
+                        }},
+                    max_queue_size => MaxQueue,
+                    scheduled_delay_ms => DelayMs,
+                    exporting_timeout_ms => TimeoutMs
+                }
             },
-            case logger:add_handler(otel_logs, hg_otel_log_handler, LoggerHandlerConfig) of
+            case logger:add_handler(otel_logs, otel_log_handler, LoggerHandlerConfig) of
                 ok ->
                     ok;
                 {error, {already_exist, _}} ->
@@ -171,13 +167,8 @@ ensure_otel_log_handler() ->
 flush_otel_logs() ->
     case logger:get_handler_config(otel_logs) of
         {ok, HandlerCfg} ->
-            Config = maps:get(config, HandlerCfg, #{}),
-            DelayMs = maps:get(
-                scheduled_delay_ms,
-                Config,
-                maps:get(scheduled_delay_ms, HandlerCfg, 1000)
-            ),
-            _ = logger:info("otel_log_handler_flush"),
+            _ = logger:info("Waiting for OTEL logs exporter to flush"),
+            DelayMs = maps:get(scheduled_delay_ms, HandlerCfg, 1000),
             timer:sleep(erlang:min(?FLUSH_MAX_WAIT_MS, DelayMs + ?FLUSH_EXPORT_OVERHEAD_MS)),
             ok;
         _ ->

@@ -120,5 +120,8 @@ distclean: clean-build-image
 
 test: eunit common-test
 
+dbg:
+	$(REBAR) ct -v --suite=apps/hellgate/test/hg_invoice_tests_SUITE.erl --group=all_non_destructive_tests --case=payment_big_cascade_success
+
 cover-report:
 	$(REBAR) cover
