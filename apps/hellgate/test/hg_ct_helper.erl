@@ -216,7 +216,7 @@ start_app(party_client = AppName) ->
     {
         start_app(AppName, [
             {services, #{
-                party_management => "http://party-management:8022/v1/processing/partymgmt"
+                party_management => <<"http://party-management:8022/v1/processing/partymgmt">>
             }},
             {woody, #{
                 % disabled | safe | aggressive

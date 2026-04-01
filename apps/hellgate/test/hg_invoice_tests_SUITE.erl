@@ -499,6 +499,9 @@ groups() ->
 
 -spec init_per_suite(config()) -> config().
 init_per_suite(C) ->
+    %% NOTE Comment out primary logger's level change to revert to default
+    %% verbosity of info level.
+    ok = logger:set_primary_config(level, debug),
     % _ = dbg:tracer(),
     % _ = dbg:p(all, c),
     % _ = dbg:tpl({'hg_invoice_payment', 'p', '_'}, x),

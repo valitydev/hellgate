@@ -2,6 +2,7 @@
 
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 -include_lib("progressor/include/progressor.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
 %% automaton call wrapper
 -export([call_automaton/2]).
@@ -132,11 +133,28 @@ process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
     Args = marshal(args, {CallType, BinArgs, Machine}),
     WoodyContext = hg_woody_service_wrapper:ensure_woody_deadline_set(WoodyContext0, Options),
     ok = hg_context:save(hg_woody_service_wrapper:create_context(WoodyContext, Options)),
+    %% attach_otel_context выше восстанавливает родительский span из RPC; start_span использует текущий контекст
+    Tracer = opentelemetry:get_application_tracer(?MODULE),
+    SpanCtx = otel_tracer:start_span(Tracer, mk_span_name(Func, NS), #{kind => ?SPAN_KIND_INTERNAL}),
+    _ = otel_tracer:set_current_span(SpanCtx),
     try
         handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID)
     after
+        _ = otel_span:end_span(SpanCtx, undefined),
         hg_context:cleanup()
     end.
+
+mk_span_name('ProcessSignal', NS) ->
+    iolist_to_binary(["signal ", ns_to_binary(NS)]);
+mk_span_name('ProcessCall', NS) ->
+    iolist_to_binary(["call ", ns_to_binary(NS)]);
+mk_span_name('ProcessRepair', NS) ->
+    iolist_to_binary(["repair ", ns_to_binary(NS)]);
+mk_span_name(Func, NS) ->
+    iolist_to_binary([atom_to_binary(Func), " ", ns_to_binary(NS)]).
+
+ns_to_binary(NS) when is_atom(NS) -> atom_to_binary(NS);
+ns_to_binary(NS) when is_binary(NS) -> NS.
 
 %% Internal functions
 
