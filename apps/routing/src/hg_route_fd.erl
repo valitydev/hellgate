@@ -20,58 +20,66 @@
 fill([]) ->
     [];
 fill(Routes) ->
-    #{
-        service_ids := ServiceIDs,
-        service_map := ServiceMap,
-        routes := RouteMap
-    } = lists:foldl(fun build_route_map/2, #{service_ids => [], service_map => #{}, routes => #{}}, Routes),
+    ServiceIDs = collect_service_ids(Routes),
     FDStats = hg_fault_detector_client:get_statistics(ServiceIDs),
-    FilledRouteMap = lists:foldl(fun(Stats, Map) -> fill_fd_score(Stats, ServiceMap, Map) end, RouteMap, FDStats),
-    [maps:get(hg_route:to_payment_route(Route), FilledRouteMap) || Route <- Routes].
+    StatsMap = build_stats_map(FDStats),
+    [fill_route(Route, StatsMap) || Route <- Routes].
 
 %%
 
-build_route_map(Route, #{service_ids := ServiceIDs, service_map := ServiceMap, routes := RouteMap}) ->
+collect_service_ids(Routes) ->
+    sets:to_list(
+        lists:foldl(
+            fun(Route, Acc) ->
+                {AvailabilityID, ConversionID} = service_ids(Route),
+                sets:add_element(ConversionID, sets:add_element(AvailabilityID, Acc))
+            end,
+            sets:new(),
+            Routes
+        )
+    ).
+
+build_stats_map(FDStats) ->
+    maps:from_list([
+        {ID, FailRate}
+     || #fault_detector_ServiceStatistics{service_id = ID, failure_rate = FailRate} <- FDStats
+    ]).
+
+fill_route(Route, StatsMap) ->
+    {AvailabilityID, ConversionID} = service_ids(Route),
+    Route1 = fill_availability(Route, maps:get(AvailabilityID, StatsMap, undefined)),
+    fill_conversion(Route1, maps:get(ConversionID, StatsMap, undefined)).
+
+service_ids(Route) ->
     #domain_ProviderRef{id = ProviderID} = hg_route:provider_ref(Route),
-    PaymentRoute = hg_route:to_payment_route(Route),
-    AvailabilityID = hg_fault_detector_client:build_service_id(adapter_availability, ProviderID),
-    ConversionID = hg_fault_detector_client:build_service_id(provider_conversion, ProviderID),
-    #{
-        service_ids => [AvailabilityID, ConversionID | ServiceIDs],
-        service_map => ServiceMap#{
-            AvailabilityID => {availability, PaymentRoute},
-            ConversionID => {conversion, PaymentRoute}
-        },
-        routes => RouteMap#{PaymentRoute => Route}
+    {
+        hg_fault_detector_client:build_service_id(adapter_availability, ProviderID),
+        hg_fault_detector_client:build_service_id(provider_conversion, ProviderID)
     }.
 
-fill_fd_score(#fault_detector_ServiceStatistics{service_id = ID, failure_rate = FailRate}, ServiceMap, RouteMap) ->
-    case maps:get(ID, ServiceMap, undefined) of
-        undefined ->
-            RouteMap;
-        {availability, PaymentRoute} ->
-            Route = maps:get(PaymentRoute, RouteMap),
-            AvailabilityConfig = maps:get(availability, genlib_app:env(hellgate, fault_detector, #{}), #{}),
-            CriticalFailRate = maps:get(critical_fail_rate, AvailabilityConfig, 0.7),
-            {Condition, Value} = calc_rate(FailRate >= CriticalFailRate, FailRate),
-            NewRoute = maybe_override(
-                hg_route:fd_overrides(Route),
-                hg_route:set_availability(Condition, Value, Route),
-                Route
-            ),
-            RouteMap#{PaymentRoute => NewRoute};
-        {conversion, PaymentRoute} ->
-            Route = maps:get(PaymentRoute, RouteMap),
-            ConversionConfig = maps:get(conversion, genlib_app:env(hellgate, fault_detector, #{}), #{}),
-            CriticalFailRate = maps:get(critical_fail_rate, ConversionConfig, 0.7),
-            {Condition, Value} = calc_rate(FailRate >= CriticalFailRate, FailRate),
-            NewRoute = maybe_override(
-                hg_route:fd_overrides(Route),
-                hg_route:set_conversion(Condition, Value, Route),
-                Route
-            ),
-            RouteMap#{PaymentRoute => NewRoute}
-    end.
+fill_availability(Route, undefined) ->
+    Route;
+fill_availability(Route, FailRate) ->
+    AvailabilityConfig = maps:get(availability, genlib_app:env(hellgate, fault_detector, #{}), #{}),
+    CriticalFailRate = maps:get(critical_fail_rate, AvailabilityConfig, 0.7),
+    {Condition, Value} = calc_rate(FailRate >= CriticalFailRate, FailRate),
+    maybe_override(
+        hg_route:fd_overrides(Route),
+        hg_route:set_availability(Condition, Value, Route),
+        Route
+    ).
+
+fill_conversion(Route, undefined) ->
+    Route;
+fill_conversion(Route, FailRate) ->
+    ConversionConfig = maps:get(conversion, genlib_app:env(hellgate, fault_detector, #{}), #{}),
+    CriticalFailRate = maps:get(critical_fail_rate, ConversionConfig, 0.7),
+    {Condition, Value} = calc_rate(FailRate >= CriticalFailRate, FailRate),
+    maybe_override(
+        hg_route:fd_overrides(Route),
+        hg_route:set_conversion(Condition, Value, Route),
+        Route
+    ).
 
 maybe_override(?fd_overrides(true), _NewRoute, Route) ->
     Route;

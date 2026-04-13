@@ -747,7 +747,7 @@ log_route_choice_meta(#{choice_meta := ChoiceMeta}, Revision) ->
     Metadata = hg_routing:get_logger_metadata(ChoiceMeta, Revision),
     logger:log(notice, "Routing decision made", #{routing => Metadata}).
 
-maybe_log_misconfigurations({misconfiguration, _} = Error) ->
+log_misconfigurations({misconfiguration, _} = Error) ->
     {Format, Details} = hg_routing:prepare_log_message(Error),
     ?LOG_MD(warning, Format, Details).
 
@@ -1904,7 +1904,7 @@ process_routing(Action, St) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
     case get_routes(PaymentInstitution, VS, Revision, St) of
         #{error := Error} ->
-            ok = maybe_log_misconfigurations(Error),
+            ok = log_misconfigurations(Error),
             handle_choose_route_error(Error, [], St, Action);
         #{routes := _Routes} = GetResult ->
             FilterResult0 = hg_routing_ctx:from_result(GetResult),
@@ -1918,9 +1918,9 @@ process_routing(Action, St) ->
                 fun filter_routes_by_critical_provider_status/1
             ],
             FilterResult = hg_routing:filter_routes(FilterResult0, FilterFuns),
+            ok = log_rejected_route_groups(FilterResult, VS),
             case hg_routing_ctx:candidates(FilterResult) of
                 [] ->
-                    ok = log_rejected_route_groups(FilterResult, VS),
                     handle_filtered_routes_exhaustion(FilterResult, Revision, St, Action);
                 FilteredRoutes ->
                     {ChosenRoute, ChoiceMeta} = hg_routing:choose_route(FilteredRoutes),
@@ -1991,7 +1991,7 @@ get_routes(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
         {ok, PaymentRoute} ->
-            #{routes => [hg_route:from_payment_route(PaymentRoute)]};
+            #{routes => [hg_route:from_payment_route(Revision, PaymentRoute)]};
         undefined ->
             get_routes_(PaymentInstitution, VS, Revision, St)
     end.
@@ -2305,7 +2305,7 @@ process_result({payment, processing_accounter}, Action, #st{new_cash = Cost} = S
     FinalCashflow = calculate_cashflow(Context, Opts),
     %% Hold limits (only for chosen route) for new cashflow
     {_PaymentInstitution, RouteVS, _Revision} = route_args(St1),
-    Routes = [hg_route:from_payment_route(Route)],
+    Routes = [hg_route:from_payment_route(Revision, Route)],
     _ = hold_limit_routes(Routes, RouteVS, get_iter(St1), St1),
     %% Hold cashflow
     St2 = St1#st{new_cash_flow = FinalCashflow},

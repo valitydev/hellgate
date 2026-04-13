@@ -32,17 +32,8 @@
 %% Interface
 
 -spec get_route_payment_terms(hg_route:payment_route(), varset(), revision()) -> payment_terms() | undefined.
-get_route_payment_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
-    PreparedVS = hg_varset:prepare_varset(VS),
-    {Client, Context} = get_party_client(),
-    {ok, TermsSet} = party_client_thrift:compute_provider_terminal_terms(
-        ProviderRef,
-        TerminalRef,
-        Revision,
-        PreparedVS,
-        Client,
-        Context
-    ),
+get_route_payment_terms(Route, VS, Revision) ->
+    TermsSet = get_route_provision_terms(Route, VS, Revision),
     TermsSet#domain_ProvisionTermSet.payments.
 
 -spec get_route_provision_terms(hg_route:payment_route(), varset(), revision()) -> provision_terms() | undefined.

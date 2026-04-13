@@ -30,7 +30,7 @@
 -export([score/1]).
 -export([equal/2]).
 
--export([from_payment_route/1]).
+-export([from_payment_route/2]).
 -export([to_payment_route/1]).
 -export([to_rejected_route/1]).
 
@@ -268,10 +268,10 @@ route_ref({Prv, Trm}) ->
 route_ref(_) ->
     undefined.
 
--spec from_payment_route(payment_route()) -> t().
-from_payment_route(Route) ->
+-spec from_payment_route(revision(), payment_route()) -> t().
+from_payment_route(Revision, Route) ->
     ?route(ProviderRef, TerminalRef) = Route,
-    new(hg_domain:head(), ProviderRef, TerminalRef, 0, 1000, undefined).
+    new(Revision, ProviderRef, TerminalRef, 0, 1000, undefined).
 
 -spec to_payment_route(t()) -> payment_route().
 to_payment_route(Route) ->
