@@ -381,7 +381,7 @@ get_provider_terms(Revision, Payment, Invoice, Refund) ->
     ShopObj = hg_party:get_shop(ShopConfigRef, PartyConfigRef, Revision),
     VS0 = construct_payment_flow(Payment),
     VS1 = collect_validation_varset(get_injected_party_config_ref(Refund), ShopObj, Payment, VS0),
-    hg_routing:get_payment_terms(Route, VS1, Revision).
+    hg_party:get_route_payment_terms(Route, VS1, Revision).
 
 construct_payment_flow(Payment) ->
     #domain_InvoicePayment{
