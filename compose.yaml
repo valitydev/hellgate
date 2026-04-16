@@ -23,6 +23,8 @@ services:
         condition: service_started
       bender:
         condition: service_healthy
+      cubasty:
+        condition: service_healthy
     working_dir: $PWD
     command: /sbin/init
 
@@ -124,11 +126,25 @@ services:
       timeout: 5s
       retries: 10
 
+  cubasty:
+    image: ghcr.io/valitydev/cubasty:sha-f94b6a0-epic-fix_matched
+    volumes:
+      - ./test/cubasty/sys.config:/opt/cs/releases/0.1/sys.config
+    hostname: cubasty
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: "/opt/cs/bin/cs ping"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   db:
-    image: postgres:15-bookworm
+    image: postgres:17
     command: -c 'max_connections=1000'
     environment:
-      POSTGRES_MULTIPLE_DATABASES: "hellgate,bender,dmt,party_management,shumway,liminator"
+      POSTGRES_MULTIPLE_DATABASES: "hellgate,bender,dmt,party_management,shumway,liminator,customer_storage"
       POSTGRES_PASSWORD: "postgres"
     volumes:
       - ./test/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d

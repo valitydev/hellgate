@@ -23,6 +23,7 @@
     chargebacks = #{} :: #{hg_invoice_payment_chargeback:id() => hg_invoice_payment_chargeback:state()},
     adjustments = [] :: [hg_invoice_payment:adjustment()],
     recurrent_token :: undefined | dmsl_domain_thrift:'Token'(),
+    cascade_recurrent_tokens :: undefined | hg_customer_client:cascade_tokens(),
     opts :: undefined | hg_invoice_payment:opts(),
     repair_scenario :: undefined | hg_invoice_repair:scenario(),
     capture_data :: undefined | hg_invoice_payment:capture_data(),

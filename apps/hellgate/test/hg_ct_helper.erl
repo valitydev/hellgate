@@ -164,7 +164,9 @@ start_app(hg_proto = AppName) ->
                 limiter => #{
                     url => <<"http://limiter:8022/v1/limiter">>,
                     transport_opts => #{}
-                }
+                },
+                customer_management => <<"http://cubasty:8022/v1/customer/management">>,
+                bank_card_storage => <<"http://cubasty:8022/v1/customer/bank_card">>
             }}
         ]),
         #{}
