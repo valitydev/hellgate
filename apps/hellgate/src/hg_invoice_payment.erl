@@ -436,7 +436,7 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         Revision,
         genlib:define(MakeRecurrent, false)
     ),
-    InheritedCustomerID = maybe_inherit_customer_id(CustomerID, VS0),
+    InheritedCustomerID = inherit_or_validate_customer_id(CustomerID, VS0),
     Payment2 = Payment1#domain_InvoicePayment{
         payer_session_info = PayerSessionInfo,
         context = Context,
@@ -476,15 +476,15 @@ seed_bank_card_from_parent(PartyConfigRef, BCT, #{parent_payment := ParentPaymen
 seed_bank_card_from_parent(_PartyConfigRef, _BCT, _VS) ->
     [].
 
-maybe_inherit_customer_id(undefined, #{parent_payment := ParentPayment}) ->
+inherit_or_validate_customer_id(undefined, #{parent_payment := ParentPayment}) ->
     (get_payment(ParentPayment))#domain_InvoicePayment.customer_id;
-maybe_inherit_customer_id(CustomerID, #{parent_payment := ParentPayment}) ->
+inherit_or_validate_customer_id(CustomerID, #{parent_payment := ParentPayment}) ->
     case (get_payment(ParentPayment))#domain_InvoicePayment.customer_id of
         CustomerID -> CustomerID;
         undefined -> CustomerID;
         _Other -> throw(#payproc_InvalidRecurrentParentPayment{details = <<"Customer ID mismatch with parent">>})
     end;
-maybe_inherit_customer_id(CustomerID, _VS) ->
+inherit_or_validate_customer_id(CustomerID, _VS) ->
     CustomerID.
 
 get_merchant_payments_terms(Opts, Revision, _Timestamp, VS) ->
@@ -1962,7 +1962,6 @@ run_routing_decision_pipeline(Ctx0, VS, St) ->
         Ctx0,
         [
             fun(Ctx) -> filter_attempted_routes(Ctx, St) end,
-            fun(Ctx) -> filter_routes_by_recurrent_tokens(Ctx, St) end,
             fun(Ctx) -> filter_routes_with_limit_hold(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> filter_routes_by_limit_overflow(Ctx, VS, NewIter, St) end,
             fun(Ctx) -> hg_routing:filter_by_blacklist(Ctx, build_blacklist_context(St)) end,
@@ -2028,7 +2027,8 @@ route_args(St) ->
 build_routing_context(PaymentInstitution, VS, Revision, #st{cascade_recurrent_tokens = CascadeTokens} = St) when
     CascadeTokens =/= undefined
 ->
-    gather_routes(PaymentInstitution, VS, Revision, St);
+    Ctx = gather_routes(PaymentInstitution, VS, Revision, St),
+    filter_routes_by_recurrent_tokens(Ctx, St);
 build_routing_context(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
