@@ -88,7 +88,7 @@ services:
       disable: true
 
   liminator:
-    image: ghcr.io/valitydev/liminator:sha-e284ad2
+    image: ghcr.io/valitydev/liminator:sha-4f2cfbb
     restart: unless-stopped
     entrypoint:
       - java
