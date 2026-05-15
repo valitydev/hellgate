@@ -247,7 +247,8 @@ create(Params) ->
         Varset = genlib_map:compact(#{
             currency => ff_dmsl_codec:marshal(currency_ref, Currency),
             cost => ff_dmsl_codec:marshal(cash, Body),
-            wallet_id => WalletID
+            wallet_id => WalletID,
+            party_id => PartyID
         }),
 
         Terms = ff_party:get_terms(DomainRevision, Wallet, Varset),
