@@ -205,7 +205,7 @@
 -type session_change() :: hg_session:change().
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 -type make_recurrent() :: true | false.
--type retry_strategy() :: hg_retry:strategy().
+
 -type capture_data() :: dmsl_payproc_thrift:'InvoicePaymentCaptureData'().
 -type payment_session() :: dmsl_payproc_thrift:'InvoicePaymentSession'().
 -type failure() :: dmsl_domain_thrift:'OperationFailure'().
@@ -2574,7 +2574,6 @@ get_actual_retry_strategy(Target, #st{retry_attempts = Attempts}) ->
     AttemptNum = maps:get(get_target_type(Target), Attempts, 0),
     hg_retry:skip_steps(get_initial_retry_strategy(get_target_type(Target)), AttemptNum).
 
--spec get_initial_retry_strategy(session_target_type()) -> retry_strategy().
 get_initial_retry_strategy(TargetType) ->
     PolicyConfig = genlib_app:env(hellgate, payment_retry_policy, #{}),
     hg_retry:new_strategy(maps:get(TargetType, PolicyConfig, no_retry)).
