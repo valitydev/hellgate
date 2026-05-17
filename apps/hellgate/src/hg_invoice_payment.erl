@@ -605,6 +605,13 @@ reconstruct_payment_flow(?invoice_payment_flow_hold(_OnHoldExpiration, HeldUntil
     Seconds = hg_datetime:parse_ts(HeldUntil) - hg_datetime:parse_ts(CreatedAt),
     VS#{flow => {hold, ?hold_lifetime(Seconds)}}.
 
+add_trust_level(#domain_Invoice{client_info = undefined}, VS) ->
+    VS;
+add_trust_level(#domain_Invoice{client_info = #domain_InvoiceClientInfo{trust_level = undefined}}, VS) ->
+    VS;
+add_trust_level(#domain_Invoice{client_info = #domain_InvoiceClientInfo{trust_level = TrustLevel}}, VS) ->
+    VS#{trust_level => TrustLevel}.
+
 -spec get_predefined_route(payer()) -> {ok, route()} | undefined.
 get_predefined_route(?payment_resource_payer()) ->
     undefined;
@@ -3129,8 +3136,9 @@ get_varset(St, InitialValue) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     VS0 = reconstruct_payment_flow(Payment, InitialValue),
-    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
-    VS1.
+    VS1 = add_trust_level(get_invoice(Opts), VS0),
+    VS2 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS1),
+    VS2.
 
 %%
 
