@@ -29,7 +29,7 @@ services:
     command: /sbin/init
 
   dmt:
-    image: ghcr.io/valitydev/dominant-v2:sha-72c1f5a-epic-TECH-6-add-trust-level-condition
+    image: ghcr.io/valitydev/dominant-v2:sha-c9430b5
     command: /opt/dmt/bin/dmt foreground
     volumes:
       - ./test/dmt/sys.config:/opt/dmt/releases/0.1/sys.config
@@ -109,7 +109,7 @@ services:
       retries: 20
 
   party-management:
-    image: ghcr.io/valitydev/party-management:sha-7633755-epic-TECH-6-trust-level-condition
+    image: ghcr.io/valitydev/party-management:sha-8a58cd5
     command: /opt/party-management/bin/party-management foreground
     volumes:
       - ./test/party-management/sys.config:/opt/party-management/releases/0.1/sys.config
