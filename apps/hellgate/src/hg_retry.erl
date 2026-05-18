@@ -37,7 +37,7 @@ new_strategy({intervals, Array}) ->
 new_strategy({timecap, Timeout, Policy}) ->
     genlib_retry:timecap(Timeout, new_strategy(Policy));
 new_strategy(no_retry) ->
-    finish;
+    genlib_retry:timecap(0, genlib_retry:linear(1, 1));
 new_strategy(BadPolicy) ->
     erlang:error(badarg, [BadPolicy]).
 
