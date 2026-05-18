@@ -386,17 +386,19 @@ create_p_transfer(Deposit) ->
 process_limit_check(Deposit) ->
     Body = body(Deposit),
     WalletID = wallet_id(Deposit),
+    PartyID = party_id(Deposit),
     DomainRevision = domain_revision(Deposit),
     {ok, Wallet} = ff_party:get_wallet(
         WalletID,
-        #domain_PartyConfigRef{id = party_id(Deposit)},
+        #domain_PartyConfigRef{id = PartyID},
         DomainRevision
     ),
     {_Amount, Currency} = Body,
     Varset = genlib_map:compact(#{
         currency => ff_dmsl_codec:marshal(currency_ref, Currency),
         cost => ff_dmsl_codec:marshal(cash, Body),
-        wallet_id => WalletID
+        wallet_id => WalletID,
+        party_id => PartyID
     }),
     Terms = ff_party:get_terms(DomainRevision, Wallet, Varset),
     Events =
