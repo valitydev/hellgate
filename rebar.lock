@@ -69,7 +69,7 @@
   0},
  {<<"genlib">>,
   {git,"https://github.com/valitydev/genlib.git",
-       {ref,"d2324089afbbd9630e85fac554620f1de0b33dfe"}},
+       {ref,"b63b77a918d0312242677889086a85992b5d9187"}},
   0},
  {<<"gproc">>,{pkg,<<"gproc">>,<<"0.9.0">>},0},
  {<<"grpcbox">>,{pkg,<<"grpcbox">>,<<"0.17.1">>},1},
