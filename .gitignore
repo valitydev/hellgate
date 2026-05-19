@@ -16,3 +16,5 @@ rebar3.crashdump
 /.image.*
 Makefile.env
 *.iml
+CLAUDE.md
+.claude/

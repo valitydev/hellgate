@@ -13,6 +13,7 @@
 -export([choose_rated_route/1]).
 
 -export([get_payment_terms/3]).
+-export([get_provision_terms/3]).
 
 -export([get_logger_metadata/2]).
 -export([prepare_log_message/1]).
@@ -25,9 +26,10 @@
 
 %%
 
+-type provision_terms() :: dmsl_domain_thrift:'ProvisionTermSet'().
 -type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
 -type payment_institution() :: dmsl_domain_thrift:'PaymentInstitution'().
--type route_predestination() :: payment | recurrent_paytool | recurrent_payment.
+-type route_predestination() :: payment | recurrent_payment.
 
 -define(rejected(Reason), {rejected, Reason}).
 
@@ -650,6 +652,20 @@ get_payment_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
     ),
     TermsSet#domain_ProvisionTermSet.payments.
 
+-spec get_provision_terms(hg_route:payment_route(), varset(), revision()) -> provision_terms() | undefined.
+get_provision_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
+    PreparedVS = hg_varset:prepare_varset(VS),
+    {Client, Context} = get_party_client(),
+    {ok, TermsSet} = party_client_thrift:compute_provider_terminal_terms(
+        ProviderRef,
+        TerminalRef,
+        Revision,
+        PreparedVS,
+        Client,
+        Context
+    ),
+    TermsSet.
+
 -spec acceptable_terminal(
     route_predestination(),
     hg_route:provider_ref(),
@@ -684,12 +700,14 @@ get_party_client() ->
 
 check_terms_acceptability(payment, Terms, VS) ->
     acceptable_payment_terms(Terms#domain_ProvisionTermSet.payments, VS);
-check_terms_acceptability(recurrent_paytool, Terms, VS) ->
-    acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS);
 check_terms_acceptability(recurrent_payment, Terms, VS) ->
-    % Use provider check combined from recurrent_paytool and payment check
     _ = acceptable_payment_terms(Terms#domain_ProvisionTermSet.payments, VS),
-    acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS).
+    case Terms#domain_ProvisionTermSet.extension of
+        #domain_ExtendedProvisionTerms{skip_recurrent = true} ->
+            true;
+        _ ->
+            acceptable_recurrent_paytool_terms(Terms#domain_ProvisionTermSet.recurrent_paytools, VS)
+    end.
 
 acceptable_payment_terms(
     #domain_PaymentsProvisionTerms{

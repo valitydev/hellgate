@@ -490,12 +490,19 @@ success(PaymentInfo) ->
     success(PaymentInfo, undefined).
 
 success(PaymentInfo, ChangedCash) ->
-    #proxy_provider_PaymentInfo{payment = #proxy_provider_InvoicePayment{make_recurrent = MakeRecurrent}} = PaymentInfo,
+    #proxy_provider_PaymentInfo{
+        payment = #proxy_provider_InvoicePayment{
+            make_recurrent = MakeRecurrent,
+            skip_recurrent = SkipRecurrent
+        }
+    } = PaymentInfo,
     Token =
-        case MakeRecurrent of
-            true ->
+        case {MakeRecurrent, SkipRecurrent} of
+            {true, true} ->
+                undefined;
+            {true, _} ->
                 ?REC_TOKEN;
-            Other when Other =:= false orelse Other =:= undefined ->
+            _ ->
                 undefined
         end,
     ?success(Token, ChangedCash).
@@ -603,7 +610,11 @@ get_payment_tool_scenario({'crypto_currency', #domain_CryptoCurrencyRef{id = <<"
 get_payment_tool_scenario(
     {'mobile_commerce', #domain_MobileCommerce{operator = #domain_MobileOperatorRef{id = <<"mts-ref">>}}}
 ) ->
-    mobile_commerce.
+    mobile_commerce;
+get_payment_tool_scenario({'bank_card', #domain_BankCard{token = Token} = BCard}) ->
+    %% Strip unique test suffix (e.g. <<"no_preauth/42">> -> <<"no_preauth">>)
+    [Base | _Suffix] = binary:split(Token, <<"/">>),
+    get_payment_tool_scenario({'bank_card', BCard#domain_BankCard{token = Base}}).
 
 -type tokenized_bank_card_payment_system() ::
     {

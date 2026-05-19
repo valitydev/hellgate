@@ -1,5 +1,6 @@
 -module(hg_limiter_helper).
 
+-include_lib("limiter_proto/include/limproto_base_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 -include_lib("limiter_proto/include/limproto_context_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
@@ -8,8 +9,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([init_per_suite/1]).
--export([get_amount/1]).
+-export([get_amount/5]).
 -export([assert_payment_limit_amount/5]).
+-export([assert_payment_limit_amount/6]).
 -export([maybe_uninitialized_limit/1]).
 -export([get_payment_limit_amount/4]).
 -export([mk_config_object/2, mk_config_object/3, mk_config_object/4]).
@@ -23,6 +25,7 @@
 -define(LIMIT_ID3, <<"ID3">>).
 -define(LIMIT_ID4, <<"ID4">>).
 -define(SHOPLIMIT_ID, <<"SHOPLIMITID">>).
+-define(LIMIT_TERMINAL_FAILURES, <<"TERMINAL_FAILURES">>).
 
 -define(PLACEHOLDER_UNINITIALIZED_LIMIT_ID, <<"uninitialized limit">>).
 -define(PLACEHOLDER_OPERATION_GET_LIMIT_VALUES, <<"get values">>).
@@ -36,19 +39,33 @@ init_per_suite(_Config) ->
             {limit_config, mk_config_object(?LIMIT_ID2)},
             {limit_config, mk_config_object(?LIMIT_ID3)},
             {limit_config, mk_config_object(?LIMIT_ID4)},
-            {limit_config, mk_config_object(?SHOPLIMIT_ID)}
+            {limit_config, mk_config_object(?SHOPLIMIT_ID)},
+            {limit_config,
+                mk_config_object(
+                    ?LIMIT_TERMINAL_FAILURES,
+                    <<"RUB">>,
+                    mk_context_type(payment),
+                    mk_scopes([payment_tool, terminal]),
+                    mk_fin_behaviour(invertable)
+                )}
         ],
         dmt_client:create_author(genlib:unique(), genlib:unique()),
         #{}
     ).
 
--spec get_amount(_) -> pos_integer().
-get_amount(#limiter_Limit{amount = Amount}) ->
-    Amount.
+-spec get_amount(_, _, _, _, _) -> non_neg_integer().
+get_amount(LimitID, Version, Payment, Invoice, Route) ->
+    Result = get_payment_limit_amount(LimitID, Version, Payment, Invoice, Route),
+    Limit = maybe_uninitialized_limit(Result),
+    Limit#limiter_Limit.amount.
 
 -spec assert_payment_limit_amount(_, _, _, _, _) -> _.
 assert_payment_limit_amount(LimitID, Version, AssertAmount, Payment, Invoice) ->
-    Result = get_payment_limit_amount(LimitID, Version, Payment, Invoice),
+    assert_payment_limit_amount(LimitID, Version, AssertAmount, Payment, Invoice, undefined).
+
+-spec assert_payment_limit_amount(_, _, _, _, _, _) -> _.
+assert_payment_limit_amount(LimitID, Version, AssertAmount, Payment, Invoice, Route) ->
+    Result = get_payment_limit_amount(LimitID, Version, Payment, Invoice, Route),
     Limit = maybe_uninitialized_limit(Result),
     #limiter_Limit{amount = CurrentAmount} = Limit,
     ?assertEqual(AssertAmount, CurrentAmount, {LimitID, Result}).
@@ -66,13 +83,24 @@ maybe_uninitialized_limit({exception, _}) ->
 
 -spec get_payment_limit_amount(_, _, _, _) -> _.
 get_payment_limit_amount(LimitID, Version, Payment, Invoice) ->
+    get_payment_limit_amount(LimitID, Version, Payment, Invoice, undefined).
+
+-spec get_payment_limit_amount(_, _, _, _, _) -> _.
+get_payment_limit_amount(LimitID, Version, Payment, Invoice, Route) ->
     Context = #limiter_LimitContext{
         payment_processing = #context_payproc_Context{
             op = {invoice_payment, #context_payproc_OperationInvoicePayment{}},
             invoice = #context_payproc_Invoice{
                 invoice = Invoice,
                 payment = #context_payproc_InvoicePayment{
-                    payment = Payment
+                    payment = Payment,
+                    route =
+                        case Route of
+                            undefined ->
+                                undefined;
+                            #domain_PaymentRoute{provider = Provider, terminal = Terminal} ->
+                                #base_Route{provider = Provider, terminal = Terminal}
+                        end
                 }
             }
         }
@@ -104,6 +132,10 @@ mk_config_object(LimitID, Currency, ContextType) ->
 
 -spec mk_config_object(_, _, _, _) -> _.
 mk_config_object(LimitID, Currency, ContextType, Scopes) ->
+    mk_config_object(LimitID, Currency, ContextType, Scopes, mk_fin_behaviour(normal)).
+
+-spec mk_config_object(_, _, _, _, _) -> _.
+mk_config_object(LimitID, Currency, ContextType, Scopes, FinalizationBehaviour) ->
     #domain_LimitConfigObject{
         ref = #domain_LimitConfigRef{id = LimitID},
         data = #limiter_config_LimitConfig{
@@ -120,7 +152,8 @@ mk_config_object(LimitID, Currency, ContextType, Scopes) ->
             description = <<"description">>,
             op_behaviour = #limiter_config_OperationLimitBehaviour{
                 invoice_payment_refund = {subtraction, #limiter_config_Subtraction{}}
-            }
+            },
+            finalization_behaviour = FinalizationBehaviour
         }
     }.
 
@@ -133,3 +166,8 @@ mk_context_type(payment) ->
 -spec mk_scopes(_) -> _.
 mk_scopes(ScopeTags) ->
     ordsets:from_list([{Tag, #limiter_config_LimitScopeEmptyDetails{}} || Tag <- ScopeTags]).
+
+mk_fin_behaviour(normal) ->
+    {normal, #limiter_config_Normal{}};
+mk_fin_behaviour(invertable) ->
+    {invertable, {session_presence, #limiter_config_Inversed{}}}.

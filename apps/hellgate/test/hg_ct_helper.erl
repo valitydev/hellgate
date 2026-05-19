@@ -164,7 +164,9 @@ start_app(hg_proto = AppName) ->
                 limiter => #{
                     url => <<"http://limiter:8022/v1/limiter">>,
                     transport_opts => #{}
-                }
+                },
+                customer_management => <<"http://cubasty:8022/v1/customer/management">>,
+                bank_card_storage => <<"http://cubasty:8022/v1/customer/bank_card">>
             }}
         ]),
         #{}
@@ -310,7 +312,7 @@ start_app(progressor = AppName) ->
                     max_attempts => 3,
                     non_retryable_errors => []
                 },
-                task_scan_timeout => 1,
+                task_scan_timeout => 15,
                 worker_pool_size => 30,
                 process_step_timeout => 30
             }},
@@ -839,7 +841,8 @@ make_invoice_params(
         due = hg_datetime:format_ts(Due),
         cost = Cost,
         context = make_invoice_context(),
-        allocation = AllocationPrototype
+        allocation = AllocationPrototype,
+        client_info = #domain_InvoiceClientInfo{trust_level = unknown}
     }.
 
 -spec make_invoice_params_tpl(invoice_tpl_id()) -> invoice_params_tpl().

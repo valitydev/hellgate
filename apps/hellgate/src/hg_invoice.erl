@@ -40,6 +40,7 @@
 -export([get_payment_opts/1]).
 -export([create/6]).
 -export([marshal_invoice/1]).
+-export([unmarshal_invoice/1]).
 -export([unmarshal_history/1]).
 -export([collapse_history/1]).
 
@@ -847,8 +848,9 @@ repair_scenario(Scenario, #st{activity = {payment, PaymentID}} = St) ->
 -spec collapse_history([hg_machine:event()]) -> st().
 collapse_history(History) ->
     lists:foldl(
-        fun({_ID, Dt, Changes}, St0) ->
-            collapse_changes(Changes, St0, #{timestamp => Dt})
+        fun({ID, Dt, Changes}, St0) ->
+            St1 = collapse_changes(Changes, St0, #{timestamp => Dt}),
+            St1#st{latest_event_id = ID}
         end,
         #st{},
         History
@@ -971,13 +973,13 @@ get_invoice_params(Invoice) ->
     #domain_Invoice{
         id = ID,
         cost = ?cash(Amount, Currency),
-        party_ref = PartyConfigRef,
-        shop_ref = ShopConfigRef
+        party_ref = #domain_PartyConfigRef{id = PartyID},
+        shop_ref = #domain_ShopConfigRef{id = ShopID}
     } = Invoice,
     [
         {id, ID},
-        {party_ref, PartyConfigRef},
-        {shop_ref, ShopConfigRef},
+        {party_id, PartyID},
+        {shop_id, ShopID},
         {cost, [{amount, Amount}, {currency, Currency}]}
     ].
 

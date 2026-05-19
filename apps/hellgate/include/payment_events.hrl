@@ -4,6 +4,7 @@
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_user_interaction_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
+-include_lib("hellgate/include/payment_events.hrl").
 
 %% Payments
 
@@ -51,6 +52,16 @@
     }}
 ).
 
+-define(route_changed(Route, Candidates, Scores, Limits, Decision),
+    {invoice_payment_route_changed, #payproc_InvoicePaymentRouteChanged{
+        route = Route,
+        candidates = Candidates,
+        scores = Scores,
+        limits = Limits,
+        decision = Decision
+    }}
+).
+
 -define(shop_limit_initiated(),
     {
         invoice_payment_shop_limit_initiated,
@@ -81,6 +92,10 @@
 
 -define(rec_token_acquired(Token),
     {invoice_payment_rec_token_acquired, #payproc_InvoicePaymentRecTokenAcquired{token = Token}}
+).
+
+-define(cascade_tokens_loaded(Tokens),
+    {invoice_payment_cascade_tokens_loaded, #payproc_InvoicePaymentCascadeTokensLoaded{tokens = Tokens}}
 ).
 
 -define(cash_changed(OldCash, NewCash),

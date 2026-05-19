@@ -52,6 +52,8 @@ call_automaton('Call', {MachineDesc, Args}) ->
             Ok;
         {error, <<"process not found">>} ->
             {error, notfound};
+        {error, <<"process is init">>} ->
+            {error, notfound};
         {error, <<"process is error">>} ->
             {error, failed};
         {error, {exception, _, _} = Exception} ->
@@ -93,6 +95,8 @@ call_automaton('Repair', {MachineDesc, Args}) ->
             Ok;
         {error, <<"process not found">>} ->
             {error, notfound};
+        {error, <<"process is init">>} ->
+            {error, notfound};
         {error, <<"process is running">>} ->
             {error, working};
         {error, <<"process is error">>} ->
@@ -111,22 +115,35 @@ cleanup() ->
         customer,
         recurrent_paytools
     ],
-    lists:foreach(fun(NsID) -> progressor:cleanup(#{ns => NsID}) end, Namespaces).
+    lists:foreach(fun(NsID) -> prg_test_utils:cleanup(#{ns => NsID}) end, Namespaces).
 
 %-endif.
 
 %% Processor
 
--spec process({task_t(), encoded_args(), process()}, map(), encoded_ctx()) -> process_result().
-process({CallType, BinArgs, Process}, #{ns := NS} = Options, Ctx) ->
-    _ = set_context(Ctx),
+-spec process({task_t(), encoded_args(), process()}, hg_woody_service_wrapper:handler_opts(), encoded_ctx()) ->
+    process_result().
+process({CallType, BinArgs, Process}, #{ns := NS} = Options, BinCtx) ->
+    {WoodyContext0, OtelCtx} = decode_rpc_context(BinCtx),
+    ok = woody_rpc_helper:attach_otel_context(OtelCtx),
     #{last_event_id := LastEventID} = Process,
     Machine = marshal(process, Process#{ns => NS}),
     Func = marshal(function, CallType),
     Args = marshal(args, {CallType, BinArgs, Machine}),
-    handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID).
+    WoodyContext = hg_woody_service_wrapper:ensure_woody_deadline_set(WoodyContext0, Options),
+    ok = hg_context:save(hg_woody_service_wrapper:create_context(WoodyContext, Options)),
+    try
+        handle_result(hg_machine:handle_function(Func, {Args}, Options), LastEventID)
+    after
+        hg_context:cleanup()
+    end.
 
 %% Internal functions
+
+decode_rpc_context(<<>>) ->
+    woody_rpc_helper:decode_rpc_context(#{});
+decode_rpc_context(BinCtx) ->
+    woody_rpc_helper:decode_rpc_context(marshal(term, BinCtx)).
 
 handle_result(
     #mg_stateproc_SignalResult{
@@ -188,18 +205,17 @@ handle_exception({exception, Class, Reason}) ->
     erlang:raise(Class, Reason, []).
 
 get_context() ->
-    try hg_context:load() of
-        Ctx ->
-            unmarshal(term, Ctx)
-    catch
-        _:_ ->
-            unmarshal(term, <<>>)
-    end.
-
-set_context(<<>>) ->
-    hg_context:save(hg_context:create(#{party_client => #{}}));
-set_context(BinContext) ->
-    hg_context:save(marshal(term, BinContext)).
+    WoodyContext =
+        try hg_context:load() of
+            Ctx ->
+                hg_context:get_woody_context(Ctx)
+        catch
+            Class:Reason ->
+                _ = logger:warning("Failed to load context with error class '~s' and reason: ~p", [Class, Reason]),
+                _ = logger:info("Creating empty fallback context"),
+                woody_context:new()
+        end,
+    unmarshal(term, woody_rpc_helper:encode_rpc_context(WoodyContext, otel_ctx:get_current())).
 
 %% Marshalling
 
@@ -250,12 +266,14 @@ marshal(history_range, Range) ->
         limit = maps:get(limit, Range, undefined),
         direction = maps:get(direction, Range, forward)
     };
+marshal(status, {<<"init">>, _Detail}) ->
+    {'working', #mg_stateproc_MachineStatusWorking{}};
 marshal(status, {<<"running">>, _Detail}) ->
     {'working', #mg_stateproc_MachineStatusWorking{}};
 marshal(status, {<<"error">>, Detail}) ->
     {'failed', #mg_stateproc_MachineStatusFailed{reason = Detail}};
 marshal(timestamp, Timestamp) ->
-    unicode:characters_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{offset, "Z"}]));
+    unicode:characters_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{offset, "Z"}, {unit, microsecond}]));
 marshal(term, Term) ->
     binary_to_term(Term);
 marshal(function, init) ->
@@ -297,7 +315,7 @@ unmarshal(events, {undefined, _ID}) ->
 unmarshal(events, {[], _}) ->
     [];
 unmarshal(events, {Events, LastEventID}) ->
-    Ts = erlang:system_time(second),
+    Ts = erlang:system_time(microsecond),
     lists:foldl(
         fun(#mg_stateproc_Content{format_version = Ver, data = Payload}, Acc) ->
             PrevID =
@@ -331,7 +349,7 @@ unmarshal(action, #mg_stateproc_ComplexAction{
     remove = RemoveAction
 }) when Timeout =/= undefined ->
     genlib_map:compact(#{
-        set_timer => erlang:system_time(second) + Timeout,
+        set_timer => erlang:system_time(microsecond) + (Timeout * 1000000),
         remove => maybe_unmarshal(remove_action, RemoveAction)
     });
 unmarshal(action, #mg_stateproc_ComplexAction{timer = {unset_timer, #'mg_stateproc_UnsetTimerAction'{}}}) ->
@@ -341,9 +359,9 @@ unmarshal(action, #mg_stateproc_ComplexAction{remove = #mg_stateproc_RemoveActio
 unmarshal(action, #mg_stateproc_ComplexAction{remove = undefined}) ->
     undefined;
 unmarshal(timer, {deadline, DateTimeRFC3339}) ->
-    calendar:rfc3339_to_system_time(unicode:characters_to_list(DateTimeRFC3339), [{unit, second}]);
+    calendar:rfc3339_to_system_time(unicode:characters_to_list(DateTimeRFC3339), [{unit, microsecond}]);
 unmarshal(timer, {timeout, Timeout}) ->
-    erlang:system_time(second) + Timeout;
+    erlang:system_time(microsecond) + (Timeout * 1000000);
 unmarshal(term, Term) ->
     erlang:term_to_binary(Term);
 unmarshal(remove_action, #mg_stateproc_RemoveAction{}) ->

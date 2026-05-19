@@ -10,6 +10,7 @@
 -type turnover_limit() :: dmsl_domain_thrift:'TurnoverLimit'().
 -type invoice() :: dmsl_domain_thrift:'Invoice'().
 -type payment() :: dmsl_domain_thrift:'InvoicePayment'().
+-type session() :: hg_session:t().
 -type route() :: hg_route:payment_route().
 -type refund() :: hg_invoice_payment:domain_refund().
 -type cash() :: dmsl_domain_thrift:'Cash'().
@@ -21,18 +22,18 @@
 -export_type([turnover_limit_value/0]).
 
 -export([get_turnover_limits/2]).
--export([check_limits/5]).
+-export([check_limits/6]).
 -export([check_shop_limits/5]).
--export([hold_payment_limits/5]).
+-export([hold_payment_limits/6]).
 -export([hold_shop_limits/5]).
 -export([hold_refund_limits/5]).
--export([commit_payment_limits/6]).
+-export([commit_payment_limits/7]).
 -export([commit_shop_limits/5]).
 -export([commit_refund_limits/5]).
--export([rollback_payment_limits/6]).
+-export([rollback_payment_limits/7]).
 -export([rollback_shop_limits/6]).
 -export([rollback_refund_limits/5]).
--export([get_limit_values/5]).
+-export([get_limit_values/6]).
 
 -define(route(ProviderRef, TerminalRef), #domain_PaymentRoute{
     provider = ProviderRef,
@@ -77,9 +78,10 @@ filter_existing_turnover_limits(Limits, Mode) ->
         Limits
     ).
 
--spec get_limit_values([turnover_limit()], invoice(), payment(), route(), pos_integer()) -> [turnover_limit_value()].
-get_limit_values(TurnoverLimits, Invoice, Payment, Route, Iter) ->
-    Context = gen_limit_context(Invoice, Payment, Route),
+-spec get_limit_values([turnover_limit()], invoice(), payment(), session() | undefined, route(), pos_integer()) ->
+    [turnover_limit_value()].
+get_limit_values(TurnoverLimits, Invoice, Payment, Session, Route, Iter) ->
+    Context = gen_limit_context(Invoice, Payment, Session, Route),
     get_limit_values(Context, TurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)).
 
 make_route_operation_segments(Invoice, Payment, ?route(ProviderRef, TerminalRef), Iter) ->
@@ -105,11 +107,11 @@ get_batch_limit_values(Context, TurnoverLimits, OperationIdSegments) ->
         hg_limiter_client:get_batch(LimitRequest, Context)
     ).
 
--spec check_limits([turnover_limit()], invoice(), payment(), route(), pos_integer()) ->
+-spec check_limits([turnover_limit()], invoice(), payment(), session() | undefined, route(), pos_integer()) ->
     {ok, [turnover_limit_value()]}
     | {error, {limit_overflow, [binary()], [turnover_limit_value()]}}.
-check_limits(TurnoverLimits, Invoice, Payment, Route, Iter) ->
-    Context = gen_limit_context(Invoice, Payment, Route),
+check_limits(TurnoverLimits, Invoice, Payment, Session, Route, Iter) ->
+    Context = gen_limit_context(Invoice, Payment, Session, Route),
     Limits = get_limit_values(Context, TurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)),
     try
         ok = check_limits_(Limits, Context),
@@ -166,9 +168,10 @@ check_limits_([TurnoverLimitValue | TLVs], Context) ->
             throw(limit_overflow)
     end.
 
--spec hold_payment_limits([turnover_limit()], invoice(), payment(), route(), pos_integer()) -> ok.
-hold_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter) ->
-    Context = gen_limit_context(Invoice, Payment, Route),
+-spec hold_payment_limits([turnover_limit()], invoice(), payment(), session() | undefined, route(), pos_integer()) ->
+    ok.
+hold_payment_limits(TurnoverLimits, Invoice, Payment, Session, Route, Iter) ->
+    Context = gen_limit_context(Invoice, Payment, Session, Route),
     ok = batch_hold_limits(Context, TurnoverLimits, make_route_operation_segments(Invoice, Payment, Route, Iter)).
 
 batch_hold_limits(_Context, [], _OperationIdSegments) ->
@@ -197,9 +200,17 @@ make_refund_operation_segments(Invoice, Payment, Refund) ->
         {refund_session, get_refund_id(Refund)}
     ].
 
--spec commit_payment_limits([turnover_limit()], invoice(), payment(), route(), pos_integer(), cash() | undefined) -> ok.
-commit_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, CapturedCash) ->
-    Context = gen_limit_context(Invoice, Payment, Route, CapturedCash),
+-spec commit_payment_limits(
+    [turnover_limit()],
+    invoice(),
+    payment(),
+    session() | undefined,
+    route(),
+    pos_integer(),
+    cash() | undefined
+) -> ok.
+commit_payment_limits(TurnoverLimits, Invoice, Payment, Session, Route, Iter, CapturedCash) ->
+    Context = gen_limit_context(Invoice, Payment, Session, Route, CapturedCash),
     OperationIdSegments = make_route_operation_segments(Invoice, Payment, Route, Iter),
     ok = batch_commit_limits(Context, TurnoverLimits, OperationIdSegments).
 
@@ -243,10 +254,18 @@ batch_commit_limits(Context, TurnoverLimits, OperationIdSegments) ->
 %%
 %%      - `ignore_not_found` -- does not raise error if limiter won't be able to
 %%      find according posting plan in accountant service
--spec rollback_payment_limits([turnover_limit()], invoice(), payment(), route(), pos_integer(), [handling_flag()]) ->
+-spec rollback_payment_limits(
+    [turnover_limit()],
+    invoice(),
+    payment(),
+    session() | undefined,
+    route(),
+    pos_integer(),
+    [handling_flag()]
+) ->
     ok.
-rollback_payment_limits(TurnoverLimits, Invoice, Payment, Route, Iter, Flags) ->
-    Context = gen_limit_context(Invoice, Payment, Route),
+rollback_payment_limits(TurnoverLimits, Invoice, Payment, Session, Route, Iter, Flags) ->
+    Context = gen_limit_context(Invoice, Payment, Session, Route),
     OperationIdSegments = make_route_operation_segments(Invoice, Payment, Route, Iter),
     ok = batch_rollback_limits(Context, TurnoverLimits, OperationIdSegments, Flags).
 
@@ -281,10 +300,10 @@ rollback_refund_limits(TurnoverLimits, Invoice, Payment, Refund, Route) ->
     OperationIdSegments = make_refund_operation_segments(Invoice, Payment, Refund),
     ok = batch_rollback_limits(Context, TurnoverLimits, OperationIdSegments, []).
 
-gen_limit_context(Invoice, Payment, Route) ->
-    gen_limit_context(Invoice, Payment, Route, undefined).
+gen_limit_context(Invoice, Payment, Session, Route) ->
+    gen_limit_context(Invoice, Payment, Session, Route, undefined).
 
-gen_limit_context(Invoice, Payment, Route, CapturedCash) ->
+gen_limit_context(Invoice, Payment, Session, Route, CapturedCash) ->
     PaymentCtx = #context_payproc_InvoicePayment{
         payment = Payment#domain_InvoicePayment{
             status = {captured, #domain_InvoicePaymentCaptured{cost = CapturedCash}}
@@ -296,10 +315,16 @@ gen_limit_context(Invoice, Payment, Route, CapturedCash) ->
             op = {invoice_payment, #context_payproc_OperationInvoicePayment{}},
             invoice = #context_payproc_Invoice{
                 invoice = Invoice,
-                payment = PaymentCtx
+                payment = PaymentCtx,
+                session = gen_limit_session_context(Session, Route)
             }
         }
     }.
+
+gen_limit_session_context(#{status := finished, route := Route}, Route) ->
+    #context_payproc_InvoicePaymentSession{};
+gen_limit_session_context(_, _) ->
+    undefined.
 
 gen_limit_shop_context(Invoice, Payment) ->
     #limiter_LimitContext{
