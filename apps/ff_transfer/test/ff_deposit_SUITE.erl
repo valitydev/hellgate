@@ -20,6 +20,7 @@
 -export([limit_check_fail_test/1]).
 -export([create_bad_amount_test/1]).
 -export([create_negative_amount_test/1]).
+-export([create_realms_validation_error_test/1]).
 -export([create_currency_validation_error_test/1]).
 -export([create_source_notfound_test/1]).
 -export([create_wallet_notfound_test/1]).
@@ -48,6 +49,7 @@ groups() ->
             limit_check_fail_test,
             create_bad_amount_test,
             create_negative_amount_test,
+            create_realms_validation_error_test,
             create_currency_validation_error_test,
             create_source_notfound_test,
             create_wallet_notfound_test,
@@ -163,6 +165,27 @@ create_negative_amount_test(C) ->
     ok = ff_deposit_machine:create(DepositParams, ff_entity_context:new()),
     succeeded = await_final_deposit_status(DepositID),
     ok = ct_objects:await_wallet_balance({0, <<"RUB">>}, WalletID).
+
+-spec create_realms_validation_error_test(config()) -> test_return().
+create_realms_validation_error_test(_C) ->
+    #{currency := Currency} = Ctx = ct_objects:build_default_ctx(),
+    #{
+        wallet_id := WalletID,
+        party_id := PartyID
+    } = ct_objects:prepare_standard_environment(Ctx),
+    SourceID = ct_objects:create_source(PartyID, Currency, test),
+    DepositID = genlib:unique(),
+    DepositParams = #{
+        id => DepositID,
+        body => {5000, <<"RUB">>},
+        source_id => SourceID,
+        wallet_id => WalletID,
+        party_id => PartyID,
+        external_id => genlib:unique()
+    },
+    ?assertMatch(
+        {error, {realms_mismatch, {live, test}}}, ff_deposit_machine:create(DepositParams, ff_entity_context:new())
+    ).
 
 -spec create_currency_validation_error_test(config()) -> test_return().
 create_currency_validation_error_test(C) ->

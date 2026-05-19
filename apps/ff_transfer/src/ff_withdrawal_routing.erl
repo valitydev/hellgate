@@ -256,9 +256,11 @@ get_route_terms_and_process(
             wallet = #domain_WalletProvisionTerms{
                 withdrawals = WithdrawalProvisionTerms
             }
-        }} ->
+        }} when WithdrawalProvisionTerms =/= undefined ->
             Route = make_route(ProviderRef#domain_ProviderRef.id, TerminalRef#domain_TerminalRef.id),
             Func(WithdrawalProvisionTerms, PartyVarset, Route, RoutingContext);
+        {ok, _} ->
+            {error, {'WithdrawalProvisionTerms', not_found}};
         {error, Error} ->
             {error, Error}
     end.

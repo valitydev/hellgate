@@ -34,6 +34,8 @@
 -export([ref/1]).
 -export([get/2]).
 
+-define(RECV_TIMEOUT, 60000).
+
 %% Pipeline
 
 -import(ff_pipeline, [do/1, unwrap/1]).
@@ -127,7 +129,13 @@ decode_adapter(#domain_Proxy{ref = ProxyRef, additional = ProviderOpts}) ->
         url = URL,
         options = ProxyOpts
     } = Proxy,
+    Opts = #{
+        url => URL,
+        transport_opts => #{
+            recv_timeout => ?RECV_TIMEOUT
+        }
+    },
     #{
-        adapter => ff_woody_client:new(URL),
+        adapter => ff_woody_client:new(Opts),
         adapter_opts => maps:merge(ProviderOpts, ProxyOpts)
     }.

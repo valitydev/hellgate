@@ -199,6 +199,7 @@
 -export_type([start_adjustment_error/0]).
 -export_type([limit_check_details/0]).
 -export_type([activity/0]).
+-export_type([contact_info/0]).
 
 %% Transfer logic callbacks
 
@@ -938,7 +939,8 @@ process_session_creation(Withdrawal) ->
         cash => body(Withdrawal),
         sender => ff_account:party_id(WalletAccount),
         receiver => ff_account:party_id(DestinationAccount),
-        quote => build_session_quote(quote(Withdrawal))
+        quote => build_session_quote(quote(Withdrawal)),
+        contact_info => contact_info(Withdrawal)
     }),
     AuthData = ff_destination:auth_data(Destination),
     SessionParams = #{

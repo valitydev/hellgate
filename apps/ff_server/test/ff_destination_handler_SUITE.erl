@@ -19,6 +19,7 @@
 -export([create_ripple_wallet_destination_ok/1]).
 -export([create_digital_wallet_destination_ok/1]).
 -export([create_generic_destination_ok/1]).
+-export([trace_destination_test/1]).
 
 -type config() :: ct_helper:config().
 -type test_case_name() :: ct_helper:test_case_name().
@@ -37,7 +38,8 @@ groups() ->
             create_crypto_wallet_destination_ok,
             create_ripple_wallet_destination_ok,
             create_digital_wallet_destination_ok,
-            create_generic_destination_ok
+            create_generic_destination_ok,
+            trace_destination_test
         ]}
     ].
 
@@ -138,6 +140,42 @@ create_generic_destination_ok(C) ->
             }
         }},
     create_destination_ok(Resource, C).
+
+-spec trace_destination_test(config()) -> test_return().
+trace_destination_test(C) ->
+    Resource =
+        {bank_card, #'fistful_base_ResourceBankCard'{
+            bank_card = #'fistful_base_BankCard'{
+                token = <<"TOKEN shmOKEN">>
+            }
+        }},
+    AuthData =
+        {sender_receiver, #destination_SenderReceiverAuthData{
+            sender = <<"SenderToken">>,
+            receiver = <<"ReceiverToken">>
+        }},
+    {ok, #destination_DestinationState{id = ID}} = create_destination_ok(AuthData, Resource, C),
+    TraceUrl = <<"http://localhost:8022/traces/internal/destination_v2/", ID/binary>>,
+    {ok, 200, _Headers, Ref} = hackney:get(TraceUrl),
+    {ok, Body} = hackney:body(Ref),
+    [
+        #{
+            <<"args">> := [
+                [
+                    #{<<"created">> := _},
+                    #{<<"account">> := _}
+                ],
+                #{<<"NS">> := #{}}
+            ],
+            <<"events">> := [
+                #{<<"event_id">> := 1, <<"event_payload">> := #{<<"created">> := _}, <<"event_timestamp">> := _},
+                #{<<"event_id">> := 2, <<"event_payload">> := #{<<"account">> := _}, <<"event_timestamp">> := _}
+            ],
+            <<"task_status">> := <<"finished">>,
+            <<"task_type">> := <<"init">>
+        }
+    ] = json:decode(Body),
+    ok.
 
 %%----------------------------------------------------------------------
 %%  Internal functions

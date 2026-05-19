@@ -58,6 +58,11 @@ handle_function_('Create', {MarshaledParams, MarshaledContext}, Opts) ->
         {error, {bad_deposit_amount, Amount}} ->
             woody_error:raise(business, #fistful_InvalidOperationAmount{
                 amount = ff_codec:marshal(cash, Amount)
+            });
+        {error, {realms_mismatch, {WalletRealm, DestinationRealm}}} ->
+            woody_error:raise(business, #fistful_RealmsMismatch{
+                wallet_realm = WalletRealm,
+                destination_realm = DestinationRealm
             })
     end;
 handle_function_('Get', {ID, EventRange}, _Opts) ->

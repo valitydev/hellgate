@@ -19,6 +19,7 @@
 -export([get_source_context_ok_test/1]).
 -export([create_source_ok_test/1]).
 -export([unknown_test/1]).
+-export([trace_source_ok_test/1]).
 
 -type config() :: ct_helper:config().
 -type test_case_name() :: ct_helper:test_case_name().
@@ -36,7 +37,8 @@ groups() ->
             get_source_events_ok_test,
             get_source_context_ok_test,
             create_source_ok_test,
-            unknown_test
+            unknown_test,
+            trace_source_ok_test
         ]}
     ].
 
@@ -103,6 +105,37 @@ create_source_ok_test(C) ->
             details = <<"details">>
         }},
     create_source_ok(Resource, C).
+
+-spec trace_source_ok_test(config()) -> test_return().
+trace_source_ok_test(C) ->
+    Resource =
+        {internal, #source_Internal{
+            details = <<"details">>
+        }},
+    State = create_source_ok(Resource, C),
+    ID = State#source_SourceState.id,
+    TraceUrl = <<"http://localhost:8022/traces/internal/source_v1/", ID/binary>>,
+    {ok, 200, _Headers, Ref} = hackney:get(TraceUrl),
+    {ok, Body} = hackney:body(Ref),
+    [
+        #{
+            <<"args">> := [
+                [
+                    #{<<"created">> := _},
+                    #{<<"account">> := _}
+                ],
+                #{<<"NS">> := #{}}
+            ],
+            <<"events">> := [
+                #{<<"event_id">> := 1, <<"event_payload">> := #{<<"created">> := _}, <<"event_timestamp">> := _},
+                #{<<"event_id">> := 2, <<"event_payload">> := #{<<"account">> := _}, <<"event_timestamp">> := _}
+            ],
+            <<"task_status">> := <<"finished">>,
+            <<"task_type">> := <<"init">>
+        },
+        #{<<"task_status">> := <<"finished">>, <<"task_type">> := <<"timeout">>}
+    ] = json:decode(Body),
+    ok.
 
 -spec unknown_test(config()) -> test_return().
 unknown_test(_C) ->

@@ -258,6 +258,11 @@ marshal(fees, Fees) ->
     #'fistful_base_Fees'{
         fees = maps:map(fun(_Constant, Value) -> marshal(cash, Value) end, maps:get(fees, Fees))
     };
+marshal(contact_info, ContactInfo) ->
+    #fistful_base_ContactInfo{
+        phone_number = maps:get(phone_number, ContactInfo, undefined),
+        email = maps:get(email, ContactInfo, undefined)
+    };
 marshal(timer, {timeout, Timeout}) ->
     {timeout, marshal(integer, Timeout)};
 marshal(timer, {deadline, Deadline}) ->
@@ -546,6 +551,11 @@ unmarshal(fees, Fees) ->
     #{
         fees => maps:map(fun(_Constant, Value) -> unmarshal(cash, Value) end, Fees#'fistful_base_Fees'.fees)
     };
+unmarshal(contact_info, ContactInfo) ->
+    genlib_map:compact(#{
+        phone_number => ContactInfo#fistful_base_ContactInfo.phone_number,
+        email => ContactInfo#fistful_base_ContactInfo.email
+    });
 unmarshal(timestamp, Timestamp) when is_binary(Timestamp) ->
     parse_timestamp(Timestamp);
 unmarshal(timestamp_ms, V) ->

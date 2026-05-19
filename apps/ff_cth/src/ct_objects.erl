@@ -17,6 +17,7 @@
 -export([get_wallet/1]).
 
 -export([await_final_withdrawal_status/1]).
+-export([await_final_withdrawal_status/2]).
 -export([create_destination/2]).
 -export([create_destination_/2]).
 -export([create_deposit/0]).
@@ -151,6 +152,14 @@ create_withdrawal(Body, PartyID, WalletID, DestinationID) ->
 await_final_withdrawal_status(WithdrawalID) ->
     ct_helper:await(
         succeeded,
+        fun() -> get_withdrawal_status(WithdrawalID) end,
+        genlib_retry:linear(10, 1000)
+    ).
+
+-spec await_final_withdrawal_status(_WithdrawalID, _Status) -> _.
+await_final_withdrawal_status(WithdrawalID, Status) ->
+    ct_helper:await(
+        Status,
         fun() -> get_withdrawal_status(WithdrawalID) end,
         genlib_retry:linear(10, 1000)
     ).

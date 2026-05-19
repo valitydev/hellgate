@@ -7,6 +7,8 @@
 -include_lib("fistful_proto/include/fistful_wthd_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_wthd_status_thrift.hrl").
 -include_lib("fistful_proto/include/fistful_repairer_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_v2_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 %% Common test API
 
@@ -47,6 +49,7 @@
 -export([provider_callback_test/1]).
 -export([provider_terminal_terms_merging_test/1]).
 -export([force_status_change_test/1]).
+-export([withdrawal_without_termset_test/1]).
 
 %% Internal types
 
@@ -84,7 +87,8 @@ end).
 all() ->
     [
         {group, default},
-        {group, non_parallel}
+        {group, non_parallel},
+        {group, withdrawal_without_termset}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
@@ -122,6 +126,9 @@ groups() ->
         ]},
         {withdrawal_repair, [], [
             force_status_change_test
+        ]},
+        {withdrawal_without_termset, [], [
+            withdrawal_without_termset_test
         ]}
     ].
 
@@ -147,10 +154,38 @@ init_per_group(withdrawal_repair, C) ->
     TermsetHierarchy = ct_domain:term_set_hierarchy(?trms(1), Termset),
     _ = ct_domain_config:update(TermsetHierarchy),
     C;
+init_per_group(withdrawal_without_termset, C) ->
+    WasRevision = dmt_client:get_latest_version(),
+    #domain_conf_v2_VersionedObject{
+        object = {provider, ProviderObject}
+    } = dmt_client:checkout_object(WasRevision, {provider, ?prv(1)}),
+    Provider = ProviderObject#domain_ProviderObject.data,
+    #domain_Provider{
+        terms =
+            Terms = #domain_ProvisionTermSet{
+                wallet = Wallet
+            }
+    } = Provider,
+    ProviderUpd =
+        {provider, ProviderObject#domain_ProviderObject{
+            data = Provider#domain_Provider{
+                terms = Terms#domain_ProvisionTermSet{
+                    wallet = Wallet#domain_WalletProvisionTerms{
+                        withdrawals = undefined
+                    }
+                }
+            }
+        }},
+    _ = ct_domain_config:upsert(ProviderUpd),
+    [{domain_revision, WasRevision} | C];
 init_per_group(_, C) ->
     C.
 
 -spec end_per_group(group_name(), config()) -> _.
+end_per_group(withdrawal_without_termset, C) ->
+    WasRevision = proplists:get_value(domain_revision, C),
+    ct_domain_config:reset(WasRevision),
+    proplists:delete(domain_revision, C);
 end_per_group(_, _) ->
     ok.
 
@@ -730,6 +765,40 @@ force_status_change_test(C) ->
         {failed, #{code := <<"Withdrawal failed by manual intervention">>}},
         get_withdrawal_status(WithdrawalID)
     ).
+
+-spec withdrawal_without_termset_test(config()) -> test_return().
+withdrawal_without_termset_test(C) ->
+    Cash = {100, <<"RUB">>},
+    #{
+        wallet_id := WalletID,
+        destination_id := DestinationID,
+        party_id := PartyID
+    } = prepare_standard_environment(Cash, C),
+    WithdrawalID = genlib:bsuuid(),
+    WithdrawalParams = #{
+        id => WithdrawalID,
+        destination_id => DestinationID,
+        wallet_id => WalletID,
+        party_id => PartyID,
+        body => Cash,
+        external_id => WithdrawalID
+    },
+    ok = ff_withdrawal_machine:create(WithdrawalParams, ff_entity_context:new()),
+    Result = await_final_withdrawal_status(WithdrawalID),
+    Part1 = <<"{rejected_routes,[{{domain_ProviderRef,1},{domain_TerminalRef,1},">>,
+    Part2 = <<"{'WithdrawalProvisionTerms',not_found}}]}">>,
+    ExpectedReason = <<Part1/binary, Part2/binary>>,
+    ?assertEqual(
+        {
+            failed,
+            #{
+                code => <<"no_route_found">>,
+                reason => ExpectedReason
+            }
+        },
+        Result
+    ),
+    ok.
 
 -spec unknown_test(config()) -> test_return().
 unknown_test(_C) ->

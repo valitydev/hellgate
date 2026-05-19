@@ -23,6 +23,7 @@
 -export([repair/5]).
 -export([notify/5]).
 -export([remove/3]).
+-export([trace/3]).
 
 -export([init/4]).
 -export([process_timeout/3]).
@@ -70,9 +71,16 @@ notify(NS, ID, Range, Args, Backend) ->
 remove(NS, ID, Backend) ->
     machinery:remove(NS, ID, set_backend_context(Backend)).
 
+-spec trace(namespace(), id(), machinery:backend(_)) -> _.
+trace(NS, ID, Backend) ->
+    machinery:trace(NS, ID, Backend).
+
 %%
 
--type handler_opts() :: _.
+-type handler_opts() :: machinery:handler_opts(#{
+    woody_ctx := woody_context:ctx(),
+    otel_ctx => otel_ctx:t()
+}).
 
 -spec init(args(_), machine(E, A), options(), handler_opts()) -> result(E, A).
 init(Args, Machine, #{handler := Handler} = Options, MachineryOptions) ->

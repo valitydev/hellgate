@@ -118,6 +118,11 @@ process_withdrawal(#{quote := #wthd_provider_Quote{quote_data = QuoteData}}, Sta
         intent => {finish, {success, ?TRX_INFO}},
         next_state => State
     }};
+process_withdrawal(#{contact_info := #{email := <<"fail_it@mymail.com">>}}, State, _Options) ->
+    {ok, #{
+        intent => {finish, {failed, #{code => <<"email_error">>}}},
+        next_state => State
+    }};
 process_withdrawal(#{auth_data := #{sender := <<"SenderToken">>, receiver := <<"ReceiverToken">>}}, State, _Options) ->
     {ok, #{
         intent => {finish, {success, ?TRX_INFO}},

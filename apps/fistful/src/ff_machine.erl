@@ -55,6 +55,7 @@
 
 -export([get/3]).
 -export([get/4]).
+-export([trace/2]).
 
 -export([collapse/2]).
 -export([history/4]).
@@ -101,6 +102,8 @@
 
 %%
 
+-define(EPOCH_DIFF, 62167219200).
+
 -spec model(st(Model)) -> Model.
 -spec ctx(st(_)) -> ctx().
 -spec created(st(_)) -> timestamp() | undefined.
@@ -137,6 +140,152 @@ get(Mod, NS, ID, Range) ->
         Machine = unwrap(machinery:get(NS, ID, Range, fistful:backend(NS))),
         collapse(Mod, Machine)
     end).
+
+-spec trace(namespace(), id()) -> _.
+trace(NS, ID) ->
+    maybe
+        {ok, MachineTrace} ?= machinery:trace(NS, ID, fistful:backend(NS)),
+        Trace = unmarshal_trace(MachineTrace),
+        {ok, Trace}
+    else
+        {error, _} = Error ->
+            Error
+    end.
+
+unmarshal_trace(MachineTrace) ->
+    lists:map(fun(TraceUnit) -> unmarshal_trace_unit(TraceUnit) end, MachineTrace).
+
+unmarshal_trace_unit(TraceUnit) ->
+    MachineArgs = maps:get(args, TraceUnit, undefined),
+    MachineEvents = maps:get(events, TraceUnit, []),
+    OtelTraceID = extract_trace_id(TraceUnit),
+    Error = extract_error(TraceUnit),
+    maps:merge(
+        maps:without([response, context], TraceUnit),
+        #{
+            args => json_compatible_value(MachineArgs),
+            events => unmarshal_machine_events(MachineEvents),
+            otel_trace_id => OtelTraceID,
+            error => Error
+        }
+    ).
+
+extract_trace_id(#{context := #{<<"otel">> := [OtelTraceID | _]}}) ->
+    OtelTraceID;
+extract_trace_id(_) ->
+    null.
+
+extract_error(#{response := {error, Reason}}) ->
+    %% unification with hellgate
+    unicode:characters_to_binary(io_lib:format("~p", [Reason]));
+extract_error(_) ->
+    null.
+
+json_compatible_value([]) ->
+    [];
+json_compatible_value(V) when is_list(V) ->
+    case io_lib:printable_unicode_list(V) of
+        true ->
+            unicode:characters_to_binary(V);
+        false ->
+            [json_compatible_value(E) || E <- V]
+    end;
+json_compatible_value(V) when is_map(V) ->
+    maps:fold(
+        fun(K, Val, Acc) ->
+            Acc#{json_compatible_key(K) => json_compatible_value(Val)}
+        end,
+        #{},
+        V
+    );
+%% tagged tuple - special case or not???
+json_compatible_value({K, V}) when is_atom(K) ->
+    #{K => json_compatible_value(V)};
+json_compatible_value(V) when is_tuple(V) ->
+    %% MAYBE ???
+    %% Elements = [json_compatible_value(E) || E <- tuple_to_list(V)],
+    %% #{<<"__tuple__">> => Elements};
+    [json_compatible_value(E) || E <- tuple_to_list(V)];
+json_compatible_value(true) ->
+    true;
+json_compatible_value(false) ->
+    false;
+json_compatible_value(null) ->
+    null;
+json_compatible_value(undefined) ->
+    null;
+json_compatible_value(V) when is_atom(V) ->
+    erlang:atom_to_binary(V);
+json_compatible_value(V) when is_integer(V) ->
+    V;
+json_compatible_value(V) when is_float(V) ->
+    V;
+json_compatible_value(V) when is_binary(V) ->
+    try unicode:characters_to_binary(V) of
+        Binary when is_binary(Binary) ->
+            Binary;
+        _ ->
+            content(<<"base64">>, base64:encode(V))
+    catch
+        _:_ ->
+            content(<<"base64">>, base64:encode(V))
+    end;
+%% default for other types (pid() | ref() | function() etc)
+json_compatible_value(V) ->
+    CompatVal = unicode:characters_to_binary(io_lib:format("~p", [V])),
+    content(<<"unknown">>, CompatVal).
+
+json_compatible_key(K) when
+    is_atom(K);
+    is_integer(K);
+    is_float(K)
+->
+    K;
+json_compatible_key(K) when is_list(K) ->
+    case io_lib:printable_unicode_list(K) of
+        true ->
+            unicode:characters_to_binary(K);
+        false ->
+            unicode:characters_to_binary(io_lib:format("~p", [K]))
+    end;
+json_compatible_key(K) when is_binary(K) ->
+    try unicode:characters_to_binary(K) of
+        Binary when is_binary(Binary) ->
+            Binary;
+        _ ->
+            base64:encode(K)
+        %% MAYBE ???
+        %% unicode:characters_to_binary(io_lib:format("~p", [K]))
+    catch
+        _:_ ->
+            base64:encode(K)
+        %% MAYBE ???
+        %% unicode:characters_to_binary(io_lib:format("~p", [K]))
+    end;
+json_compatible_key(K) ->
+    unicode:characters_to_binary(io_lib:format("~p", [K])).
+
+content(Type, Payload) ->
+    #{
+        <<"content_type">> => Type,
+        <<"content">> => Payload
+    }.
+
+unmarshal_machine_events(MachineEvents) ->
+    lists:map(
+        fun({EventID, _TsExt, {ev, Ts, Body}}) ->
+            #{
+                event_id => EventID,
+                event_payload => json_compatible_value(Body),
+                event_timestamp => to_unix_microseconds(Ts)
+            }
+        end,
+        MachineEvents
+    ).
+
+to_unix_microseconds({{{_Y, _M, _D}, {_H, _Min, _S}} = DateTime, Microsec}) ->
+    GregorianSeconds = calendar:datetime_to_gregorian_seconds(DateTime),
+    (GregorianSeconds - ?EPOCH_DIFF) * 1000000 + Microsec.
 
 -spec history(module(), namespace(), id(), range()) ->
     {ok, history()}

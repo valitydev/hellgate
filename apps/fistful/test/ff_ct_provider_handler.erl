@@ -63,7 +63,8 @@ decode_withdrawal(#wthd_provider_Withdrawal{
     sender = Sender,
     receiver = Receiver,
     quote = Quote,
-    auth_data = AuthData
+    auth_data = AuthData,
+    contact_info = ContactInfo
 }) ->
     genlib_map:compact(#{
         id => Id,
@@ -72,7 +73,8 @@ decode_withdrawal(#wthd_provider_Withdrawal{
         sender => Sender,
         receiver => Receiver,
         quote => Quote,
-        auth_data => decode_auth_data(AuthData)
+        auth_data => decode_auth_data(AuthData),
+        contact_info => decode_contact_info(ContactInfo)
     }).
 
 decode_auth_data(undefined) ->
@@ -86,6 +88,19 @@ decode_auth_data(
     genlib_map:compact(#{
         sender => Sender,
         receiver => Receiver
+    }).
+
+decode_contact_info(undefined) ->
+    undefined;
+decode_contact_info(
+    #wthd_domain_ContactInfo{
+        phone_number = PhoneNumber,
+        email = Email
+    }
+) ->
+    genlib_map:compact(#{
+        phone_number => PhoneNumber,
+        email => Email
     }).
 
 decode_quote_params(#wthd_provider_GetQuoteParams{

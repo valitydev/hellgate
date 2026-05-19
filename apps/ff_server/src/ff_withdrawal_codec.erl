@@ -216,11 +216,6 @@ marshal(withdrawal_validation, WithdrawalValidation) ->
         sender = maybe_marshal({list, validation_result}, maps:get(sender, WithdrawalValidation, undefined)),
         receiver = maybe_marshal({list, validation_result}, maps:get(receiver, WithdrawalValidation, undefined))
     };
-marshal(contact_info, ContactInfo) ->
-    #fistful_base_ContactInfo{
-        phone_number = maps:get(phone_number, ContactInfo, undefined),
-        email = maps:get(email, ContactInfo, undefined)
-    };
 marshal(ctx, Ctx) ->
     maybe_marshal(context, Ctx);
 marshal(T, V) ->
@@ -339,11 +334,6 @@ unmarshal(quote, Quote) ->
         quote_data => maybe_unmarshal(msgpack, Quote#wthd_Quote.quote_data),
         domain_revision => maybe_unmarshal(domain_revision, Quote#wthd_Quote.domain_revision),
         operation_timestamp => maybe_unmarshal(timestamp_ms, Quote#wthd_Quote.operation_timestamp)
-    });
-unmarshal(contact_info, ContactInfo) ->
-    genlib_map:compact(#{
-        phone_number => ContactInfo#fistful_base_ContactInfo.phone_number,
-        email => ContactInfo#fistful_base_ContactInfo.email
     });
 unmarshal(ctx, Ctx) ->
     maybe_unmarshal(context, Ctx);

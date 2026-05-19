@@ -40,6 +40,7 @@
 -export([get/4]).
 -export([notify/5]).
 -export([remove/3]).
+-export([trace/3]).
 
 %% Gen Server
 
@@ -133,6 +134,10 @@ notify(_NS, _ID, _Range, _Args, _Opts) ->
 -spec remove(namespace(), id(), backend_opts()) -> no_return().
 remove(_Namespace, _ID, _Opts) ->
     erlang:error({not_implemented, remove}).
+
+-spec trace(namespace(), id(), backend_opts()) -> no_return().
+trace(_Namespace, _ID, _Opts) ->
+    erlang:error({not_implemented, trace}).
 
 %% Gen Server + Supervisor
 

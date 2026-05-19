@@ -124,7 +124,63 @@ repair_failed_session_with_failure(C) ->
         {failed, #{
             code => SessionID
         }},
-    ?assertMatch({finished, Expected}, get_session_status(SessionID)).
+    ?assertMatch({finished, Expected}, get_session_status(SessionID)),
+    timer:sleep(1000),
+    TraceUrl = <<"http://localhost:8022/traces/internal/withdrawal_session_v2/", SessionID/binary>>,
+    {ok, 200, _Headers, Ref} = hackney:get(TraceUrl),
+    {ok, Body} = hackney:body(Ref),
+    [
+        #{
+            <<"args">> := [#{<<"created">> := _}],
+            <<"error">> := null,
+            <<"events">> := [
+                #{
+                    <<"event_id">> := 1,
+                    <<"event_payload">> := #{<<"created">> := _},
+                    <<"event_timestamp">> := _
+                }
+            ],
+            <<"finished">> := _,
+            <<"otel_trace_id">> := null,
+            <<"retry_attempts">> := 0,
+            <<"retry_interval">> := 0,
+            <<"running">> := _,
+            <<"scheduled">> := _,
+            <<"task_id">> := _,
+            <<"task_metadata">> := #{<<"range">> := #{}},
+            <<"task_status">> := <<"finished">>,
+            <<"task_type">> := <<"init">>
+        },
+        #{
+            <<"error">> := <<"{exception,error,{badmatch,{error,notfound}}}">>,
+            <<"task_status">> := <<"error">>,
+            <<"task_type">> := <<"timeout">>
+        },
+        #{
+            <<"args">> := #{
+                <<"set_session_result">> := #{<<"failed">> := #{<<"code">> := _}}
+            },
+            <<"error">> := null,
+            <<"events">> := [
+                #{
+                    <<"event_id">> := 2,
+                    <<"event_payload">> := #{
+                        <<"finished">> := #{<<"failed">> := #{<<"code">> := _}}
+                    },
+                    <<"event_timestamp">> := _
+                }
+            ],
+            <<"task_status">> := <<"finished">>,
+            <<"task_type">> := <<"repair">>
+        },
+        #{
+            %% Error because can`t notify withdrawal machine
+            <<"error">> := <<"{exception,error,{unable_to_finish_session,{error,notfound}}}">>,
+            <<"task_status">> := <<"error">>,
+            <<"task_type">> := <<"timeout">>
+        }
+    ] = json:decode(Body),
+    ok.
 
 %%  Internals
 

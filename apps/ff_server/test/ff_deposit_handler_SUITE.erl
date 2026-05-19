@@ -30,6 +30,7 @@
 -export([unknown_test/1]).
 -export([get_context_test/1]).
 -export([get_events_test/1]).
+-export([trace_deposit_ok_test/1]).
 
 %% Internal types
 
@@ -56,7 +57,8 @@ groups() ->
             create_negative_ok_test,
             unknown_test,
             get_context_test,
-            get_events_test
+            get_events_test,
+            trace_deposit_ok_test
         ]}
     ].
 
@@ -220,6 +222,58 @@ create_ok_test(_C) ->
         ff_deposit:created_at(Expected),
         ff_codec:unmarshal(timestamp_ms, DepositState#deposit_DepositState.created_at)
     ).
+
+-spec trace_deposit_ok_test(config()) -> test_return().
+trace_deposit_ok_test(_C) ->
+    Body = make_cash({100, <<"RUB">>}),
+    #{
+        party_id := PartyID,
+        wallet_id := WalletID,
+        source_id := SourceID
+    } = ct_objects:prepare_standard_environment(ct_objects:build_default_ctx()),
+    DepositID = genlib:bsuuid(),
+    ExternalID = genlib:bsuuid(),
+    Context = #{<<"NS">> => #{genlib:bsuuid() => genlib:bsuuid()}},
+    Metadata = ff_entity_context_codec:marshal(#{<<"metadata">> => #{<<"some key">> => <<"some data">>}}),
+    Description = <<"testDesc">>,
+    Params = #deposit_DepositParams{
+        id = DepositID,
+        party_id = PartyID,
+        body = Body,
+        source_id = SourceID,
+        wallet_id = WalletID,
+        metadata = Metadata,
+        external_id = ExternalID,
+        description = Description
+    },
+    {ok, _DepositState} = call_deposit('Create', {Params, ff_entity_context_codec:marshal(Context)}),
+    timer:sleep(1000),
+    TraceUrl = <<"http://localhost:8022/traces/internal/deposit_v1/", DepositID/binary>>,
+    {ok, 200, _Headers, Ref} = hackney:get(TraceUrl),
+    {ok, TraceBody} = hackney:body(Ref),
+    [
+        #{
+            <<"args">> := [
+                [
+                    #{<<"created">> := _},
+                    #{<<"status_changed">> := <<"pending">>}
+                ],
+                #{<<"NS">> := _}
+            ],
+            <<"events">> := [
+                #{<<"event_id">> := 1, <<"event_payload">> := #{<<"created">> := _}, <<"event_timestamp">> := _},
+                #{<<"event_id">> := 2, <<"event_payload">> := #{<<"status_changed">> := _}, <<"event_timestamp">> := _}
+            ],
+            <<"task_status">> := <<"finished">>,
+            <<"task_type">> := <<"init">>
+        },
+        #{<<"task_status">> := <<"finished">>, <<"task_type">> := <<"timeout">>},
+        #{<<"task_status">> := <<"finished">>, <<"task_type">> := <<"timeout">>},
+        #{<<"task_status">> := <<"finished">>, <<"task_type">> := <<"timeout">>},
+        #{<<"task_status">> := <<"finished">>, <<"task_type">> := <<"timeout">>},
+        #{<<"task_status">> := <<"finished">>, <<"task_type">> := <<"timeout">>}
+    ] = json:decode(TraceBody),
+    ok.
 
 -spec create_negative_ok_test(config()) -> test_return().
 create_negative_ok_test(_C) ->

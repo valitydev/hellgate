@@ -51,7 +51,8 @@ stop(_State) ->
 init([]) ->
     IpEnv = genlib_app:env(?MODULE, ip, "::1"),
     Port = genlib_app:env(?MODULE, port, 8022),
-    HealthCheck = genlib_app:env(?MODULE, health_check, #{}),
+    HealthCheckReadiness = genlib_app:env(?MODULE, health_check_readiness, #{}),
+    HealthCheckLiveness = genlib_app:env(?MODULE, health_check_liveness, #{}),
     WoodyOptsEnv = genlib_app:env(?MODULE, woody_opts, #{}),
 
     PartyClient = party_client:create_client(),
@@ -97,8 +98,11 @@ init([]) ->
                 handlers => WoodyHandlers,
                 event_handler => ff_woody_event_handler,
                 additional_routes =>
-                    get_prometheus_routes() ++
-                    [erl_health_handle:get_route(enable_health_logging(HealthCheck))]
+                    get_prometheus_routes() ++ ff_machine_handler:get_routes() ++
+                    [
+                        erl_health_handle:get_readiness_route(enable_health_logging(HealthCheckReadiness)),
+                        erl_health_handle:get_liveness_route(enable_health_logging(HealthCheckLiveness))
+                    ]
             }
         )
     ),

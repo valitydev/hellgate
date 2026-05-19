@@ -31,7 +31,8 @@
     cash => cash(),
     sender => party_id(),
     receiver => party_id(),
-    quote => quote()
+    quote => quote(),
+    contact_info => ff_withdrawal:contact_info()
 }.
 
 -type quote_params() :: #{
