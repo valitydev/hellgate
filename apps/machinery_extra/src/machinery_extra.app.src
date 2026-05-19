@@ -1,0 +1,17 @@
+{application, machinery_extra, [
+    {description, "Machinery extra backends / utilities"},
+    {vsn, "1"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        genlib,
+        machinery,
+        gproc
+    ]},
+    {env, []},
+    {modules, []},
+    {maintainers, []},
+    {licenses, ["Apache 2.0"]},
+    {links, ["https://github.com/valitydev/fistful-server"]}
+]}.

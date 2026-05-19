@@ -128,7 +128,7 @@ init_per_suite(C) ->
         hellgate,
         {cowboy, CowboySpec}
     ]),
-    _ = hg_domain:insert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
+    _ = hg_domain:upsert(construct_domain_fixture(construct_term_set_w_recurrent_paytools())),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     AnotherPartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},

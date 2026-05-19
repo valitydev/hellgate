@@ -1,0 +1,31 @@
+{application, fistful, [
+    {description, "Wallet processing"},
+    {vsn, "1"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        genlib,
+        prometheus,
+        prometheus_cowboy,
+        ff_core,
+        snowflake,
+        progressor,
+        machinery,
+        machinery_extra,
+        woody,
+        uuid,
+        damsel,
+        dmt_client,
+        party_client,
+        binbase_proto,
+        bender_client,
+        opentelemetry_api,
+        opentelemetry_exporter,
+        opentelemetry
+    ]},
+    {env, []},
+    {maintainers, []},
+    {licenses, ["Apache 2.0"]},
+    {links, ["https://github.com/valitydev/fistful-server"]}
+]}.

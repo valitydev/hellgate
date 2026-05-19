@@ -1,0 +1,17 @@
+{application, ff_cth, [
+    {description, "Common Common Test helpers"},
+    {vsn, "1"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        genlib,
+        woody,
+        damsel
+    ]},
+    {env, []},
+    {modules, []},
+    {maintainers, []},
+    {licenses, ["Apache 2.0"]},
+    {links, ["https://github.com/valitydev/fistful-server"]}
+]}.

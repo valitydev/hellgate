@@ -91,7 +91,7 @@ init_per_suite(C) ->
         hellgate,
         snowflake
     ]),
-    _ = hg_domain:insert(construct_domain_fixture()),
+    _ = hg_domain:upsert(construct_domain_fixture()),
     RootUrl = maps:get(hellgate_root_url, Ret),
     PartyConfigRef = #domain_PartyConfigRef{id = hg_utils:unique_id()},
     Client = {party_client:create_client(), party_client:create_context()},
