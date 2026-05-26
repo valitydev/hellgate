@@ -1963,6 +1963,7 @@ process_routing(Action, St) ->
             %% accounted for in `St`.
             NewIter = get_iter(St) + 1,
             FilterFuns = [
+                fun(Result) -> filter_routes_by_recurrent_tokens(Result, St) end,
                 fun(Result) -> filter_attempted_routes(Result, St) end,
                 fun(Result) -> filter_routes_with_limit_hold(Result, VS, NewIter, St) end,
                 fun(Result) -> filter_routes_by_limit_overflow(Result, VS, NewIter, St) end,
@@ -2038,6 +2039,10 @@ route_args(St) ->
     PaymentInstitution = hg_payment_institution:compute_payment_institution(PaymentInstitutionRef, VS1, Revision),
     {PaymentInstitution, VS3, Revision}.
 
+get_routes(PaymentInstitution, VS, Revision, #st{cascade_recurrent_tokens = CascadeTokens} = St) when
+    CascadeTokens =/= undefined
+->
+    get_routes_(PaymentInstitution, VS, Revision, St);
 get_routes(PaymentInstitution, VS, Revision, St) ->
     Payer = get_payment_payer(St),
     case get_predefined_route(Payer) of
@@ -2066,26 +2071,28 @@ filter_attempted_routes(Result, #st{routes = AttemptedRoutes}) ->
     ),
     hg_routing_ctx:append_rejected_routes(already_attempted, AcceptedRoutes, RejectedRoutes, Result).
 
-filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = undefined}) ->
-    Ctx;
-filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = Tokens}) ->
-    lists:foldl(
-        fun(Route, C) ->
+filter_routes_by_recurrent_tokens(Result0, #st{cascade_recurrent_tokens = undefined}) ->
+    Result0;
+filter_routes_by_recurrent_tokens(Result0, #st{cascade_recurrent_tokens = Tokens}) ->
+    Routes = hg_routing_ctx:candidates(Result0),
+    {AcceptedRoutes, RejectedRoutes} = lists:foldr(
+        fun(Route, {AcceptedAcc, RejectedAcc}) ->
             Key = #customer_ProviderTerminalKey{
                 provider_ref = hg_route:provider_ref(Route),
                 terminal_ref = hg_route:terminal_ref(Route)
             },
             case maps:is_key(Key, Tokens) of
                 true ->
-                    C;
+                    {[Route | AcceptedAcc], RejectedAcc};
                 false ->
-                    RejectedRoute = hg_route:to_rejected_route(Route, {recurrent_token_missing, undefined}),
-                    hg_routing_ctx:reject(recurrent_token_missing, RejectedRoute, C)
+                    RejectedRoute = hg_route:set_rejection_reason({recurrent_token_missing, undefined}, Route),
+                    {AcceptedAcc, [RejectedRoute | RejectedAcc]}
             end
         end,
-        Ctx,
-        hg_routing_ctx:candidates(Ctx)
-    ).
+        {[], []},
+        Routes
+    ),
+    hg_routing_ctx:append_rejected_routes(recurrent_token_missing, AcceptedRoutes, RejectedRoutes, Result0).
 
 handle_choose_route_error(Error, Events, St, Action) ->
     Failure = construct_routing_failure(Error),
@@ -3685,7 +3692,10 @@ get_limit_values(St, Opts) ->
 
 get_limit_values_(St, Mode) ->
     {PaymentInstitution, VS, Revision} = route_args(St),
-    #{routes := Routes} = get_routes(PaymentInstitution, VS, Revision, St),
+    #{routes := Routes0} = get_routes(PaymentInstitution, VS, Revision, St),
+    Routes = hg_routing_ctx:candidates(
+        filter_routes_by_recurrent_tokens(hg_routing_ctx:new(Routes0), St)
+    ),
     Session = get_activity_session(St),
     Payment = get_payment(St),
     Invoice = get_invoice(get_opts(St)),

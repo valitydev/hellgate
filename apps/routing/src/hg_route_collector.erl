@@ -58,7 +58,7 @@
 fill_blacklist(_BlCtx, []) ->
     [];
 fill_blacklist(BlCtx, [Route]) ->
-    hg_inspector:fill_blacklist(Route, BlCtx);
+    [hg_inspector:fill_blacklist(Route, BlCtx)];
 fill_blacklist(BlCtx, Routes) ->
     HgContext = hg_context:load(),
     try
