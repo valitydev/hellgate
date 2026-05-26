@@ -532,12 +532,23 @@ collect_worker_pids(Ref, Left, Acc) ->
         error({timeout, #{expected_workers => Left, collected => length(Acc)}})
     end.
 
+-spec test_inspector() -> dmsl_domain_thrift:'Inspector'().
+test_inspector() ->
+    #domain_Inspector{
+        name = <<"test-inspector">>,
+        description = <<"test-inspector">>,
+        proxy = #domain_Proxy{
+            ref = #domain_ProxyRef{id = 1},
+            additional = #{}
+        }
+    }.
+
 -spec test_blacklist_context(hg_route:t()) -> hg_inspector:blacklist_context().
 test_blacklist_context(Route) ->
     #{
         route => Route,
         revision => 1,
-        inspector => #domain_Inspector{}
+        inspector => test_inspector()
     }.
 
 -spec test_route(pos_integer()) -> hg_route:t().
