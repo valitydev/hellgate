@@ -20,6 +20,7 @@
 -include_lib("damsel/include/dmsl_proxy_provider_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_thrift.hrl").
 -include_lib("damsel/include/dmsl_payproc_error_thrift.hrl").
+-include_lib("damsel/include/dmsl_customer_thrift.hrl").
 
 -include_lib("limiter_proto/include/limproto_limiter_thrift.hrl").
 
@@ -204,7 +205,7 @@
 -type session_change() :: hg_session:change().
 -type callback_response() :: dmsl_proxy_provider_thrift:'CallbackResponse'().
 -type make_recurrent() :: true | false.
--type retry_strategy() :: hg_retry:strategy().
+
 -type capture_data() :: dmsl_payproc_thrift:'InvoicePaymentCaptureData'().
 -type payment_session() :: dmsl_payproc_thrift:'InvoicePaymentSession'().
 -type failure() :: dmsl_domain_thrift:'OperationFailure'().
@@ -413,7 +414,8 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         make_recurrent = MakeRecurrent,
         context = Context,
         external_id = ExternalID,
-        processing_deadline = Deadline
+        processing_deadline = Deadline,
+        customer_id = CustomerID
     } = Params,
     Revision = hg_domain:head(),
     PartyConfigRef = get_party_config_ref(Opts),
@@ -434,14 +436,56 @@ init_(PaymentID, Params, #{timestamp := CreatedAt} = Opts) ->
         Revision,
         genlib:define(MakeRecurrent, false)
     ),
+    InheritedCustomerID = inherit_or_validate_customer_id(CustomerID, VS0),
     Payment2 = Payment1#domain_InvoicePayment{
         payer_session_info = PayerSessionInfo,
         context = Context,
         external_id = ExternalID,
-        processing_deadline = Deadline
+        processing_deadline = Deadline,
+        customer_id = InheritedCustomerID
     },
-    Events = [?payment_started(Payment2)],
+    CascadeTokenEvents =
+        case PayerParams of
+            {recurrent, #payproc_RecurrentPayerParams{recurrent_parent = ?recurrent_parent(_InvID, _PmtID)}} ->
+                case get_bank_card_token(Payer) of
+                    undefined ->
+                        [];
+                    BCT ->
+                        case hg_customer_client:get_recurrent_tokens_by_card(PartyConfigRef, BCT) of
+                            [_ | _] = Tokens ->
+                                [?cascade_tokens_loaded(Tokens)];
+                            [] ->
+                                seed_bank_card_from_parent(PartyConfigRef, BCT, VS0)
+                        end
+                end;
+            _ ->
+                []
+        end,
+    Events = [?payment_started(Payment2)] ++ CascadeTokenEvents,
     {collapse_changes(Events, undefined, #{}), {Events, hg_machine_action:instant()}}.
+
+seed_bank_card_from_parent(PartyConfigRef, BCT, #{parent_payment := ParentPayment}) ->
+    case get_recurrent_token(ParentPayment) of
+        undefined ->
+            [];
+        RecToken ->
+            Route = get_route(ParentPayment),
+            SavedToken = hg_customer_client:save_recurrent_token_by_card(PartyConfigRef, BCT, {Route, RecToken}),
+            [?cascade_tokens_loaded([SavedToken])]
+    end;
+seed_bank_card_from_parent(_PartyConfigRef, _BCT, _VS) ->
+    [].
+
+inherit_or_validate_customer_id(undefined, #{parent_payment := ParentPayment}) ->
+    (get_payment(ParentPayment))#domain_InvoicePayment.customer_id;
+inherit_or_validate_customer_id(CustomerID, #{parent_payment := ParentPayment}) ->
+    case (get_payment(ParentPayment))#domain_InvoicePayment.customer_id of
+        CustomerID -> CustomerID;
+        undefined -> CustomerID;
+        _Other -> throw(#payproc_InvalidRecurrentParentPayment{details = <<"Customer ID mismatch with parent">>})
+    end;
+inherit_or_validate_customer_id(CustomerID, _VS) ->
+    CustomerID.
 
 get_merchant_payments_terms(Opts, Revision, _Timestamp, VS) ->
     Shop = get_shop(Opts, Revision),
@@ -560,6 +604,13 @@ reconstruct_payment_flow(?invoice_payment_flow_instant(), _CreatedAt, VS) ->
 reconstruct_payment_flow(?invoice_payment_flow_hold(_OnHoldExpiration, HeldUntil), CreatedAt, VS) ->
     Seconds = hg_datetime:parse_ts(HeldUntil) - hg_datetime:parse_ts(CreatedAt),
     VS#{flow => {hold, ?hold_lifetime(Seconds)}}.
+
+add_trust_level(#domain_Invoice{client_info = undefined}, VS) ->
+    VS;
+add_trust_level(#domain_Invoice{client_info = #domain_InvoiceClientInfo{trust_level = undefined}}, VS) ->
+    VS;
+add_trust_level(#domain_Invoice{client_info = #domain_InvoiceClientInfo{trust_level = TrustLevel}}, VS) ->
+    VS#{trust_level => TrustLevel}.
 
 -spec get_predefined_route(payer()) -> {ok, route()} | undefined.
 get_predefined_route(?payment_resource_payer()) ->
@@ -2015,6 +2066,27 @@ filter_attempted_routes(Result, #st{routes = AttemptedRoutes}) ->
     ),
     hg_routing_ctx:append_rejected_routes(already_attempted, AcceptedRoutes, RejectedRoutes, Result).
 
+filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = undefined}) ->
+    Ctx;
+filter_routes_by_recurrent_tokens(Ctx, #st{cascade_recurrent_tokens = Tokens}) ->
+    lists:foldl(
+        fun(Route, C) ->
+            Key = #customer_ProviderTerminalKey{
+                provider_ref = hg_route:provider_ref(Route),
+                terminal_ref = hg_route:terminal_ref(Route)
+            },
+            case maps:is_key(Key, Tokens) of
+                true ->
+                    C;
+                false ->
+                    RejectedRoute = hg_route:to_rejected_route(Route, {recurrent_token_missing, undefined}),
+                    hg_routing_ctx:reject(recurrent_token_missing, RejectedRoute, C)
+            end
+        end,
+        Ctx,
+        hg_routing_ctx:candidates(Ctx)
+    ).
+
 handle_choose_route_error(Error, Events, St, Action) ->
     Failure = construct_routing_failure(Error),
     process_failure(get_activity(St), Events, Action, Failure, St).
@@ -2352,6 +2424,7 @@ process_result({payment, finalizing_accounter}, Action, St) ->
                 rollback_payment_cashflow(St)
         end,
     check_recurrent_token(St),
+    _ = maybe_save_recurrent_token_to_customer(St),
     NewAction = get_action(Target, Action, St),
     {done, {[?payment_status_changed(Target)], NewAction}}.
 
@@ -2411,6 +2484,63 @@ check_recurrent_token(#st{
 check_recurrent_token(_) ->
     ok.
 
+maybe_save_recurrent_token_to_customer(
+    #st{
+        payment = #domain_InvoicePayment{
+            id = PaymentID,
+            customer_id = CustomerID,
+            payer = Payer
+        },
+        recurrent_token = RecToken
+    } = St
+) when CustomerID =/= undefined ->
+    InvoiceID = get_invoice_id(get_invoice(get_opts(St))),
+    hg_customer_client:add_payment(CustomerID, InvoiceID, PaymentID),
+    _ = maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St),
+    maybe_link_bankcard_to_customer(CustomerID, Payer);
+maybe_save_recurrent_token_to_customer(
+    #st{
+        payment = #domain_InvoicePayment{
+            payer = Payer
+        },
+        recurrent_token = RecToken
+    } = St
+) ->
+    _ = maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St),
+    ok.
+
+maybe_save_recurrent_token_to_bankcard(RecToken, Payer, St) when RecToken =/= undefined ->
+    case get_bank_card_token(Payer) of
+        undefined ->
+            ok;
+        BCT ->
+            PartyConfigRef = get_party_config_ref(get_opts(St)),
+            Route = get_route(St),
+            hg_customer_client:save_recurrent_token_by_card(PartyConfigRef, BCT, {Route, RecToken})
+    end;
+maybe_save_recurrent_token_to_bankcard(_, _, _) ->
+    ok.
+
+maybe_link_bankcard_to_customer(CustomerID, Payer) ->
+    case get_bank_card_token(Payer) of
+        undefined -> ok;
+        BCT -> hg_customer_client:link_bank_card(CustomerID, BCT)
+    end.
+
+get_bank_card_token(
+    ?payment_resource_payer(
+        #domain_DisposablePaymentResource{
+            payment_tool = {bank_card, #domain_BankCard{token = Token}}
+        },
+        _
+    )
+) ->
+    Token;
+get_bank_card_token(?recurrent_payer({bank_card, #domain_BankCard{token = Token}}, _, _)) ->
+    Token;
+get_bank_card_token(_) ->
+    undefined.
+
 choose_fd_operation_status_for_failure({failure, Failure}) ->
     payproc_errors:match('PaymentFailure', Failure, fun do_choose_fd_operation_status_for_failure/1);
 choose_fd_operation_status_for_failure(_Failure) ->
@@ -2461,7 +2591,6 @@ get_actual_retry_strategy(Target, #st{retry_attempts = Attempts}) ->
     AttemptNum = maps:get(get_target_type(Target), Attempts, 0),
     hg_retry:skip_steps(get_initial_retry_strategy(get_target_type(Target)), AttemptNum).
 
--spec get_initial_retry_strategy(session_target_type()) -> retry_strategy().
 get_initial_retry_strategy(TargetType) ->
     PolicyConfig = genlib_app:env(hellgate, payment_retry_policy, #{}),
     hg_retry:new_strategy(maps:get(TargetType, PolicyConfig, no_retry)).
@@ -2831,7 +2960,7 @@ construct_payment_info(St, Opts) ->
         #proxy_provider_PaymentInfo{
             shop = construct_proxy_shop(get_shop_obj(Opts, Revision)),
             invoice = construct_proxy_invoice(get_invoice(Opts)),
-            payment = construct_proxy_payment(Payment, get_trx(St))
+            payment = construct_proxy_payment(Payment, get_trx(St), St)
         }
     ).
 
@@ -2863,7 +2992,8 @@ construct_proxy_payment(
         skip_recurrent = SkipRecurrent,
         processing_deadline = Deadline
     },
-    Trx
+    Trx,
+    St
 ) ->
     ContactInfo = get_contact_info(Payer),
     PaymentTool = get_payer_payment_tool(Payer),
@@ -2871,7 +3001,7 @@ construct_proxy_payment(
         id = ID,
         created_at = CreatedAt,
         trx = Trx,
-        payment_resource = construct_payment_resource(Payer),
+        payment_resource = construct_payment_resource(Payer, St),
         payment_service = hg_payment_tool:get_payment_service(PaymentTool, Revision),
         payer_session_info = PayerSessionInfo,
         cost = construct_proxy_cash(Cost),
@@ -2881,9 +3011,23 @@ construct_proxy_payment(
         processing_deadline = Deadline
     }.
 
-construct_payment_resource(?payment_resource_payer(Resource, _)) ->
+construct_payment_resource(?payment_resource_payer(Resource, _), _St) ->
     {disposable_payment_resource, Resource};
-construct_payment_resource(?recurrent_payer(PaymentTool, ?recurrent_parent(InvoiceID, PaymentID), _)) ->
+construct_payment_resource(
+    ?recurrent_payer(PaymentTool, ?recurrent_parent(_InvoiceID, _PaymentID), _),
+    #st{cascade_recurrent_tokens = Tokens} = St
+) when Tokens =/= undefined ->
+    #domain_PaymentRoute{provider = ProviderRef, terminal = TerminalRef} = get_route(St),
+    Key = #customer_ProviderTerminalKey{
+        provider_ref = ProviderRef,
+        terminal_ref = TerminalRef
+    },
+    RecToken = maps:get(Key, Tokens),
+    {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
+        payment_tool = PaymentTool,
+        rec_token = RecToken
+    }};
+construct_payment_resource(?recurrent_payer(PaymentTool, ?recurrent_parent(InvoiceID, PaymentID), _), _St) ->
     PreviousPayment = get_payment_state(InvoiceID, PaymentID),
     RecToken = get_recurrent_token(PreviousPayment),
     {recurrent_payment_resource, #proxy_provider_RecurrentPaymentResource{
@@ -3038,8 +3182,9 @@ get_varset(St, InitialValue) ->
     Payment = get_payment(St),
     Revision = get_payment_revision(St),
     VS0 = reconstruct_payment_flow(Payment, InitialValue),
-    VS1 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS0),
-    VS1.
+    VS1 = add_trust_level(get_invoice(Opts), VS0),
+    VS2 = collect_validation_varset(get_party_config_ref(Opts), get_shop_obj(Opts, Revision), Payment, VS1),
+    VS2.
 
 %%
 
@@ -3171,6 +3316,8 @@ merge_change(Change = ?cash_flow_changed(CashFlow), #st{activity = Activity} = S
 merge_change(Change = ?rec_token_acquired(Token), #st{} = St, Opts) ->
     _ = validate_transition([{payment, processing_session}, {payment, finalizing_session}], Change, St, Opts),
     St#st{recurrent_token = Token};
+merge_change(?cascade_tokens_loaded(Tokens), #st{} = St, _Opts) ->
+    St#st{cascade_recurrent_tokens = hg_customer_client:tokens_to_map(Tokens)};
 merge_change(Change = ?cash_changed(_OldCash, NewCash), #st{} = St, Opts) ->
     _ = validate_transition(
         [{adjustment_new, latest_adjustment_id(St)}, {payment, processing_session}],

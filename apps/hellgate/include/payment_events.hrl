@@ -94,6 +94,10 @@
     {invoice_payment_rec_token_acquired, #payproc_InvoicePaymentRecTokenAcquired{token = Token}}
 ).
 
+-define(cascade_tokens_loaded(Tokens),
+    {invoice_payment_cascade_tokens_loaded, #payproc_InvoicePaymentCascadeTokensLoaded{tokens = Tokens}}
+).
+
 -define(cash_changed(OldCash, NewCash),
     {invoice_payment_cash_changed, #payproc_InvoicePaymentCashChanged{old_cash = OldCash, new_cash = NewCash}}
 ).

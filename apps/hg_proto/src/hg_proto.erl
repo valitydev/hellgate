@@ -41,7 +41,11 @@ get_service(fault_detector) ->
 get_service(limiter) ->
     {limproto_limiter_thrift, 'Limiter'};
 get_service(party_config) ->
-    {dmsl_payproc_thrift, 'PartyManagement'}.
+    {dmsl_payproc_thrift, 'PartyManagement'};
+get_service(customer_management) ->
+    {dmsl_customer_thrift, 'CustomerManagement'};
+get_service(bank_card_storage) ->
+    {dmsl_customer_thrift, 'BankCardStorage'}.
 
 -spec get_service_spec(Name :: atom()) -> service_spec().
 get_service_spec(Name) ->

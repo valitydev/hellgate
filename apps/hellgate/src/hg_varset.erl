@@ -16,7 +16,8 @@
     shop_id => dmsl_base_thrift:'ID'(),
     risk_score => hg_inspector:risk_score(),
     flow => instant | {hold, dmsl_domain_thrift:'HoldLifetime'()},
-    wallet_id => dmsl_base_thrift:'ID'()
+    wallet_id => dmsl_base_thrift:'ID'(),
+    trust_level => dmsl_domain_thrift:'ClientTrustLevel'()
 }.
 
 -spec prepare_varset(varset()) -> dmsl_payproc_thrift:'Varset'().
@@ -28,5 +29,6 @@ prepare_varset(Varset) ->
         wallet_id = genlib_map:get(wallet_id, Varset),
         payment_tool = genlib_map:get(payment_tool, Varset),
         party_ref = genlib_map:get(party_config_ref, Varset),
-        shop_id = genlib_map:get(shop_id, Varset)
+        shop_id = genlib_map:get(shop_id, Varset),
+        trust_level = genlib_map:get(trust_level, Varset)
     }.
