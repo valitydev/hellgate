@@ -700,7 +700,7 @@ validate_limit(Cash, CashRange) ->
 
 get_routes_(PaymentInstitution, VS, Revision, St) ->
     Payment = get_payment(St),
-    Predestination = choose_routing_predestination(Payment),
+    Predestination = get_routing_predestination(Payment),
     #domain_Cash{currency = Currency} = get_payment_cost(Payment),
     Payer = Payment#domain_InvoicePayment.payer,
     #domain_ContactInfo{email = Email} = get_contact_info(Payer),
@@ -735,10 +735,10 @@ check_risk_score(fatal) ->
 check_risk_score(_RiskScore) ->
     ok.
 
--spec choose_routing_predestination(payment()) -> hg_routing:route_predestination().
-choose_routing_predestination(#domain_InvoicePayment{make_recurrent = true}) ->
+-spec get_routing_predestination(payment()) -> hg_routing:route_predestination().
+get_routing_predestination(#domain_InvoicePayment{make_recurrent = true}) ->
     recurrent_payment;
-choose_routing_predestination(#domain_InvoicePayment{payer = ?payment_resource_payer()}) ->
+get_routing_predestination(#domain_InvoicePayment{payer = ?payment_resource_payer()}) ->
     payment.
 
 % Other payers has predefined routes
@@ -760,7 +760,7 @@ log_rejected_routes(limit_misconfiguration, Routes, _VS) ->
     ?LOG_MD(warning, "Limiter hold error caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(limit_overflow, Routes, _VS) ->
     ?LOG_MD(notice, "Limit overflow caused route candidates to be rejected: ~p", [Routes]);
-log_rejected_routes(in_blacklist, Routes, _VS) ->
+log_rejected_routes(blacklisted, Routes, _VS) ->
     ?LOG_MD(notice, "Route candidates are blacklisted: ~p", [Routes]);
 log_rejected_routes(adapter_unavailable, Routes, _VS) ->
     ?LOG_MD(notice, "Adapter unavailability caused route candidates to be rejected: ~p", [Routes]);
@@ -2052,7 +2052,9 @@ construct_routing_failure({rejected_routes, {_SubCode, RejectedRoutes}}) ->
 construct_routing_failure({misconfiguration = Code, Details}) ->
     construct_routing_failure([unknown, {unknown_error, atom_to_binary(Code)}], genlib:format(Details));
 construct_routing_failure(risk_score_is_too_high = Code) ->
-    construct_routing_failure([Code], undefined).
+    construct_routing_failure([Code], undefined);
+construct_routing_failure(Error) when is_atom(Error) ->
+    construct_routing_failure([{unknown_error, Error}], undefined).
 
 normalize_rejected_routes(RejectedRoutes) ->
     [normalize_rejected_route(Route) || Route <- RejectedRoutes].
@@ -3996,7 +3998,7 @@ filter_attempted_routes_test_() ->
         ?_assertMatch(
             #{candidates := []},
             filter_attempted_routes(
-                hg_routing_ctx:from_result(#{routes => [], rejected_routes => []}),
+                hg_routing_ctx:from_result(#{routes => []}),
                 #st{
                     activity = idle,
                     routes = [
@@ -4011,14 +4013,14 @@ filter_attempted_routes_test_() ->
         ?_assertMatch(
             #{candidates := []},
             filter_attempted_routes(
-                hg_routing_ctx:from_result(#{routes => [], rejected_routes => []}),
+                hg_routing_ctx:from_result(#{routes => []}),
                 #st{activity = idle, routes = []}
             )
         ),
         ?_assertMatch(
             #{candidates := [R1, R2, R3]},
             filter_attempted_routes(
-                hg_routing_ctx:from_result(#{routes => [R1, R2, R3], rejected_routes => []}),
+                hg_routing_ctx:from_result(#{routes => [R1, R2, R3]}),
                 #st{activity = idle, routes = []}
             )
         ),
@@ -4031,7 +4033,7 @@ filter_attempted_routes_test_() ->
                 latest_rejection := already_attempted
             },
             filter_attempted_routes(
-                hg_routing_ctx:from_result(#{routes => [R1, R2, R3], rejected_routes => []}),
+                hg_routing_ctx:from_result(#{routes => [R1, R2, R3]}),
                 #st{
                     activity = idle,
                     routes = [
@@ -4056,7 +4058,7 @@ filter_attempted_routes_test_() ->
                 latest_rejection := already_attempted
             },
             filter_attempted_routes(
-                hg_routing_ctx:from_result(#{routes => [R1, R2, R3], rejected_routes => []}),
+                hg_routing_ctx:from_result(#{routes => [R1, R2, R3]}),
                 #st{
                     activity = idle,
                     routes = [

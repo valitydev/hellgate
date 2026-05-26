@@ -59,10 +59,16 @@ new(Candidates) ->
         choice_meta => undefined
     }.
 
--spec from_result(#{routes := routes(), rejected_routes => routes()}) -> t().
+-spec from_result(#{routes := routes(), rejections => #{rejection_group() => routes()}}) -> t().
 from_result(#{routes := Routes} = RoutingResult) ->
-    RejectedRoutes = maps:get(rejected_routes, RoutingResult, []),
-    append_rejected_routes(forbidden, Routes, RejectedRoutes, new(Routes)).
+    Rejections = maps:get(rejections, RoutingResult, #{}),
+    lists:foldl(
+        fun(Group, Ctx) ->
+            append_rejected_routes(Group, Routes, maps:get(Group, Rejections, []), Ctx)
+        end,
+        new(Routes),
+        [blacklisted, accepted, prohibit]
+    ).
 
 -spec append_rejected_routes(
     rejection_group(),
@@ -241,13 +247,13 @@ initial_candidates_test() ->
     R1 = new_test_route(1, 1),
     R2 = new_test_route(1, 2),
     R3 = new_test_route(1, 3),
-    Result = from_result(#{routes => [R1, R2], rejected_routes => [R3]}),
+    Result = from_result(#{routes => [R1, R2], rejections => #{accepted => [R3]}}),
     ?assertMatch(
         #{
             candidates := [R1, R2],
             initial_candidates := [R1, R2],
-            rejections := #{forbidden := [R3]},
-            latest_rejection := forbidden
+            rejections := #{accepted := [R3]},
+            latest_rejection := accepted
         },
         Result
     ),
@@ -273,7 +279,7 @@ latest_rejected_error_test() ->
         limit_overflow,
         [R1],
         [R2],
-        from_result(#{routes => [R1], rejected_routes => [R3]})
+        from_result(#{routes => [R1], rejections => #{accepted => [R3]}})
     ),
     ?assertEqual(
         {rejected_routes, {limit_overflow, [R2]}},

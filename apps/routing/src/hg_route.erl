@@ -271,7 +271,7 @@ route_ref(_) ->
 -spec from_payment_route(revision(), payment_route()) -> t().
 from_payment_route(Revision, Route) ->
     ?route(ProviderRef, TerminalRef) = Route,
-    new(Revision, ProviderRef, TerminalRef, 0, 1000, undefined).
+    new(Revision, ProviderRef, TerminalRef, ?DOMAIN_CANDIDATE_WEIGHT, ?DOMAIN_CANDIDATE_PRIORITY, undefined).
 
 -spec to_payment_route(t()) -> payment_route().
 to_payment_route(Route) ->

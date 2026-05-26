@@ -34,7 +34,7 @@
     card_token => card_token() | undefined
 }.
 
--type get_routes_resut() :: #{
+-type get_routes_result() :: #{
     routes := [hg_route:t()],
     error => get_routes_error()
 }.
@@ -57,8 +57,30 @@
 -spec fill_blacklist(hg_inspector:blacklist_context(), [hg_route:t()]) -> [hg_route:t()].
 fill_blacklist(_BlCtx, []) ->
     [];
+fill_blacklist(BlCtx, [Route]) ->
+    hg_inspector:fill_blacklist(Route, BlCtx);
 fill_blacklist(BlCtx, Routes) ->
-    [hg_inspector:fill_blacklist(R, BlCtx) || R <- Routes].
+    HgContext = hg_context:load(),
+    try
+        genlib_pmap:map(
+            fun(Route) ->
+                ok = hg_context:save(HgContext),
+                hg_inspector:fill_blacklist(Route, BlCtx)
+            end,
+            Routes,
+            #{
+                timeout => genlib_app:env(hellgate, inspect_timeout, infinity),
+                proc_limit => genlib_app:env(hellgate, inspect_parallel_limit, 10)
+            }
+        )
+    catch
+        error:timeout ->
+            %% genlib_pmap throws error:timeout, which progressor treats as
+            %% {exception, _, _} and does not retry. Routing runs on a timeout
+            %% machine step, so raise resource_unavailable to get a transient
+            %% retry per retry_policy instead of failing the payment.
+            erlang:error({woody_error, {system, resource_unavailable, 'blacklist_fill_timeout'}})
+    end.
 
 -spec fill_fd_overrides(revision(), [hg_route:t()]) ->
     [hg_route:t()].
@@ -142,7 +164,7 @@ fill_accepted(Predestination, Revision, VS, Routes) ->
     ).
 
 -spec get_routes(revision(), varset(), payment_institution(), gather_route_context()) ->
-    get_routes_resut().
+    get_routes_result().
 get_routes(_, _, #domain_PaymentInstitution{payment_routing_rules = undefined}, _) ->
     #{routes => [], error => {misconfiguration, {payment_routing_rules, empty}}};
 get_routes(Revision, VS, #domain_PaymentInstitution{payment_routing_rules = RoutingRules}, Ctx) ->
@@ -416,5 +438,117 @@ merge_fd_overrides_test_() ->
         ?_assertEqual(?fd_overrides(true), merge_fd_overrides(?fd_overrides(true), ?fd_overrides(undefined))),
         ?_assertEqual(?fd_overrides(false), merge_fd_overrides(?fd_overrides(true), ?fd_overrides(false)))
     ].
+
+-spec fill_blacklist_parallel_test_() -> _.
+fill_blacklist_parallel_test_() ->
+    {setup, fun setup_fill_blacklist_test/0, fun cleanup_fill_blacklist_test/1, [
+        ?_test(fill_blacklist_preserves_hg_context_in_workers()),
+        ?_test(fill_blacklist_timeout_raises_transient_error())
+    ]}.
+
+-spec setup_fill_blacklist_test() -> ok.
+setup_fill_blacklist_test() ->
+    _ = application:ensure_all_started(gproc),
+    _ = application:ensure_all_started(party_client),
+    ok.
+
+-spec cleanup_fill_blacklist_test(_) -> ok.
+cleanup_fill_blacklist_test(_Ok) ->
+    try
+        hg_context:cleanup()
+    catch
+        _:_ -> ok
+    end,
+    try
+        meck:unload(hg_inspector)
+    catch
+        _:_ -> ok
+    end,
+    ok.
+
+-spec fill_blacklist_preserves_hg_context_in_workers() -> _.
+fill_blacklist_preserves_hg_context_in_workers() ->
+    HgCtx = hg_context:create(#{woody_context => woody_context:new()}),
+    ok = hg_context:save(HgCtx),
+    Parent = self(),
+    Routes = [test_route(N) || N <- [1, 2, 3]],
+    BlCtx = test_blacklist_context(hd(Routes)),
+    Ref = make_ref(),
+    ok = meck:new(hg_inspector, [passthrough]),
+    ok = meck:expect(hg_inspector, fill_blacklist, fun(Route, _BlCtx) ->
+        ?assertEqual(HgCtx, hg_context:load()),
+        Parent ! {worker_done, self(), Ref},
+        Route
+    end),
+    try
+        ?assertEqual(Routes, hg_route_collector:fill_blacklist(BlCtx, Routes)),
+        WorkerPids = collect_worker_pids(Ref, 3),
+        ?assertEqual(3, length(WorkerPids)),
+        ?assert(lists:all(fun(Pid) -> Pid =/= Parent end, WorkerPids))
+    after
+        ok = meck:unload(hg_inspector),
+        ok = hg_context:cleanup()
+    end.
+
+-spec fill_blacklist_timeout_raises_transient_error() -> _.
+fill_blacklist_timeout_raises_transient_error() ->
+    Routes = [test_route(1), test_route(2)],
+    BlCtx = test_blacklist_context(hd(Routes)),
+    HgCtx = hg_context:create(#{woody_context => woody_context:new()}),
+    ok = hg_context:save(HgCtx),
+    PrevTimeout = application:get_env(hellgate, inspect_timeout, infinity),
+    PrevLimit = application:get_env(hellgate, inspect_parallel_limit, 10),
+    ok = application:set_env(hellgate, inspect_timeout, 100),
+    ok = application:set_env(hellgate, inspect_parallel_limit, 2),
+    ok = meck:new(hg_inspector, [passthrough]),
+    ok = meck:expect(hg_inspector, fill_blacklist, fun(Route, _BlCtx) ->
+        timer:sleep(300),
+        Route
+    end),
+    try
+        ?assertError(
+            {woody_error, {system, resource_unavailable, blacklist_fill_timeout}},
+            hg_route_collector:fill_blacklist(BlCtx, Routes)
+        )
+    after
+        ok = application:set_env(hellgate, inspect_timeout, PrevTimeout),
+        ok = application:set_env(hellgate, inspect_parallel_limit, PrevLimit),
+        ok = meck:unload(hg_inspector),
+        ok = hg_context:cleanup()
+    end.
+
+-spec collect_worker_pids(reference(), non_neg_integer()) -> [pid()].
+collect_worker_pids(Ref, Count) ->
+    collect_worker_pids(Ref, Count, []).
+
+-spec collect_worker_pids(reference(), non_neg_integer(), [pid()]) -> [pid()].
+collect_worker_pids(_Ref, 0, Acc) ->
+    lists:usort(Acc);
+collect_worker_pids(Ref, Left, Acc) ->
+    receive
+        {worker_done, Pid, Ref} ->
+            collect_worker_pids(Ref, Left - 1, [Pid | Acc])
+    after 5000 ->
+        error({timeout, #{expected_workers => Left, collected => length(Acc)}})
+    end.
+
+-spec test_blacklist_context(hg_route:t()) -> hg_inspector:blacklist_context().
+test_blacklist_context(Route) ->
+    #{
+        route => Route,
+        revision => 1,
+        inspector => #domain_Inspector{}
+    }.
+
+-spec test_route(pos_integer()) -> hg_route:t().
+test_route(N) ->
+    hg_route:new(
+        1,
+        #domain_ProviderRef{id = N},
+        #domain_TerminalRef{id = N},
+        ?DOMAIN_CANDIDATE_WEIGHT,
+        ?DOMAIN_CANDIDATE_PRIORITY,
+        undefined
+    ).
 
 -endif.

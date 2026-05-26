@@ -27,9 +27,11 @@
     reject_reason => atom()
 }.
 
+-type initial_rejection_group() :: accepted | prohibit | blacklisted.
+
 -type get_routes_result() :: #{
     routes := [hg_route:t()],
-    rejected_routes => [hg_route:t()],
+    rejections => #{initial_rejection_group() => [hg_route:t()]},
     error => hg_route_collector:get_routes_error()
 }.
 
@@ -123,18 +125,21 @@ filter_routes(Result0, WithFilterFuns) ->
     lists:foldl(fun(Fun, Result) -> Fun(Result) end, Result0, WithFilterFuns).
 
 filter(Routes, Keys) ->
-    lists:foldr(
-        fun(Route, #{routes := Accepted, rejected_routes := Rejected} = Acc) ->
+    {Accepted, Rejections} = lists:foldr(
+        fun(Route, {AcceptedAcc, RejectionsAcc}) ->
             case route_rejection_reason(Route, Keys) of
                 undefined ->
-                    Acc#{routes => [Route | Accepted]};
-                Reason ->
-                    Acc#{rejected_routes => [hg_route:set_rejection_reason(Reason, Route) | Rejected]}
+                    {[Route | AcceptedAcc], RejectionsAcc};
+                {Group, _} = Reason ->
+                    RejectedRoute = hg_route:set_rejection_reason(Reason, Route),
+                    GroupRoutes = maps:get(Group, RejectionsAcc, []),
+                    {AcceptedAcc, RejectionsAcc#{Group => [RejectedRoute | GroupRoutes]}}
             end
         end,
-        #{routes => [], rejected_routes => []},
+        {[], #{}},
         Routes
-    ).
+    ),
+    #{routes => Accepted, rejections => Rejections}.
 
 route_rejection_reason(Route, Keys) ->
     Data = hg_route:route_data(Route),
@@ -435,16 +440,21 @@ filter_routes_splits_accepted_and_rejected_test() ->
         1,
         new_route(1, 4, 0, {1, 1.0}, {1, 1.0})
     ),
-    Rejected = [
-        hg_route:set_rejection_reason(
-            {accepted, {false, {rejected, {'ProvisionTermSet', undefined}}}}, RejectedByTerms
-        ),
-        hg_route:set_rejection_reason({prohibit, {true, <<"blocked">>}}, RejectedByProhibition),
-        hg_route:set_rejection_reason({blacklisted, 1}, RejectedByBlacklist)
-    ],
     Result = #{
         routes => [AcceptedRoute],
-        rejected_routes => Rejected
+        rejections => #{
+            accepted => [
+                hg_route:set_rejection_reason(
+                    {accepted, {false, {rejected, {'ProvisionTermSet', undefined}}}}, RejectedByTerms
+                )
+            ],
+            prohibit => [
+                hg_route:set_rejection_reason({prohibit, {true, <<"blocked">>}}, RejectedByProhibition)
+            ],
+            blacklisted => [
+                hg_route:set_rejection_reason({blacklisted, 1}, RejectedByBlacklist)
+            ]
+        }
     },
     ?assertMatch(
         Result,
