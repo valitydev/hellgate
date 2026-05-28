@@ -817,9 +817,12 @@ log_rejected_routes(adapter_unavailable, Routes, _VS) ->
     ?LOG_MD(notice, "Adapter unavailability caused route candidates to be rejected: ~p", [Routes]);
 log_rejected_routes(provider_conversion_is_too_low, Routes, _VS) ->
     ?LOG_MD(notice, "Lacking conversion of provider caused route candidates to be rejected: ~p", [Routes]);
-log_rejected_routes(forbidden, Routes, VS) ->
-    ?LOG_MD(notice, "Rejected routes found for varset: ~p", [VS]),
-    ?LOG_MD(notice, "Rejected routes found, rejected routes: ~p", [Routes]);
+log_rejected_routes(accepted, Routes, VS) ->
+    ?LOG_MD(notice, "Routes rejected by provision terms for varset: ~p", [VS]),
+    ?LOG_MD(notice, "Routes rejected by provision terms, rejected routes: ~p", [Routes]);
+log_rejected_routes(prohibit, Routes, VS) ->
+    ?LOG_MD(notice, "Routes rejected by routing prohibitions for varset: ~p", [VS]),
+    ?LOG_MD(notice, "Routes rejected by routing prohibitions, rejected routes: ~p", [Routes]);
 log_rejected_routes(_, _Routes, _VS) ->
     ok.
 

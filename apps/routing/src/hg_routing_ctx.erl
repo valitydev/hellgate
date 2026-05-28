@@ -186,7 +186,7 @@ build_route_selection_context(ChosenRoute, ChoiceMeta, Ctx) ->
 -spec latest_rejected_routes(t()) -> {rejection_group(), routes()}.
 latest_rejected_routes(Result) ->
     RejectionMap = rejection_map(Result),
-    Group = maps:get(latest_rejection, Result, forbidden),
+    Group = maps:get(latest_rejection, Result, accepted),
     {Group, maps:get(Group, RejectionMap, [])}.
 
 -spec rejection_map(t()) -> #{rejection_group() => routes()}.
