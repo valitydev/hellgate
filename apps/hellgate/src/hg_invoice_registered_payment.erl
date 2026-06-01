@@ -214,7 +214,7 @@ get_turnover_limits(Payment, Route, St) ->
     PaymentTool = get_payer_payment_tool(Payer),
     RiskScore = hg_invoice_payment:get_risk_score(St),
     VS = collect_validation_varset(PartyConfigRef, ShopObj, Cost, PaymentTool, RiskScore),
-    ProviderTerms = hg_routing:get_payment_terms(Route, VS, Revision),
+    ProviderTerms = hg_party:get_route_payment_terms(Route, VS, Revision),
     hg_limiter:get_turnover_limits(ProviderTerms, strict).
 
 construct_payment(

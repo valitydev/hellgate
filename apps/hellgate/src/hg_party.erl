@@ -2,9 +2,12 @@
 
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_conf_v2_thrift.hrl").
+-include_lib("hellgate/include/domain.hrl").
 
 %% Party support functions
 
+-export([get_route_payment_terms/3]).
+-export([get_route_provision_terms/3]).
 -export([get_party/1]).
 -export([get_party_revision/0]).
 -export([checkout/2]).
@@ -21,8 +24,37 @@
 -type party_config_ref() :: dmsl_domain_thrift:'PartyConfigRef'().
 -type shop() :: dmsl_domain_thrift:'ShopConfig'().
 -type shop_config_ref() :: dmsl_domain_thrift:'ShopConfigRef'().
+-type payment_terms() :: dmsl_domain_thrift:'PaymentsProvisionTerms'().
+-type provision_terms() :: dmsl_domain_thrift:'ProvisionTermSet'().
+-type varset() :: hg_varset:varset().
+-type revision() :: hg_domain:revision().
 
 %% Interface
+
+-spec get_route_payment_terms(hg_route:payment_route(), varset(), revision()) -> payment_terms() | undefined.
+get_route_payment_terms(Route, VS, Revision) ->
+    TermsSet = get_route_provision_terms(Route, VS, Revision),
+    TermsSet#domain_ProvisionTermSet.payments.
+
+-spec get_route_provision_terms(hg_route:payment_route(), varset(), revision()) -> provision_terms() | undefined.
+get_route_provision_terms(?route(ProviderRef, TerminalRef), VS, Revision) ->
+    PreparedVS = hg_varset:prepare_varset(VS),
+    {Client, Context} = get_party_client(),
+    {ok, TermsSet} = party_client_thrift:compute_provider_terminal_terms(
+        ProviderRef,
+        TerminalRef,
+        Revision,
+        PreparedVS,
+        Client,
+        Context
+    ),
+    TermsSet.
+
+get_party_client() ->
+    HgContext = hg_context:load(),
+    Client = hg_context:get_party_client(HgContext),
+    Context = hg_context:get_party_client_context(HgContext),
+    {Client, Context}.
 
 -spec get_party(party_config_ref()) -> {party_config_ref(), party()} | hg_domain:get_error().
 get_party(PartyConfigRef) ->

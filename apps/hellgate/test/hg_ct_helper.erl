@@ -841,7 +841,8 @@ make_invoice_params(
         due = hg_datetime:format_ts(Due),
         cost = Cost,
         context = make_invoice_context(),
-        allocation = AllocationPrototype
+        allocation = AllocationPrototype,
+        client_info = #domain_InvoiceClientInfo{trust_level = unknown}
     }.
 
 -spec make_invoice_params_tpl(invoice_tpl_id()) -> invoice_params_tpl().
