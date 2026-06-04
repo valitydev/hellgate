@@ -44,6 +44,14 @@ $ make wdeps-test
 
 ## Documentation
 
-@TODO Please write a couple of words about what your project does and how it does it.
+Hellgate is the core payment-processing service of the platform. It orchestrates
+the full lifecycle of invoices, payments, refunds, chargebacks and recurrent
+paytools on top of a set of hierarchical, event-sourced state machines, and
+drives external payment providers through the `proxy-provider` Thrift protocol.
+
+The documentation for business logic and internal mechanics lives under
+[`doc/`](doc/index.md) — start at [`doc/index.md`](doc/index.md) for the full
+table of contents covering architecture, state machines, routing, limits and
+accounting, provider integration, risk/repair, and domain/party resolution.
 
 [1]: http://erlang.org/doc/man/shell.html
